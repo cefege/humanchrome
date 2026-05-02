@@ -20,6 +20,7 @@ export const TOOL_NAMES = {
     NETWORK_REQUEST: 'chrome_network_request',
     NETWORK_DEBUGGER_START: 'chrome_network_debugger_start',
     NETWORK_DEBUGGER_STOP: 'chrome_network_debugger_stop',
+    INTERCEPT_RESPONSE: 'chrome_intercept_response',
     KEYBOARD: 'chrome_keyboard',
     HISTORY: 'chrome_history',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
@@ -632,6 +633,42 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
+    description:
+      'Wait for the next network response on a tab whose URL matches the given pattern, then return the parsed JSON body (or raw body if non-JSON). Use this to grab API responses (e.g. LinkedIn Voyager, GraphQL endpoints) without DOM walking. Attaches the Chrome Debugger Network domain only for the duration of the wait. Returns within timeout_ms.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url_pattern: {
+          type: 'string',
+          description:
+            'Substring or regex (wrapped in / / for regex form, e.g. "/voyager/api/.*conversations/i") to match against the response URL.',
+        },
+        method: {
+          type: 'string',
+          description:
+            'Optional HTTP method filter (GET, POST, etc). When omitted, matches any method.',
+        },
+        timeout_ms: {
+          type: 'number',
+          description:
+            'Milliseconds to wait for a matching response before timing out (default 15000, max 120000).',
+        },
+        tabId: {
+          type: 'number',
+          description:
+            'Tab to listen on. When omitted, uses the currently active tab in the focused window.',
+        },
+        return_body: {
+          type: 'boolean',
+          description:
+            'When false (default true), skip getResponseBody and return only headers + status. Useful when you only need to detect that the call fired.',
+        },
+      },
+      required: ['url_pattern'],
     },
   },
   {
