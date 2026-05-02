@@ -151,10 +151,14 @@ function isDebuggerConflictError(error: unknown): boolean {
  * 3 instead of undefined. Statement blocks (anything containing `;`, a
  * `return`, `let`/`const`/`var` declarations, etc.) keep the legacy wrapping.
  *
- * Done with a Function-constructor probe rather than parsing — we trust the
- * JS engine to tell us whether `return (<code>)` is syntactically valid. The
- * probe is in a never-executed Function() body so there's no eval risk.
+ * Probe uses the AsyncFunction constructor (not plain Function) so that
+ * single-expression inputs containing `await` still parse — `Function`'s body
+ * is sync-only and would reject those.
  */
+const AsyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructor as new (
+  ...args: string[]
+) => unknown;
+
 function isExpressionForm(code: string): boolean {
   const trimmed = code.trim();
   if (!trimmed) return false;
@@ -168,8 +172,8 @@ function isExpressionForm(code: string): boolean {
     return false;
   }
   try {
-    // Probe: does `return (<code>)` parse as a function body?
-    new Function(`return (${trimmed});`);
+    // Probe: does `return (<code>)` parse as an async function body?
+    new AsyncFunctionCtor(`return (${trimmed});`);
     return true;
   } catch {
     return false;

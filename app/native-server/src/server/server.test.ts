@@ -2,26 +2,77 @@ import { describe, expect, test, afterAll, beforeAll } from '@jest/globals';
 import supertest from 'supertest';
 import Server from './index';
 
-describe('服务器测试', () => {
-  // 启动服务器测试实例
+const initBody = {
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'mihai-fork-test', version: '0.0.0' },
+  },
+};
+
+const sseAcceptHeaders = {
+  'Content-Type': 'application/json',
+  Accept: 'application/json, text/event-stream',
+};
+
+describe('Bridge HTTP smoke', () => {
   beforeAll(async () => {
     await Server.getInstance().ready();
   });
 
-  // 关闭服务器
   afterAll(async () => {
     await Server.stop();
   });
 
-  test('GET /ping 应返回正确响应', async () => {
+  test('GET /ping returns pong', async () => {
     const response = await supertest(Server.getInstance().server)
       .get('/ping')
       .expect(200)
       .expect('Content-Type', /json/);
+    expect(response.body).toEqual({ status: 'ok', message: 'pong' });
+  });
 
-    expect(response.body).toEqual({
-      status: 'ok',
-      message: 'pong',
-    });
+  // T7 — multi-client. Two concurrent /mcp initialize calls must both succeed,
+  // each with its own session ID. The pre-fork singleton McpServer rejected
+  // the second with "Already connected to a transport".
+  test('T7 multi-client: two simultaneous initializes both succeed', async () => {
+    const agent = supertest(Server.getInstance().server);
+    const [a, b] = await Promise.all([
+      agent.post('/mcp').set(sseAcceptHeaders).send(initBody),
+      agent.post('/mcp').set(sseAcceptHeaders).send(initBody),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const sa = a.headers['mcp-session-id'];
+    const sb = b.headers['mcp-session-id'];
+    expect(sa).toBeTruthy();
+    expect(sb).toBeTruthy();
+    expect(sa).not.toBe(sb);
+  });
+
+  // T11 — admin/reset clears all live transports. After reset, fresh init still works.
+  test('T11 POST /admin/reset clears transports and a follow-up init succeeds', async () => {
+    const agent = supertest(Server.getInstance().server);
+    // Open two sessions.
+    const a = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
+    const b = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+
+    // Reset.
+    const reset = await agent.post('/admin/reset').expect(200);
+    expect(reset.body.ok).toBe(true);
+    expect(typeof reset.body.cleared).toBe('number');
+    expect(reset.body.cleared).toBeGreaterThanOrEqual(2);
+
+    // Fresh init still works.
+    const c = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
+    expect(c.status).toBe(200);
+    const sc = c.headers['mcp-session-id'];
+    expect(sc).toBeTruthy();
+    expect(sc).not.toBe(a.headers['mcp-session-id']);
   });
 });
