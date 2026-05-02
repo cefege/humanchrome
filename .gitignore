@@ -46,4 +46,4 @@ CLAUDE.md
 **/*/coverage/*
 
 .docs/
-.claude/
+.claude/build/

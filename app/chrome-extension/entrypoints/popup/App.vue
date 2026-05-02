@@ -1,6 +1,6 @@
 <template>
   <div class="popup-container agent-theme" :data-agent-theme="agentTheme">
-    <!-- 首页 -->
+    <!-- Home -->
     <div v-show="currentView === 'home'" class="home-view">
       <div class="header">
         <div class="header-content">
@@ -8,7 +8,7 @@
         </div>
       </div>
       <div class="content">
-        <!-- 服务配置卡片 -->
+        <!-- Service config card -->
         <div class="section">
           <h2 class="section-title">{{ getMessage('nativeServerConfigLabel') }}</h2>
           <div class="config-card">
@@ -68,44 +68,44 @@
           </div>
         </div>
 
-        <!-- 快捷工具卡片 -->
+        <!-- Quick tools card -->
         <div class="section">
-          <h2 class="section-title">快捷工具</h2>
+          <h2 class="section-title">Quick Tools</h2>
           <div class="rr-icon-buttons">
             <button
               class="rr-icon-btn rr-icon-btn-record rr-icon-btn-coming-soon has-tooltip"
               @click="startRecording"
-              data-tooltip="录制功能开发中"
+              data-tooltip="Recording (coming soon)"
             >
               <RecordIcon :recording="false" />
             </button>
             <button
               class="rr-icon-btn rr-icon-btn-stop rr-icon-btn-coming-soon has-tooltip"
               @click="stopRecording"
-              data-tooltip="录制功能开发中"
+              data-tooltip="Recording (coming soon)"
             >
               <StopIcon />
             </button>
             <button
               class="rr-icon-btn rr-icon-btn-edit has-tooltip"
               @click="toggleWebEditor"
-              data-tooltip="开启页面编辑模式"
+              data-tooltip="Toggle page edit mode"
             >
               <EditIcon />
             </button>
             <button
               class="rr-icon-btn rr-icon-btn-marker has-tooltip"
               @click="toggleElementMarker"
-              data-tooltip="开启元素标注"
+              data-tooltip="Toggle element annotations"
             >
               <MarkerIcon />
             </button>
           </div>
         </div>
 
-        <!-- 管理入口卡片 -->
+        <!-- Management card -->
         <div class="section">
-          <h2 class="section-title">管理入口</h2>
+          <h2 class="section-title">Management</h2>
           <div class="entry-card">
             <button class="entry-item" @click="openAgentSidepanel">
               <div class="entry-icon agent">
@@ -125,8 +125,8 @@
                 </svg>
               </div>
               <div class="entry-content">
-                <span class="entry-title">智能助手</span>
-                <span class="entry-desc">AI Agent 对话与任务</span>
+                <span class="entry-title">AI Agent</span>
+                <span class="entry-desc">Agent chat & tasks</span>
               </div>
               <svg
                 class="entry-arrow"
@@ -146,10 +146,10 @@
               </div>
               <div class="entry-content">
                 <span class="entry-title">
-                  工作流管理
+                  Workflows
                   <span class="coming-soon-badge">Coming Soon</span>
                 </span>
-                <span class="entry-desc">录制与回放自动化流程</span>
+                <span class="entry-desc">Record &amp; replay automation flows</span>
               </div>
               <svg
                 class="entry-arrow"
@@ -181,8 +181,8 @@
                 </svg>
               </div>
               <div class="entry-content">
-                <span class="entry-title">元素标注管理</span>
-                <span class="entry-desc">管理页面元素标注</span>
+                <span class="entry-title">Element Annotations</span>
+                <span class="entry-desc">Manage page element annotations</span>
               </div>
               <svg
                 class="entry-arrow"
@@ -214,8 +214,8 @@
                 </svg>
               </div>
               <div class="entry-content">
-                <span class="entry-title">本地模型</span>
-                <span class="entry-desc">语义引擎与模型管理</span>
+                <span class="entry-title">Local Models</span>
+                <span class="entry-desc">Semantic engine &amp; model management</span>
               </div>
               <svg
                 class="entry-arrow"
