@@ -29,6 +29,74 @@ const DEFAULT_MAX_ARRAY_LENGTH = 200;
 const DEFAULT_MAX_OBJECT_KEYS = 200;
 const DEFAULT_MAX_STRING_LENGTH = 10_000;
 
+// ----------------------------------------------------------------------------
+// Raw-output bypass
+//
+// The default sanitizer redacts every base64 string >=40 chars, hex >=40 chars,
+// JWT-shaped tokens, and outright blocks any cookie/query-shaped string. That
+// is over-aggressive for legitimate workloads — LinkedIn URNs, Voyager IDs,
+// OAuth state, and JSON whose values happen to look base64-like all get
+// destroyed.
+//
+// This bypass is opt-in. Two equivalent gates:
+//   1. globalThis.__MCP_RAW_OUTPUT__ = true   (live toggle in service worker)
+//   2. chrome.storage.local: { rawOutput: true }   (persisted user preference)
+// Either gate set => sanitizeText becomes a passthrough and sanitizeValue
+// stops walking objects to redact sensitive keys.
+// ----------------------------------------------------------------------------
+
+const RAW_OUTPUT_STORAGE_KEY = 'rawOutput';
+let rawOutputCache: boolean | null = null;
+
+declare const globalThis: { __MCP_RAW_OUTPUT__?: boolean } & Record<string, unknown>;
+
+export function isRawOutputEnabled(): boolean {
+  if (typeof globalThis !== 'undefined' && globalThis.__MCP_RAW_OUTPUT__ === true) {
+    return true;
+  }
+  return rawOutputCache === true;
+}
+
+export function setRawOutputCache(value: boolean): void {
+  rawOutputCache = !!value;
+}
+
+// Best-effort init from chrome.storage.local at module load. Failures are
+// silent — a Node test harness or a non-extension context will simply have
+// rawOutputCache stay null, which means redaction stays on (safe default).
+type ChromeStorageGetCb = (result: Record<string, unknown>) => void;
+type ChromeStorageOnChangedCb = (
+  changes: Record<string, { newValue?: unknown }>,
+  areaName: string,
+) => void;
+type ChromeShim = {
+  storage?: {
+    local?: { get?: (keys: string[], cb: ChromeStorageGetCb) => void };
+    onChanged?: { addListener?: (cb: ChromeStorageOnChangedCb) => void };
+  };
+};
+try {
+  const c = (globalThis as unknown as { chrome?: ChromeShim }).chrome;
+  const get = c?.storage?.local?.get;
+  if (typeof get === 'function') {
+    get([RAW_OUTPUT_STORAGE_KEY], (result) => {
+      rawOutputCache = !!result?.[RAW_OUTPUT_STORAGE_KEY];
+    });
+    // Subscribe to live changes so toggling the option page applies without
+    // a service-worker restart.
+    const addListener = c?.storage?.onChanged?.addListener;
+    if (typeof addListener === 'function') {
+      addListener((changes, areaName) => {
+        if (areaName === 'local' && RAW_OUTPUT_STORAGE_KEY in changes) {
+          rawOutputCache = !!changes[RAW_OUTPUT_STORAGE_KEY]?.newValue;
+        }
+      });
+    }
+  }
+} catch {
+  // ignore — non-extension context
+}
+
 // 敏感 key 标识符（会被脱敏）
 // 参考 mcp-tools.js 的敏感 key 列表
 const SENSITIVE_KEY_MARKERS = [
@@ -96,6 +164,10 @@ export function sanitizeAndLimitOutput(
  * 参考 mcp-tools.js 的脱敏逻辑，增加 Base64/Hex/cookie-query 识别
  */
 export function sanitizeText(text: string): { text: string; redacted: boolean } {
+  if (isRawOutputEnabled()) {
+    return { text, redacted: false };
+  }
+
   let out = text;
   let redacted = false;
 
@@ -237,11 +309,12 @@ function sanitizeValue(
     const out: Record<string, unknown> = {};
     seen.set(obj, out);
 
+    const rawMode = isRawOutputEnabled();
     const keys = Object.keys(obj);
     const len = Math.min(keys.length, maxObjectKeys);
     for (let i = 0; i < len; i++) {
       const key = keys[i];
-      if (isSensitiveKey(key)) {
+      if (!rawMode && isSensitiveKey(key)) {
         out[key] = '<redacted>';
         redacted = true;
         continue;

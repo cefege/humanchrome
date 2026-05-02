@@ -22,7 +22,7 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { getMcpServer } from '../mcp/mcp-server';
+import { createMcpServer } from '../mcp/mcp-server';
 import { AgentStreamManager } from '../agent/stream-manager';
 import { AgentChatService } from '../agent/chat-service';
 import { CodexEngine } from '../agent/engines/codex';
@@ -115,6 +115,28 @@ export class Server {
         message: 'pong',
       });
     });
+
+    // Force-clear all MCP transports. Use when a transport gets stuck after a
+    // partial init and the only previous remedy was clicking the extension's
+    // Disconnect/Connect ritual. Pairs with the per-session factory in
+    // mcp/mcp-server.ts: there is no shared mutable server state to also reset.
+    this.fastify.post('/admin/reset', async (_request: FastifyRequest, reply: FastifyReply) => {
+      const cleared = this.transportsMap.size;
+      const errors: string[] = [];
+      for (const [sid, t] of this.transportsMap) {
+        try {
+          await t.close();
+        } catch (err) {
+          errors.push(`${sid}: ${(err as Error).message}`);
+        }
+      }
+      this.transportsMap.clear();
+      reply.status(HTTP_STATUS.OK).send({
+        ok: true,
+        cleared,
+        errors: errors.length ? errors : undefined,
+      });
+    });
   }
 
   // ============================================================
@@ -181,7 +203,7 @@ export class Server {
           this.transportsMap.delete(transport.sessionId);
         });
 
-        const server = getMcpServer();
+        const server = createMcpServer();
         await server.connect(transport);
 
         reply.raw.write(':\n\n');
@@ -235,7 +257,7 @@ export class Server {
             this.transportsMap.delete(transport.sessionId);
           }
         };
-        await getMcpServer().connect(transport);
+        await createMcpServer().connect(transport);
       } else {
         reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
         return;

@@ -6,6 +6,42 @@ if (window.__FILL_HELPER_INITIALIZED__) {
   // Already initialized, skip
 } else {
   window.__FILL_HELPER_INITIALIZED__ = true;
+
+  /**
+   * Set `el.value` (or `.checked`) in a way that React's controlled-component
+   * reconciliation actually notices. Plain `el.value = x` writes to the DOM
+   * but React's _valueTracker compares against its own cached value and
+   * silently skips the change. The canonical fix is to call the native
+   * HTMLInputElement.prototype.value setter, which bypasses React's setter
+   * shim and forces _valueTracker to register a real change.
+   *
+   * Safe outside React: vanilla pages get the same observable assignment
+   * they would have gotten from `el.value = x`.
+   */
+  function setNativeValue(element, value) {
+    const proto =
+      element.tagName === 'TEXTAREA'
+        ? HTMLTextAreaElement.prototype
+        : element.tagName === 'SELECT'
+          ? HTMLSelectElement.prototype
+          : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && typeof desc.set === 'function') {
+      desc.set.call(element, value);
+    } else {
+      element.value = value;
+    }
+  }
+
+  function setNativeChecked(element, checked) {
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+    if (desc && typeof desc.set === 'function') {
+      desc.set.call(element, checked);
+    } else {
+      element.checked = checked;
+    }
+  }
+
   /**
    * Fill an input element with the specified value
    * @param {string} selector - CSS selector for the element to fill
@@ -175,7 +211,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
           };
         }
         const previous = element.checked;
-        element.checked = checkedVal;
+        setNativeChecked(element, checkedVal);
         element.focus();
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -190,7 +226,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
       if (element.tagName === 'INPUT' && element.type === 'radio') {
         // For radios, the selector/ref should target the specific input to select
         const previous = element.checked;
-        element.checked = true;
+        setNativeChecked(element, true);
         element.focus();
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -213,7 +249,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
           return { error: 'Range input requires a numeric value', elementInfo };
         }
         const previous = element.value;
-        element.value = String(numericValue);
+        setNativeValue(element, String(numericValue));
         element.focus();
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -230,7 +266,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
           return { error: 'Number input requires a numeric value', elementInfo };
         }
         const previous = element.value;
-        element.value = String(value ?? '');
+        setNativeValue(element, String(value ?? ''));
         element.focus();
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -248,7 +284,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
         let optionFound = false;
         for (const option of element.options) {
           if (option.value === value || option.text === value) {
-            element.value = option.value;
+            setNativeValue(element, option.value);
             optionFound = true;
             break;
           }
@@ -261,15 +297,17 @@ if (window.__FILL_HELPER_INITIALIZED__) {
           };
         }
 
-        // Trigger change event
+        // Trigger input + change so React/Ember controlled selects observe it.
+        element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
         // For input and textarea elements
-        // Clear the current value then set new value
-        element.value = '';
+        // Clear the current value then set new value, both via native setter
+        // so React's _valueTracker actually records the change.
+        setNativeValue(element, '');
         element.dispatchEvent(new Event('input', { bubbles: true }));
 
-        element.value = String(value);
+        setNativeValue(element, String(value));
 
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true }));

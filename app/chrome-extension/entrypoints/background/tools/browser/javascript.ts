@@ -146,9 +146,46 @@ function isDebuggerConflictError(error: unknown): boolean {
 }
 
 /**
+ * Decide whether `code` is a single trailing-expression form. If so we wrap it
+ * with an explicit `return` so `chrome_javascript({code: '1+2'})` evaluates to
+ * 3 instead of undefined. Statement blocks (anything containing `;`, a
+ * `return`, `let`/`const`/`var` declarations, etc.) keep the legacy wrapping.
+ *
+ * Done with a Function-constructor probe rather than parsing — we trust the
+ * JS engine to tell us whether `return (<code>)` is syntactically valid. The
+ * probe is in a never-executed Function() body so there's no eval risk.
+ */
+function isExpressionForm(code: string): boolean {
+  const trimmed = code.trim();
+  if (!trimmed) return false;
+  // Quick rejects: multi-statement / declaration / return forms keep statement wrapping.
+  if (/[;{}]/.test(trimmed)) return false;
+  if (
+    /^\s*(let|const|var|return|if|for|while|do|switch|try|throw|function|class|async\s+function)\b/.test(
+      trimmed,
+    )
+  ) {
+    return false;
+  }
+  try {
+    // Probe: does `return (<code>)` parse as a function body?
+    new Function(`return (${trimmed});`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Wrap user code in an async IIFE to support top-level await and return statements.
+ *
+ * For single-expression input we inject an explicit `return` so trailing
+ * expressions don't silently evaluate to undefined.
  */
 function wrapUserCode(code: string): string {
+  if (isExpressionForm(code)) {
+    return `(async () => { return (${code.trim()}); })()`;
+  }
   return `(async () => {\n${code}\n})()`;
 }
 
@@ -306,16 +343,20 @@ async function executeViaScripting(
   code: string,
   options: ExecutionOptions,
 ): Promise<ExecutionResult> {
+  // Mirror the CDP path: bare expressions get an explicit `return` injected so
+  // chrome_javascript({code: '1+2'}) evaluates to 3, not undefined.
+  const userCode = isExpressionForm(code) ? `return (${code.trim()});` : code;
+
   const innerExecute = async (): Promise<ExecutionResult> => {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'ISOLATED',
-      func: async (userCode: string): Promise<ScriptingExecutionResult> => {
+      func: async (injected: string): Promise<ScriptingExecutionResult> => {
         try {
           // Use AsyncFunction constructor to support top-level await
 
           const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-          const fn = new AsyncFunction(userCode);
+          const fn = new AsyncFunction(injected);
           const value = await fn();
           return { ok: true, value };
         } catch (err: unknown) {
@@ -330,7 +371,7 @@ async function executeViaScripting(
           };
         }
       },
-      args: [code],
+      args: [userCode],
     });
 
     // Extract the first result
