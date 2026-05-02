@@ -161,11 +161,16 @@ function isDebuggerConflictError(error: unknown): boolean {
 function isExpressionForm(code: string): boolean {
   const trimmed = code.trim();
   if (!trimmed) return false;
+  // Code starting with `(` is treated as an expression — covers IIFEs like
+  // `(() => { ...; })()` and parenthesized expressions. The `;` inside the
+  // IIFE body is fine because the whole thing is one expression.
+  if (trimmed.startsWith('(')) return true;
   // Multi-statement → statement wrapping.
   if (trimmed.includes(';')) return false;
   // Top-level statement starters → statement wrapping.
+  // \b boundary on keywords so `document.title` isn't mis-matched against `do`.
   if (
-    /^\s*(let|const|var|return|if|for|while|do|switch|try|throw|function|class|async\s+function|\{)/.test(
+    /^\s*(let\b|const\b|var\b|return\b|if\b|for\b|while\b|do\b|switch\b|try\b|throw\b|function\b|class\b|async\s+function\b|\{)/.test(
       trimmed,
     )
   ) {

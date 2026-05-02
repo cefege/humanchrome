@@ -39,6 +39,9 @@ class NavigateTool extends BaseBrowserToolExecutor {
   }
 
   async execute(args: NavigateToolParams): Promise<ToolResult> {
+    // Mihai's fork: default `background: true` so chrome_navigate does NOT
+    // steal focus from whichever app is in front. Pass `background: false`
+    // explicitly when foregrounding is intentional.
     const {
       newWindow = false,
       width,
@@ -46,7 +49,7 @@ class NavigateTool extends BaseBrowserToolExecutor {
       url,
       refresh = false,
       tabId,
-      background,
+      background = true,
       windowId,
     } = args;
 
