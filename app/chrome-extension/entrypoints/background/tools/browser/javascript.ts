@@ -151,33 +151,30 @@ function isDebuggerConflictError(error: unknown): boolean {
  * 3 instead of undefined. Statement blocks (anything containing `;`, a
  * `return`, `let`/`const`/`var` declarations, etc.) keep the legacy wrapping.
  *
- * Probe uses the AsyncFunction constructor (not plain Function) so that
- * single-expression inputs containing `await` still parse — `Function`'s body
- * is sync-only and would reject those.
+ * Pure-heuristic — we cannot use `new Function` / `new AsyncFunction` as a
+ * syntax probe in this code path because the extension service worker's CSP
+ * disallows 'unsafe-eval'. The heuristic covers the common Mihai cases
+ * (`location.href`, `document.title`, `1+2`, arrow-fn-call, `await fetch(...)`,
+ * etc.). Borderline inputs that contain a top-level `;` / `{` keep the legacy
+ * statement-block wrapping and require an explicit `return`.
  */
-const AsyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructor as new (
-  ...args: string[]
-) => unknown;
-
 function isExpressionForm(code: string): boolean {
   const trimmed = code.trim();
   if (!trimmed) return false;
-  // Quick rejects: multi-statement / declaration / return forms keep statement wrapping.
-  if (/[;{}]/.test(trimmed)) return false;
+  // Multi-statement → statement wrapping.
+  if (trimmed.includes(';')) return false;
+  // Top-level statement starters → statement wrapping.
   if (
-    /^\s*(let|const|var|return|if|for|while|do|switch|try|throw|function|class|async\s+function)\b/.test(
+    /^\s*(let|const|var|return|if|for|while|do|switch|try|throw|function|class|async\s+function|\{)/.test(
       trimmed,
     )
   ) {
     return false;
   }
-  try {
-    // Probe: does `return (<code>)` parse as an async function body?
-    new AsyncFunctionCtor(`return (${trimmed});`);
-    return true;
-  } catch {
-    return false;
-  }
+  // Otherwise treat as expression. Object literals inside expressions like
+  // JSON.stringify({a:1}) are fine — only a *leading* `{` (caught above)
+  // signals a block. await-prefixed expressions also pass through.
+  return true;
 }
 
 /**
