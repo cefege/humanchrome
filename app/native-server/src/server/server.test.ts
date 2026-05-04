@@ -9,7 +9,7 @@ const initBody = {
   params: {
     protocolVersion: '2024-11-05',
     capabilities: {},
-    clientInfo: { name: 'mihai-fork-test', version: '0.0.0' },
+    clientInfo: { name: 'humanchrome-test', version: '0.0.0' },
   },
 };
 

@@ -24,7 +24,7 @@ import { setupTools } from './register-tools';
 export const createMcpServer = (clientId?: string): Server => {
   const server = new Server(
     {
-      name: 'ChromeMcpServer',
+      name: 'HumanChromeServer',
       version: '1.0.0',
     },
     {

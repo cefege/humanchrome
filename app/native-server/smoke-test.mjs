@@ -33,7 +33,7 @@ const initBody = {
   params: {
     protocolVersion: '2024-11-05',
     capabilities: {},
-    clientInfo: { name: 'mihai-fork-smoke', version: '0.0.0' },
+    clientInfo: { name: 'humanchrome-smoke', version: '0.0.0' },
   },
 };
 

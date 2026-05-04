@@ -36,7 +36,7 @@ export const getStdioMcpServer = () => {
   }
   stdioMcpServer = new Server(
     {
-      name: 'StdioChromeMcpServer',
+      name: 'StdioHumanChromeServer',
       version: '1.0.0',
     },
     {

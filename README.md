@@ -56,19 +56,25 @@ It works for anything else Chrome can do (any site, any tool in the catalog: cli
 ## Quickstart
 
 ```bash
-# 1. Install the bridge globally (Node 20+)
-npm install -g github:cefege/humanchrome#main
+# 1. Clone and build the bridge (Node 20+, pnpm)
+git clone https://github.com/cefege/humanchrome.git
+cd humanchrome
+pnpm install
+pnpm --filter humanchrome-bridge build
 
-# 2. Register the native messaging host
+# 2. Install the bridge globally from the built workspace
+npm install -g ./app/native-server
+
+# 3. Register the native messaging host
 humanchrome-bridge register
 ```
 
-3. Load the extension in Chrome:
+4. Load the extension in Chrome:
    - Go to `chrome://extensions/`, enable Developer mode.
-   - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from a clone of this repo (or the released zip from the GitHub Releases tab).
+   - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from your clone (or the released zip from the GitHub Releases tab).
    - Click the extension icon, then **Connect**.
 
-4. Confirm the bridge is up:
+5. Confirm the bridge is up:
 
 ```bash
 curl http://127.0.0.1:12306/ping
