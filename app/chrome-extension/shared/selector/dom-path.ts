@@ -1,45 +1,27 @@
 /**
- * DOM Path - DOM 路径计算和定位
+ * DOM Path — index-based addressing of an element within a DOM tree.
  *
- * DOM 路径是元素在 DOM 树中的索引路径，用于：
- * - 元素位置追踪
- * - 选择器失效后的快速恢复
- * - 元素比较和验证
+ * Used for element tracking, fast recovery when a selector breaks, and
+ * structural comparison.
  */
 
-// =============================================================================
-// Types
-// =============================================================================
-
 /**
- * DOM 路径：从根到目标元素的子元素索引数组
+ * An array of child indices from the root to the target element.
  *
  * @example
  * ```
- * [0, 2, 1] 表示:
+ * [0, 2, 1] means:
  * root
  *  └─ children[0]
  *      └─ children[2]
- *          └─ children[1]  <- 目标元素
+ *          └─ children[1]  <- target element
  * ```
  */
 export type DomPath = number[];
 
-// =============================================================================
-// Core Functions
-// =============================================================================
-
 /**
- * 计算元素在 DOM 树中的路径
- *
- * 从目标元素向上遍历到根节点（Document 或 ShadowRoot），
- * 记录每一层在父元素 children 中的索引。
- *
- * @example
- * ```ts
- * const path = computeDomPath(button);
- * // => [0, 2, 1] - 从 body/shadowRoot 开始的路径
- * ```
+ * Compute the DOM path of an element by walking from the element up to the
+ * nearest Document or ShadowRoot, recording each child index along the way.
  */
 export function computeDomPath(element: Element): DomPath {
   const path: DomPath = [];
@@ -49,7 +31,6 @@ export function computeDomPath(element: Element): DomPath {
     const parent: Element | null = current.parentElement;
 
     if (parent) {
-      // 正常父元素
       const siblings = Array.from(parent.children);
       const index = siblings.indexOf(current);
       if (index >= 0) {
@@ -59,7 +40,8 @@ export function computeDomPath(element: Element): DomPath {
       continue;
     }
 
-    // 检查是否是 ShadowRoot 或 Document 的直接子元素
+    // Element with no parentElement may still be a direct child of a
+    // ShadowRoot or Document — handle those explicitly.
     const parentNode = current.parentNode;
     if (parentNode instanceof ShadowRoot || parentNode instanceof Document) {
       const children = Array.from(parentNode.children);
@@ -69,7 +51,6 @@ export function computeDomPath(element: Element): DomPath {
       }
     }
 
-    // 到达根节点，停止遍历
     break;
   }
 
@@ -77,17 +58,8 @@ export function computeDomPath(element: Element): DomPath {
 }
 
 /**
- * 根据 DOM 路径定位元素
- *
- * @param root - 查询根节点（Document 或 ShadowRoot）
- * @param path - DOM 路径
- * @returns 找到的元素，如果路径无效则返回 null
- *
- * @example
- * ```ts
- * const element = locateByDomPath(document, [0, 2, 1]);
- * // => 返回 body > children[0] > children[2] > children[1]
- * ```
+ * Locate an element by walking the given DOM path from `root`.
+ * Returns null if the path does not resolve.
  */
 export function locateByDomPath(root: Document | ShadowRoot, path: DomPath): Element | null {
   if (path.length === 0) {
@@ -105,13 +77,12 @@ export function locateByDomPath(root: Document | ShadowRoot, path: DomPath): Ele
 }
 
 /**
- * 比较两个 DOM 路径
- *
- * @returns 包含是否相同和公共前缀长度的结果
+ * Compare two DOM paths.
+ * Returns whether they are identical and the length of their common prefix.
  *
  * @example
  * ```ts
- * const result = compareDomPaths([0, 2, 1], [0, 2, 3]);
+ * compareDomPaths([0, 2, 1], [0, 2, 3]);
  * // => { same: false, commonPrefixLength: 2 }
  * ```
  */
@@ -136,7 +107,7 @@ export function compareDomPaths(
 }
 
 /**
- * 检查路径 A 是否是路径 B 的祖先
+ * Returns true when `ancestor` is a prefix of `descendant`.
  *
  * @example
  * ```ts
@@ -159,7 +130,8 @@ export function isAncestorPath(ancestor: DomPath, descendant: DomPath): boolean 
 }
 
 /**
- * 获取从祖先路径到后代路径的相对路径
+ * Path from `ancestor` down to `descendant`, or null when `ancestor` is not
+ * actually an ancestor of `descendant`.
  *
  * @example
  * ```ts

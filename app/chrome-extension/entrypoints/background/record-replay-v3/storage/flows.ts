@@ -1,8 +1,3 @@
-/**
- * @fileoverview FlowV3 持久化
- * @description 实现 Flow 的 CRUD 操作
- */
-
 import type { FlowId } from '../domain/ids';
 import type { FlowV3 } from '../domain/flow';
 import { FLOW_SCHEMA_VERSION } from '../domain/flow';
@@ -10,11 +5,7 @@ import { RR_ERROR_CODES, createRRError } from '../domain/errors';
 import type { FlowsStore } from '../engine/storage/storage-port';
 import { RR_V3_STORES, withTransaction } from './db';
 
-/**
- * 校验 Flow 结构
- */
 function validateFlow(flow: FlowV3): void {
-  // 校验 schema 版本
   if (flow.schemaVersion !== FLOW_SCHEMA_VERSION) {
     throw createRRError(
       RR_ERROR_CODES.VALIDATION_ERROR,
@@ -22,7 +13,6 @@ function validateFlow(flow: FlowV3): void {
     );
   }
 
-  // 校验必填字段
   if (!flow.id) {
     throw createRRError(RR_ERROR_CODES.VALIDATION_ERROR, 'Flow id is required');
   }
@@ -33,7 +23,6 @@ function validateFlow(flow: FlowV3): void {
     throw createRRError(RR_ERROR_CODES.VALIDATION_ERROR, 'Flow entryNodeId is required');
   }
 
-  // 校验 entryNodeId 存在
   const nodeIds = new Set(flow.nodes.map((n) => n.id));
   if (!nodeIds.has(flow.entryNodeId)) {
     throw createRRError(
@@ -42,7 +31,6 @@ function validateFlow(flow: FlowV3): void {
     );
   }
 
-  // 校验边引用
   for (const edge of flow.edges) {
     if (!nodeIds.has(edge.from)) {
       throw createRRError(
@@ -59,9 +47,6 @@ function validateFlow(flow: FlowV3): void {
   }
 }
 
-/**
- * 创建 FlowsStore 实现
- */
 export function createFlowsStore(): FlowsStore {
   return {
     async list(): Promise<FlowV3[]> {
@@ -87,7 +72,6 @@ export function createFlowsStore(): FlowsStore {
     },
 
     async save(flow: FlowV3): Promise<void> {
-      // 校验
       validateFlow(flow);
 
       return withTransaction(RR_V3_STORES.FLOWS, 'readwrite', async (stores) => {

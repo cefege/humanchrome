@@ -16,11 +16,13 @@ interface ConsoleToolParams {
   windowId?: number;
   includeExceptions?: boolean;
   maxMessages?: number;
-  // 新增参数
   mode?: ConsoleMode;
-  buffer?: boolean; // mode="buffer" 的别名
-  clear?: boolean; // 读取前清空
-  clearAfterRead?: boolean; // 读取后清空（mcp-tools.js 风格）
+  /** Alias for mode="buffer". */
+  buffer?: boolean;
+  /** Clear the buffer before reading. */
+  clear?: boolean;
+  /** Clear the buffer after reading (mcp-tools.js style — avoids double reads). */
+  clearAfterRead?: boolean;
   pattern?: string;
   onlyErrors?: boolean;
   limit?: number;
@@ -136,8 +138,6 @@ function buildConsoleTruncation(input: ConsoleTruncationInput): ConsoleTruncatio
   };
 }
 
-// 辅助函数
-
 function normalizeLimit(value: unknown, fallback: number): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback;
   return Math.max(0, n);
@@ -147,7 +147,7 @@ function parseRegexPattern(pattern?: string): RegExp | undefined {
   if (typeof pattern !== 'string') return undefined;
   const trimmed = pattern.trim();
   if (!trimmed) return undefined;
-  // 支持 /pattern/flags 语法
+  // Supports /pattern/flags syntax.
   const match = trimmed.match(/^\/(.+)\/([gimsuy]*)$/);
   try {
     return match ? new RegExp(match[1], match[2]) : new RegExp(trimmed);
@@ -234,7 +234,6 @@ class ConsoleTool extends BaseBrowserToolExecutor {
     let targetTab: chrome.tabs.Tab;
     let targetTabId: number | undefined;
 
-    // 解析正则表达式
     let compiledPattern: RegExp | undefined;
     try {
       compiledPattern = parseRegexPattern(pattern);
@@ -280,18 +279,16 @@ class ConsoleTool extends BaseBrowserToolExecutor {
 
       targetTabId = targetTab.id;
 
-      // 确定模式：buffer 参数是 mode="buffer" 的别名
+      // `buffer: true` is treated as an alias for `mode: 'buffer'`.
       const resolvedMode: ConsoleMode =
         mode === 'buffer' || buffer === true ? 'buffer' : 'snapshot';
 
-      // 计算有效的消息限制
       const normalizedMaxMessages = normalizeLimit(maxMessages, DEFAULT_MAX_MESSAGES);
       const effectiveLimit =
         typeof limit === 'number'
           ? normalizeLimit(limit, normalizedMaxMessages)
           : normalizedMaxMessages;
 
-      // Buffer 模式
       if (resolvedMode === 'buffer') {
         try {
           await consoleBuffer.ensureStarted(targetTabId);
@@ -307,13 +304,11 @@ class ConsoleTool extends BaseBrowserToolExecutor {
           throw error;
         }
 
-        // 处理读取前清空请求
         let clearedBefore: { clearedMessages: number; clearedExceptions: number } | null = null;
         if (clear === true) {
           clearedBefore = consoleBuffer.clear(targetTabId, 'manual');
         }
 
-        // 读取缓冲区
         const read = consoleBuffer.read(targetTabId, {
           pattern: compiledPattern,
           onlyErrors,
@@ -325,13 +320,11 @@ class ConsoleTool extends BaseBrowserToolExecutor {
           return createErrorResponse('Console buffer is not available for this tab.');
         }
 
-        // 处理读取后清空请求（mcp-tools.js 风格，避免重复读取）
         let clearedAfter: { clearedMessages: number; clearedExceptions: number } | null = null;
         if (clearAfterRead === true) {
           clearedAfter = consoleBuffer.clear(targetTabId, 'manual');
         }
 
-        // 构建清空摘要
         let clearedSummary = '';
         if (clearedBefore) {
           clearedSummary += ` Cleared ${clearedBefore.clearedMessages} messages and ${clearedBefore.clearedExceptions} exceptions before reading.`;
@@ -376,14 +369,13 @@ class ConsoleTool extends BaseBrowserToolExecutor {
         };
       }
 
-      // Snapshot 模式（一次性捕获）
+      // Snapshot mode: one-shot capture.
       const result = await this.captureConsoleMessages(targetTabId, {
         includeExceptions,
         maxMessages: effectiveLimit,
         raw: args.raw === true,
       });
 
-      // 应用过滤器
       const filtered = applyResultFilters(result, {
         pattern: compiledPattern,
         onlyErrors,
@@ -684,7 +676,7 @@ class ConsoleTool extends BaseBrowserToolExecutor {
         // Clean up
         chrome.debugger.onEvent.removeListener(eventListener);
 
-        // 如果 buffer 模式正在使用这个 tab，不要关闭 Runtime/Log 域
+        // If buffer mode is still using this tab, leave Runtime/Log enabled.
         const keepDomainsEnabled = consoleBuffer.isCapturing(tabId);
         if (!keepDomainsEnabled) {
           try {

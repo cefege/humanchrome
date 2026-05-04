@@ -1,17 +1,6 @@
-/**
- * @fileoverview V3 IndexedDB 数据库定义
- * @description 定义 rr_v3 数据库的 schema 和初始化逻辑
- */
-
-/** 数据库名称 */
 export const RR_V3_DB_NAME = 'rr_v3';
-
-/** 数据库版本 */
 export const RR_V3_DB_VERSION = 1;
 
-/**
- * Store 名称常量
- */
 export const RR_V3_STORES = {
   FLOWS: 'flows',
   RUNS: 'runs',
@@ -21,9 +10,6 @@ export const RR_V3_STORES = {
   TRIGGERS: 'triggers',
 } as const;
 
-/**
- * Store 配置
- */
 export interface StoreConfig {
   keyPath: string | string[];
   autoIncrement?: boolean;
@@ -34,10 +20,7 @@ export interface StoreConfig {
   }>;
 }
 
-/**
- * V3 Store Schema 定义
- * @description 包含 Phase 1-3 所需的所有索引，避免后续升级
- */
+/** Includes every index needed by Phase 1–3 so we avoid future upgrades. */
 export const RR_V3_STORE_SCHEMAS: Record<string, StoreConfig> = {
   [RR_V3_STORES.FLOWS]: {
     keyPath: 'id',
@@ -95,11 +78,7 @@ export const RR_V3_STORE_SCHEMAS: Record<string, StoreConfig> = {
   },
 };
 
-/**
- * 数据库升级处理器
- */
 export function handleUpgrade(db: IDBDatabase, oldVersion: number, _newVersion: number): void {
-  // Version 0 -> 1: 创建所有 stores
   if (oldVersion < 1) {
     for (const [storeName, config] of Object.entries(RR_V3_STORE_SCHEMAS)) {
       const store = db.createObjectStore(storeName, {
@@ -107,7 +86,6 @@ export function handleUpgrade(db: IDBDatabase, oldVersion: number, _newVersion: 
         autoIncrement: config.autoIncrement,
       });
 
-      // 创建索引
       if (config.indexes) {
         for (const index of config.indexes) {
           store.createIndex(index.name, index.keyPath, index.options);
@@ -117,14 +95,9 @@ export function handleUpgrade(db: IDBDatabase, oldVersion: number, _newVersion: 
   }
 }
 
-/** 全局数据库实例 */
 let dbInstance: IDBDatabase | null = null;
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-/**
- * 打开 V3 数据库
- * @description 单例模式，确保只有一个数据库连接
- */
 export async function openRrV3Db(): Promise<IDBDatabase> {
   if (dbInstance) {
     return dbInstance;
@@ -145,7 +118,7 @@ export async function openRrV3Db(): Promise<IDBDatabase> {
     request.onsuccess = () => {
       dbInstance = request.result;
 
-      // 处理版本变更（其他 tab 升级了数据库）
+      // Drop our handle if another tab triggers a version upgrade.
       dbInstance.onversionchange = () => {
         dbInstance?.close();
         dbInstance = null;
@@ -166,10 +139,7 @@ export async function openRrV3Db(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-/**
- * 关闭数据库连接
- * @description 主要用于测试
- */
+/** Close the connection — primarily used by tests. */
 export function closeRrV3Db(): void {
   if (dbInstance) {
     dbInstance.close();
@@ -178,10 +148,7 @@ export function closeRrV3Db(): void {
   }
 }
 
-/**
- * 删除数据库
- * @description 主要用于测试
- */
+/** Delete the database — primarily used by tests. */
 export async function deleteRrV3Db(): Promise<void> {
   closeRrV3Db();
 
@@ -192,12 +159,6 @@ export async function deleteRrV3Db(): Promise<void> {
   });
 }
 
-/**
- * 执行事务
- * @param storeNames Store 名称（单个或多个）
- * @param mode 事务模式
- * @param callback 事务回调
- */
 export async function withTransaction<T>(
   storeNames: string | string[],
   mode: IDBTransactionMode,

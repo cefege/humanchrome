@@ -83,39 +83,30 @@ function normalizePositiveInt(value: unknown, fieldName: string): number {
   return intValue;
 }
 
-// ==================== Implementation ====================
-
-/**
- * 创建 TriggerManager
- */
 export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
   const logger = deps.logger ?? console;
   const now = deps.now ?? (() => Date.now());
 
-  // 防风暴参数
   const cooldownMs = normalizeNonNegativeInt(deps.storm?.cooldownMs, 0, 'storm.cooldownMs');
   const maxQueued =
     deps.storm?.maxQueued === undefined || deps.storm?.maxQueued === null
       ? undefined
       : normalizePositiveInt(deps.storm.maxQueued, 'storm.maxQueued');
 
-  // 状态
   const installed = new Map<TriggerId, TriggerSpec>();
   const lastFireAt = new Map<TriggerId, UnixMillis>();
   let started = false;
   let inFlightEnqueues = 0;
 
-  // 防止 refresh 重入
+  // Refresh re-entry guard: collapse concurrent calls into one in-flight run.
   let refreshPromise: Promise<void> | null = null;
   let pendingRefresh = false;
 
-  // Handler 实例
   const handlers = new Map<TriggerKind, TriggerHandler<TriggerKind>>();
 
-  // 触发回调
   const fireCallback: TriggerFireCallback = {
     onFire: async (triggerId, context) => {
-      // 捕获所有异常，避免抛入 chrome API 监听器
+      // Swallow exceptions so we never throw inside chrome API listeners.
       try {
         await handleFire(triggerId as TriggerId, context);
       } catch (e) {
@@ -124,7 +115,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     },
   };
 
-  // 初始化 Handler 实例
   for (const [kind, factory] of Object.entries(deps.handlerFactories) as Array<
     [TriggerKind, TriggerHandlerFactory<TriggerKind> | undefined]
   >) {
@@ -140,9 +130,8 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
   }
 
   /**
-   * 处理触发器触发（内部方法）
-   * @param throwOnDrop 如果为 true，则在 cooldown/maxQueued 等情况下抛出错误
-   * @returns EnqueueRunResult 或 null（静默丢弃）
+   * Internal fire handler. When `throwOnDrop` is true, cooldown / maxQueued
+   * drops are surfaced as errors instead of being silently dropped.
    */
   async function handleFire(
     triggerId: TriggerId,
@@ -166,7 +155,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
 
     const t = now();
 
-    // Per-trigger cooldown 检查
     const prevLastFireAt = lastFireAt.get(triggerId);
     if (cooldownMs > 0 && prevLastFireAt !== undefined && t - prevLastFireAt < cooldownMs) {
       logger.debug(`[TriggerManager] Dropping trigger "${triggerId}" (cooldown ${cooldownMs}ms)`);
@@ -176,8 +164,8 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       return null;
     }
 
-    // Global maxQueued 检查 (best-effort)
-    // 注意：在 cooldown 设置前检查，避免因 maxQueued drop 而误设 cooldown
+    // maxQueued check runs before cooldown is bumped so a maxQueued drop does
+    // not also consume the cooldown window.
     if (maxQueued !== undefined) {
       const queued = await deps.storage.queue.list('queued');
       if (queued.length + inFlightEnqueues >= maxQueued) {
@@ -191,12 +179,10 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       }
     }
 
-    // 设置 lastFireAt 以抑制并发触发（在 maxQueued 检查通过后）
     if (cooldownMs > 0) {
       lastFireAt.set(triggerId, t);
     }
 
-    // 构建触发上下文
     const triggerContext: TriggerFireContext = {
       triggerId: trigger.id,
       kind: trigger.kind,
@@ -223,7 +209,8 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       );
       return result;
     } catch (e) {
-      // 入队失败时回滚 cooldown 标记
+      // Roll back the cooldown stamp so a failed enqueue does not silence
+      // the next legitimate fire.
       if (cooldownMs > 0) {
         if (prevLastFireAt === undefined) {
           lastFireAt.delete(triggerId);
@@ -242,10 +229,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     }
   }
 
-  /**
-   * 手动触发一个触发器（对外暴露）
-   * @description 用于 RPC/UI 调用，会抛出错误而不是静默丢弃
-   */
   async function fire(
     triggerId: TriggerId,
     context: { sourceTabId?: number; sourceUrl?: string } = {},
@@ -257,15 +240,12 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     return result;
   }
 
-  /**
-   * 执行刷新
-   */
   async function doRefresh(): Promise<void> {
     const triggers = await deps.storage.triggers.list();
     if (!started) return;
 
-    // 先卸载所有，再重新安装 (简单策略，保证一致性)
-    // Best-effort: 单个 handler 卸载失败不影响其他
+    // Uninstall everything then re-install: simpler and consistent. Failures
+    // in one handler do not block the rest.
     for (const handler of handlers.values()) {
       try {
         await handler.uninstallAll();
@@ -275,7 +255,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     }
     installed.clear();
 
-    // 安装启用的触发器
     for (const trigger of triggers) {
       if (!started) return;
       if (!trigger.enabled) continue;
@@ -295,9 +274,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     }
   }
 
-  /**
-   * 刷新触发器 (合并并发调用)
-   */
   async function refresh(): Promise<void> {
     if (!started) {
       throw new Error('TriggerManager is not started');
@@ -318,34 +294,26 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     return refreshPromise;
   }
 
-  /**
-   * 启动管理器
-   */
   async function start(): Promise<void> {
     if (started) return;
     started = true;
     await refresh();
   }
 
-  /**
-   * 停止管理器
-   */
   async function stop(): Promise<void> {
     if (!started) return;
 
     started = false;
     pendingRefresh = false;
 
-    // 等待进行中的 refresh 完成
     if (refreshPromise) {
       try {
         await refreshPromise;
       } catch {
-        // 忽略 refresh 错误
+        /* ignore refresh errors during shutdown */
       }
     }
 
-    // 卸载所有触发器
     for (const handler of handlers.values()) {
       try {
         await handler.uninstallAll();
@@ -357,16 +325,10 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     lastFireAt.clear();
   }
 
-  /**
-   * 销毁管理器
-   */
   async function dispose(): Promise<void> {
     await stop();
   }
 
-  /**
-   * 获取状态
-   */
   function getState(): TriggerManagerState {
     return {
       started,

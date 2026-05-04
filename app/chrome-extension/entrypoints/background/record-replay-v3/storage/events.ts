@@ -1,8 +1,3 @@
-/**
- * @fileoverview RunEvent 持久化
- * @description 实现事件的原子 seq 分配和存储
- */
-
 import type { RunId } from '../domain/ids';
 import type { RunEvent, RunEventInput, RunRecordV3 } from '../domain/events';
 import { RR_ERROR_CODES, createRRError } from '../domain/errors';
@@ -28,17 +23,12 @@ function idbRequest<T>(request: IDBRequest<T>, context: string): Promise<T> {
 }
 
 /**
- * 创建 EventsStore 实现
- * @description
- * - append() 在单个事务中原子分配 seq
- * - seq 由 RunRecordV3.nextSeq 作为单一事实来源
+ * EventsStore implementation. RunRecordV3.nextSeq is the single source of
+ * truth for sequence numbers; append() reads, writes the event, and bumps
+ * nextSeq inside one transaction so seq allocation is atomic.
  */
 export function createEventsStore(): EventsStore {
   return {
-    /**
-     * 追加事件并原子分配 seq
-     * @description 在单个事务中：读取 RunRecordV3.nextSeq -> 写入事件 -> 递增 nextSeq
-     */
     async append(input: RunEventInput): Promise<RunEvent> {
       return withTransaction(
         [RR_V3_STORES.RUNS, RR_V3_STORES.EVENTS],
@@ -97,10 +87,7 @@ export function createEventsStore(): EventsStore {
       );
     },
 
-    /**
-     * 列出事件
-     * @description 利用复合主键 [runId, seq] 实现高效范围查询
-     */
+    /** Range-scans the [runId, seq] compound primary key for efficient listing. */
     async list(runId: RunId, opts?: { fromSeq?: number; limit?: number }): Promise<RunEvent[]> {
       return withTransaction(RR_V3_STORES.EVENTS, 'readonly', async (stores) => {
         const store = stores[RR_V3_STORES.EVENTS];
