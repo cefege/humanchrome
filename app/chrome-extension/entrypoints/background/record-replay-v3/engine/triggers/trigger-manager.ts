@@ -1,15 +1,14 @@
 /**
- * @fileoverview 触发器管理器
- * @description
- * TriggerManager 负责管理所有触发器 Handler 的生命周期：
- * - 从 TriggerStore 加载触发器并安装
- * - 处理触发器触发事件，调用 enqueueRun
- * - 提供防风暴机制 (cooldown + maxQueued)
+ * TriggerManager — orchestrates per-kind trigger Handlers.
  *
- * 设计理由：
- * - Orchestrator 模式：TriggerManager 不直接实现各类触发器逻辑，而是委托给 per-kind Handler
- * - Handler 工厂模式：TriggerManager 在构造时创建 Handler 实例，注入 fireCallback
- * - 防风暴：cooldown (per-trigger) + maxQueued (global best-effort)
+ * Responsibilities:
+ * - Load triggers from the TriggerStore and install them.
+ * - Receive fire events from Handlers and enqueue Runs.
+ * - Provide storm control: per-trigger cooldown + global maxQueued (best-effort).
+ *
+ * The manager itself contains no chrome API logic — Handlers do that. At
+ * construction it creates one Handler instance per kind via the supplied
+ * factories, injecting the shared fireCallback.
  */
 
 import type { UnixMillis } from '../../domain/json';
@@ -21,95 +20,50 @@ import type { RunScheduler } from '../queue/scheduler';
 import { enqueueRun, type EnqueueRunResult } from '../queue/enqueue-run';
 import type { TriggerFireCallback, TriggerHandler, TriggerHandlerFactory } from './trigger-handler';
 
-// ==================== Types ====================
-
-/**
- * Handler 工厂映射
- */
 export type TriggerHandlerFactories = Partial<{
   [K in TriggerKind]: TriggerHandlerFactory<K>;
 }>;
 
-/**
- * 防风暴配置
- */
 export interface TriggerManagerStormControl {
-  /**
-   * 同一触发器两次触发之间的最小间隔 (ms)
-   * - 0 或 undefined 表示禁用冷却
-   */
+  /** Minimum gap between two fires of the same trigger; 0/undefined disables. */
   cooldownMs?: number;
 
   /**
-   * 全局最大排队 Run 数量
-   * - 达到上限时拒绝新的触发
-   * - undefined 表示禁用上限检查
-   * - 注意：这是 best-effort 检查，非原子性
+   * Global queue cap. When reached, new fires are dropped.
+   * undefined disables the check. The check is best-effort, not atomic.
    */
   maxQueued?: number;
 }
 
-/**
- * TriggerManager 依赖
- */
 export interface TriggerManagerDeps {
-  /** 存储层 */
   storage: Pick<StoragePort, 'triggers' | 'flows' | 'runs' | 'queue'>;
-  /** 事件总线 */
   events: Pick<EventsBus, 'append'>;
-  /** 调度器 (可选) */
   scheduler?: Pick<RunScheduler, 'kick'>;
-  /** Handler 工厂映射 */
   handlerFactories: TriggerHandlerFactories;
-  /** 防风暴配置 */
   storm?: TriggerManagerStormControl;
-  /** RunId 生成器 (用于测试注入) */
   generateRunId?: () => RunId;
-  /** 时间源 (用于测试注入) */
   now?: () => UnixMillis;
-  /** 日志器 */
   logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
 }
 
-/**
- * TriggerManager 状态
- */
 export interface TriggerManagerState {
-  /** 是否已启动 */
   started: boolean;
-  /** 已安装的触发器 ID 列表 */
   installedTriggerIds: TriggerId[];
 }
 
-/**
- * TriggerManager 接口
- */
 export interface TriggerManager {
-  /** 启动管理器，加载并安装所有启用的触发器 */
   start(): Promise<void>;
-  /** 停止管理器，卸载所有触发器 */
   stop(): Promise<void>;
-  /** 刷新触发器，重新从存储加载并安装 */
   refresh(): Promise<void>;
-  /**
-   * 手动触发一个触发器
-   * @description 仅供 RPC/UI 调用，用于 manual 触发器
-   */
+  /** Manually fire a trigger. Used by RPC/UI for `manual` triggers. */
   fire(
     triggerId: TriggerId,
     context?: { sourceTabId?: number; sourceUrl?: string },
   ): Promise<EnqueueRunResult>;
-  /** 销毁管理器 */
   dispose(): Promise<void>;
-  /** 获取当前状态 */
   getState(): TriggerManagerState;
 }
 
-// ==================== Utilities ====================
-
-/**
- * 校验非负整数
- */
 function normalizeNonNegativeInt(value: unknown, fallback: number, fieldName: string): number {
   if (value === undefined || value === null) return fallback;
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -118,9 +72,6 @@ function normalizeNonNegativeInt(value: unknown, fallback: number, fieldName: st
   return Math.max(0, Math.floor(value));
 }
 
-/**
- * 校验正整数
- */
 function normalizePositiveInt(value: unknown, fieldName: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`${fieldName} must be a finite number`);

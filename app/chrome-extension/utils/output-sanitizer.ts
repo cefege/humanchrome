@@ -1,10 +1,10 @@
 /**
- * Output Sanitizer - 输出脱敏和限长工具
+ * Output Sanitizer - redact sensitive data and cap output size.
  *
- * 提供对 JavaScript 执行结果的安全处理：
- * 1. 敏感信息脱敏（cookie/token/password 等）
- * 2. 输出长度限制（默认 50KB）
- * 3. 深度对象序列化
+ * Provides safe handling for JavaScript execution results:
+ * 1. Redacts sensitive material (cookies, tokens, passwords, etc.)
+ * 2. Limits output length (default 50KB)
+ * 3. Walks objects with depth and key/array caps
  */
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024;
@@ -101,8 +101,7 @@ try {
   // ignore — non-extension context
 }
 
-// 敏感 key 标识符（会被脱敏）
-// 参考 mcp-tools.js 的敏感 key 列表
+// Sensitive key markers (their values are redacted). Mirrors the list in mcp-tools.js.
 const SENSITIVE_KEY_MARKERS = [
   'cookie',
   'setcookie',
@@ -124,7 +123,7 @@ const SENSITIVE_KEY_MARKERS = [
   'sid',
   'csrf',
   'xsrf',
-  // 补充 mcp-tools.js 中的敏感 key
+  // Additional keys covered by mcp-tools.js
   'credential',
   'privatekey',
   'accesskey',
@@ -132,9 +131,7 @@ const SENSITIVE_KEY_MARKERS = [
   'oauth',
 ] as const;
 
-/**
- * 对任意值进行脱敏和限长处理
- */
+/** Sanitize any value and cap the resulting text. */
 export function sanitizeAndLimitOutput(
   value: unknown,
   options: OutputSanitizerOptions = {},
@@ -164,8 +161,8 @@ export function sanitizeAndLimitOutput(
 }
 
 /**
- * 对字符串进行敏感信息脱敏
- * 参考 mcp-tools.js 的脱敏逻辑，增加 Base64/Hex/cookie-query 识别
+ * Redact sensitive material in a string.
+ * Mirrors mcp-tools.js with extra base64/hex/cookie-query detection.
  */
 export function sanitizeText(text: string): { text: string; redacted: boolean } {
   if (isRawOutputEnabled()) {
@@ -186,25 +183,23 @@ export function sanitizeText(text: string): { text: string; redacted: boolean } 
     }
   };
 
-  // 1. 整体字符串检测（mcp-tools.js 风格）
-  // Cookie/query string 形态检测（包含 = 和 ; 或 &）
+  // 1. Whole-string detection (mcp-tools.js style).
+  // Cookie/query-string shape: contains '=' along with ';' or '&'.
   if (out.includes('=') && (out.includes(';') || out.includes('&'))) {
-    // 检测 cookie 字符串
     if (looksLikeCookieString(out)) {
       return { text: '[BLOCKED: Cookie/query string data]', redacted: true };
     }
-    // 检测 query string (key=value&key2=value2 形态)
     if (looksLikeQueryString(out)) {
       return { text: '[BLOCKED: Cookie/query string data]', redacted: true };
     }
   }
 
-  // Base64 编码数据检测（20+ 字符的 Base64 字符串）
+  // Base64-encoded payload (20+ chars).
   if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(out)) {
     return { text: '[BLOCKED: Base64 encoded data]', redacted: true };
   }
 
-  // Hex credential 检测（32+ 字符的纯十六进制）
+  // Hex credential (32+ chars).
   if (/^[a-f0-9]{32,}$/i.test(out)) {
     return { text: '[BLOCKED: Hex credential]', redacted: true };
   }
@@ -212,33 +207,31 @@ export function sanitizeText(text: string): { text: string; redacted: boolean } 
   // 2. Bearer token
   replace(/\bBearer\s+([A-Za-z0-9._~+/=-]+)\b/gi, 'Bearer <redacted>');
 
-  // 3. JWT (三段式)
+  // 3. JWT (three-segment)
   replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '<redacted_jwt>');
 
-  // 4. URL query 参数中的敏感值
+  // 4. Sensitive values in URL query parameters
   replace(
     /(^|[?&])(access_token|refresh_token|id_token|token|api_key|apikey|password|passwd|pwd|secret|session|sid|credential|auth|oauth)=([^&#\s]+)/gi,
     (_m, p1, p2) => `${p1}${p2}=<redacted>`,
   );
 
-  // 5. Header-like 键值对
+  // 5. Header-like key/value pairs
   replace(
     /\b(authorization|cookie|set-cookie|x-api-key|api_key|apikey|password|passwd|pwd|secret|token|access_token|refresh_token|id_token|session|sid|credential|private_key|oauth)\b\s*[:=]\s*([^\s,;"']+)/gi,
     (_m, key) => `${key}=<redacted>`,
   );
 
-  // 6. 内嵌的 Base64 数据（在混合内容中）
+  // 6. Inline base64 data within mixed content
   replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, '<redacted_base64>');
 
-  // 7. 内嵌的长 Hex 字符串（可能是 API key、hash 等）
+  // 7. Inline long hex strings (possible API keys, hashes, etc.)
   replace(/\b[a-f0-9]{40,}\b/gi, '<redacted_hex>');
 
   return { text: out, redacted };
 }
 
-/**
- * 检测字符串是否像 query string (key=value&key2=value2)
- */
+/** Detect query-string-shaped text (key=value&key2=value2). */
 function looksLikeQueryString(text: string): boolean {
   const s = (text || '').trim();
   if (!s || !s.includes('=') || !s.includes('&')) return false;
@@ -342,9 +335,7 @@ function normalizeKey(key: string): string {
   return (key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/**
- * 检测字符串是否像 cookie 字符串 (key=value; key2=value2)
- */
+/** Detect cookie-shaped text (key=value; key2=value2). */
 function looksLikeCookieString(text: string): boolean {
   const s = (text || '').trim();
   if (!s) return false;
@@ -399,7 +390,7 @@ function truncateTextBytes(
   const suffixBytes = byteLength(suffix);
   const budget = Math.max(0, maxBytes - suffixBytes);
 
-  // 二分查找合适的截断点
+  // Binary-search the largest prefix that still fits the byte budget.
   let lo = 0;
   let hi = text.length;
 

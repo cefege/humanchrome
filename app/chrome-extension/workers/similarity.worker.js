@@ -1,22 +1,22 @@
 /* eslint-disable */
 // js/similarity.worker.js
-importScripts('../libs/ort.min.js'); // 调整路径以匹配您的文件结构
+importScripts('../libs/ort.min.js'); // adjust path to match your file layout
 
-// 全局Worker状态
+// Worker globals
 let session = null;
 let modelPathInternal = null;
 let ortEnvConfigured = false;
 let sessionOptions = null;
-let modelInputNames = null; // 存储模型的输入名称
+let modelInputNames = null; // model input names
 
-// 复用的 TypedArray 缓冲区，减少内存分配
+// Reusable TypedArray buffers to cut down on allocations
 let reusableBuffers = {
   inputIds: null,
   attentionMask: null,
   tokenTypeIds: null,
 };
 
-// 性能统计
+// Performance counters
 let workerStats = {
   totalInferences: 0,
   totalInferenceTime: 0,
@@ -24,13 +24,13 @@ let workerStats = {
   memoryAllocations: 0,
 };
 
-// 配置 ONNX Runtime 环境 (仅一次)
+// Configure the ONNX Runtime environment once.
 function configureOrtEnv(numThreads = 1, executionProviders = ['wasm']) {
   if (ortEnvConfigured) return;
   try {
     ort.env.wasm.numThreads = numThreads;
-    ort.env.wasm.simd = true; // 尽可能启用SIMD
-    ort.env.wasm.proxy = false; // 在Worker中，通常不需要代理
+    ort.env.wasm.simd = true; // enable SIMD when available
+    ort.env.wasm.proxy = false; // proxy is not needed inside a worker
     ort.env.logLevel = 'warning'; // 'verbose', 'info', 'warning', 'error', 'fatal'
     ortEnvConfigured = true;
 
@@ -39,17 +39,17 @@ function configureOrtEnv(numThreads = 1, executionProviders = ['wasm']) {
       graphOptimizationLevel: 'all',
       enableCpuMemArena: true,
       enableMemPattern: true,
-      // executionMode: 'sequential' // 在worker内部通常是顺序执行一个任务
+      // executionMode: 'sequential' // worker handles one task at a time
     };
   } catch (error) {
     console.error('Worker: Failed to configure ORT environment', error);
-    throw error; // 抛出错误，让主线程知道
+    throw error;
   }
 }
 
 async function initializeModel(modelPathOrData, numThreads, executionProviders) {
   try {
-    configureOrtEnv(numThreads, executionProviders); // 确保环境已配置
+    configureOrtEnv(numThreads, executionProviders);
 
     if (!modelPathOrData) {
       throw new Error('Worker: Model path or data is not provided.');
@@ -64,11 +64,11 @@ async function initializeModel(modelPathOrData, numThreads, executionProviders) 
       modelPathInternal = '[Cached ArrayBuffer]'; // For debugging purposes
     } else {
       console.log(`Worker: Initializing model from URL: ${modelPathOrData}`);
-      modelPathInternal = modelPathOrData; // 存储模型路径以备调试或重载（如果需要）
+      modelPathInternal = modelPathOrData; // remember path for debugging/reload
       session = await ort.InferenceSession.create(modelPathInternal, sessionOptions);
     }
 
-    // 获取模型的输入名称，用于判断是否需要token_type_ids
+    // Capture input names so we can decide whether token_type_ids is required
     modelInputNames = session.inputNames;
     console.log(`Worker: ONNX session created successfully for model: ${modelPathInternal}`);
     console.log(`Worker: Model input names:`, modelInputNames);
@@ -76,14 +76,13 @@ async function initializeModel(modelPathOrData, numThreads, executionProviders) 
     return { status: 'success', message: 'Model initialized' };
   } catch (error) {
     console.error(`Worker: Model initialization failed:`, error);
-    session = null; // 清理session以防部分初始化
+    session = null; // clear partial init
     modelInputNames = null;
-    // 将错误信息序列化，因为Error对象本身可能无法直接postMessage
+    // Re-throw with a serializable message; Error objects don't postMessage cleanly.
     throw new Error(`Worker: Model initialization failed - ${error.message}`);
   }
 }
 
-// 优化的缓冲区管理函数
 function getOrCreateBuffer(name, requiredLength, type = BigInt64Array) {
   if (!reusableBuffers[name] || reusableBuffers[name].length < requiredLength) {
     reusableBuffers[name] = new type(requiredLength);
@@ -92,7 +91,6 @@ function getOrCreateBuffer(name, requiredLength, type = BigInt64Array) {
   return reusableBuffers[name];
 }
 
-// 优化的批处理推理函数
 async function runBatchInference(batchData) {
   if (!session) {
     throw new Error("Worker: Session not initialized. Call 'initializeModel' first.");
@@ -105,15 +103,12 @@ async function runBatchInference(batchData) {
     const batchSize = batchData.dims.input_ids[0];
     const seqLength = batchData.dims.input_ids[1];
 
-    // 优化：复用缓冲区，减少内存分配
     const inputIdsLength = batchData.input_ids.length;
     const attentionMaskLength = batchData.attention_mask.length;
 
-    // 复用或创建 BigInt64Array 缓冲区
     const inputIdsBuffer = getOrCreateBuffer('inputIds', inputIdsLength);
     const attentionMaskBuffer = getOrCreateBuffer('attentionMask', attentionMaskLength);
 
-    // 批量填充数据（避免 map 操作）
     for (let i = 0; i < inputIdsLength; i++) {
       inputIdsBuffer[i] = BigInt(batchData.input_ids[i]);
     }
@@ -132,7 +127,7 @@ async function runBatchInference(batchData) {
       batchData.dims.attention_mask,
     );
 
-    // 处理 token_type_ids - 只有当模型需要时才提供
+    // Only provide token_type_ids if the model expects it.
     if (modelInputNames && modelInputNames.includes('token_type_ids')) {
       if (batchData.token_type_ids && batchData.dims.token_type_ids) {
         const tokenTypeIdsLength = batchData.token_type_ids.length;
@@ -148,7 +143,7 @@ async function runBatchInference(batchData) {
           batchData.dims.token_type_ids,
         );
       } else {
-        // 创建默认的全零 token_type_ids
+        // Default to all-zero token_type_ids.
         const tokenTypeIdsBuffer = getOrCreateBuffer('tokenTypeIds', inputIdsLength);
         tokenTypeIdsBuffer.fill(0n, 0, inputIdsLength);
 
@@ -162,15 +157,12 @@ async function runBatchInference(batchData) {
       console.log('Worker: Skipping token_type_ids as model does not require it');
     }
 
-    // 执行批处理推理
     const results = await session.run(feeds);
     const outputTensor = results.last_hidden_state || results[Object.keys(results)[0]];
 
-    // 使用 Transferable Objects 优化数据传输
     const outputData = new Float32Array(outputTensor.data);
 
-    // 更新统计信息
-    workerStats.totalInferences += batchSize; // 批处理计算多个推理
+    workerStats.totalInferences += batchSize; // batch counts as multiple inferences
     const inferenceTime = performance.now() - startTime;
     workerStats.totalInferenceTime += inferenceTime;
     workerStats.averageInferenceTime = workerStats.totalInferenceTime / workerStats.totalInferences;
@@ -208,15 +200,12 @@ async function runInference(inputData) {
   try {
     const feeds = {};
 
-    // 优化：复用缓冲区，减少内存分配
     const inputIdsLength = inputData.input_ids.length;
     const attentionMaskLength = inputData.attention_mask.length;
 
-    // 复用或创建 BigInt64Array 缓冲区
     const inputIdsBuffer = getOrCreateBuffer('inputIds', inputIdsLength);
     const attentionMaskBuffer = getOrCreateBuffer('attentionMask', attentionMaskLength);
 
-    // 填充数据（避免 map 操作）
     for (let i = 0; i < inputIdsLength; i++) {
       inputIdsBuffer[i] = BigInt(inputData.input_ids[i]);
     }
@@ -235,7 +224,7 @@ async function runInference(inputData) {
       inputData.dims.attention_mask,
     );
 
-    // 处理 token_type_ids - 只有当模型需要时才提供
+    // Only provide token_type_ids if the model expects it.
     if (modelInputNames && modelInputNames.includes('token_type_ids')) {
       if (inputData.token_type_ids && inputData.dims.token_type_ids) {
         const tokenTypeIdsLength = inputData.token_type_ids.length;
@@ -251,7 +240,7 @@ async function runInference(inputData) {
           inputData.dims.token_type_ids,
         );
       } else {
-        // 创建默认的全零 token_type_ids
+        // Default to all-zero token_type_ids.
         const tokenTypeIdsBuffer = getOrCreateBuffer('tokenTypeIds', inputIdsLength);
         tokenTypeIdsBuffer.fill(0n, 0, inputIdsLength);
 
@@ -268,10 +257,8 @@ async function runInference(inputData) {
     const results = await session.run(feeds);
     const outputTensor = results.last_hidden_state || results[Object.keys(results)[0]];
 
-    // 使用 Transferable Objects 优化数据传输
     const outputData = new Float32Array(outputTensor.data);
 
-    // 更新统计信息
     workerStats.totalInferences++;
     const inferenceTime = performance.now() - startTime;
     workerStats.totalInferenceTime += inferenceTime;
@@ -280,10 +267,10 @@ async function runInference(inputData) {
     return {
       status: 'success',
       output: {
-        data: outputData, // 直接返回 Float32Array
+        data: outputData, // return the Float32Array directly
         dims: outputTensor.dims,
       },
-      transferList: [outputData.buffer], // 标记为可转移对象
+      transferList: [outputData.buffer], // mark as transferable
       stats: {
         inferenceTime,
         totalInferences: workerStats.totalInferences,
@@ -310,7 +297,6 @@ self.onmessage = async (event) => {
         break;
       case 'infer':
         const result = await runInference(payload);
-        // 使用 Transferable Objects 优化数据传输
         self.postMessage(
           {
             id,
@@ -324,7 +310,6 @@ self.onmessage = async (event) => {
         break;
       case 'batchInfer':
         const batchResult = await runBatchInference(payload);
-        // 使用 Transferable Objects 优化数据传输
         self.postMessage(
           {
             id,
@@ -345,7 +330,6 @@ self.onmessage = async (event) => {
         });
         break;
       case 'clearBuffers':
-        // 清理缓冲区，释放内存
         reusableBuffers = {
           inputIds: null,
           attentionMask: null,
@@ -369,14 +353,14 @@ self.onmessage = async (event) => {
         });
     }
   } catch (error) {
-    // 确保将错误作为普通对象发送，因为Error对象本身可能无法正确序列化
+    // Send the error as a plain object; Error instances don't always serialize cleanly.
     self.postMessage({
       id,
-      type: `${type}_error`, // 如 'init_error' 或 'infer_error'
+      type: `${type}_error`, // e.g. 'init_error' or 'infer_error'
       status: 'error',
       payload: {
         message: error.message,
-        stack: error.stack, // 可选，用于调试
+        stack: error.stack,
         name: error.name,
       },
     });

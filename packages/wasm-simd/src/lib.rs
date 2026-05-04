@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use wide::f32x4;
 
-// 设置 panic hook 以便在浏览器中调试
+// Install a panic hook so panics surface in the browser console.
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
@@ -17,7 +17,7 @@ impl SIMDMath {
         SIMDMath
     }
 
-    // 辅助函数：仅计算点积 (SIMD)
+    // SIMD-only dot product helper.
     #[inline]
     fn dot_product_simd_only(&self, vec_a: &[f32], vec_b: &[f32]) -> f32 {
         let len = vec_a.len();
@@ -26,7 +26,6 @@ impl SIMDMath {
         let mut dot_sum_simd = f32x4::ZERO;
 
         for i in (0..simd_len).step_by(simd_lanes) {
-            // 使用 try_from 和 new 方法，这是 wide 库的正确 API
             let a_array: [f32; 4] = vec_a[i..i + simd_lanes].try_into().unwrap();
             let b_array: [f32; 4] = vec_b[i..i + simd_lanes].try_into().unwrap();
             let a_chunk = f32x4::new(a_array);
@@ -55,32 +54,30 @@ impl SIMDMath {
         let mut norm_a_sum_simd = f32x4::ZERO;
         let mut norm_b_sum_simd = f32x4::ZERO;
 
-        // SIMD 处理
         for i in (0..simd_len).step_by(simd_lanes) {
             let a_array: [f32; 4] = vec_a[i..i + simd_lanes].try_into().unwrap();
             let b_array: [f32; 4] = vec_b[i..i + simd_lanes].try_into().unwrap();
             let a_chunk = f32x4::new(a_array);
             let b_chunk = f32x4::new(b_array);
 
-            // 使用 Fused Multiply-Add (FMA)
+            // Fused multiply-add (FMA)
             dot_sum_simd = a_chunk.mul_add(b_chunk, dot_sum_simd);
             norm_a_sum_simd = a_chunk.mul_add(a_chunk, norm_a_sum_simd);
             norm_b_sum_simd = b_chunk.mul_add(b_chunk, norm_b_sum_simd);
         }
 
-        // 水平求和
+        // Horizontal sum
         let mut dot_product = dot_sum_simd.reduce_add();
         let mut norm_a_sq = norm_a_sum_simd.reduce_add();
         let mut norm_b_sq = norm_b_sum_simd.reduce_add();
 
-        // 处理剩余元素
+        // Handle the remainder
         for i in simd_len..len {
             dot_product += vec_a[i] * vec_b[i];
             norm_a_sq += vec_a[i] * vec_a[i];
             norm_b_sq += vec_b[i] * vec_b[i];
         }
 
-        // 优化的数值稳定性处理
         let norm_a = norm_a_sq.sqrt();
         let norm_b = norm_b_sq.sqrt();
 
@@ -89,7 +86,7 @@ impl SIMDMath {
         }
 
         let magnitude = norm_a * norm_b;
-        // 限制结果在 [-1.0, 1.0] 范围内，处理浮点精度误差
+        // Clamp to [-1.0, 1.0] to absorb floating-point rounding error
         (dot_product / magnitude).max(-1.0).min(1.0)
     }
 
@@ -102,7 +99,7 @@ impl SIMDMath {
         let num_vectors = vectors.len() / vector_dim;
         let mut results = Vec::with_capacity(num_vectors);
 
-        // 预计算查询向量的范数
+        // Pre-compute the query vector norm
         let query_norm_sq = self.compute_norm_squared_simd(query);
         if query_norm_sq == 0.0 {
             return vec![0.0; num_vectors];
@@ -113,7 +110,7 @@ impl SIMDMath {
             let start = i * vector_dim;
             let vector_slice = &vectors[start..start + vector_dim];
 
-            // dot_product_and_norm_simd 计算 vector_slice (vec_a) 的范数
+            // dot_product_and_norm_simd computes the norm of vector_slice (vec_a)
             let (dot_product, vector_norm_sq) = self.dot_product_and_norm_simd(vector_slice, query);
 
             if vector_norm_sq == 0.0 {
@@ -127,7 +124,7 @@ impl SIMDMath {
         results
     }
 
-    // 辅助函数：SIMD 计算范数平方
+    // SIMD norm-squared helper.
     #[inline]
     fn compute_norm_squared_simd(&self, vec: &[f32]) -> f32 {
         let len = vec.len();
@@ -148,10 +145,10 @@ impl SIMDMath {
         norm_sq
     }
 
-    // 辅助函数：同时计算点积和vec_a的范数平方
+    // Compute dot product and the squared norm of vec_a in one pass.
     #[inline]
     fn dot_product_and_norm_simd(&self, vec_a: &[f32], vec_b: &[f32]) -> (f32, f32) {
-        let len = vec_a.len(); // 假设 vec_a.len() == vec_b.len()
+        let len = vec_a.len(); // assumes vec_a.len() == vec_b.len()
         let simd_lanes = 4;
         let simd_len = len - (len % simd_lanes);
 
@@ -178,7 +175,7 @@ impl SIMDMath {
         (dot_product, norm_a_sq)
     }
 
-    // 批量矩阵相似度计算 - 优化版
+    // Batched matrix similarity (optimized).
     #[wasm_bindgen]
     pub fn similarity_matrix(&self, vectors_a: &[f32], vectors_b: &[f32], vector_dim: usize) -> Vec<f32> {
         if vector_dim == 0 || vectors_a.len() % vector_dim != 0 || vectors_b.len() % vector_dim != 0 {
@@ -189,7 +186,7 @@ impl SIMDMath {
         let num_b = vectors_b.len() / vector_dim;
         let mut results = Vec::with_capacity(num_a * num_b);
 
-        // 1. 预计算 vectors_a 的范数
+        // 1. Pre-compute vectors_a norms.
         let norms_a: Vec<f32> = (0..num_a)
             .map(|i| {
                 let start = i * vector_dim;
@@ -198,7 +195,7 @@ impl SIMDMath {
             })
             .collect();
 
-        // 2. 预计算 vectors_b 的范数
+        // 2. Pre-compute vectors_b norms.
         let norms_b: Vec<f32> = (0..num_b)
             .map(|j| {
                 let start = j * vector_dim;
@@ -213,7 +210,7 @@ impl SIMDMath {
             let norm_a = norms_a[i];
 
             if norm_a == 0.0 {
-                // 如果 norm_a 为 0，所有相似度都为 0
+                // If norm_a is zero, all similarities are zero.
                 for _ in 0..num_b {
                     results.push(0.0);
                 }
@@ -230,11 +227,11 @@ impl SIMDMath {
                     continue;
                 }
 
-                // 使用专用的点积函数
+                // Use the dedicated dot-product helper.
                 let dot_product = self.dot_product_simd_only(vec_a, vec_b);
                 let magnitude = norm_a * norm_b;
 
-                // magnitude 不应该为零，因为已经检查了 norm_a/norm_b
+                // magnitude can't be zero here; norm_a/norm_b were already checked.
                 let similarity = (dot_product / magnitude).max(-1.0).min(1.0);
                 results.push(similarity);
             }
