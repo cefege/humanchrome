@@ -8,7 +8,7 @@ import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 export const fillNode: NodeRuntime<StepFill> = {
   validate: (step) => {
     const ok = !!(step as any).target?.candidates?.length && 'value' in (step as any);
-    return ok ? { ok } : { ok, errors: ['缺少目标选择器候选或输入值'] };
+    return ok ? { ok } : { ok, errors: ['Missing target selector candidates or input value'] };
   },
   run: async (ctx: ExecCtx, step: StepFill) => {
     const s: any = step;

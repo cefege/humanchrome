@@ -8,7 +8,7 @@ import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 export const clickNode: NodeRuntime<any> = {
   validate: (step) => {
     const ok = !!(step as any).target?.candidates?.length;
-    return ok ? { ok } : { ok, errors: ['缺少目标选择器候选'] };
+    return ok ? { ok } : { ok, errors: ['Missing target selector candidates'] };
   },
   run: async (ctx: ExecCtx, step: Step) => {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

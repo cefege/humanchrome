@@ -6,7 +6,7 @@ export const ifNode: NodeRuntime<any> = {
     const s = step as any;
     const hasBranches = Array.isArray(s.branches) && s.branches.length > 0;
     const ok = hasBranches || !!s.condition;
-    return ok ? { ok } : { ok, errors: ['缺少条件或分支'] };
+    return ok ? { ok } : { ok, errors: ['Missing condition or branch'] };
   },
   run: async (ctx: ExecCtx, step: Step) => {
     const s: any = step;

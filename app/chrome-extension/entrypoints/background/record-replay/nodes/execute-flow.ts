@@ -4,7 +4,7 @@ export const executeFlowNode: NodeRuntime<any> = {
   validate: (step) => {
     const s: any = step;
     const ok = typeof s.flowId === 'string' && !!s.flowId;
-    return ok ? { ok } : { ok, errors: ['需提供 flowId'] };
+    return ok ? { ok } : { ok, errors: ['flowId is required'] };
   },
   run: async (ctx: ExecCtx, step) => {
     const s: any = step;

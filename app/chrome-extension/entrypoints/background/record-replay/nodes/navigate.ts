@@ -6,7 +6,7 @@ import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 export const navigateNode: NodeRuntime<any> = {
   validate: (step) => {
     const ok = !!(step as any).url;
-    return ok ? { ok } : { ok, errors: ['缺少 URL'] };
+    return ok ? { ok } : { ok, errors: ['Missing URL'] };
   },
   run: async (_ctx: ExecCtx, step: Step) => {
     const url = (step as any).url;

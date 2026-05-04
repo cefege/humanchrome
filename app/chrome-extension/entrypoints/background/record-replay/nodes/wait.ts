@@ -6,7 +6,7 @@ import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 export const waitNode: NodeRuntime<StepWait> = {
   validate: (step) => {
     const ok = !!(step as any).condition;
-    return ok ? { ok } : { ok, errors: ['缺少等待条件'] };
+    return ok ? { ok } : { ok, errors: ['Missing wait condition'] };
   },
   run: async (ctx: ExecCtx, step: StepWait) => {
     const s = expandTemplatesDeep(step as StepWait, ctx.vars);
