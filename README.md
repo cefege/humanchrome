@@ -1,104 +1,114 @@
-# Chrome MCP Server 🚀
+# HumanChrome
 
-[![Stars](https://img.shields.io/github/stars/hangwin/mcp-chrome)](https://img.shields.io/github/stars/hangwin/mcp-chrome)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-blue.svg)](https://www.typescriptlang.org/)
-[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://developer.chrome.com/docs/extensions/)
-[![Release](https://img.shields.io/github/v/release/hangwin/mcp-chrome.svg)](https://img.shields.io/github/v/release/hangwin/mcp-chrome.svg)
+[![Node](https://img.shields.io/badge/Node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-MV3-blue.svg)](https://developer.chrome.com/docs/extensions/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8%2B-blue.svg)](https://www.typescriptlang.org/)
 
-> 🌟 **Turn your Chrome browser into your intelligent assistant** - Let AI take control of your browser, transforming it into a powerful AI-controlled automation tool.
+AI controls the Chrome browser you already use, with your real cookies and sessions. Built for the platforms other browser-automation tools choke on: LinkedIn, WhatsApp, Tinder, Facebook, Instagram. Drive it from any MCP client, or skip MCP and call the local HTTP API directly.
 
-**📖 Documentation**: [English](README.md) | [中文](README_zh.md)
-
-> The project is still in its early stages and is under intensive development. More features, stability improvements, and other enhancements will follow.
-
----
-
-## 🎯 What is Chrome MCP Server?
-
-Chrome MCP Server is a Chrome extension-based **Model Context Protocol (MCP) server** that exposes your Chrome browser functionality to AI assistants like Claude, enabling complex browser automation, content analysis, and semantic search. Unlike traditional browser automation tools (like Playwright), **Chrome MCP Server** directly uses your daily Chrome browser, leveraging existing user habits, configurations, and login states, allowing various large models or chatbots to take control of your browser and truly become your everyday assistant.
-
-## ✨ New Features(2025/12/30)
-
-- **A New Visual Editor for Claude Code & Codex**, for more detail here: [VisualEditor](docs/VisualEditor.md)
-
-## ✨ Core Features
-
-- 😁 **Chatbot/Model Agnostic**: Let any LLM or chatbot client or agent you prefer automate your browser
-- ⭐️ **Use Your Original Browser**: Seamlessly integrate with your existing browser environment (your configurations, login states, etc.)
-- 💻 **Fully Local**: Pure local MCP server ensuring user privacy
-- 🚄 **Streamable HTTP**: Streamable HTTP connection method
-- 🏎 **Cross-Tab**: Cross-tab context
-- 🧠 **Semantic Search**: Built-in vector database for intelligent browser tab content discovery
-- 🔍 **Smart Content Analysis**: AI-powered text extraction and similarity matching
-- 🌐 **20+ Tools**: Support for screenshots, network monitoring, interactive operations, bookmark management, browsing history, and 20+ other tools
-- 🚀 **SIMD-Accelerated AI**: Custom WebAssembly SIMD optimization for 4-8x faster vector operations
-
-## 🆚 Comparison with Similar Projects
-
-| Comparison Dimension    | Playwright-based MCP Server                                                                                               | Chrome Extension-based MCP Server                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Resource Usage**      | ❌ Requires launching independent browser process, installing Playwright dependencies, downloading browser binaries, etc. | ✅ No need to launch independent browser process, directly utilizes user's already open Chrome browser |
-| **User Session Reuse**  | ❌ Requires re-login                                                                                                      | ✅ Automatically uses existing login state                                                             |
-| **Browser Environment** | ❌ Clean environment lacks user settings                                                                                  | ✅ Fully preserves user environment                                                                    |
-| **API Access**          | ⚠️ Limited to Playwright API                                                                                              | ✅ Full access to Chrome native APIs                                                                   |
-| **Startup Speed**       | ❌ Requires launching browser process                                                                                     | ✅ Only needs to activate extension                                                                    |
-| **Response Speed**      | 50-200ms inter-process communication                                                                                      | ✅ Faster                                                                                              |
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Node.js >= 20.0.0 and pnpm/npm
-- Chrome/Chromium browser
-
-### Installation Steps
-
-1. **Download the latest Chrome extension from GitHub**
-
-Download link: https://github.com/hangwin/mcp-chrome/releases
-
-2. **Install mcp-chrome-bridge globally**
-
-npm
-
-```bash
-npm install -g mcp-chrome-bridge
+```text
+your AI client  →  MCP or plain HTTP  →  local bridge  →  Chrome extension  →  your real Chrome
 ```
 
-pnpm
+## Why this exists
+
+This was built because every other MCP and browser-automation tool fell over on the platforms that matter most: the social and messaging apps with serious anti-bot defenses. LinkedIn flags clean Playwright instances within a session or two. WhatsApp Web wants you to scan a QR code on every fresh launch. Tinder profiles the browser environment hard. Facebook and Instagram send you to checkpoint flows the moment a fingerprint looks off.
+
+The cause is the same in every case. Most "AI browser automation" tools spin up a clean Chromium via Playwright or Puppeteer. That's fine for testing, but on adversarial sites the instance has no usage history and no real cookies. It looks like what it is, a fresh headless-ish browser, and the anti-bot layer flags it.
+
+HumanChrome runs as an extension inside the Chrome you already have open. The AI clicks around in your real session with your real cookies. Nothing about the browser is fresh, so the anti-bot layer has nothing to flag at the environment level. It generalizes to anything Chrome can do, but the design pressure came from those specific sticky platforms.
+
+## Does this fix your problem?
+
+If you searched for any of these, yes:
+
+- "Browser automation that doesn't get flagged as a bot"
+- "AI that controls my logged-in LinkedIn account"
+- "WhatsApp Web automation without QR scanning every time"
+- "Tinder automation that uses my real profile"
+- "Facebook automation that doesn't trigger checkpoint"
+- "Instagram automation without account locks"
+- "MCP server for hard-to-automate sites"
+- "MCP server for Chrome that handles multiple clients at once"
+- "Chrome extension that doesn't redact base64 IDs, URNs, or JWTs"
+- "React form fill that actually triggers `onChange`"
+- "Intercept fetch or XHR responses from a Chrome extension"
+- "Reset a stuck MCP transport without restarting Chrome"
+- "Browser automation alternative to Playwright, Puppeteer, browser-use"
+- "Run AI agents on my actual Chrome profile, not a clean one"
+- "Local HTTP API for browser automation, no MCP required"
+
+## Built for the hard platforms
+
+The patches that shipped in this codebase came from breaking against real automations on the sites that punish bots hardest. Most of the engineering pressure came from this list:
+
+- **LinkedIn** — message threads, connection-request flows, profile scraping, URN handling through the Voyager API.
+- **WhatsApp Web** — message dispatch, contact lookup, multi-thread orchestration without re-pairing every session.
+- **Tinder** — profile interactions and messaging on the real account, without tripping device-trust heuristics.
+- **Facebook** — feed and profile interactions that survive the checkpoint flow.
+- **Instagram** — DM and profile actions on the real account, without account locks.
+
+That bias shaped the fixes: a redaction toggle that preserves base64 URNs and JWTs, a React-compatible form-fill, response interception for fetch/XHR, multi-client MCP sessions, per-tab JS locks, and a way to reset stuck transports without restarting Chrome.
+
+It works for anything else Chrome can do (any site, any tool in the catalog: click, fill, navigate, screenshot, network capture, JS execution, dialog handling, file upload, console capture, history, bookmarks). The platforms above are just where the broken edges lived.
+
+## Quickstart
 
 ```bash
-# Method 1: Enable scripts globally (recommended)
-pnpm config set enable-pre-post-scripts true
-pnpm install -g mcp-chrome-bridge
+# 1. Install the bridge globally (Node 20+)
+npm install -g github:cefege/humanchrome#main
 
-# Method 2: Manual registration (if postinstall doesn't run)
-pnpm install -g mcp-chrome-bridge
-mcp-chrome-bridge register
+# 2. Register the native messaging host
+humanchrome-bridge register
 ```
 
-> Note: pnpm v7+ disables postinstall scripts by default for security. The `enable-pre-post-scripts` setting controls whether pre/post install scripts run. If automatic registration fails, use the manual registration command above.
+3. Load the extension in Chrome:
+   - Go to `chrome://extensions/`, enable Developer mode.
+   - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from a clone of this repo (or the released zip from the GitHub Releases tab).
+   - Click the extension icon, then **Connect**.
 
-3. **Load Chrome Extension**
-   - Open Chrome and go to `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked" and select `your/dowloaded/extension/folder`
-   - Click the extension icon to open the plugin, then click connect to see the MCP configuration
-     <img width="475" alt="Screenshot 2025-06-09 15 52 06" src="https://github.com/user-attachments/assets/241e57b8-c55f-41a4-9188-0367293dc5bc" />
+4. Confirm the bridge is up:
 
-### Usage with MCP Protocol Clients
+```bash
+curl http://127.0.0.1:12306/ping
+# {"status":"ok","message":"pong"}
+```
 
-#### Using Streamable HTTP Connection (👍🏻 Recommended)
+## Use it without MCP (plain HTTP)
 
-Add the following configuration to your MCP client configuration (using CherryStudio as an example):
+The bridge exposes the same browser tools over a plain HTTP REST surface. No MCP session, no protocol overhead. Useful when you're calling from a custom script, the Anthropic SDK, the OpenAI SDK, a curl pipeline, or anything that doesn't speak MCP.
 
-> Streamable HTTP connection method is recommended
+```bash
+# List the available tools
+curl http://127.0.0.1:12306/api/tools
+
+# Get the OpenAPI spec
+curl http://127.0.0.1:12306/api/openapi.json
+
+# Take a screenshot of the active tab
+curl -X POST http://127.0.0.1:12306/api/tools/chrome_screenshot \
+  -H 'Content-Type: application/json' \
+  -d '{"args":{"fullPage":true}}'
+
+# Run JS in the active tab and read it back
+curl -X POST http://127.0.0.1:12306/api/tools/chrome_javascript \
+  -H 'Content-Type: application/json' \
+  -d '{"args":{"code":"document.title"}}'
+```
+
+The response shape matches MCP's `CallToolResult`: `content` is an array of items, `isError` is `true` on tool-level failure. Pass an `X-Client-Id` header if you want preferred-tab continuity across calls.
+
+## Use it with MCP
+
+For Claude Desktop, Cursor, Cherry Studio, Continue, or any other MCP-aware client.
+
+### Streamable HTTP (recommended)
 
 ```json
 {
   "mcpServers": {
-    "chrome-mcp-server": {
+    "humanchrome": {
       "type": "streamableHttp",
       "url": "http://127.0.0.1:12306/mcp"
     }
@@ -106,200 +116,119 @@ Add the following configuration to your MCP client configuration (using CherrySt
 }
 ```
 
-#### Using STDIO Connection (Alternative)
-
-If your client only supports stdio connection method, please use the following approach:
-
-1. First, check the installation location of the npm package you just installed
-
-```sh
-# npm check method
-npm list -g mcp-chrome-bridge
-# pnpm check method
-pnpm list -g mcp-chrome-bridge
-```
-
-Assuming the command above outputs the path: /Users/xxx/Library/pnpm/global/5
-Then your final path would be: /Users/xxx/Library/pnpm/global/5/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server-stdio.js
-
-2. Replace the configuration below with the final path you just obtained
+### Stdio
 
 ```json
 {
   "mcpServers": {
-    "chrome-mcp-stdio": {
-      "command": "npx",
-      "args": [
-        "node",
-        "/Users/xxx/Library/pnpm/global/5/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server-stdio.js"
-      ]
+    "humanchrome": {
+      "command": "humanchrome-stdio"
     }
   }
 }
 ```
 
-eg：config in augment:
+Multiple clients can connect at once. Each gets its own MCP session, and each session keeps its own preferred-tab state, so two AI clients don't fight over which tab is "current".
 
-<img width="494" alt="截屏2025-06-22 22 11 25" src="https://github.com/user-attachments/assets/48eefc0c-a257-4d3b-8bbe-d7ff716de2bf" />
+## Tools
 
-## 🛠️ Available Tools
+Roughly 30 tools across these categories. Full reference in [`docs/TOOLS.md`](docs/TOOLS.md).
 
-Complete tool list: [Complete Tool List](docs/TOOLS.md)
+| Category           | Tools                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Browser management | `get_windows_and_tabs`, `chrome_navigate`, `chrome_switch_tab`, `chrome_close_tabs`, `chrome_inject_script`   |
+| Interaction        | `chrome_click_element`, `chrome_fill_or_select`, `chrome_keyboard`, `chrome_handle_dialog`                    |
+| Reading            | `chrome_get_web_content`, `chrome_read_page`, `chrome_get_interactive_elements`, `chrome_screenshot`          |
+| Scripting          | `chrome_javascript`, `chrome_userscript`, `chrome_send_command_to_inject_script`                              |
+| Network            | `chrome_network_capture`, `chrome_network_request`, `chrome_intercept_response`                               |
+| Files              | `chrome_upload_file`, `chrome_handle_download`, `chrome_gif_recorder`                                         |
+| State              | `chrome_console`, `chrome_history`, `chrome_bookmark_search`, `chrome_bookmark_add`, `chrome_bookmark_delete` |
+| Search             | `search_tabs_content` (semantic vector search across open tabs)                                               |
+| Performance        | `performance_start_trace`, `performance_stop_trace`, `performance_analyze_insight`                            |
+| Diagnostics        | `chrome_debug_dump`, `chrome_computer`                                                                        |
 
-<details>
-<summary><strong>📊 Browser Management (6 tools)</strong></summary>
+## Architecture
 
-- `get_windows_and_tabs` - List all browser windows and tabs
-- `chrome_navigate` - Navigate to URLs and control viewport
-- `chrome_switch_tab` - Switch the current active tab
-- `chrome_close_tabs` - Close specific tabs or windows
-- `chrome_go_back_or_forward` - Browser navigation control
-- `chrome_inject_script` - Inject content scripts into web pages
-- `chrome_send_command_to_inject_script` - Send commands to injected content scripts
-</details>
+```text
+AI client (MCP or HTTP)
+        │
+        ▼
+Local bridge on :12306 (Fastify, Node)
+        │   native messaging
+        ▼
+Chrome extension (background, popup, sidepanel)
+        │
+        ▼
+Active tab (your real Chrome session)
+```
 
-<details>
-<summary><strong>📸 Screenshots & Visual (1 tool)</strong></summary>
+Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-- `chrome_screenshot` - Advanced screenshot capture with element targeting, full-page support, and custom dimensions
-</details>
+## Configuration
 
-<details>
-<summary><strong>🌐 Network Monitoring (4 tools)</strong></summary>
+### Output redaction
 
-- `chrome_network_capture_start/stop` - webRequest API network capture
-- `chrome_network_debugger_start/stop` - Debugger API with response bodies
-- `chrome_network_request` - Send custom HTTP requests
-</details>
+By default the extension redacts shapes that look like cookies, JWTs, base64 IDs, and URNs from tool output. This keeps you from accidentally leaking session tokens into a chat transcript. Some workflows (LinkedIn URN handling, anything that needs raw API tokens) need that data through verbatim. Two ways to flip it:
 
-<details>
-<summary><strong>🔍 Content Analysis (4 tools)</strong></summary>
+```js
+// In the extension's background-page console (chrome://extensions → service worker):
+globalThis.__MCP_RAW_OUTPUT__ = true; // live, no reload
 
-- `search_tabs_content` - AI-powered semantic search across browser tabs
-- `chrome_get_web_content` - Extract HTML/text content from pages
-- `chrome_get_interactive_elements` - Find clickable elements
-- `chrome_console` - Capture and retrieve console output from browser tabs
-</details>
+// Or persist via storage:
+chrome.storage.local.set({ rawOutput: true });
+```
 
-<details>
-<summary><strong>🎯 Interaction (3 tools)</strong></summary>
+### Port
 
-- `chrome_click_element` - Click elements using CSS selectors
-- `chrome_fill_or_select` - Fill forms and select options
-- `chrome_keyboard` - Simulate keyboard input and shortcuts
-</details>
+Default `12306`. Override with `MCP_HTTP_PORT=12345` before launching the bridge, or change it in the extension settings.
 
-<details>
-<summary><strong>📚 Data Management (5 tools)</strong></summary>
+### Node executable path
 
-- `chrome_history` - Search browser history with time filters
-- `chrome_bookmark_search` - Find bookmarks by keywords
-- `chrome_bookmark_add` - Add new bookmarks with folder support
-- `chrome_bookmark_delete` - Delete bookmarks
-</details>
+If the bridge can't find Node on your system, set `HUMANCHROME_NODE_PATH=/path/to/node` before Chrome launches the native host, or run `humanchrome-bridge doctor --fix`.
 
-## 🧪 Usage Examples
+### Stuck-transport reset
 
-### AI helps you summarize webpage content and automatically control Excalidraw for drawing
+If a session gets jammed mid-init:
 
-prompt: [excalidraw-prompt](prompt/excalidraw-prompt.md)
-Instruction: Help me summarize the current page content, then draw a diagram to aid my understanding.
-https://www.youtube.com/watch?v=3fBPdUBWVz0
+```bash
+curl -X POST http://127.0.0.1:12306/admin/reset
+# {"ok":true,"cleared":N}
+```
 
-https://github.com/user-attachments/assets/fd17209b-303d-48db-9e5e-3717141df183
+## FAQ
 
-### After analyzing the content of the image, the LLM automatically controls Excalidraw to replicate the image
+**Q: Will I get banned from LinkedIn / WhatsApp / Tinder / Facebook / Instagram for using this?**
+Automation runs inside the browser session you already use. The fingerprint, login state, and browsing history are yours, so there is nothing fresh for an anti-bot system to flag at the environment level. Behavior is a different story. Anti-bot systems will still catch you if you fire 1000 requests per second or hit identical timing intervals between actions, so pace things at human speed. No tool can guarantee you won't get banned for what you do with it.
 
-prompt: [excalidraw-prompt](prompt/excalidraw-prompt.md)|[content-analize](prompt/content-analize.md)
-Instruction: First, analyze the content of the image, and then replicate the image by combining the analysis with the content of the image.
-https://www.youtube.com/watch?v=tEPdHZBzbZk
+**Q: Does this work with Claude Desktop / Cursor / Cherry Studio / Continue?**
+Yes. Any MCP-aware client. Use the Streamable HTTP config block above.
 
-https://github.com/user-attachments/assets/60d12b1a-9b74-40f4-994c-95e8fa1fc8d3
+**Q: Does this work without MCP?**
+Yes. POST to `http://127.0.0.1:12306/api/tools/<name>`. See "Use it without MCP" above. The OpenAPI spec at `/api/openapi.json` is generated from the same tool catalog.
 
-### AI automatically injects scripts and modifies webpage styles
+**Q: Does this work in Firefox?**
+Not yet. Manifest V3 plus native messaging in Firefox needs a separate code path. Open an issue if you want it.
 
-prompt: [modify-web-prompt](prompt/modify-web.md)
-Instruction: Help me modify the current page's style and remove advertisements.
-https://youtu.be/twI6apRKHsk
+**Q: How do I debug when something goes wrong?**
+The bridge logs to `~/Library/Logs/humanchrome-bridge` (macOS), `%LOCALAPPDATA%\humanchrome-bridge\logs` (Windows), or `~/.local/state/humanchrome-bridge/logs` (Linux). Every tool call is correlated by `requestId`. The `chrome_debug_dump` tool returns the per-call entries. Failures in the live-test harness produce paste-ready markdown prompts under `app/native-server/live-test/results/failures/`.
 
-https://github.com/user-attachments/assets/69cb561c-2e1e-4665-9411-4a3185f9643e
+**Q: Will my prompts and data leave my machine?**
+The bridge is local. It listens on `127.0.0.1:12306` and talks to the extension over Chrome's native messaging IPC. Nothing about HumanChrome itself sends data anywhere external. Whatever AI client you connect _to_ the bridge will of course send your tool calls and their results to its own model. That is between you and the client.
 
-### AI automatically captures network requests for you
+More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
-query: I want to know what the search API for Xiaohongshu is and what the response structure looks like
+## Contributing
 
-https://youtu.be/1hHKr7XKqnQ
+PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, build commands, and the commit style. Bugs and feature requests go in [GitHub Issues](https://github.com/cefege/humanchrome/issues). Questions and broader discussion in [GitHub Discussions](https://github.com/cefege/humanchrome/discussions).
 
-https://github.com/user-attachments/assets/dc7e5cab-b9af-4b9a-97ce-18e4837318d9
+## License
 
-### AI helps analyze your browsing history
+MIT. See [`LICENSE`](LICENSE).
 
-query: Analyze my browsing history from the past month
+## Security
 
-https://youtu.be/jf2UZfrR2Vk
-
-https://github.com/user-attachments/assets/31b2e064-88c6-4adb-96d7-50748b826eae
-
-### Web page conversation
-
-query: Translate and summarize the current web page
-https://youtu.be/FlJKS9UQyC8
-
-https://github.com/user-attachments/assets/aa8ef2a1-2310-47e6-897a-769d85489396
-
-### AI automatically takes screenshots for you (web page screenshots)
-
-query: Take a screenshot of Hugging Face's homepage
-https://youtu.be/7ycK6iksWi4
-
-https://github.com/user-attachments/assets/65c6eee2-6366-493d-a3bd-2b27529ff5b3
-
-### AI automatically takes screenshots for you (element screenshots)
-
-query: Capture the icon from Hugging Face's homepage
-https://youtu.be/ev8VivANIrk
-
-https://github.com/user-attachments/assets/d0cf9785-c2fe-4729-a3c5-7f2b8b96fe0c
-
-### AI helps manage bookmarks
-
-query: Add the current page to bookmarks and put it in an appropriate folder
-
-https://youtu.be/R_83arKmFTo
-
-https://github.com/user-attachments/assets/15a7d04c-0196-4b40-84c2-bafb5c26dfe0
-
-### Automatically close web pages
-
-query: Close all shadcn-related web pages
-
-https://youtu.be/2wzUT6eNVg4
-
-https://github.com/user-attachments/assets/83de4008-bb7e-494d-9b0f-98325cfea592
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed guidelines.
-
-## 🚧 Future Roadmap
-
-We have exciting plans for the future development of Chrome MCP Server:
-
-- [ ] Authentication
-- [ ] Recording and Playback
-- [ ] Workflow Automation
-- [ ] Enhanced Browser Support (Firefox Extension)
+Found a vulnerability? Open a private security advisory: <https://github.com/cefege/humanchrome/security/advisories/new>. Do not file a public issue. Details in [`SECURITY.md`](SECURITY.md).
 
 ---
 
-**Want to contribute to any of these features?** Check out our [Contributing Guide](docs/CONTRIBUTING.md) and join our development community!
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📚 More Documentation
-
-- [Architecture Design](docs/ARCHITECTURE.md) - Detailed technical architecture documentation
-- [TOOLS API](docs/TOOLS.md) - Complete tool API documentation
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issue solutions
+Originally derived from earlier open-source work on Chrome-extension-based browser automation.

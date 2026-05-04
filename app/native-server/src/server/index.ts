@@ -28,7 +28,7 @@ import { AgentChatService } from '../agent/chat-service';
 import { CodexEngine } from '../agent/engines/codex';
 import { ClaudeEngine } from '../agent/engines/claude';
 import { closeDb } from '../agent/db';
-import { registerAgentRoutes } from './routes';
+import { registerAgentRoutes, registerApiRoutes } from './routes';
 
 // ============================================================
 // Types
@@ -99,6 +99,9 @@ export class Server {
       streamManager: this.agentStreamManager,
       chatService: this.agentChatService,
     });
+
+    // Plain HTTP REST API (transport-agnostic alternative to MCP)
+    registerApiRoutes(this.fastify);
 
     // MCP routes
     this.setupMcpRoutes();
@@ -203,7 +206,10 @@ export class Server {
           this.transportsMap.delete(transport.sessionId);
         });
 
-        const server = createMcpServer();
+        // Bind the per-session McpServer to this client's session id so every
+        // tool call from this transport carries `clientId` into the extension
+        // and hits its own preferred-tab state.
+        const server = createMcpServer(transport.sessionId);
         await server.connect(transport);
 
         reply.raw.write(':\n\n');
@@ -257,7 +263,9 @@ export class Server {
             this.transportsMap.delete(transport.sessionId);
           }
         };
-        await createMcpServer().connect(transport);
+        // Pass the just-minted session id so the McpServer's tool-call handler
+        // can stamp every native-messaging request with this client's identity.
+        await createMcpServer(newSessionId).connect(transport);
       } else {
         reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
         return;
@@ -352,8 +360,8 @@ export class Server {
     try {
       await this.fastify.listen({ port, host: SERVER_CONFIG.HOST });
 
-      // Set port environment variables after successful listen for Chrome MCP URL resolution
-      process.env.CHROME_MCP_PORT = String(port);
+      // Set port environment variables after successful listen for HumanChrome URL resolution
+      process.env.HUMANCHROME_PORT = String(port);
       process.env.MCP_HTTP_PORT = String(port);
 
       this.isRunning = true;

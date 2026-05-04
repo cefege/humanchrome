@@ -9,12 +9,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NODE_SCRIPT="${SCRIPT_DIR}/index.js"
 
 # Setup log directory - prefer user-writable locations
-# macOS: ~/Library/Logs/mcp-chrome-bridge
-# Linux: $XDG_STATE_HOME/mcp-chrome-bridge/logs or ~/.local/state/mcp-chrome-bridge/logs
+# macOS: ~/Library/Logs/humanchrome-bridge
+# Linux: $XDG_STATE_HOME/humanchrome-bridge/logs or ~/.local/state/humanchrome-bridge/logs
 if [ "$(uname)" = "Darwin" ]; then
-    LOG_DIR="${HOME}/Library/Logs/mcp-chrome-bridge"
+    LOG_DIR="${HOME}/Library/Logs/humanchrome-bridge"
 else
-    LOG_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/mcp-chrome-bridge/logs"
+    LOG_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/humanchrome-bridge/logs"
 fi
 
 # Fallback: if user directory is not writable, use package directory
@@ -42,7 +42,7 @@ STDERR_LOG="${LOG_DIR}/native_host_stderr_unix_${TIMESTAMP}.log"
     echo "LOG_DIR: ${LOG_DIR}"
     echo "NODE_SCRIPT: ${NODE_SCRIPT}"
     echo "Initial PATH: ${PATH}"
-    echo "CHROME_MCP_NODE_PATH: ${CHROME_MCP_NODE_PATH:-<unset>}"
+    echo "HUMANCHROME_NODE_PATH: ${HUMANCHROME_NODE_PATH:-<unset>}"
     echo "VOLTA_HOME: ${VOLTA_HOME:-<unset>}"
     echo "ASDF_DATA_DIR: ${ASDF_DATA_DIR:-<unset>}"
     echo "FNM_DIR: ${FNM_DIR:-<unset>}"
@@ -58,10 +58,10 @@ NODE_PATH_FILE="${SCRIPT_DIR}/node_path.txt"
 
 echo "Searching for Node.js..." >> "${WRAPPER_LOG}"
 
-# Priority 0: CHROME_MCP_NODE_PATH environment variable override
-echo "[Priority 0] Checking CHROME_MCP_NODE_PATH override" >> "${WRAPPER_LOG}"
-if [ -n "${CHROME_MCP_NODE_PATH:-}" ]; then
-    CANDIDATE_NODE="${CHROME_MCP_NODE_PATH}"
+# Priority 0: HUMANCHROME_NODE_PATH environment variable override
+echo "[Priority 0] Checking HUMANCHROME_NODE_PATH override" >> "${WRAPPER_LOG}"
+if [ -n "${HUMANCHROME_NODE_PATH:-}" ]; then
+    CANDIDATE_NODE="${HUMANCHROME_NODE_PATH}"
     # Expand tilde
     if [[ "${CANDIDATE_NODE}" == "~/"* ]]; then
         CANDIDATE_NODE="${HOME}/${CANDIDATE_NODE#~/}"
@@ -72,10 +72,10 @@ if [ -n "${CHROME_MCP_NODE_PATH:-}" ]; then
     fi
     if [ -x "${CANDIDATE_NODE}" ]; then
         NODE_EXEC="${CANDIDATE_NODE}"
-        NODE_EXEC_SOURCE="CHROME_MCP_NODE_PATH"
-        echo "Found node via CHROME_MCP_NODE_PATH: ${NODE_EXEC}" >> "${WRAPPER_LOG}"
+        NODE_EXEC_SOURCE="HUMANCHROME_NODE_PATH"
+        echo "Found node via HUMANCHROME_NODE_PATH: ${NODE_EXEC}" >> "${WRAPPER_LOG}"
     else
-        echo "CHROME_MCP_NODE_PATH is set but not executable: ${CANDIDATE_NODE}" >> "${WRAPPER_LOG}"
+        echo "HUMANCHROME_NODE_PATH is set but not executable: ${CANDIDATE_NODE}" >> "${WRAPPER_LOG}"
     fi
 fi
 
@@ -228,8 +228,8 @@ fi
 if [ -z "${NODE_EXEC}" ]; then
     {
         echo "ERROR: Node.js executable not found!"
-        echo "Searched: CHROME_MCP_NODE_PATH, node_path.txt, relative path, Volta, asdf, fnm, NVM, common paths, command -v, PATH"
-        echo "To fix: Set CHROME_MCP_NODE_PATH environment variable or run 'mcp-chrome-bridge doctor --fix'"
+        echo "Searched: HUMANCHROME_NODE_PATH, node_path.txt, relative path, Volta, asdf, fnm, NVM, common paths, command -v, PATH"
+        echo "To fix: Set HUMANCHROME_NODE_PATH environment variable or run 'humanchrome-bridge doctor --fix'"
     } >> "${WRAPPER_LOG}"
     exit 1
 fi

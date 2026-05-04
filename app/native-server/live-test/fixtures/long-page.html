@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Live-test fixture: long page</title>
+  </head>
+  <body>
+    <h1>Long page fixture</h1>
+    <p id="intro">A long page used to exercise truncation envelopes for read-page and console.</p>
+    <ul id="items"></ul>
+    <script>
+      // Generate 250 list items so chrome_read_page's fallback (150-element cap)
+      // hits the truncation envelope cleanly.
+      const ul = document.getElementById('items');
+      for (let i = 0; i < 250; i++) {
+        const li = document.createElement('li');
+        li.textContent = 'item ' + i;
+        li.dataset.idx = String(i);
+        ul.appendChild(li);
+      }
+      // Push a deeply-nested object to console so the per-arg serializer's
+      // depth/props caps kick in (default maxDepth=3, maxProps=100).
+      const big = { level0: {} };
+      let cursor = big.level0;
+      for (let i = 0; i < 6; i++) {
+        cursor.next = { idx: i, blob: 'x'.repeat(50) };
+        cursor = cursor.next;
+      }
+      const wide = {};
+      for (let i = 0; i < 250; i++) wide['k' + i] = i;
+      console.log('long-page nested', big);
+      console.log('long-page wide', wide);
+    </script>
+  </body>
+</html>

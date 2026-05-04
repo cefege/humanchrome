@@ -14,8 +14,9 @@
  */
 
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { ToolErrorCode } from 'humanchrome-shared';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import {
   DEFAULT_MAX_OUTPUT_BYTES,
@@ -153,27 +154,24 @@ function isDebuggerConflictError(error: unknown): boolean {
  *
  * Pure-heuristic — we cannot use `new Function` / `new AsyncFunction` as a
  * syntax probe in this code path because the extension service worker's CSP
- * disallows 'unsafe-eval'. The heuristic covers the common Mihai cases
+ * disallows 'unsafe-eval'. The heuristic covers the common cases
  * (`location.href`, `document.title`, `1+2`, arrow-fn-call, `await fetch(...)`,
  * etc.). Borderline inputs that contain a top-level `;` / `{` keep the legacy
  * statement-block wrapping and require an explicit `return`.
  */
+// \b boundary on keywords so `document.title` isn't mis-matched against `do`.
+const STATEMENT_STARTERS =
+  /^(let\b|const\b|var\b|return\b|if\b|for\b|while\b|do\b|switch\b|try\b|throw\b|function\b|class\b|async\s+function\b|\{)/;
+
 function isExpressionForm(code: string): boolean {
   const trimmed = code.trim();
   if (!trimmed) return false;
-  // Code starting with `(` is treated as an expression — covers IIFEs like
-  // `(() => { ...; })()` and parenthesized expressions. The `;` inside the
-  // IIFE body is fine because the whole thing is one expression.
-  if (trimmed.startsWith('(')) return true;
-  // Multi-statement → statement wrapping.
+  // Balanced-paren shape (IIFE or parenthesized expression) is one expression
+  // even if it contains `;` internally. Bare `(foo); bar();` won't match
+  // because it ends in `;`, not `)`.
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) return true;
   if (trimmed.includes(';')) return false;
-  // Top-level statement starters → statement wrapping.
-  // \b boundary on keywords so `document.title` isn't mis-matched against `do`.
-  if (
-    /^\s*(let\b|const\b|var\b|return\b|if\b|for\b|while\b|do\b|switch\b|try\b|throw\b|function\b|class\b|async\s+function\b|\{)/.test(
-      trimmed,
-    )
-  ) {
+  if (STATEMENT_STARTERS.test(trimmed)) {
     return false;
   }
   // Otherwise treat as expression. Object literals inside expressions like
@@ -449,6 +447,8 @@ async function executeViaScripting(
 
 class JavaScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.JAVASCRIPT;
+  // JS execution can mutate page state via DOM/storage/etc.; treat as mutating.
+  static readonly mutates = true;
 
   async execute(args: JavaScriptToolParams): Promise<ToolResult> {
     const startTime = performance.now();
@@ -457,19 +457,22 @@ class JavaScriptTool extends BaseBrowserToolExecutor {
       // Validate required parameter
       const code = typeof args?.code === 'string' ? args.code.trim() : '';
       if (!code) {
-        return createErrorResponse('Parameter [code] is required');
+        return createErrorResponse('Parameter [code] is required', ToolErrorCode.INVALID_ARGS);
       }
 
       // Resolve target tab
       const tab = await this.resolveTargetTab(args.tabId);
       if (!tab) {
+        const explicit = typeof args.tabId === 'number';
         return createErrorResponse(
-          typeof args.tabId === 'number' ? `Tab not found: ${args.tabId}` : 'No active tab found',
+          explicit ? `Tab not found: ${args.tabId}` : 'No active tab found',
+          ToolErrorCode.TAB_NOT_FOUND,
+          explicit ? { tabId: args.tabId } : undefined,
         );
       }
 
       if (!tab.id) {
-        return createErrorResponse('Tab has no ID');
+        return createErrorResponse('Tab has no ID', ToolErrorCode.TAB_NOT_FOUND);
       }
       const tabId = tab.id;
 
@@ -488,8 +491,24 @@ class JavaScriptTool extends BaseBrowserToolExecutor {
         return this.buildSuccessResponse(tabId, cdpResult, startTime);
       }
 
-      // If not a debugger conflict, return the CDP error
+      // If not a debugger conflict, return the CDP error.
       if (cdpResult.error.kind !== 'debugger_conflict') {
+        // Tab-closed-mid-call surfaces as "Detached while handling command"
+        // or "Target closed" from CDP. Classify these distinctly so callers
+        // can branch on TAB_CLOSED / CDP_DETACHED instead of a free-form text.
+        const cdpMsg = cdpResult.error.message ?? '';
+        if (/detached|target closed/i.test(cdpMsg)) {
+          // Verify the tab still exists. If it's gone, it's TAB_CLOSED;
+          // otherwise the CDP session detached for some other reason.
+          const stillThere = await this.tryGetTab(tabId);
+          return createErrorResponse(
+            cdpMsg,
+            stillThere ? ToolErrorCode.CDP_DETACHED : ToolErrorCode.TAB_CLOSED,
+            { tabId },
+          );
+        }
+        const envelope = await this.maybeEnvelope(tabId, cdpResult);
+        if (envelope) return envelope;
         return this.buildErrorResponse(tabId, cdpResult, startTime);
       }
 
@@ -504,6 +523,8 @@ class JavaScriptTool extends BaseBrowserToolExecutor {
         return this.buildSuccessResponse(tabId, scriptingResult, startTime, warnings);
       }
 
+      const scriptingEnvelope = await this.maybeEnvelope(tabId, scriptingResult);
+      if (scriptingEnvelope) return scriptingEnvelope;
       return this.buildErrorResponse(tabId, scriptingResult, startTime, warnings);
     } catch (error) {
       console.error('JavaScriptTool.execute error:', error);
@@ -521,6 +542,54 @@ class JavaScriptTool extends BaseBrowserToolExecutor {
       return await this.getActiveTabOrThrow();
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Classify a bridge-side execution failure into the structured-error
+   * envelope. Returns null for failures that are genuinely user-code
+   * errors (runtime exceptions in the script the caller wrote) — those
+   * keep the JS-tool's richer payload via buildErrorResponse, since the
+   * caller's debugging path is "look at error.message + stack," not
+   * "branch on error code."
+   */
+  private async maybeEnvelope(tabId: number, result: ExecutionFailure): Promise<ToolResult | null> {
+    const kind = result.error.kind;
+    const message = result.error.message ?? '';
+    switch (kind) {
+      case 'scripting_error':
+        // chrome.scripting.executeScript rejected — usually a restricted URL
+        // (chrome://, devtools://) or extension-store page. Classify as
+        // INJECTION_FAILED so the LLM knows the document refused script,
+        // distinct from a runtime exception inside the user's code.
+        return createErrorResponse(message, ToolErrorCode.INJECTION_FAILED, { tabId });
+      case 'syntax_error':
+        return createErrorResponse(message, ToolErrorCode.INVALID_ARGS, {
+          tabId,
+          arg: 'code',
+        });
+      case 'timeout':
+        return createErrorResponse(message, ToolErrorCode.TIMEOUT, { tabId });
+      case 'debugger_conflict':
+        // Reaches here only when the conflict was unrecoverable at the CDP
+        // path AND the scripting fallback also failed. CDP_BUSY is the
+        // right signal — caller's recovery is "close DevTools and retry."
+        return createErrorResponse(message, ToolErrorCode.CDP_BUSY, { tabId });
+      case 'cdp_error':
+        // CDP refuses to attach to restricted documents (chrome://, devtools://,
+        // extension store, the new-tab page). Surface as INJECTION_FAILED so
+        // the caller can branch the same way they'd branch on the
+        // chrome.scripting fallback's restricted-URL refusal.
+        if (/cannot access|cannot attach|restricted url|chrome:\/\//i.test(message)) {
+          return createErrorResponse(message, ToolErrorCode.INJECTION_FAILED, { tabId });
+        }
+        // Generic CDP fault — not a user-code problem, no specific recovery.
+        return createErrorResponse(message, ToolErrorCode.UNKNOWN, { tabId });
+      case 'runtime_error':
+      default:
+        // User's code threw at runtime. Keep the JS-tool's structured
+        // payload; envelope code wouldn't add anything useful here.
+        return null;
     }
   }
 

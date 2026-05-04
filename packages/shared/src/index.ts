@@ -1,6 +1,7 @@
 export * from './constants';
 export * from './types';
 export * from './tools';
+export * from './error-codes';
 export * from './rr-graph';
 export * from './step-types';
 export * from './labels';

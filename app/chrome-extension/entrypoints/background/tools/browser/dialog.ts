@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 interface HandleDialogParams {
@@ -17,12 +17,17 @@ class HandleDialogTool extends BaseBrowserToolExecutor {
   async execute(args: HandleDialogParams): Promise<ToolResult> {
     const { action, promptText } = args || ({} as HandleDialogParams);
     if (!action || (action !== 'accept' && action !== 'dismiss')) {
-      return createErrorResponse('action must be "accept" or "dismiss"');
+      return createErrorResponse(
+        'action must be "accept" or "dismiss"',
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
     }
 
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!activeTab?.id) return createErrorResponse('No active tab found');
+      if (!activeTab?.id)
+        return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       const tabId = activeTab.id!;
 
       // Use shared CDP session manager for safe attach/detach with refcount

@@ -506,7 +506,7 @@ export class ClaudeEngine implements AgentEngine {
           ? (optionsConfig as Record<string, unknown>)
           : undefined;
 
-      // Resolve project-scoped Chrome MCP toggle (default: enabled)
+      // Resolve project-scoped HumanChrome toggle (default: enabled)
       const enableChromeMcp = await (async (): Promise<boolean> => {
         if (!projectId) return true;
         try {
@@ -724,9 +724,9 @@ export class ClaudeEngine implements AgentEngine {
         }
       }
 
-      // Inject the local Chrome MCP server based on project preference.
-      // This only controls the built-in "chrome-mcp" entry; user-configured MCP servers remain untouched.
-      const CHROME_MCP_SERVER_NAME = 'chrome-mcp';
+      // Inject the local HumanChrome bridge based on project preference.
+      // This only controls the built-in "humanchrome" entry; user-configured MCP servers remain untouched.
+      const CHROME_MCP_SERVER_NAME = 'humanchrome';
       if (enableChromeMcp) {
         const existingMcpServers =
           queryOptions.mcpServers &&
@@ -742,13 +742,13 @@ export class ClaudeEngine implements AgentEngine {
             url: getChromeMcpUrl(),
           },
         };
-        console.error(`[ClaudeEngine] Chrome MCP server enabled: ${getChromeMcpUrl()}`);
+        console.error(`[ClaudeEngine] HumanChrome bridge enabled: ${getChromeMcpUrl()}`);
       } else if (
         queryOptions.mcpServers &&
         typeof queryOptions.mcpServers === 'object' &&
         !Array.isArray(queryOptions.mcpServers)
       ) {
-        // If Chrome MCP is disabled, remove it from existing mcpServers if present
+        // If HumanChrome is disabled, remove it from existing mcpServers if present
         const existing = queryOptions.mcpServers as Record<string, unknown>;
         if (CHROME_MCP_SERVER_NAME in existing) {
           const { [CHROME_MCP_SERVER_NAME]: _removed, ...rest } = existing;
@@ -758,7 +758,7 @@ export class ClaudeEngine implements AgentEngine {
             delete (queryOptions as Record<string, unknown>).mcpServers;
           }
         }
-        console.error('[ClaudeEngine] Chrome MCP server disabled');
+        console.error('[ClaudeEngine] HumanChrome bridge disabled');
       }
 
       // Add resume option if we have a valid Claude session ID

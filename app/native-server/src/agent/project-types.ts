@@ -1,7 +1,7 @@
 /**
  * Re-export AgentProject from shared package and define local input types.
  */
-import type { AgentCliPreference, AgentProject } from 'chrome-mcp-shared';
+import type { AgentCliPreference, AgentProject } from 'humanchrome-shared';
 
 // Re-export for backward compatibility
 export type { AgentProject };
@@ -18,7 +18,7 @@ export interface CreateOrUpdateProjectInput {
    */
   useCcr?: boolean;
   /**
-   * Whether to enable the local Chrome MCP server integration for this project.
+   * Whether to enable the local HumanChrome bridge integration for this project.
    * Defaults to true when omitted.
    */
   enableChromeMcp?: boolean;

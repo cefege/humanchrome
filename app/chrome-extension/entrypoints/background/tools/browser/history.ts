@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import {
   parseISO,
   subDays,
@@ -130,6 +130,8 @@ class HistoryTool extends BaseBrowserToolExecutor {
         if (parsedStart === null) {
           return createErrorResponse(
             `Invalid format for start time: "${args.startTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'startTime' },
           );
         }
         startTimeMs = parsedStart;
@@ -144,6 +146,8 @@ class HistoryTool extends BaseBrowserToolExecutor {
         if (parsedEnd === null) {
           return createErrorResponse(
             `Invalid format for end time: "${args.endTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'endTime' },
           );
         }
         endTimeMs = parsedEnd;
@@ -154,7 +158,10 @@ class HistoryTool extends BaseBrowserToolExecutor {
 
       // Validate time range
       if (startTimeMs > endTimeMs) {
-        return createErrorResponse('Start time cannot be after end time.');
+        return createErrorResponse(
+          'Start time cannot be after end time.',
+          ToolErrorCode.INVALID_ARGS,
+        );
       }
 
       console.log(

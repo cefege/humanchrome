@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Live-test fixture: form</title>
+  </head>
+  <body>
+    <h1 id="title">Form fixture</h1>
+    <form id="primary-form" onsubmit="event.preventDefault(); document.getElementById('echo').textContent = JSON.stringify(Object.fromEntries(new FormData(this)));">
+      <label>
+        Name
+        <input id="name" name="name" type="text" />
+      </label>
+      <label>
+        Email
+        <input id="email" name="email" type="email" />
+      </label>
+      <label>
+        Color
+        <select id="color" name="color">
+          <option value="">pick</option>
+          <option value="red">red</option>
+          <option value="green">green</option>
+          <option value="blue">blue</option>
+        </select>
+      </label>
+      <label>
+        Notes
+        <textarea id="notes" name="notes"></textarea>
+      </label>
+      <label>
+        Upload
+        <input id="upload" name="upload" type="file" />
+      </label>
+      <button id="submit-btn" type="submit">Submit</button>
+    </form>
+    <pre id="echo"></pre>
+    <script>
+      console.log('fixture form ready');
+    </script>
+  </body>
+</html>

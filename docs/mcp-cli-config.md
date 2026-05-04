@@ -1,10 +1,10 @@
 # CLI MCP Configuration Guide
 
-This guide explains how to configure Codex CLI and Claude Code to connect to the Chrome MCP Server.
+This guide explains how to configure Codex CLI and Claude Code to connect to the HumanChrome.
 
 ## Overview
 
-The Chrome MCP Server exposes its MCP interface at `http://127.0.0.1:12306/mcp` (default port).
+The HumanChrome exposes its MCP interface at `http://127.0.0.1:12306/mcp` (default port).
 Both Codex CLI and Claude Code can connect to this endpoint to use Chrome browser control tools.
 
 ## Codex CLI Configuration
@@ -16,7 +16,7 @@ Add the following to your `~/.codex/config.json`:
 ```json
 {
   "mcpServers": {
-    "chrome-mcp": {
+    "humanchrome": {
       "url": "http://127.0.0.1:12306/mcp"
     }
   }
@@ -40,7 +40,7 @@ Add the following to your `~/.claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "chrome-mcp": {
+    "humanchrome": {
       "url": "http://127.0.0.1:12306/mcp"
     }
   }
@@ -54,9 +54,9 @@ If you prefer stdio-based MCP communication:
 ```json
 {
   "mcpServers": {
-    "chrome-mcp": {
+    "humanchrome": {
       "command": "node",
-      "args": ["/path/to/mcp-chrome/dist/mcp/mcp-server-stdio.js"]
+      "args": ["/path/to/humanchrome-bridge/dist/mcp/mcp-server-stdio.js"]
     }
   }
 }
@@ -64,7 +64,7 @@ If you prefer stdio-based MCP communication:
 
 ## Verifying Connection
 
-After configuration, the CLI tools should be able to see and use Chrome MCP tools such as:
+After configuration, the CLI tools should be able to see and use HumanChrome tools such as:
 
 - `chrome_get_windows_and_tabs` - Get browser window and tab information
 - `chrome_navigate` - Navigate to a URL
@@ -81,7 +81,7 @@ If you get "connection refused" errors:
 1. Ensure the Chrome extension is installed and the native server is running
 2. Check that the port matches (default: 12306)
 3. Verify no firewall is blocking localhost connections
-4. Run `mcp-chrome-bridge doctor` to diagnose issues
+4. Run `humanchrome-bridge doctor` to diagnose issues
 
 ### Tools Not Appearing
 
@@ -97,7 +97,7 @@ If port 12306 is already in use:
 
 1. Set a custom port in the extension settings
 2. Update the CLI configuration to match the new port
-3. Run `mcp-chrome-bridge update-port <new-port>` to update the stdio config
+3. Run `humanchrome-bridge update-port <new-port>` to update the stdio config
 
 ## Environment Variables
 
@@ -105,4 +105,4 @@ If port 12306 is already in use:
 | ---------------------------- | -------------------------------------- | ------- |
 | `MCP_HTTP_PORT`              | HTTP port for MCP server               | 12306   |
 | `MCP_ALLOWED_WORKSPACE_BASE` | Additional allowed workspace directory | (none)  |
-| `CHROME_MCP_NODE_PATH`       | Override Node.js executable path       | (auto)  |
+| `HUMANCHROME_NODE_PATH`      | Override Node.js executable path       | (auto)  |

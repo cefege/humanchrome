@@ -46,10 +46,10 @@ const DEFAULT_MAX_STRING_LENGTH = 10_000;
 // ----------------------------------------------------------------------------
 
 const RAW_OUTPUT_STORAGE_KEY = 'rawOutput';
-// Mihai's fork: default ON. The upstream redaction destroys LinkedIn URNs,
-// JWTs, OAuth state, and any base64-shaped data — which is the whole point
-// of the workflows that drive this fork. Set rawOutput=false in
-// chrome.storage.local to opt back in to upstream behavior.
+// HumanChrome: rawOutput defaults ON. Upstream redaction destroys LinkedIn
+// URNs, JWTs, OAuth state, and any base64-shaped data — which is exactly
+// what most production workflows need. Set `rawOutput=false` in
+// chrome.storage.local to opt back into the conservative redaction posture.
 let rawOutputCache: boolean | null = true;
 
 declare const globalThis: { __MCP_RAW_OUTPUT__?: boolean } & Record<string, unknown>;
@@ -417,7 +417,7 @@ function truncateTextBytes(
   return { text: prefix + suffix, truncated: true, originalBytes };
 }
 
-function byteLength(text: string): number {
+export function byteLength(text: string): number {
   try {
     return new TextEncoder().encode(text).length;
   } catch {

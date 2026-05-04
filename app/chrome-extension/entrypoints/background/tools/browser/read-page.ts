@@ -1,9 +1,12 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { listMarkersForUrl } from '@/entrypoints/background/element-marker/element-marker-storage';
+import { modeFromRaw, truncateArray } from '@/utils/truncate';
+
+const FALLBACK_ELEMENT_LIMIT = 150;
 
 interface ReadPageStats {
   processed: number;
@@ -17,6 +20,12 @@ interface ReadPageParams {
   refId?: string; // focus on subtree rooted at this refId
   tabId?: number; // target existing tab id
   windowId?: number; // when no tabId, pick active tab from this window
+  /**
+   * When true, skip the 150-element cap on the fallback path and return all
+   * interactive elements. Default (preview) caps and surfaces a truncation
+   * envelope so the caller can decide whether to retry.
+   */
+  raw?: boolean;
 }
 
 class ReadPageTool extends BaseBrowserToolExecutor {
@@ -179,7 +188,12 @@ class ReadPageTool extends BaseBrowserToolExecutor {
         });
 
         if (fallback && fallback.success && Array.isArray(fallback.elements)) {
-          const limited = fallback.elements.slice(0, 150);
+          const truncation = truncateArray(
+            fallback.elements,
+            FALLBACK_ELEMENT_LIMIT,
+            modeFromRaw(args?.raw),
+          );
+          const limited = truncation.data;
           // Merge user markers at the front, de-duplicated by selector
           const markerEls = userMarkers.map((m) => ({
             type: 'marker',
@@ -198,6 +212,13 @@ class ReadPageTool extends BaseBrowserToolExecutor {
           basePayload.reason = treeOk ? 'sparse_tree' : resp?.error || 'tree_failed';
           basePayload.elements = merged;
           basePayload.count = fallback.elements.length;
+          basePayload.truncation = {
+            truncated: truncation.truncated,
+            originalSize: truncation.originalSize,
+            limit: truncation.limit,
+            rawAvailable: truncation.rawAvailable,
+            unit: 'elements',
+          };
           if (!basePayload.pageContent) {
             basePayload.pageContent = formatElementsAsPageContent(merged);
           }

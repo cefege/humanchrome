@@ -7,8 +7,8 @@ if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "NODE_SCRIPT=%SCRIPT_DIR%\index.js"
 
 REM Setup log directory - prefer user-writable locations
-REM Windows: %LOCALAPPDATA%\mcp-chrome-bridge\logs
-set "LOG_DIR=%LOCALAPPDATA%\mcp-chrome-bridge\logs"
+REM Windows: %LOCALAPPDATA%\humanchrome-bridge\logs
+set "LOG_DIR=%LOCALAPPDATA%\humanchrome-bridge\logs"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" 2>nul
 if not exist "%LOG_DIR%" (
     REM Fallback to package directory if user directory not writable
@@ -27,7 +27,7 @@ echo SCRIPT_DIR: %SCRIPT_DIR% >> "%WRAPPER_LOG%"
 echo LOG_DIR: %LOG_DIR% >> "%WRAPPER_LOG%"
 echo NODE_SCRIPT: %NODE_SCRIPT% >> "%WRAPPER_LOG%"
 echo Initial PATH: %PATH% >> "%WRAPPER_LOG%"
-echo CHROME_MCP_NODE_PATH: %CHROME_MCP_NODE_PATH% >> "%WRAPPER_LOG%"
+echo HUMANCHROME_NODE_PATH: %HUMANCHROME_NODE_PATH% >> "%WRAPPER_LOG%"
 echo VOLTA_HOME: %VOLTA_HOME% >> "%WRAPPER_LOG%"
 echo ASDF_DATA_DIR: %ASDF_DATA_DIR% >> "%WRAPPER_LOG%"
 echo FNM_DIR: %FNM_DIR% >> "%WRAPPER_LOG%"
@@ -38,20 +38,20 @@ REM Node.js discovery
 set "NODE_EXEC="
 set "NODE_EXEC_SOURCE="
 
-REM Priority 0: CHROME_MCP_NODE_PATH environment variable override
-echo [Priority 0] Checking CHROME_MCP_NODE_PATH override >> "%WRAPPER_LOG%"
-if defined CHROME_MCP_NODE_PATH (
-    set "CANDIDATE_NODE=%CHROME_MCP_NODE_PATH%"
+REM Priority 0: HUMANCHROME_NODE_PATH environment variable override
+echo [Priority 0] Checking HUMANCHROME_NODE_PATH override >> "%WRAPPER_LOG%"
+if defined HUMANCHROME_NODE_PATH (
+    set "CANDIDATE_NODE=%HUMANCHROME_NODE_PATH%"
     REM Check if it's a directory, then append node.exe
     if exist "!CANDIDATE_NODE!\*" (
         set "CANDIDATE_NODE=!CANDIDATE_NODE!\node.exe"
     )
     if exist "!CANDIDATE_NODE!" (
         set "NODE_EXEC=!CANDIDATE_NODE!"
-        set "NODE_EXEC_SOURCE=CHROME_MCP_NODE_PATH"
-        echo Found node via CHROME_MCP_NODE_PATH: !NODE_EXEC! >> "%WRAPPER_LOG%"
+        set "NODE_EXEC_SOURCE=HUMANCHROME_NODE_PATH"
+        echo Found node via HUMANCHROME_NODE_PATH: !NODE_EXEC! >> "%WRAPPER_LOG%"
     ) else (
-        echo CHROME_MCP_NODE_PATH is set but not found: !CANDIDATE_NODE! >> "%WRAPPER_LOG%"
+        echo HUMANCHROME_NODE_PATH is set but not found: !CANDIDATE_NODE! >> "%WRAPPER_LOG%"
     )
 )
 
@@ -157,8 +157,8 @@ if not defined NODE_EXEC (
 REM Validation
 if not defined NODE_EXEC (
     echo ERROR: Node.js executable not found! >> "%WRAPPER_LOG%"
-    echo Searched: CHROME_MCP_NODE_PATH, node_path.txt, relative, Volta, asdf, fnm, where, common paths >> "%WRAPPER_LOG%"
-    echo To fix: Set CHROME_MCP_NODE_PATH environment variable or run 'mcp-chrome-bridge doctor --fix' >> "%WRAPPER_LOG%"
+    echo Searched: HUMANCHROME_NODE_PATH, node_path.txt, relative, Volta, asdf, fnm, where, common paths >> "%WRAPPER_LOG%"
+    echo To fix: Set HUMANCHROME_NODE_PATH environment variable or run 'humanchrome-bridge doctor --fix' >> "%WRAPPER_LOG%"
     exit /B 1
 )
 

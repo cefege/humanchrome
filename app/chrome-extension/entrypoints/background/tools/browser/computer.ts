@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { ERROR_MESSAGES, TIMEOUTS } from '@/common/constants';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { clickTool, fillTool } from './interaction';
@@ -221,6 +221,7 @@ class CDPHelper {
 
 class ComputerTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.COMPUTER;
+  static readonly mutates = true;
 
   async execute(args: ComputerParams): Promise<ToolResult> {
     const params = args || ({} as ComputerParams);

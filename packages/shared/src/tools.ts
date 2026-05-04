@@ -40,6 +40,7 @@ export const TOOL_NAMES = {
     PERFORMANCE_STOP_TRACE: 'performance_stop_trace',
     PERFORMANCE_ANALYZE_INSIGHT: 'performance_analyze_insight',
     GIF_RECORDER: 'chrome_gif_recorder',
+    DEBUG_DUMP: 'chrome_debug_dump',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -182,11 +183,17 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target an existing tab by ID (default: active tab).',
+          description:
+            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
           description: 'Target window ID to pick active tab when tabId is omitted.',
+        },
+        raw: {
+          type: 'boolean',
+          description:
+            'When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger).',
         },
       },
       required: [],
@@ -199,7 +206,11 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: { type: 'number', description: 'Target tab ID (default: active tab)' },
+        tabId: {
+          type: 'number',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
+        },
         background: {
           type: 'boolean',
           description:
@@ -414,7 +425,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         tabId: {
           type: 'number',
           description:
-            'Target an existing tab by ID (if provided, navigate/refresh/back/forward that tab instead of the active tab).',
+            "Target an existing tab by ID — when provided, navigate/refresh/back/forward that tab instead of the active tab. If omitted, the bridge prefers this MCP client's last-used tab before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -456,7 +467,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         selector: { type: 'string', description: 'CSS selector for element to screenshot' },
         tabId: {
           type: 'number',
-          description: 'Target tab ID to capture from (default: active tab).',
+          description:
+            "Target tab ID to capture from. If omitted, the bridge uses this MCP client's preferred tab before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -536,7 +548,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target an existing tab by ID (default: active tab).',
+          description:
+            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         background: {
           type: 'boolean',
@@ -600,7 +613,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
     description:
-      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).',
+      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -660,7 +673,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         tabId: {
           type: 'number',
           description:
-            'Tab to listen on. When omitted, uses the currently active tab in the focused window.',
+            "Tab to listen on. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         return_body: {
           type: 'boolean',
@@ -873,19 +886,32 @@ export const TOOL_SCHEMAS: Tool[] = [
   // },
   {
     name: TOOL_NAMES.BROWSER.JAVASCRIPT,
-    description:
-      'Execute JavaScript code in a browser tab and return the result. Uses CDP Runtime.evaluate with awaitPromise and returnByValue; automatically falls back to chrome.scripting.executeScript if the debugger is busy. Output is sanitized (sensitive data redacted) and truncated by default.',
+    description: [
+      'Execute JavaScript code in a browser tab and return the result.',
+      '',
+      'Engine: CDP Runtime.evaluate with awaitPromise + returnByValue. Falls back to chrome.scripting.executeScript (ISOLATED world) when the debugger is busy — note that fallback runs without page-context globals.',
+      '',
+      'Wrapping: Code runs inside `(async () => { ... })()` so top-level `await` works. A bare expression (e.g. `1+2`, `document.title`) is auto-`return`ed; a multi-statement body must `return` explicitly.',
+      '',
+      'Output: Result is sanitized (sensitive keys redacted unless raw mode is enabled) and capped at `maxOutputBytes` (default 51200). The response carries `{success, engine, result, truncated, redacted, metrics}` — branch on `truncated` to decide whether to retry with a larger `maxOutputBytes`.',
+      '',
+      'Examples:',
+      '  • Read a value: `chrome_javascript({ code: "document.title" })`',
+      '  • Async fetch: `chrome_javascript({ code: "await (await fetch(\'/api/me\')).json()" })`',
+      '  • Multi-line: `chrome_javascript({ code: "const xs = [...document.querySelectorAll(\'a\')]; return xs.map(a => a.href).slice(0,5);" })`',
+    ].join('\n'),
     inputSchema: {
       type: 'object',
       properties: {
         code: {
           type: 'string',
           description:
-            'JavaScript code to execute. Runs inside an async function body, so top-level await and "return ..." are supported.',
+            'JavaScript code to execute. Runs inside an async function body, so top-level await and "return ..." are supported. Bare trailing expressions are auto-returned.',
         },
         tabId: {
           type: 'number',
-          description: 'Target tab ID. If omitted, uses the current active tab.',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on); otherwise the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         timeoutMs: {
           type: 'number',
@@ -894,7 +920,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         maxOutputBytes: {
           type: 'number',
           description:
-            'Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit will be truncated.',
+            'Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit is truncated and `truncated:true` is set in the response — pass a larger value to opt into a fuller read.',
         },
       },
       required: ['code'],
@@ -958,7 +984,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target tab ID. If omitted, uses the current active tab.',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -999,7 +1026,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target tab ID. If omitted, uses the current active tab.',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -1054,7 +1082,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target tab ID. If omitted, uses the current active tab.',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -1091,7 +1120,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target tab ID. If omitted, uses the current active tab.',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -1108,7 +1138,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CONSOLE,
     description:
-      'Capture console output from a browser tab. Supports snapshot mode (default; one-time capture with ~2s wait) and buffer mode (persistent per-tab buffer you can read/clear instantly without waiting).',
+      "Capture console output from a browser tab. Supports snapshot mode (default; one-time capture with ~2s wait) and buffer mode (persistent per-tab buffer you can read/clear instantly without waiting).\n\nResponse includes a `truncation` field of shape `{truncated, originalSize?, limit, rawAvailable, unit:'messages', argsTruncated}` so callers can detect whether the message cap or the per-arg serializer caps were hit. When `argsTruncated:true` and `rawAvailable:true`, retry with `raw:true` to skip per-arg caps (snapshot mode only).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1119,7 +1149,8 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Target an existing tab by ID (default: active tab).',
+          description:
+            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
         },
         windowId: {
           type: 'number',
@@ -1173,6 +1204,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Limit returned console messages. In snapshot mode this is an alias for maxMessages; in buffer mode it limits returned messages from the buffer.',
         },
+        raw: {
+          type: 'boolean',
+          description:
+            "Snapshot mode only: skip the per-arg serializer caps (maxDepth=3, maxProps=100) so deeply nested or large console arguments survive intact. Use when the previous response's `truncation.argsTruncated` was true. Buffer mode replays already-serialized args and ignores this flag.",
+        },
       },
       required: [],
     },
@@ -1184,7 +1220,11 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: { type: 'number', description: 'Target tab ID (default: active tab)' },
+        tabId: {
+          type: 'number',
+          description:
+            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
+        },
         windowId: {
           type: 'number',
           description: 'Target window ID to pick active tab when tabId is omitted',
@@ -1432,6 +1472,46 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.DEBUG_DUMP,
+    description:
+      'Return recent debug-log entries from the extension. Each entry includes a `requestId` correlating to the MCP tool call that produced it, plus tool name, optional tabId, level, message, and structured data. Use this to diagnose why a previous tool call failed without re-running it. Filters compose (AND).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requestId: {
+          type: 'string',
+          description: 'Only return entries with this correlation id.',
+        },
+        tool: {
+          type: 'string',
+          description: 'Only return entries for this tool name (e.g. "chrome_navigate").',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Only return entries scoped to this tabId.',
+        },
+        level: {
+          type: 'string',
+          enum: ['debug', 'info', 'warn', 'error'],
+          description: 'Filter by severity.',
+        },
+        sinceMs: {
+          type: 'number',
+          description: 'Absolute epoch milliseconds — only return entries newer than this.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum entries to return. Defaults to 200, max 1000.',
+        },
+        clear: {
+          type: 'boolean',
+          description: 'When true, wipe the buffer instead of returning entries.',
+        },
+      },
+      required: [],
     },
   },
 ];

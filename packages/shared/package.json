@@ -1,7 +1,18 @@
 {
-  "name": "chrome-mcp-shared",
-  "version": "1.0.1",
-  "author": "hangye",
+  "name": "humanchrome-shared",
+  "version": "1.0.0",
+  "description": "Shared types and constants for HumanChrome.",
+  "author": "Mihai Mateias",
+  "license": "MIT",
+  "homepage": "https://github.com/cefege/humanchrome",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cefege/humanchrome.git",
+    "directory": "packages/shared"
+  },
+  "bugs": {
+    "url": "https://github.com/cefege/humanchrome/issues"
+  },
   "main": "dist/index.js",
   "module": "./dist/index.mjs",
   "types": "dist/index.d.ts",

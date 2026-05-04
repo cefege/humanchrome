@@ -1,0 +1,98 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much as you can; reproduction steps and version info are the most useful.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug. What did you expect, and what happened instead?
+      placeholder: When I run X, I expect Y, but instead Z happens.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or tool calls. Copy-pasteable is best.
+      placeholder: |
+        1. Install `humanchrome-bridge`
+        2. Run `curl -X POST ...`
+        3. Observe ...
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: bridge-version
+    attributes:
+      label: Bridge version
+      description: Output of `humanchrome-bridge -V`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      description: From `chrome://version`.
+      placeholder: "Chrome 131.0.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 14.5 / Windows 11 / Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: How are you connecting to the bridge?
+      options:
+        - Claude Desktop (Streamable HTTP)
+        - Claude Desktop (stdio)
+        - Cursor
+        - Cherry Studio
+        - Continue
+        - Plain HTTP (curl, custom script)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: Doctor output
+      description: Run `humanchrome-bridge doctor` and paste the result.
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Bridge logs live at:
+        - macOS: `~/Library/Logs/humanchrome-bridge`
+        - Windows: `%LOCALAPPDATA%\humanchrome-bridge\logs`
+        - Linux: `~/.local/state/humanchrome-bridge/logs`
+      render: shell
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I've searched existing issues and don't see a duplicate.
+          required: true

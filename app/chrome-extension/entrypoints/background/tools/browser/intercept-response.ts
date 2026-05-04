@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 /**
@@ -86,7 +86,9 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
 
   async execute(args: InterceptResponseParams): Promise<ToolResult> {
     if (!args || typeof args.url_pattern !== 'string' || !args.url_pattern.trim()) {
-      return createErrorResponse('url_pattern is required');
+      return createErrorResponse('url_pattern is required', ToolErrorCode.INVALID_ARGS, {
+        arg: 'url_pattern',
+      });
     }
     const timeoutMs = Math.min(
       MAX_TIMEOUT_MS,
@@ -141,6 +143,8 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
         resolve(
           createErrorResponse(
             `Timed out after ${timeoutMs}ms waiting for response matching "${args.url_pattern}" on tab ${tabId}`,
+            ToolErrorCode.TIMEOUT,
+            { tabId },
           ),
         );
       }, timeoutMs);

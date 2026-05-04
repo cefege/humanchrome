@@ -1,4 +1,4 @@
-import { NativeMessageType } from 'chrome-mcp-shared';
+import { NativeMessageType } from 'humanchrome-shared';
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import { NATIVE_HOST, STORAGE_KEYS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/common/constants';
 import { handleCallTool } from './tools';
@@ -9,6 +9,53 @@ const LOG_PREFIX = '[NativeHost]';
 
 let nativePort: chrome.runtime.Port | null = null;
 export const HOST_NAME = NATIVE_HOST.NAME;
+
+// Background-context callers that need a request/response round-trip with the
+// native host (file uploads, perf traces) used to go through a
+// `chrome.runtime.sendMessage({type: 'forward_to_native'})` round-trip and
+// listen via `chrome.runtime.onMessage`. That doesn't work from the
+// background SW — `chrome.runtime.sendMessage` doesn't deliver to listeners
+// in the same context, so the response is never observed and callers time
+// out. This map owns pending direct-to-native requests by id; the
+// nativePort.onMessage handler resolves them on `file_operation_response`.
+interface PendingNativeRequest {
+  resolve: (payload: any) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+const pendingNativeRequests = new Map<string, PendingNativeRequest>();
+
+/**
+ * Post a request directly to the native host and resolve when its
+ * `file_operation_response` (or compatible) arrives matching `requestId`.
+ *
+ * Use this from background-context tools instead of the `forward_to_native`
+ * runtime-message dance — the latter only works from non-background contexts.
+ */
+export function sendNativeRequest<T = any>(
+  type: string,
+  payload: any,
+  timeoutMs = 30_000,
+): Promise<T> {
+  if (!nativePort) {
+    return Promise.reject(new Error('Native host not connected'));
+  }
+  const requestId = `native-req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingNativeRequests.delete(requestId);
+      reject(new Error(`Native request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    pendingNativeRequests.set(requestId, { resolve, reject, timer });
+    try {
+      nativePort!.postMessage({ type, requestId, payload });
+    } catch (err) {
+      clearTimeout(timer);
+      pendingNativeRequests.delete(requestId);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
 
 // ==================== Reconnect Configuration ====================
 
@@ -358,8 +405,9 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         });
       } else if (message.type === NativeMessageType.CALL_TOOL && message.requestId) {
         const requestId = message.requestId;
+        const clientId: string | undefined = message.clientId;
         try {
-          const result = await handleCallTool(message.payload);
+          const result = await handleCallTool(message.payload, requestId, clientId);
           nativePort?.postMessage({
             responseToRequestId: requestId,
             payload: {
@@ -430,16 +478,38 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
       } else if (message.type === NativeMessageType.ERROR_FROM_NATIVE_HOST) {
         console.error('Error from native host:', message.payload?.message || 'Unknown error');
       } else if (message.type === 'file_operation_response') {
-        // Forward file operation response back to the requesting tool
-        chrome.runtime.sendMessage(message).catch(() => {
-          // Ignore if no listeners
-        });
+        // Resolve a pending direct-to-native request (background-context
+        // callers that used sendNativeRequest). Fall through to the legacy
+        // runtime-message broadcast for any non-background listener that
+        // might still depend on it (e.g. content scripts).
+        const id = message.responseToRequestId as string | undefined;
+        const pending = id ? pendingNativeRequests.get(id) : undefined;
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingNativeRequests.delete(id!);
+          if (message.error) {
+            pending.reject(new Error(message.error));
+          } else {
+            pending.resolve(message.payload);
+          }
+        } else {
+          chrome.runtime.sendMessage(message).catch(() => {
+            // Ignore if no listeners
+          });
+        }
       }
     });
 
     nativePort.onDisconnect.addListener(() => {
       console.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, chrome.runtime.lastError);
       nativePort = null;
+      // Reject any in-flight direct-to-native requests so callers don't hang
+      // until their own timeouts fire.
+      for (const [id, pending] of pendingNativeRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Native host disconnected'));
+        pendingNativeRequests.delete(id);
+      }
 
       // Mark server as stopped since native host disconnection means server is down
       void markServerStopped('native_port_disconnected');

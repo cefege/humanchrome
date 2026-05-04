@@ -1,7 +1,17 @@
 {
-  "name": "chrome-mcp-server",
-  "description": "a chrome extension to use your own chrome as a mcp server",
-  "author": "hangye",
+  "name": "humanchrome-extension",
+  "description": "Chrome extension that exposes your real, signed-in Chrome to AI clients.",
+  "author": "Mihai Mateias",
+  "license": "MIT",
+  "homepage": "https://github.com/cefege/humanchrome",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cefege/humanchrome.git",
+    "directory": "app/chrome-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/cefege/humanchrome/issues"
+  },
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -28,7 +38,7 @@
     "@vue-flow/core": "^1.47.0",
     "@vue-flow/minimap": "^1.5.4",
     "@xenova/transformers": "^2.17.2",
-    "chrome-mcp-shared": "workspace:*",
+    "humanchrome-shared": "workspace:*",
     "date-fns": "^4.1.0",
     "elkjs": "^0.11.0",
     "gifenc": "^1.0.3",

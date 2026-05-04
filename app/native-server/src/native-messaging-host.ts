@@ -1,7 +1,7 @@
 import { stdin, stdout } from 'process';
 import { Server } from './server';
 import { v4 as uuidv4 } from 'uuid';
-import { NativeMessageType } from 'chrome-mcp-shared';
+import { NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
 
@@ -188,31 +188,48 @@ export class NativeMessagingHost {
    * Send request to Chrome and wait for response
    * @param messagePayload Data to send to Chrome
    * @param timeoutMs Timeout for waiting response (milliseconds)
+   * @param requestId Optional pre-generated correlation ID. If omitted, a uuid
+   *   is generated and the value is hidden from the caller. Pre-generate when
+   *   you need to log the same ID alongside this call.
+   * @param clientId Optional MCP-session identifier. The extension uses it to
+   *   maintain per-client preferred-tab state so two clients don't collide on
+   *   the active-tab fallback.
    * @returns Promise, resolves to Chrome's returned payload on success, rejects on failure
    */
   public sendRequestToExtensionAndWait(
     messagePayload: any,
     messageType: string = 'request_data',
     timeoutMs: number = TIMEOUTS.DEFAULT_REQUEST_TIMEOUT,
+    requestId?: string,
+    clientId?: string,
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const requestId = uuidv4(); // Generate unique request ID
+      const id = requestId || uuidv4();
 
       const timeoutId = setTimeout(() => {
-        this.pendingRequests.delete(requestId); // Remove from Map after timeout
+        this.pendingRequests.delete(id);
         reject(new Error(`Request timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      // Store request's resolve/reject functions and timeout ID
-      this.pendingRequests.set(requestId, { resolve, reject, timeoutId });
+      this.pendingRequests.set(id, { resolve, reject, timeoutId });
 
-      // Send message with requestId to Chrome
-      this.sendMessage({
-        type: messageType, // Define a request type, e.g. 'request_data'
+      const envelope: any = {
+        type: messageType,
         payload: messagePayload,
-        requestId: requestId, // <--- Key: include request ID
-      });
+        requestId: id,
+      };
+      if (clientId) envelope.clientId = clientId;
+      this.sendMessage(envelope);
     });
+  }
+
+  /**
+   * Generate a fresh correlation id without sending anything. Pair with
+   * `sendRequestToExtensionAndWait(payload, type, timeout, id)` when you
+   * want to log the id before the request.
+   */
+  public newRequestId(): string {
+    return uuidv4();
   }
 
   /**

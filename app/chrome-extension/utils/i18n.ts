@@ -6,8 +6,9 @@
 // Fallback messages for when Chrome APIs aren't available (English)
 const fallbackMessages: Record<string, string> = {
   // Extension metadata
-  extensionName: 'chrome-mcp-server',
-  extensionDescription: 'Exposes browser capabilities with your own chrome',
+  extensionName: 'HumanChrome',
+  extensionDescription:
+    'AI controls your real Chrome. Built for hard-to-automate platforms: LinkedIn, WhatsApp, Tinder, Facebook, Instagram.',
 
   // Section headers
   nativeServerConfigLabel: 'Native Server Configuration',

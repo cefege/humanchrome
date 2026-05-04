@@ -115,8 +115,8 @@ program
               'yellow',
             ),
           );
-          console.log(colorText('  1. sudo mcp-chrome-bridge register', 'yellow'));
-          console.log(colorText('  2. mcp-chrome-bridge register --system', 'yellow'));
+          console.log(colorText('  1. sudo humanchrome-bridge register', 'yellow'));
+          console.log(colorText('  2. humanchrome-bridge register --system', 'yellow'));
           process.exit(1);
         }
       }

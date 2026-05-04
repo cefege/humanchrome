@@ -15,8 +15,13 @@ import { setupTools } from './register-tools';
  * so handing each session its own Server instance is safe and eliminates the
  * "Already connected" failure mode entirely. Mirrors upstream PRs #295/#301/#338
  * which converged on this exact fix.
+ *
+ * @param clientId  Optional MCP-session identifier. When provided, every tool
+ *   call routed through this server will carry the id into the native-messaging
+ *   envelope so the extension can keep per-client state (preferred tab, etc.).
+ *   Omit only for backward-compatible call sites.
  */
-export const createMcpServer = (): Server => {
+export const createMcpServer = (clientId?: string): Server => {
   const server = new Server(
     {
       name: 'ChromeMcpServer',
@@ -29,7 +34,7 @@ export const createMcpServer = (): Server => {
     },
   );
 
-  setupTools(server);
+  setupTools(server, clientId);
   return server;
 };
 

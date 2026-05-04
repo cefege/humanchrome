@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a new tool, capability, or improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: a quick discussion in the [Discussions tab](https://github.com/cefege/humanchrome/discussions) often shapes the request faster than an issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow you want to enable or the friction you're hitting.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you imagine this working? A new tool? A flag on an existing tool? An API endpoint?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, other tools that solve a piece of this, or related approaches.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that helps. Use case, target site, scale.

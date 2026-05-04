@@ -25,6 +25,18 @@ export interface NativeMessage<P = any, E = any> {
   responseToRequestId?: string;
   payload?: P;
   error?: E;
+  /**
+   * Per-call correlation id propagated end-to-end. Set by the native server
+   * before a request leaves stdout; the extension echoes it back on the
+   * response and tags its own debug-log entries with it.
+   */
+  requestId?: string;
+  /**
+   * Identity of the MCP HTTP/SSE session that originated the call. The
+   * extension uses it to keep per-client preferred-tab state so two MCP
+   * clients (e.g. Claude Code + curl) don't collide on the active tab.
+   */
+  clientId?: string;
 }
 
 // ============================================================

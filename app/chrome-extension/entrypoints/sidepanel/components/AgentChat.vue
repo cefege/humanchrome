@@ -167,7 +167,7 @@
 
 <script lang="ts" setup>
 import { ref, computed, onMounted, onUnmounted, watch, provide } from 'vue';
-import type { AgentStoredMessage, AgentMessage, CodexReasoningEffort } from 'chrome-mcp-shared';
+import type { AgentStoredMessage, AgentMessage, CodexReasoningEffort } from 'humanchrome-shared';
 
 // Composables
 import {
@@ -186,7 +186,7 @@ import {
   AGENT_SERVER_PORT_KEY,
   type AgentThemeId,
 } from '../composables';
-import type { OpenProjectTarget } from 'chrome-mcp-shared';
+import type { OpenProjectTarget } from 'humanchrome-shared';
 
 // New UI Components
 import {
@@ -264,7 +264,7 @@ const openProjectContext = ref<{ type: 'session' | 'project'; id: string } | nul
 const sessionSettingsOpen = ref(false);
 const sessionSettingsLoading = ref(false);
 const sessionSettingsSaving = ref(false);
-const currentManagementInfo = ref<import('chrome-mcp-shared').AgentManagementInfo | null>(null);
+const currentManagementInfo = ref<import('humanchrome-shared').AgentManagementInfo | null>(null);
 
 // Attachment cache panel state
 const attachmentCacheOpen = ref(false);

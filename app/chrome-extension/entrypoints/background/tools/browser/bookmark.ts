@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getMessage } from '@/utils/i18n';
 
 /**
@@ -273,7 +273,11 @@ class BookmarkSearchTool extends BaseBrowserToolExecutor {
       if (folderPath) {
         targetFolderNode = await findFolderByPathOrId(folderPath);
         if (!targetFolderNode) {
-          return createErrorResponse(`Specified folder not found: "${folderPath}"`);
+          return createErrorResponse(
+            `Specified folder not found: "${folderPath}"`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'folderPath' },
+          );
         }
         // Get all bookmarks in that folder and its subfolders
         const subTree = await chrome.bookmarks.getSubTree(targetFolderNode.id);
@@ -380,7 +384,10 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tabs[0] || !tabs[0].url) {
           // tab.url might be undefined (e.g., chrome:// pages)
-          return createErrorResponse('No active tab with valid URL found, and no URL provided');
+          return createErrorResponse(
+            'No active tab with valid URL found, and no URL provided',
+            ToolErrorCode.TAB_NOT_FOUND,
+          );
         }
 
         bookmarkUrl = tabs[0].url;
@@ -391,7 +398,13 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
 
       if (!bookmarkUrl) {
         // Should have been caught above, but as a safety measure
-        return createErrorResponse('URL is required to create bookmark');
+        return createErrorResponse(
+          'URL is required to create bookmark',
+          ToolErrorCode.INVALID_ARGS,
+          {
+            arg: 'url',
+          },
+        );
       }
 
       // Parse parentId (could be ID or path string)
@@ -421,11 +434,15 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
             } else {
               return createErrorResponse(
                 `Specified parent folder (ID/path: "${parentId}") not found or is not a folder${createFolder ? ', and creation failed' : '. You can set createFolder=true to auto-create folders'}`,
+                ToolErrorCode.INVALID_ARGS,
+                { arg: 'parentId' },
               );
             }
           } catch (e) {
             return createErrorResponse(
               `Specified parent folder (ID/path: "${parentId}") not found or invalid${createFolder ? ', and creation failed' : '. You can set createFolder=true to auto-create folders'}`,
+              ToolErrorCode.INVALID_ARGS,
+              { arg: 'parentId' },
             );
           }
         }
@@ -509,7 +526,10 @@ class BookmarkDeleteTool extends BaseBrowserToolExecutor {
     console.log(`BookmarkDeleteTool: Deleting bookmark, options:`, args);
 
     if (!bookmarkId && !url) {
-      return createErrorResponse('Must provide bookmark ID or URL to delete bookmark');
+      return createErrorResponse(
+        'Must provide bookmark ID or URL to delete bookmark',
+        ToolErrorCode.INVALID_ARGS,
+      );
     }
 
     try {
@@ -524,10 +544,16 @@ class BookmarkDeleteTool extends BaseBrowserToolExecutor {
           } else {
             return createErrorResponse(
               `Bookmark with ID "${bookmarkId}" not found, or the ID does not correspond to a bookmark`,
+              ToolErrorCode.INVALID_ARGS,
+              { arg: 'bookmarkId' },
             );
           }
         } catch (error) {
-          return createErrorResponse(`Invalid bookmark ID: "${bookmarkId}"`);
+          return createErrorResponse(
+            `Invalid bookmark ID: "${bookmarkId}"`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'bookmarkId' },
+          );
         }
       } else if (url) {
         // Delete by URL
@@ -535,6 +561,8 @@ class BookmarkDeleteTool extends BaseBrowserToolExecutor {
         if (bookmarksToDelete.length === 0) {
           return createErrorResponse(
             `No bookmark found with URL "${url}"${title ? ` (title contains: "${title}")` : ''}`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'url' },
           );
         }
       }

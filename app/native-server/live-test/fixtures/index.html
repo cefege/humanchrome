@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Live-test fixture: index</title>
+  </head>
+  <body>
+    <h1 id="title">Live-test fixture</h1>
+    <p id="instructions">A predictable page used by the MCP bridge live-test harness.</p>
+    <button id="primary-btn" data-test="primary">Click me</button>
+    <button id="secondary-btn" data-test="secondary">Other</button>
+    <a id="next-link" href="/long-page.html">go to long page</a>
+    <a id="form-link" href="/form.html">go to form</a>
+    <div id="result" data-clicked="0"></div>
+    <script>
+      // Increment data-clicked on each button press so click tests can verify
+      // the action ran on this exact document.
+      document.querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const r = document.getElementById('result');
+          r.dataset.clicked = String(Number(r.dataset.clicked) + 1);
+          r.textContent = btn.id + ' clicked at ' + Date.now();
+        });
+      });
+      // Emit a few console messages so chrome_console has something to capture.
+      console.log('fixture index ready', { ts: Date.now() });
+      console.warn('fixture index warn');
+    </script>
+  </body>
+</html>

@@ -1,6 +1,10 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import {
+  createErrorResponse,
+  createErrorResponseFromThrown,
+  ToolResult,
+} from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 
@@ -31,6 +35,7 @@ interface ClickToolParams {
  */
 class ClickTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.CLICK;
+  static readonly mutates = true;
 
   /**
    * Execute click operation
@@ -65,6 +70,17 @@ class ClickTool extends BaseBrowserToolExecutor {
         return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
       }
 
+      // Snapshot the document we're targeting. Click can legitimately navigate
+      // (waitForNavigation:true), so we only assert the document hasn't changed
+      // *before* the click fires — catching the case where the page navigated
+      // between ref resolution and dispatch (silent wrong-target execution).
+      // Snapshot in parallel with click-helper injection — they're independent
+      // and both incur an IPC round-trip.
+      const [snapshot] = await Promise.all([
+        this.snapshotTabState(tab.id),
+        this.injectContentScript(tab.id, ['inject-scripts/click-helper.js']),
+      ]);
+
       let finalRef = args.ref;
       let finalSelector = selector;
 
@@ -96,7 +112,7 @@ class ClickTool extends BaseBrowserToolExecutor {
         }
       }
 
-      await this.injectContentScript(tab.id, ['inject-scripts/click-helper.js']);
+      await this.assertSameDocument(snapshot);
 
       // Send click message to content script
       const result = await this.sendMessageToTab(
@@ -146,9 +162,7 @@ class ClickTool extends BaseBrowserToolExecutor {
       };
     } catch (error) {
       console.error('Error in click operation:', error);
-      return createErrorResponse(
-        `Error performing click: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      return createErrorResponseFromThrown(error);
     }
   }
 }
@@ -171,6 +185,7 @@ interface FillToolParams {
  */
 class FillTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.FILL;
+  static readonly mutates = true;
 
   /**
    * Execute fill operation
@@ -228,16 +243,20 @@ class FillTool extends BaseBrowserToolExecutor {
 
       await this.injectContentScript(tab.id, ['inject-scripts/fill-helper.js']);
 
-      // Send fill message to content script
-      const result = await this.sendMessageToTab(
-        tab.id,
-        {
-          action: TOOL_MESSAGE_TYPES.FILL_ELEMENT,
-          selector: finalSelector,
-          ref: finalRef,
-          value,
-        },
-        frameId,
+      // Fill should never navigate. Wrap with the snapshot+post-assert guard so
+      // a mid-call hard navigation surfaces as TARGET_NAVIGATED_AWAY rather
+      // than the value getting written to the wrong document silently.
+      const result = await this.withNavigationGuard(tab.id, () =>
+        this.sendMessageToTab(
+          tab.id,
+          {
+            action: TOOL_MESSAGE_TYPES.FILL_ELEMENT,
+            selector: finalSelector,
+            ref: finalRef,
+            value,
+          },
+          frameId,
+        ),
       );
 
       if (result && result.error) {
@@ -259,9 +278,7 @@ class FillTool extends BaseBrowserToolExecutor {
       };
     } catch (error) {
       console.error('Error in fill operation:', error);
-      return createErrorResponse(
-        `Error filling element: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      return createErrorResponseFromThrown(error);
     }
   }
 }

@@ -786,7 +786,7 @@ export async function runReport(options: ReportOptions): Promise<number> {
         os: { type: os.type(), release: os.release(), version: safeOsVersion() },
         cwd: process.cwd(),
         env: {
-          CHROME_MCP_NODE_PATH: process.env.CHROME_MCP_NODE_PATH ?? null,
+          HUMANCHROME_NODE_PATH: process.env.HUMANCHROME_NODE_PATH ?? null,
           VOLTA_HOME: process.env.VOLTA_HOME ?? null,
           ASDF_DATA_DIR: process.env.ASDF_DATA_DIR ?? null,
           FNM_DIR: process.env.FNM_DIR ?? null,

@@ -14,6 +14,9 @@ stats-*.json
 .wxt
 web-ext.config.ts
 dist
+build/
+*.tgz
+app/native-server/live-test/results/
 
 # Editor directories and files
 .vscode/*

@@ -1,6 +1,10 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import {
+  createErrorResponse,
+  createErrorResponseFromThrown,
+  ToolResult,
+} from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 
@@ -19,6 +23,7 @@ interface KeyboardToolParams {
  */
 class KeyboardTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.KEYBOARD;
+  static readonly mutates = true;
 
   /**
    * Execute keyboard operation
@@ -31,6 +36,8 @@ class KeyboardTool extends BaseBrowserToolExecutor {
     if (!keys) {
       return createErrorResponse(
         ERROR_MESSAGES.INVALID_PARAMETERS + ': Keys parameter must be provided',
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'keys' },
       );
     }
 
@@ -38,14 +45,25 @@ class KeyboardTool extends BaseBrowserToolExecutor {
       const explicit = await this.tryGetTab(args.tabId);
       const tab = explicit || (await this.getActiveTabOrThrowInWindow(args.windowId));
       if (!tab.id) {
-        return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
+        return createErrorResponse(
+          ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID',
+          ToolErrorCode.TAB_NOT_FOUND,
+          { tabId: args.tabId },
+        );
       }
+
+      // Snapshot the document we're targeting. Enter on a form can legitimately
+      // navigate, so we only assert pre-action — catching the case where the
+      // page navigated between resolution and dispatch (silent wrong-target
+      // execution). Snapshot in parallel with a11y-helper injection — both
+      // are independent IPC round-trips.
+      const [snapshot] = await Promise.all([
+        this.snapshotTabState(tab.id),
+        this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']),
+      ]);
 
       let finalSelector = selector;
       let refForFocus: string | undefined = undefined;
-
-      // Ensure helper is loaded for XPath or potential focus operations
-      await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
 
       // If selector is XPath, convert to ref then try to get CSS selector
       if (selector && selectorType === 'xpath') {
@@ -104,6 +122,8 @@ class KeyboardTool extends BaseBrowserToolExecutor {
         frameIds,
       );
 
+      await this.assertSameDocument(snapshot);
+
       // Send keyboard simulation message to content script
       const result = await this.sendMessageToTab(
         tab.id,
@@ -136,9 +156,7 @@ class KeyboardTool extends BaseBrowserToolExecutor {
       };
     } catch (error) {
       console.error('Error in keyboard operation:', error);
-      return createErrorResponse(
-        `Error simulating keyboard events: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      return createErrorResponseFromThrown(error);
     }
   }
 }

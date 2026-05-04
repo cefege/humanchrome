@@ -16,11 +16,15 @@ const require = createRequire(import.meta.url);
 
 // Pre-set port env vars so module-time port reads pick up the alt port.
 const PORT = 12399;
-process.env.CHROME_MCP_PORT = String(PORT);
+process.env.HUMANCHROME_PORT = String(PORT);
 process.env.MCP_HTTP_PORT = String(PORT);
 
 // Pull the pre-built singleton Server instance.
 const Server = require('./dist/server/index.js').default;
+
+// Shared MCP response parser (handles SSE multi-frame correctly — picks the
+// last `data:` rather than the first, which the inline parser used to drop).
+const { parseMcpResponseBody } = await import('./test-helpers/parse-mcp-response.mjs');
 
 const initBody = {
   jsonrpc: '2.0',
@@ -50,24 +54,7 @@ async function rpc(url, init = {}) {
   const resp = await fetch(url, init);
   const sessionId = resp.headers.get('mcp-session-id') || undefined;
   const text = await resp.text();
-  let body = text;
-  if (text.includes('event:') && text.includes('data:')) {
-    const dataLine = text.split('\n').find((l) => l.startsWith('data:'));
-    if (dataLine) {
-      try {
-        body = JSON.parse(dataLine.slice(5).trim());
-      } catch {
-        body = text;
-      }
-    }
-  } else {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  }
-  return { status: resp.status, body, sessionId };
+  return { status: resp.status, body: parseMcpResponseBody(text) ?? text, sessionId };
 }
 
 async function main() {
@@ -120,6 +107,25 @@ async function main() {
       'T11 follow-up: fresh init succeeds with new session',
       status === 200 && !!sessionId && sessionId !== s1 && sessionId !== s2,
       sessionId,
+    );
+  }
+
+  // REST surface — catalog + OpenAPI must be reachable even with no extension
+  // (dynamic flows fail fast and fall back to TOOL_SCHEMAS).
+  {
+    const r = await fetch(`${baseUrl}/api/tools`);
+    const j = await r.json();
+    const ok = r.status === 200 && Array.isArray(j.tools) && j.tools.length > 0;
+    log('REST /api/tools: returns tool catalog', ok, `count=${j.tools?.length}`);
+  }
+  {
+    const r = await fetch(`${baseUrl}/api/openapi.json`);
+    const j = await r.json();
+    const ok = r.status === 200 && j.openapi === '3.1.0' && Object.keys(j.paths).length > 0;
+    log(
+      'REST /api/openapi.json: spec generated',
+      ok,
+      `openapi=${j.openapi} paths=${Object.keys(j.paths).length}`,
     );
   }
 

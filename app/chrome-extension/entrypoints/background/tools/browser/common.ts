@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { captureFrameOnAction, isAutoCaptureActive } from './gif-recorder';
 
 // Default window dimensions
@@ -23,6 +23,7 @@ interface NavigateToolParams {
  */
 class NavigateTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.NAVIGATE;
+  static readonly mutates = true;
 
   /**
    * Trigger GIF auto-capture after successful navigation
@@ -39,9 +40,6 @@ class NavigateTool extends BaseBrowserToolExecutor {
   }
 
   async execute(args: NavigateToolParams): Promise<ToolResult> {
-    // Mihai's fork: default `background: true` so chrome_navigate does NOT
-    // steal focus from whichever app is in front. Pass `background: false`
-    // explicitly when foregrounding is intentional.
     const {
       newWindow = false,
       width,
@@ -49,7 +47,7 @@ class NavigateTool extends BaseBrowserToolExecutor {
       url,
       refresh = false,
       tabId,
-      background = true,
+      background = true, // default true to avoid stealing focus; pass false to foreground
       windowId,
     } = args;
 
@@ -59,13 +57,26 @@ class NavigateTool extends BaseBrowserToolExecutor {
     );
 
     try {
+      // When the caller pinned a specific tabId, validate it exists before any
+      // fallback path. Otherwise an invalid id silently activates an unrelated
+      // tab via URL-pattern match — caller asked for tab X, got tab Y.
+      if (typeof tabId === 'number') {
+        const pinned = await this.tryGetTab(tabId);
+        if (!pinned) {
+          return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_NOT_FOUND, {
+            tabId,
+          });
+        }
+      }
+
       // Handle refresh option first
       if (refresh) {
         console.log('Refreshing current active tab');
         const explicit = await this.tryGetTab(tabId);
         // Get target tab (explicit or active in provided window)
         const targetTab = explicit || (await this.getActiveTabOrThrowInWindow(windowId));
-        if (!targetTab.id) return createErrorResponse('No target tab found to refresh');
+        if (!targetTab.id)
+          return createErrorResponse('No target tab found to refresh', ToolErrorCode.TAB_NOT_FOUND);
         await chrome.tabs.reload(targetTab.id);
 
         console.log(`Refreshed tab ID: ${targetTab.id}`);
@@ -95,7 +106,10 @@ class NavigateTool extends BaseBrowserToolExecutor {
 
       // Validate that url is provided when not refreshing
       if (!url) {
-        return createErrorResponse('URL parameter is required when refresh is not true');
+        return createErrorResponse(
+          'URL parameter is required when refresh is not true',
+          ToolErrorCode.INVALID_ARGS,
+        );
       }
 
       // Handle history navigation: url="back" or url="forward"
@@ -103,7 +117,10 @@ class NavigateTool extends BaseBrowserToolExecutor {
         const explicitTab = await this.tryGetTab(tabId);
         const targetTab = explicitTab || (await this.getActiveTabOrThrowInWindow(windowId));
         if (!targetTab.id) {
-          return createErrorResponse('No target tab found for history navigation');
+          return createErrorResponse(
+            'No target tab found for history navigation',
+            ToolErrorCode.TAB_NOT_FOUND,
+          );
         }
 
         // Respect background flag for focus behavior
@@ -157,21 +174,30 @@ class NavigateTool extends BaseBrowserToolExecutor {
             // Use host-level wildcard to include all paths; we'll do precise selection later
             const pathWildcard = '/*';
 
+            // Numeric IPs (and bracketed IPv6) reject the `www.` prefix in
+            // chrome.tabs.query — and "www.<single-label>" hosts like
+            // www.localhost don't behave the way you'd expect either. Only
+            // expand www-variants when the host looks like a multi-label
+            // domain.
+            const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(u.hostname) || u.hostname.startsWith('[');
+            const isMultiLabel = u.hostname.includes('.') && !isIp;
             const hostNoWww = u.host.replace(/^www\./, '');
             const hostWithWww = hostNoWww.startsWith('www.') ? hostNoWww : `www.${hostNoWww}`;
 
             // Keep original host
             patterns.add(`${u.protocol}//${u.host}${pathWildcard}`);
-            // Add no-www variant
-            patterns.add(`${u.protocol}//${hostNoWww}${pathWildcard}`);
-            // Add www variant
-            patterns.add(`${u.protocol}//${hostWithWww}${pathWildcard}`);
+            if (isMultiLabel) {
+              patterns.add(`${u.protocol}//${hostNoWww}${pathWildcard}`);
+              patterns.add(`${u.protocol}//${hostWithWww}${pathWildcard}`);
+            }
 
             // Add protocol variant to catch http↔https redirects
             const altProtocol = u.protocol === 'https:' ? 'http:' : 'https:';
             patterns.add(`${altProtocol}//${u.host}${pathWildcard}`);
-            patterns.add(`${altProtocol}//${hostNoWww}${pathWildcard}`);
-            patterns.add(`${altProtocol}//${hostWithWww}${pathWildcard}`);
+            if (isMultiLabel) {
+              patterns.add(`${altProtocol}//${hostNoWww}${pathWildcard}`);
+              patterns.add(`${altProtocol}//${hostWithWww}${pathWildcard}`);
+            }
           } else {
             patterns.add(input);
           }
@@ -596,7 +622,7 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
       if (!activeTab || !activeTab.id) {
-        return createErrorResponse('No active tab found');
+        return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       }
 
       await chrome.tabs.remove(activeTab.id);

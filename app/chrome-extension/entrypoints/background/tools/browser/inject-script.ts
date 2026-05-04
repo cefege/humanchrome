@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
 
 interface InjectScriptParam {
@@ -223,7 +223,7 @@ async function handleCleanup(tabId: number) {
   if (!injectedTabs.has(tabId)) return;
   // Send cleanup signal. The bridge will forward it to the MAIN world.
   chrome.tabs
-    .sendMessage(tabId, { type: 'chrome-mcp:cleanup' })
+    .sendMessage(tabId, { type: 'humanchrome:cleanup' })
     .catch((err) =>
       console.warn(`Could not send cleanup message to tab ${tabId}. It might have been closed.`),
     );

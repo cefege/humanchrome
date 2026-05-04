@@ -1,6 +1,8 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { ToolErrorCode } from 'humanchrome-shared';
+import { truncateString, type TruncateUnit } from '@/utils/truncate';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import { NETWORK_FILTERS } from '@/common/constants';
 
@@ -27,6 +29,18 @@ interface NetworkRequestInfo {
   requestBody?: string;
   responseBody?: string;
   base64Encoded?: boolean; // For responseBody
+  /**
+   * Structured truncation marker, present only when responseBody was capped.
+   * Mirrors app/chrome-extension/utils/truncate.ts envelope so callers across
+   * tools can branch consistently on `responseBodyTruncation.truncated`.
+   */
+  responseBodyTruncation?: {
+    truncated: boolean;
+    originalSize: number;
+    limit: number;
+    rawAvailable: boolean;
+    unit: TruncateUnit;
+  };
   encodedDataLength?: number; // Actual bytes received
   errorText?: string; // If loading failed
   canceled?: boolean; // If loading was canceled
@@ -447,16 +461,16 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
         // console.log(`NetworkDebuggerStartTool: Attempting to get response body for ${requestId} (${requestInfo.url})`);
         const responseBodyData = await this.getResponseBody(tabId, requestId);
         if (responseBodyData) {
-          if (
-            responseBodyData.body &&
-            responseBodyData.body.length > MAX_RESPONSE_BODY_SIZE_BYTES
-          ) {
-            requestInfo.responseBody =
-              responseBodyData.body.substring(0, MAX_RESPONSE_BODY_SIZE_BYTES) +
-              `\n\n... [Response truncated, total size: ${responseBodyData.body.length} bytes] ...`;
-          } else {
-            requestInfo.responseBody = responseBodyData.body;
-          }
+          const fullBody = responseBodyData.body || '';
+          const cap = truncateString(fullBody, MAX_RESPONSE_BODY_SIZE_BYTES);
+          requestInfo.responseBody = cap.data;
+          requestInfo.responseBodyTruncation = {
+            truncated: cap.truncated,
+            originalSize: cap.originalSize,
+            limit: cap.limit,
+            rawAvailable: cap.rawAvailable,
+            unit: 'bytes',
+          };
           requestInfo.base64Encoded = responseBodyData.base64Encoded;
           // console.log(`NetworkDebuggerStartTool: Successfully got response body for ${requestId}, size: ${requestInfo.responseBody?.length || 0} bytes`);
         }
@@ -799,12 +813,18 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
         if (activeTabs.length > 0 && activeTabs[0]?.id) {
           tabToOperateOn = activeTabs[0];
         } else {
-          return createErrorResponse('No active tab found and no URL provided.');
+          return createErrorResponse(
+            'No active tab found and no URL provided.',
+            ToolErrorCode.TAB_NOT_FOUND,
+          );
         }
       }
 
       if (!tabToOperateOn?.id) {
-        return createErrorResponse('Failed to identify or create a target tab.');
+        return createErrorResponse(
+          'Failed to identify or create a target tab.',
+          ToolErrorCode.TAB_NOT_FOUND,
+        );
       }
       const tabId = tabToOperateOn.id;
 
@@ -816,9 +836,13 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
           includeStatic,
         });
       } catch (error: any) {
-        return createErrorResponse(
-          `Failed to start capture for tab ${tabId}: ${error.message || String(error)}`,
-        );
+        const message = error?.message || String(error);
+        const code = /already attached|cannot attach|debugger.*attach/i.test(message)
+          ? ToolErrorCode.CDP_BUSY
+          : ToolErrorCode.UNKNOWN;
+        return createErrorResponse(`Failed to start capture for tab ${tabId}: ${message}`, code, {
+          tabId,
+        });
       }
 
       return {
@@ -849,9 +873,11 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
           .catch((e) => console.warn('Cleanup detach error:', e));
         this.cleanupCapture(tabIdToClean);
       }
-      return createErrorResponse(
-        `Error in NetworkDebuggerStartTool: ${error.message || String(error)}`,
-      );
+      const message = error?.message || String(error);
+      const code = /already attached|cannot attach|debugger.*attach/i.test(message)
+        ? ToolErrorCode.CDP_BUSY
+        : ToolErrorCode.UNKNOWN;
+      return createErrorResponse(`Error in NetworkDebuggerStartTool: ${message}`, code);
     }
   }
 }

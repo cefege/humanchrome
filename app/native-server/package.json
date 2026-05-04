@@ -1,16 +1,25 @@
 {
-  "name": "mcp-chrome-bridge",
-  "version": "1.0.29",
-  "description": "Chrome Native-Messaging host (Node)",
+  "name": "humanchrome-bridge",
+  "version": "1.0.0",
+  "description": "Native-messaging host that connects HumanChrome to AI clients over MCP or plain HTTP.",
+  "homepage": "https://github.com/cefege/humanchrome",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cefege/humanchrome.git",
+    "directory": "app/native-server"
+  },
+  "bugs": {
+    "url": "https://github.com/cefege/humanchrome/issues"
+  },
   "main": "dist/index.js",
   "bin": {
-    "mcp-chrome-bridge": "./dist/cli.js",
-    "chrome-mcp-bridge": "./dist/cli.js",
-    "mcp-chrome-stdio": "./dist/mcp/mcp-server-stdio.js"
+    "humanchrome-bridge": "./dist/cli.js",
+    "humanchrome-stdio": "./dist/mcp/mcp-server-stdio.js"
   },
   "scripts": {
     "dev": "nodemon --watch src --ext ts,js,json --ignore dist/ --exec \"npm run build && npm run register:dev\"",
     "build": "ts-node src/scripts/build.ts",
+    "postbuild": "node src/scripts/sync-installed.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.{js,ts}'",
@@ -29,10 +38,18 @@
   "preferGlobal": true,
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "chrome",
-    "browser"
+    "chrome-extension",
+    "browser-automation",
+    "ai-agent",
+    "claude",
+    "playwright-alternative",
+    "linkedin-automation",
+    "whatsapp-automation",
+    "humanchrome"
   ],
-  "author": "hangye",
+  "author": "Mihai Mateias",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.69",
@@ -42,7 +59,7 @@
     "better-sqlite3": "^11.6.0",
     "chalk": "^5.4.1",
     "chrome-devtools-frontend": "^1.0.1299282",
-    "chrome-mcp-shared": "workspace:*",
+    "humanchrome-shared": "workspace:*",
     "commander": "^13.1.0",
     "drizzle-orm": "^0.38.2",
     "fastify": "^5.3.2",
@@ -69,19 +86,5 @@
     "supertest": "^7.1.0",
     "ts-jest": "^29.3.2",
     "ts-node": "^10.9.2"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged"
-    }
-  },
-  "lint-staged": {
-    "*.{js,ts}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md}": [
-      "prettier --write"
-    ]
   }
 }

@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld, STORAGE_KEYS } from '@/common/constants';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
@@ -254,7 +254,7 @@ async function injectJsPersistent(
     const wrapped = `(() => {
       try {
         // Optional command API: window.__userscript_onCommand(action, payload)
-        window.addEventListener('chrome-mcp:execute', (ev) => {
+        window.addEventListener('humanchrome:execute', (ev) => {
           const { action, payload, requestId } = ev.detail || {};
           try {
             let result;
@@ -262,9 +262,9 @@ async function injectJsPersistent(
             if (typeof handler === 'function') {
               result = handler(action, payload);
             }
-            window.dispatchEvent(new CustomEvent('chrome-mcp:response', { detail: { requestId, data: result } }));
+            window.dispatchEvent(new CustomEvent('humanchrome:response', { detail: { requestId, data: result } }));
           } catch (err) {
-            window.dispatchEvent(new CustomEvent('chrome-mcp:response', { detail: { requestId, error: String(err && (err as any).message || err) } }));
+            window.dispatchEvent(new CustomEvent('humanchrome:response', { detail: { requestId, error: String(err && (err as any).message || err) } }));
           }
         });
         (new Function(${JSON.stringify(code)}))();
@@ -447,7 +447,13 @@ class UserscriptTool extends BaseBrowserToolExecutor {
         case 'export':
           return await this.exportAll();
         default:
-          return createErrorResponse(`Unknown action: ${String(action)}`);
+          return createErrorResponse(
+            `Unknown action: ${String(action)}`,
+            ToolErrorCode.INVALID_ARGS,
+            {
+              arg: 'action',
+            },
+          );
       }
     } catch (error) {
       console.error('Userscript tool error:', error);
@@ -459,7 +465,8 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async create(args: CreateArgs): Promise<ToolResult> {
     const active = await getActiveTab();
-    if (!active || !active.id) return createErrorResponse('No active tab found');
+    if (!active || !active.id)
+      return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
     const currentUrl = active.url;
 
     const emergency = (await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS_DISABLED]))[
@@ -631,10 +638,12 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async get(args: any): Promise<ToolResult> {
     const { id } = args || {};
-    if (!id) return createErrorResponse('id is required');
+    if (!id)
+      return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     const all = await loadAllRecords();
     const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
+    if (!rec)
+      return createErrorResponse('userscript not found', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     return {
       content: [{ type: 'text', text: JSON.stringify({ ok: true, record: rec }) }],
       isError: false,
@@ -643,10 +652,12 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async enable(args: any, enabled: boolean): Promise<ToolResult> {
     const { id } = args || {};
-    if (!id) return createErrorResponse('id is required');
+    if (!id)
+      return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     const all = await loadAllRecords();
     const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
+    if (!rec)
+      return createErrorResponse('userscript not found', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     rec.enabled = enabled;
     rec.updatedAt = now();
     await saveAllRecords(all);
@@ -655,10 +666,12 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async update(args: UpdateArgs): Promise<ToolResult> {
     const { id, ...rest } = args;
-    if (!id) return createErrorResponse('id is required');
+    if (!id)
+      return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     const all = await loadAllRecords();
     const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
+    if (!rec)
+      return createErrorResponse('userscript not found', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
 
     if (rest.name !== undefined) rec.name = rest.name;
     if (rest.description !== undefined) rec.description = rest.description;
@@ -678,10 +691,12 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async remove(args: any): Promise<ToolResult> {
     const { id } = args || {};
-    if (!id) return createErrorResponse('id is required');
+    if (!id)
+      return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     const all = await loadAllRecords();
     const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
+    if (!rec)
+      return createErrorResponse('userscript not found', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     delete all[id];
     await saveAllRecords(all);
 
@@ -693,7 +708,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
           await removeCssFromTab(active.id, rec.script, rec.allFrames);
         } else {
           // Send cleanup signal via bridge (MAIN) or ignore if isolated
-          chrome.tabs.sendMessage(active.id, { type: 'chrome-mcp:cleanup' }).catch(() => {});
+          chrome.tabs.sendMessage(active.id, { type: 'humanchrome:cleanup' }).catch(() => {});
         }
         clearActiveInjection(active.id, rec.id);
       } catch (err) {
@@ -706,13 +721,16 @@ class UserscriptTool extends BaseBrowserToolExecutor {
 
   private async sendCommand(args: any): Promise<ToolResult> {
     const { id, payload, tabId } = args || {};
-    if (!id) return createErrorResponse('id is required');
+    if (!id)
+      return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
     const tab = tabId ? await chrome.tabs.get(tabId).catch(() => null) : await getActiveTab();
-    if (!tab || !tab.id) return createErrorResponse('No active tab found');
+    if (!tab || !tab.id)
+      return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND, { tabId });
 
     const all = await loadAllRecords();
     const rec = all[id];
-    if (!rec) return createErrorResponse('userscript not found');
+    if (!rec)
+      return createErrorResponse('userscript not found', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
 
     try {
       if (rec.world === 'MAIN') {

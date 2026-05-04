@@ -286,8 +286,8 @@ function resolveNodeCandidate(distDir: string): NodeResolutionResult {
     return null;
   };
 
-  // Priority 0: CHROME_MCP_NODE_PATH
-  const fromEnv = consider('CHROME_MCP_NODE_PATH', process.env.CHROME_MCP_NODE_PATH);
+  // Priority 0: HUMANCHROME_NODE_PATH
+  const fromEnv = consider('HUMANCHROME_NODE_PATH', process.env.HUMANCHROME_NODE_PATH);
   if (fromEnv) {
     return { ...fromEnv, nodePathFile };
   }
@@ -629,7 +629,7 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
   const pkg = readPackageJson();
   const distDir = resolveDistDir();
   const rootDir = path.resolve(distDir, '..');
-  const packageName = typeof pkg.name === 'string' ? pkg.name : 'mcp-chrome-bridge';
+  const packageName = typeof pkg.name === 'string' ? pkg.name : 'humanchrome-bridge';
   const packageVersion = typeof pkg.version === 'string' ? pkg.version : 'unknown';
   const commandInfo = getCommandInfo(pkg);
 
@@ -739,7 +739,7 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
   const nodePathWarn =
     Boolean(nodeResolution.nodePath) &&
     (!nodeResolution.nodePathFile.exists || nodeResolution.nodePathFile.valid === false) &&
-    !process.env.CHROME_MCP_NODE_PATH;
+    !process.env.HUMANCHROME_NODE_PATH;
 
   // Determine node check status: error if not found or version too old, warn if path issue
   let nodeStatus: DoctorStatus = 'ok';
@@ -751,7 +751,7 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
     nodeMessage = 'Node.js executable not found by wrapper search order';
     nodeFix = [
       `${COMMAND_NAME} doctor --fix`,
-      `Or set CHROME_MCP_NODE_PATH to an absolute node path`,
+      `Or set HUMANCHROME_NODE_PATH to an absolute node path`,
     ];
     nextSteps.push(`${COMMAND_NAME} doctor --fix`);
   } else if (nodeResolution.versionError) {
@@ -772,7 +772,7 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
     nodeMessage = `Using ${nodeResolution.source}: ${nodeResolution.nodePath}${nodeResolution.version ? ` (${nodeResolution.version})` : ''}`;
     nodeFix = [
       `${COMMAND_NAME} doctor --fix`,
-      `Or set CHROME_MCP_NODE_PATH to an absolute node path`,
+      `Or set HUMANCHROME_NODE_PATH to an absolute node path`,
     ];
   } else {
     nodeStatus = 'ok';

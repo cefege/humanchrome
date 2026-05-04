@@ -1,7 +1,8 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import type { TruncateEnvelope, TruncateUnit } from '@/utils/truncate';
 import { consoleBuffer, BufferedConsoleMessage, BufferedConsoleException } from './console-buffer';
 
 const DEFAULT_MAX_MESSAGES = 100;
@@ -23,7 +24,26 @@ interface ConsoleToolParams {
   pattern?: string;
   onlyErrors?: boolean;
   limit?: number;
+  /**
+   * Skip the per-arg serializer caps (default maxDepth=3, maxProps=100). Only
+   * honored in snapshot mode — buffer mode replays already-serialized args.
+   * Use when the response's `truncation` envelope reports `truncated:true`
+   * and you need the full payload.
+   */
+  raw?: boolean;
 }
+
+const ARG_SERIALIZER_DEFAULT_MAX_DEPTH = 3;
+const ARG_SERIALIZER_DEFAULT_MAX_PROPS = 100;
+const ARG_SERIALIZER_NO_CAP = Number.MAX_SAFE_INTEGER;
+
+type ConsoleTruncation = Omit<TruncateEnvelope<never>, 'data' | 'originalSize'> & {
+  /** Pre-truncation message count when known; undefined for arg-only truncation. */
+  originalSize?: number;
+  unit: TruncateUnit;
+  /** True when at least one console arg was truncated by the per-arg serializer. */
+  argsTruncated: boolean;
+};
 
 interface ConsoleMessage {
   timestamp: number;
@@ -62,6 +82,58 @@ interface ConsoleResult {
   messageLimitReached: boolean;
   droppedMessageCount: number;
   droppedExceptionCount: number;
+  truncation?: ConsoleTruncation;
+}
+
+/**
+ * Detect whether the per-arg CDP serializer hit its caps. The injected
+ * function emits `__truncated__: true` on objects and a "[...truncated]"
+ * sentinel for arrays/maps/sets — either is enough to mark argsTruncated.
+ */
+function detectArgsTruncated(messages: ConsoleMessage[]): boolean {
+  for (const m of messages) {
+    if (!m.argsSerialized || !Array.isArray(m.argsSerialized)) continue;
+    for (const arg of m.argsSerialized) {
+      if (containsTruncationMarker(arg)) return true;
+    }
+  }
+  return false;
+}
+
+function containsTruncationMarker(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === 'string') return value === '[...truncated]';
+  if (Array.isArray(value)) return value.some(containsTruncationMarker);
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (obj.__truncated__ === true) return true;
+    for (const k in obj) {
+      if (containsTruncationMarker(obj[k])) return true;
+    }
+  }
+  return false;
+}
+
+interface ConsoleTruncationInput {
+  messageCount: number;
+  droppedMessageCount: number;
+  limitReached: boolean;
+  effectiveLimit: number;
+  argsTruncated: boolean;
+  /** Whether retrying with `raw:true` would yield more (false in buffer mode and after raw is already set). */
+  rawSupported: boolean;
+}
+
+function buildConsoleTruncation(input: ConsoleTruncationInput): ConsoleTruncation {
+  const messagesTruncated = input.limitReached || input.droppedMessageCount > 0;
+  return {
+    truncated: messagesTruncated || input.argsTruncated,
+    originalSize: messagesTruncated ? input.messageCount + input.droppedMessageCount : undefined,
+    limit: input.effectiveLimit,
+    rawAvailable: input.rawSupported && input.argsTruncated,
+    unit: 'messages',
+    argsTruncated: input.argsTruncated,
+  };
 }
 
 // 辅助函数
@@ -168,14 +240,21 @@ class ConsoleTool extends BaseBrowserToolExecutor {
       compiledPattern = parseRegexPattern(pattern);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      return createErrorResponse(msg);
+      return createErrorResponse(msg, ToolErrorCode.INVALID_ARGS, { arg: 'pattern' });
     }
 
     try {
       if (typeof tabId === 'number') {
         // Use explicit tab
         const t = await chrome.tabs.get(tabId);
-        if (!t?.id) return createErrorResponse('Failed to identify target tab.');
+        if (!t?.id)
+          return createErrorResponse(
+            'Failed to identify target tab.',
+            ToolErrorCode.TAB_NOT_FOUND,
+            {
+              tabId,
+            },
+          );
         targetTab = t;
       } else if (url) {
         // Navigate to the specified URL
@@ -187,13 +266,16 @@ class ConsoleTool extends BaseBrowserToolExecutor {
             ? await chrome.tabs.query({ active: true, windowId })
             : await chrome.tabs.query({ active: true, currentWindow: true });
         if (!activeTab?.id) {
-          return createErrorResponse('No active tab found and no URL provided.');
+          return createErrorResponse(
+            'No active tab found and no URL provided.',
+            ToolErrorCode.TAB_NOT_FOUND,
+          );
         }
         targetTab = activeTab;
       }
 
       if (!targetTab?.id) {
-        return createErrorResponse('Failed to identify target tab.');
+        return createErrorResponse('Failed to identify target tab.', ToolErrorCode.TAB_NOT_FOUND);
       }
 
       targetTabId = targetTab.id;
@@ -216,7 +298,11 @@ class ConsoleTool extends BaseBrowserToolExecutor {
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : String(error);
           if (isDebuggerConflictError(error)) {
-            return createErrorResponse(formatDebuggerConflictMessage(targetTabId, msg));
+            return createErrorResponse(
+              formatDebuggerConflictMessage(targetTabId, msg),
+              ToolErrorCode.CDP_BUSY,
+              { tabId: targetTabId },
+            );
           }
           throw error;
         }
@@ -254,6 +340,7 @@ class ConsoleTool extends BaseBrowserToolExecutor {
           clearedSummary += ` Cleared ${clearedAfter.clearedMessages} messages and ${clearedAfter.clearedExceptions} exceptions after reading.`;
         }
 
+        const messages = read.messages as ConsoleMessage[];
         const result: ConsoleResult = {
           success: true,
           message:
@@ -266,13 +353,21 @@ class ConsoleTool extends BaseBrowserToolExecutor {
           captureStartTime: read.captureStartTime,
           captureEndTime: read.captureEndTime,
           totalDurationMs: read.totalDurationMs,
-          messages: read.messages as ConsoleMessage[],
+          messages,
           exceptions: read.exceptions as ConsoleException[],
           messageCount: read.messageCount,
           exceptionCount: read.exceptionCount,
           messageLimitReached: read.messageLimitReached,
           droppedMessageCount: read.droppedMessageCount,
           droppedExceptionCount: read.droppedExceptionCount,
+          truncation: buildConsoleTruncation({
+            messageCount: read.messageCount,
+            droppedMessageCount: read.droppedMessageCount,
+            limitReached: read.messageLimitReached,
+            effectiveLimit,
+            argsTruncated: detectArgsTruncated(messages),
+            rawSupported: false,
+          }),
         };
 
         return {
@@ -285,6 +380,7 @@ class ConsoleTool extends BaseBrowserToolExecutor {
       const result = await this.captureConsoleMessages(targetTabId, {
         includeExceptions,
         maxMessages: effectiveLimit,
+        raw: args.raw === true,
       });
 
       // 应用过滤器
@@ -292,6 +388,15 @@ class ConsoleTool extends BaseBrowserToolExecutor {
         pattern: compiledPattern,
         onlyErrors,
         includeExceptions,
+      });
+
+      filtered.truncation = buildConsoleTruncation({
+        messageCount: filtered.messageCount,
+        droppedMessageCount: filtered.droppedMessageCount,
+        limitReached: filtered.messageLimitReached,
+        effectiveLimit,
+        argsTruncated: detectArgsTruncated(filtered.messages),
+        rawSupported: args.raw !== true,
       });
 
       return {
@@ -302,7 +407,11 @@ class ConsoleTool extends BaseBrowserToolExecutor {
       console.error('ConsoleTool: Critical error during execute:', error);
       const msg = error instanceof Error ? error.message : String(error);
       if (typeof targetTabId === 'number' && isDebuggerConflictError(error)) {
-        return createErrorResponse(formatDebuggerConflictMessage(targetTabId, msg));
+        return createErrorResponse(
+          formatDebuggerConflictMessage(targetTabId, msg),
+          ToolErrorCode.CDP_BUSY,
+          { tabId: targetTabId },
+        );
       }
       return createErrorResponse(`Error in ConsoleTool: ${msg}`);
     }
@@ -383,9 +492,12 @@ class ConsoleTool extends BaseBrowserToolExecutor {
     options: {
       includeExceptions: boolean;
       maxMessages: number;
+      raw?: boolean;
     },
   ): Promise<ConsoleResult> {
-    const { includeExceptions, maxMessages } = options;
+    const { includeExceptions, maxMessages, raw } = options;
+    const argMaxDepth = raw ? ARG_SERIALIZER_NO_CAP : ARG_SERIALIZER_DEFAULT_MAX_DEPTH;
+    const argMaxProps = raw ? ARG_SERIALIZER_NO_CAP : ARG_SERIALIZER_DEFAULT_MAX_PROPS;
     const startTime = Date.now();
     const messages: ConsoleMessage[] = [];
     const exceptions: ConsoleException[] = [];
@@ -505,7 +617,7 @@ class ConsoleTool extends BaseBrowserToolExecutor {
                   '  }\n' +
                   '  return S(this, maxDepth);\n' +
                   '}',
-                arguments: [{ value: 3 }, { value: 100 }],
+                arguments: [{ value: argMaxDepth }, { value: argMaxProps }],
                 silent: true,
                 returnByValue: true,
               });

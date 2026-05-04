@@ -3,9 +3,9 @@
  * Handles native host connection, server status, and SSE stream.
  */
 import { ref, computed, onUnmounted } from 'vue';
-import { NativeMessageType } from 'chrome-mcp-shared';
+import { NativeMessageType } from 'humanchrome-shared';
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
-import type { AgentEngineInfo, RealtimeEvent } from 'chrome-mcp-shared';
+import type { AgentEngineInfo, RealtimeEvent } from 'humanchrome-shared';
 
 interface ServerStatus {
   isRunning: boolean;

@@ -22,7 +22,7 @@ export interface CliToolInvocation {
 export interface AgentToolBridgeOptions {
   /**
    * Base URL of the local MCP HTTP endpoint (e.g. http://127.0.0.1:12306/mcp).
-   * If omitted, DEFAULT_SERVER_PORT from chrome-mcp-shared is used.
+   * If omitted, DEFAULT_SERVER_PORT from humanchrome-shared is used.
    */
   mcpUrl?: string;
 }
@@ -45,7 +45,7 @@ export class AgentToolBridge {
     this.transport = new StreamableHTTPClientTransport(new URL(url));
     this.client = new Client(
       {
-        name: 'chrome-mcp-agent-bridge',
+        name: 'humanchrome-agent-bridge',
         version: '1.0.0',
       },
       {},

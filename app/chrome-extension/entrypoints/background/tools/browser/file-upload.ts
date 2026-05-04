@@ -1,7 +1,12 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import {
+  createErrorResponse,
+  createErrorResponseFromThrown,
+  ToolResult,
+} from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'chrome-mcp-shared';
+import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { sendNativeRequest } from '@/entrypoints/background/native-host';
 
 interface FileUploadToolParams {
   selector: string; // CSS selector for the file input element
@@ -20,6 +25,7 @@ interface FileUploadToolParams {
  */
 class FileUploadTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.FILE_UPLOAD;
+  static readonly mutates = true;
   constructor() {
     super();
   }
@@ -68,72 +74,79 @@ class FileUploadTool extends BaseBrowserToolExecutor {
         files = [tempFilePath];
       }
 
-      // Use shared CDP session manager to attach/do work/detach safely
-      await cdpSessionManager.withSession(tabId, 'file-upload', async () => {
-        // Enable necessary CDP domains
-        await cdpSessionManager.sendCommand(tabId, 'DOM.enable', {});
-        await cdpSessionManager.sendCommand(tabId, 'Runtime.enable', {});
+      // File uploads never navigate. Wrap snapshot+post-assert via the
+      // navigation guard so a mid-call hard navigation surfaces as
+      // TARGET_NAVIGATED_AWAY rather than the file value getting written
+      // to the wrong document silently.
+      await this.withNavigationGuard(tabId, () =>
+        cdpSessionManager.withSession(tabId, 'file-upload', async () => {
+          // Enable necessary CDP domains
+          await cdpSessionManager.sendCommand(tabId, 'DOM.enable', {});
+          await cdpSessionManager.sendCommand(tabId, 'Runtime.enable', {});
 
-        // Get the document
-        const { root } = (await cdpSessionManager.sendCommand(tabId, 'DOM.getDocument', {
-          depth: -1,
-          pierce: true,
-        })) as { root: { nodeId: number } };
+          // Get the document
+          const { root } = (await cdpSessionManager.sendCommand(tabId, 'DOM.getDocument', {
+            depth: -1,
+            pierce: true,
+          })) as { root: { nodeId: number } };
 
-        // Find the file input element using the selector
-        const { nodeId } = (await cdpSessionManager.sendCommand(tabId, 'DOM.querySelector', {
-          nodeId: root.nodeId,
-          selector: selector,
-        })) as { nodeId: number };
+          // Find the file input element using the selector
+          const { nodeId } = (await cdpSessionManager.sendCommand(tabId, 'DOM.querySelector', {
+            nodeId: root.nodeId,
+            selector: selector,
+          })) as { nodeId: number };
 
-        if (!nodeId || nodeId === 0) {
-          throw new Error(`Element with selector "${selector}" not found`);
-        }
-
-        // Verify it's actually a file input
-        const { node } = (await cdpSessionManager.sendCommand(tabId, 'DOM.describeNode', {
-          nodeId,
-        })) as { node: { nodeName: string; attributes?: string[] } };
-
-        if (node.nodeName !== 'INPUT') {
-          throw new Error(`Element with selector "${selector}" is not an input element`);
-        }
-
-        // Check if it's a file input by looking for type="file" in attributes
-        const attributes = node.attributes || [];
-        let isFileInput = false;
-        for (let i = 0; i < attributes.length; i += 2) {
-          if (attributes[i] === 'type' && attributes[i + 1] === 'file') {
-            isFileInput = true;
-            break;
+          if (!nodeId || nodeId === 0) {
+            throw new Error(`Element with selector "${selector}" not found`);
           }
-        }
 
-        if (!isFileInput) {
-          throw new Error(`Element with selector "${selector}" is not a file input (type="file")`);
-        }
+          // Verify it's actually a file input
+          const { node } = (await cdpSessionManager.sendCommand(tabId, 'DOM.describeNode', {
+            nodeId,
+          })) as { node: { nodeName: string; attributes?: string[] } };
 
-        // Set the files on the input element
-        await cdpSessionManager.sendCommand(tabId, 'DOM.setFileInputFiles', {
-          nodeId,
-          files,
-        });
+          if (node.nodeName !== 'INPUT') {
+            throw new Error(`Element with selector "${selector}" is not an input element`);
+          }
 
-        // Trigger change event to ensure the page reacts to the file upload
-        await cdpSessionManager.sendCommand(tabId, 'Runtime.evaluate', {
-          expression: `
-            (function() {
-              const element = document.querySelector('${selector.replace(/'/g, "\\'")}');
-              if (element) {
-                const event = new Event('change', { bubbles: true });
-                element.dispatchEvent(event);
-                return true;
-              }
-              return false;
-            })()
-          `,
-        });
-      });
+          // Check if it's a file input by looking for type="file" in attributes
+          const attributes = node.attributes || [];
+          let isFileInput = false;
+          for (let i = 0; i < attributes.length; i += 2) {
+            if (attributes[i] === 'type' && attributes[i + 1] === 'file') {
+              isFileInput = true;
+              break;
+            }
+          }
+
+          if (!isFileInput) {
+            throw new Error(
+              `Element with selector "${selector}" is not a file input (type="file")`,
+            );
+          }
+
+          // Set the files on the input element
+          await cdpSessionManager.sendCommand(tabId, 'DOM.setFileInputFiles', {
+            nodeId,
+            files,
+          });
+
+          // Trigger change event to ensure the page reacts to the file upload
+          await cdpSessionManager.sendCommand(tabId, 'Runtime.evaluate', {
+            expression: `
+              (function() {
+                const element = document.querySelector('${selector.replace(/'/g, "\\'")}');
+                if (element) {
+                  const event = new Event('change', { bubbles: true });
+                  element.dispatchEvent(event);
+                  return true;
+                }
+                return false;
+              })()
+            `,
+          });
+        }),
+      );
 
       return {
         content: [
@@ -152,80 +165,42 @@ class FileUploadTool extends BaseBrowserToolExecutor {
       };
     } catch (error) {
       console.error('Error in file upload operation:', error);
-
-      // Session manager handles detach; nothing extra needed here
-
-      return createErrorResponse(
-        `Error uploading file: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // Session manager handles detach; nothing extra needed here.
+      return createErrorResponseFromThrown(error);
     }
   }
 
   // All debugger attach/detach is centrally managed by cdpSessionManager
 
   /**
-   * Prepare file from URL or base64 data using native messaging host
+   * Prepare file from URL or base64 data via the native messaging host.
+   * Uses sendNativeRequest (direct-to-native) rather than the
+   * `chrome.runtime.sendMessage('forward_to_native')` round-trip, which
+   * doesn't deliver to listeners in the same background context.
    */
   private async prepareFileFromRemote(options: {
     fileUrl?: string;
     base64Data?: string;
     fileName: string;
   }): Promise<string | null> {
-    const { fileUrl, base64Data, fileName } = options;
-
-    return new Promise((resolve) => {
-      const requestId = `file-upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const timeout = setTimeout(() => {
-        console.error('File preparation request timed out');
-        resolve(null);
-      }, 30000); // 30 second timeout
-
-      // Create listener for the response
-      const handleMessage = (message: any) => {
-        if (
-          message.type === 'file_operation_response' &&
-          message.responseToRequestId === requestId
-        ) {
-          clearTimeout(timeout);
-          chrome.runtime.onMessage.removeListener(handleMessage);
-
-          if (message.payload?.success && message.payload?.filePath) {
-            resolve(message.payload.filePath);
-          } else {
-            console.error(
-              'Native host failed to prepare file:',
-              message.error || message.payload?.error,
-            );
-            resolve(null);
-          }
-        }
-      };
-
-      // Add listener
-      chrome.runtime.onMessage.addListener(handleMessage);
-
-      // Send message to background script to forward to native host
-      chrome.runtime
-        .sendMessage({
-          type: 'forward_to_native',
-          message: {
-            type: 'file_operation',
-            requestId: requestId,
-            payload: {
-              action: 'prepareFile',
-              fileUrl,
-              base64Data,
-              fileName,
-            },
-          },
-        })
-        .catch((error) => {
-          console.error('Error sending message to background:', error);
-          clearTimeout(timeout);
-          chrome.runtime.onMessage.removeListener(handleMessage);
-          resolve(null);
-        });
-    });
+    try {
+      const payload = await sendNativeRequest<{
+        success?: boolean;
+        filePath?: string;
+        error?: string;
+      }>('file_operation', {
+        action: 'prepareFile',
+        fileUrl: options.fileUrl,
+        base64Data: options.base64Data,
+        fileName: options.fileName,
+      });
+      if (payload?.success && payload.filePath) return payload.filePath;
+      console.error('Native host failed to prepare file:', payload?.error);
+      return null;
+    } catch (err) {
+      console.error('Error preparing file via native host:', err);
+      return null;
+    }
   }
 }
 
