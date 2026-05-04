@@ -2258,7 +2258,7 @@
         StateStore.set({
           validation: {
             status: 'failure',
-            message: res?.tool?.error || '验证失败',
+            message: res?.tool?.error || 'Verification failed',
           },
           validationHistory: history,
         });
@@ -2275,7 +2275,7 @@
       StateStore.set({
         validation: {
           status: 'failure',
-          message: `错误: ${err.message}`,
+          message: `Error: ${err.message}`,
         },
         validationHistory: history,
       });
@@ -2399,7 +2399,7 @@
       navigator.clipboard?.writeText(sel).catch(() => {});
 
       StateStore.set({
-        validation: { status: 'success', message: '✓ 已复制到剪贴板' },
+        validation: { status: 'success', message: 'Copied to clipboard' },
       });
 
       setTimeout(() => {

@@ -2,8 +2,8 @@
   <!-- rr-theme container provides CSS variables; data-theme for light/dark -->
   <div class="builder-page rr-theme" :data-theme="theme">
     <div v-if="fallbackNotice" class="notice-top">
-      <span>已应用回退建议：提升 {{ fallbackNotice.type }} 优先级</span>
-      <button class="mini" @click="undoFallbackPromotion">撤销</button>
+      <span>Applied fallback suggestion: promoted {{ fallbackNotice.type }} priority</span>
+      <button class="mini" @click="undoFallbackPromotion">Undo</button>
     </div>
 
     <div class="main">
@@ -26,10 +26,10 @@
       <div class="topbar rr-topbar backdrop-blur">
         <div class="left">
           <strong class="text-[var(--rr-text)]">{{ title }}</strong>
-          <span class="tip">工作流可视化编排</span>
+          <span class="tip">Visual workflow editor</span>
         </div>
         <div class="right">
-          <button class="top-btn" @click="exportFlow" title="导出 JSON">
+          <button class="top-btn" @click="exportFlow" title="Export JSON">
             <svg
               width="14"
               height="14"
@@ -40,9 +40,9 @@
             >
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
             </svg>
-            导出
+            Export
           </button>
-          <label class="top-btn import" title="导入 JSON">
+          <label class="top-btn import" title="Import JSON">
             <svg
               width="14"
               height="14"
@@ -53,10 +53,10 @@
             >
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
             </svg>
-            导入
+            Import
             <input type="file" accept="application/json" @change="onImport" />
           </label>
-          <button class="top-btn" @click="openRename" title="重命名工作流">
+          <button class="top-btn" @click="openRename" title="Rename workflow">
             <svg
               width="14"
               height="14"
@@ -74,7 +74,7 @@
             class="top-btn"
             :class="{ active: triggerPanelVisible }"
             @click="triggerPanelVisible = !triggerPanelVisible"
-            title="管理触发器"
+            title="Manage triggers"
           >
             <svg
               width="14"
@@ -93,7 +93,7 @@
             class="top-btn"
             :disabled="!selectedId"
             @click="runFromSelected"
-            title="从选中节点回放"
+            title="Replay from selected node"
           >
             <svg
               width="14"
