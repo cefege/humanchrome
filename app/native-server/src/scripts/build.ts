@@ -3,78 +3,71 @@ import fs from 'fs';
 import path from 'path';
 
 const distDir = path.join(__dirname, '..', '..', 'dist');
-// 清理上次构建
-console.log('清理上次构建...');
+console.log('Cleaning previous build...');
 try {
   fs.rmSync(distDir, { recursive: true, force: true });
 } catch (err) {
-  // 忽略目录不存在的错误
+  // Ignore "directory does not exist" errors
   console.log(err);
 }
 
-// 创建dist目录
 fs.mkdirSync(distDir, { recursive: true });
-fs.mkdirSync(path.join(distDir, 'logs'), { recursive: true }); // 创建logs目录
-console.log('dist 和 dist/logs 目录已创建/确认存在');
+fs.mkdirSync(path.join(distDir, 'logs'), { recursive: true });
+console.log('dist and dist/logs directories created/confirmed');
 
-// 编译TypeScript
-console.log('编译TypeScript...');
+console.log('Compiling TypeScript...');
 execSync('tsc', { stdio: 'inherit' });
 
-// 复制配置文件
-console.log('复制配置文件...');
+console.log('Copying config files...');
 const configSourcePath = path.join(__dirname, '..', 'mcp', 'stdio-config.json');
 const configDestPath = path.join(distDir, 'mcp', 'stdio-config.json');
 
 try {
-  // 确保目标目录存在
   fs.mkdirSync(path.dirname(configDestPath), { recursive: true });
 
   if (fs.existsSync(configSourcePath)) {
     fs.copyFileSync(configSourcePath, configDestPath);
-    console.log(`已将 stdio-config.json 复制到 ${configDestPath}`);
+    console.log(`Copied stdio-config.json to ${configDestPath}`);
   } else {
-    console.error(`错误: 配置文件未找到: ${configSourcePath}`);
+    console.error(`Error: config file not found: ${configSourcePath}`);
   }
 } catch (error) {
-  console.error('复制配置文件时出错:', error);
+  console.error('Error copying config file:', error);
 }
 
-// 复制package.json并更新其内容
-console.log('准备package.json...');
+console.log('Preparing package.json...');
 const packageJson = require('../../package.json');
 
-// 创建安装说明
 const readmeContent = `# ${packageJson.name}
 
-本程序为Chrome扩展的Native Messaging主机端。
+Native Messaging host for the HumanChrome Chrome extension.
 
-## 安装说明
+## Installation
 
-1. 确保已安装Node.js
-2. 全局安装本程序:
+1. Make sure Node.js is installed.
+2. Install globally:
    \`\`\`
    npm install -g ${packageJson.name}
    \`\`\`
-3. 注册Native Messaging主机:
+3. Register the Native Messaging host:
    \`\`\`
-   # 用户级别安装（推荐）
+   # User-level install (recommended)
    ${packageJson.name} register
 
-   # 如果用户级别安装失败，可以尝试系统级别安装
+   # If user-level install fails, try a system-level install
    ${packageJson.name} register --system
-   # 或者使用管理员权限
+   # Or with admin privileges
    sudo ${packageJson.name} register
    \`\`\`
 
-## 使用方法
+## Usage
 
-此应用程序由Chrome扩展自动启动，无需手动运行。
+The Chrome extension launches this host automatically; no manual run is required.
 `;
 
 fs.writeFileSync(path.join(distDir, 'README.md'), readmeContent);
 
-console.log('复制包装脚本...');
+console.log('Copying wrapper scripts...');
 const scriptsSourceDir = path.join(__dirname, '.');
 const macOsWrapperSourcePath = path.join(scriptsSourceDir, 'run_host.sh');
 const windowsWrapperSourcePath = path.join(scriptsSourceDir, 'run_host.bat');
@@ -85,45 +78,44 @@ const windowsWrapperDestPath = path.join(distDir, 'run_host.bat');
 try {
   if (fs.existsSync(macOsWrapperSourcePath)) {
     fs.copyFileSync(macOsWrapperSourcePath, macOsWrapperDestPath);
-    console.log(`已将 ${macOsWrapperSourcePath} 复制到 ${macOsWrapperDestPath}`);
+    console.log(`Copied ${macOsWrapperSourcePath} to ${macOsWrapperDestPath}`);
   } else {
-    console.error(`错误: macOS 包装脚本源文件未找到: ${macOsWrapperSourcePath}`);
+    console.error(`Error: macOS wrapper script not found: ${macOsWrapperSourcePath}`);
   }
 
   if (fs.existsSync(windowsWrapperSourcePath)) {
     fs.copyFileSync(windowsWrapperSourcePath, windowsWrapperDestPath);
-    console.log(`已将 ${windowsWrapperSourcePath} 复制到 ${windowsWrapperDestPath}`);
+    console.log(`Copied ${windowsWrapperSourcePath} to ${windowsWrapperDestPath}`);
   } else {
-    console.error(`错误: Windows 包装脚本源文件未找到: ${windowsWrapperSourcePath}`);
+    console.error(`Error: Windows wrapper script not found: ${windowsWrapperSourcePath}`);
   }
 } catch (error) {
-  console.error('复制包装脚本时出错:', error);
+  console.error('Error copying wrapper scripts:', error);
 }
 
-// 为关键JavaScript文件和macOS包装脚本添加可执行权限
-console.log('添加可执行权限...');
-const filesToMakeExecutable = ['index.js', 'cli.js', 'run_host.sh']; // cli.js 假设在 dist 根目录
+console.log('Setting executable permissions...');
+const filesToMakeExecutable = ['index.js', 'cli.js', 'run_host.sh'];
 
 filesToMakeExecutable.forEach((file) => {
-  const filePath = path.join(distDir, file); // filePath 现在是目标路径
+  const filePath = path.join(distDir, file);
   try {
     if (fs.existsSync(filePath)) {
       fs.chmodSync(filePath, '755');
-      console.log(`已为 ${file} 添加可执行权限 (755)`);
+      console.log(`Set executable permissions (755) on ${file}`);
     } else {
-      console.warn(`警告: ${filePath} 不存在，无法添加可执行权限`);
+      console.warn(`Warning: ${filePath} not found; cannot set executable permissions`);
     }
   } catch (error) {
-    console.error(`为 ${file} 添加可执行权限时出错:`, error);
+    console.error(`Error setting executable permissions on ${file}:`, error);
   }
 });
 
 // Write node_path.txt immediately after build to ensure Chrome uses the correct Node.js version.
 // This is critical for development mode where dist is deleted on each rebuild.
 // The file points to the same Node.js that compiled the native modules (better-sqlite3 etc.)
-console.log('写入 node_path.txt...');
+console.log('Writing node_path.txt...');
 const nodePathFile = path.join(distDir, 'node_path.txt');
 fs.writeFileSync(nodePathFile, process.execPath, 'utf8');
-console.log(`已写入 Node.js 路径: ${process.execPath}`);
+console.log(`Wrote Node.js path: ${process.execPath}`);
 
-console.log('✅ 构建完成');
+console.log('✅ Build complete');

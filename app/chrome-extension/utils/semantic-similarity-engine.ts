@@ -1094,7 +1094,6 @@ export class SemanticSimilarityEngine {
     console.log('SemanticSimilarityEngine: Initializing with progress tracking...');
     const startTime = performance.now();
 
-    // 进度报告辅助函数
     const reportProgress = (status: string, progress: number, message?: string) => {
       if (onProgress) {
         onProgress({ status, progress, message });
@@ -1376,7 +1375,6 @@ export class SemanticSimilarityEngine {
         }
         console.log('SemanticSimilarityEngine: Worker reported model initialized.');
 
-        // 尝试初始化 SIMD 加速
         try {
           console.log('SemanticSimilarityEngine: Checking SIMD support...');
           const simdSupported = await SIMDMathEngine.checkSIMDSupport();
@@ -1385,11 +1383,9 @@ export class SemanticSimilarityEngine {
             console.log('SemanticSimilarityEngine: SIMD supported, initializing...');
             await this.simdMath!.initialize();
             this.useSIMD = true;
-            console.log('SemanticSimilarityEngine: ✅ SIMD acceleration enabled');
+            console.log('SemanticSimilarityEngine: SIMD acceleration enabled');
           } else {
-            console.log(
-              'SemanticSimilarityEngine: ❌ SIMD not supported, using JavaScript fallback',
-            );
+            console.log('SemanticSimilarityEngine: SIMD not supported, using JavaScript fallback');
             console.log('SemanticSimilarityEngine: To enable SIMD, please use:');
             console.log('  - Chrome 91+ (May 2021)');
             console.log('  - Firefox 89+ (June 2021)');
@@ -1554,9 +1550,9 @@ export class SemanticSimilarityEngine {
         console.log('SemanticSimilarityEngine: SIMD supported, initializing...');
         await this.simdMath!.initialize();
         this.useSIMD = true;
-        console.log('SemanticSimilarityEngine: ✅ SIMD acceleration enabled');
+        console.log('SemanticSimilarityEngine: SIMD acceleration enabled');
       } else {
-        console.log('SemanticSimilarityEngine: ❌ SIMD not supported, using JavaScript fallback');
+        console.log('SemanticSimilarityEngine: SIMD not supported, using JavaScript fallback');
         this.useSIMD = false;
       }
     } catch (simdError) {
@@ -1580,17 +1576,16 @@ export class SemanticSimilarityEngine {
     console.log('SemanticSimilarityEngine: Warming up model...');
 
     // Cover a mix of short, medium, and long inputs so JIT and caches warm up
-    // for the input shapes we'll actually see at runtime. The Chinese strings
-    // are intentional — they exercise the multilingual tokenizer path.
+    // for the input shapes we'll actually see at runtime.
     const warmupTexts = [
       'Hello',
-      '你好',
+      'Hola',
       'Test',
       'Hello world, this is a test.',
-      '你好世界，这是一个测试。',
+      'Hola mundo, esto es una prueba.',
       'The quick brown fox jumps over the lazy dog.',
       'This is a longer text that contains multiple sentences. It helps warm up the model for various text lengths.',
-      '这是一个包含多个句子的较长文本。它有助于为各种文本长度预热模型。',
+      'Este es un texto más largo que contiene varias oraciones. Ayuda a calentar el modelo para diferentes longitudes de texto.',
     ];
 
     try {
@@ -1603,7 +1598,7 @@ export class SemanticSimilarityEngine {
       console.log('SemanticSimilarityEngine: Phase 2 - Batch warmup...');
       await this.getEmbeddingsBatch(warmupTexts.slice(4));
 
-      // 保留预热结果，不清空缓存
+      // Keep cached entries from the warmup pass.
       console.log('SemanticSimilarityEngine: Model warmup complete. Cache preserved.');
       console.log(`Embedding cache: ${this.cacheStats.embedding.size} items`);
       console.log(`Tokenization cache: ${this.cacheStats.tokenization.size} items`);
@@ -1775,7 +1770,6 @@ export class SemanticSimilarityEngine {
         throw new Error(response?.error || 'Failed to get embedding from offscreen document');
       }
 
-      // 验证响应数据
       if (!response.embedding || !Array.isArray(response.embedding)) {
         throw new Error('Invalid embedding data received from offscreen document');
       }
@@ -2083,7 +2077,6 @@ export class SemanticSimilarityEngine {
       embeddingMap.set(text, embeddingsArray[index]);
     });
 
-    // 使用 SIMD 优化的矩阵计算（如果可用）
     if (this.useSIMD && this.simdMath) {
       try {
         const embeddings1 = texts1.map((text) => embeddingMap.get(text)!).filter(Boolean);
@@ -2105,7 +2098,7 @@ export class SemanticSimilarityEngine {
       }
     }
 
-    // JavaScript 回退版本
+    // JavaScript fallback.
     const matrix: number[][] = [];
     for (const textA of texts1) {
       const row: number[] = [];
@@ -2140,11 +2133,11 @@ export class SemanticSimilarityEngine {
       return 0;
     }
 
-    // 使用 SIMD 优化版本（如果可用）
+    // SIMD path is async; this method must stay synchronous for back-compat,
+    // so we always run the JS version here. Use cosineSimilaritySIMD() when
+    // an async path is acceptable.
     if (this.useSIMD && this.simdMath) {
       try {
-        // SIMD 版本是异步的，但为了保持接口兼容性，我们需要同步版本
-        // 这里我们回退到 JavaScript 版本，或者可以考虑重构为异步
         return this.cosineSimilarityJS(vecA, vecB);
       } catch (error) {
         console.warn('SIMD cosine similarity failed, falling back to JavaScript:', error);
@@ -2168,7 +2161,7 @@ export class SemanticSimilarityEngine {
     return magnitude === 0 ? 0 : dotProduct / magnitude;
   }
 
-  // 新增：异步 SIMD 优化的余弦相似度
+  /** Async SIMD-accelerated cosine similarity. */
   public async cosineSimilaritySIMD(vecA: Float32Array, vecB: Float32Array): Promise<number> {
     if (!vecA || !vecB || vecA.length !== vecB.length) {
       console.warn('Cosine similarity: Invalid vectors provided.', vecA, vecB);
@@ -2198,17 +2191,17 @@ export class SemanticSimilarityEngine {
 
   public validateInput(text1: string, text2: string | 'valid_dummy'): void {
     if (typeof text1 !== 'string' || (text2 !== 'valid_dummy' && typeof text2 !== 'string')) {
-      throw new Error('输入必须是字符串');
+      throw new Error('Input must be a string');
     }
     if (text1.trim().length === 0 || (text2 !== 'valid_dummy' && text2.trim().length === 0)) {
-      throw new Error('输入文本不能为空');
+      throw new Error('Input text must not be empty');
     }
     const roughCharLimit = this.config.maxLength * 5;
     if (
       text1.length > roughCharLimit ||
       (text2 !== 'valid_dummy' && text2.length > roughCharLimit)
     ) {
-      console.warn('输入文本可能过长，将由分词器截断。');
+      console.warn('Input text may be too long; the tokenizer will truncate it.');
     }
   }
 
@@ -2261,7 +2254,6 @@ export class SemanticSimilarityEngine {
     }
   }
 
-  // 新增：获取 Worker 统计信息
   public async getWorkerStats(): Promise<WorkerStats | null> {
     if (!this.worker || !this.isInitialized) return null;
 
@@ -2274,7 +2266,6 @@ export class SemanticSimilarityEngine {
     }
   }
 
-  // 新增：清理 Worker 缓冲区
   public async clearWorkerBuffers(): Promise<void> {
     if (!this.worker || !this.isInitialized) return;
 
@@ -2286,7 +2277,6 @@ export class SemanticSimilarityEngine {
     }
   }
 
-  // 新增：清理所有缓存
   public clearAllCaches(): void {
     this.embeddingCache.clear();
     this.tokenizationCache.clear();
@@ -2297,7 +2287,6 @@ export class SemanticSimilarityEngine {
     console.log('SemanticSimilarityEngine: All caches cleared.');
   }
 
-  // 新增：获取内存使用情况
   public getMemoryUsage(): {
     embeddingCacheUsage: number;
     tokenizationCacheUsage: number;
@@ -2316,7 +2305,6 @@ export class SemanticSimilarityEngine {
   public async dispose(): Promise<void> {
     console.log('SemanticSimilarityEngine: Disposing...');
 
-    // 清理 Worker 缓冲区
     await this.clearWorkerBuffers();
 
     if (this.worker) {
@@ -2324,7 +2312,6 @@ export class SemanticSimilarityEngine {
       this.worker = null;
     }
 
-    // 清理 SIMD 引擎
     if (this.simdMath) {
       this.simdMath.dispose();
       this.simdMath = null;
