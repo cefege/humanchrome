@@ -79,7 +79,7 @@ export function initRecordReplayListeners() {
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
-      // rr_recorder_event 交由 ContentMessageHandler 处理
+      // rr_recorder_event is handled by ContentMessageHandler
       switch (message?.type) {
         case BACKGROUND_MESSAGE_TYPES.RR_START_RECORDING: {
           startRecording(message.meta)
@@ -399,7 +399,7 @@ async function refreshContextMenus(triggers: FlowTrigger[]) {
     try {
       await chrome.contextMenus.create({
         id,
-        title: (t as any).title || '运行工作流',
+        title: (t as any).title || 'Run workflow',
         contexts: (t as any).contexts || ['all'],
       });
       rrContextMenuIds.add(id);

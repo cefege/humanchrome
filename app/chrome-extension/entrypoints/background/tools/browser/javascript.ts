@@ -273,11 +273,11 @@ async function executeViaCdp(
           expression,
           returnByValue: true,
           awaitPromise: true,
-          // CDP 内置超时（毫秒），与外层 withTimeout 双重保障
+          // CDP-side timeout (ms); paired with outer withTimeout for belt-and-suspenders
           timeout: options.timeoutMs,
         })) as CDPEvaluateResult;
       }),
-      // 外层超时稍长，给 CDP 一点余量处理超时响应
+      // Outer timeout adds slack so CDP has time to surface its own timeout response
       options.timeoutMs + 1000,
     );
 
