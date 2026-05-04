@@ -1,0 +1,4 @@
+# JSEP/WebGPU build of ONNX Runtime wasm — fetched from CDN at runtime when
+# WebGPU is requested (see workers/similarity.worker.js). Keeping it out of
+# the repo saves ~22 MB; the CPU-SIMD wasm is shipped locally.
+workers/ort-wasm-simd-threaded.jsep.wasm

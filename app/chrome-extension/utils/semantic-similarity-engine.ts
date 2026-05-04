@@ -1,5 +1,32 @@
-import { AutoTokenizer, env as TransformersEnv } from '@xenova/transformers';
-import type { Tensor as TransformersTensor, PreTrainedTokenizer } from '@xenova/transformers';
+// `@xenova/transformers` is ~3 MB minified; static-importing it pulls the
+// whole library into every consumer of this module (popup, background, etc.)
+// even though runtime usage only happens inside `SemanticSimilarityEngine`,
+// which is constructed *exclusively* in the offscreen document. Use dynamic
+// `import()` so the heavy chunk loads on first engine init only.
+import type {
+  AutoTokenizer as AutoTokenizerType,
+  env as TransformersEnvType,
+  Tensor as TransformersTensor,
+  PreTrainedTokenizer,
+} from '@xenova/transformers';
+
+type TransformersModule = {
+  AutoTokenizer: typeof AutoTokenizerType;
+  env: typeof TransformersEnvType;
+};
+
+let transformersModulePromise: Promise<TransformersModule> | null = null;
+
+/** Lazily load `@xenova/transformers`. Cached after first call. */
+function loadTransformers(): Promise<TransformersModule> {
+  if (!transformersModulePromise) {
+    transformersModulePromise = import('@xenova/transformers').then((mod) => ({
+      AutoTokenizer: mod.AutoTokenizer,
+      env: mod.env,
+    }));
+  }
+  return transformersModulePromise;
+}
 import LRUCache from './lru-cache';
 import { SIMDMathEngine } from './simd-math-engine';
 import { OffscreenManager } from './offscreen-manager';
@@ -1281,6 +1308,8 @@ export class SemanticSimilarityEngine {
       } else {
         this._setupWorker();
 
+        const { AutoTokenizer, env: TransformersEnv } = await loadTransformers();
+
         TransformersEnv.allowRemoteModels = !this.config.useLocalFiles;
         TransformersEnv.allowLocalModels = this.config.useLocalFiles;
 
@@ -1427,6 +1456,8 @@ export class SemanticSimilarityEngine {
   ): Promise<void> {
     reportProgress('initializing', 25, 'Setting up worker...');
     this._setupWorker();
+
+    const { AutoTokenizer, env: TransformersEnv } = await loadTransformers();
 
     TransformersEnv.allowRemoteModels = !this.config.useLocalFiles;
     TransformersEnv.allowLocalModels = this.config.useLocalFiles;

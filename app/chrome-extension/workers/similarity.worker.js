@@ -24,6 +24,12 @@ let workerStats = {
   memoryAllocations: 0,
 };
 
+// CDN base for ONNX Runtime Web wasm/mjs assets. We ship the CPU-SIMD wasm
+// locally (~11 MB) but fetch the JSEP/WebGPU wasm (~22 MB) from a CDN on
+// demand to keep the unpacked extension small. Version must match the
+// `ort.min.js` bundled under `public/libs/`.
+const ORT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+
 // Configure the ONNX Runtime environment once.
 function configureOrtEnv(numThreads = 1, executionProviders = ['wasm']) {
   if (ortEnvConfigured) return;
@@ -32,6 +38,17 @@ function configureOrtEnv(numThreads = 1, executionProviders = ['wasm']) {
     ort.env.wasm.simd = true; // enable SIMD when available
     ort.env.wasm.proxy = false; // proxy is not needed inside a worker
     ort.env.logLevel = 'warning'; // 'verbose', 'info', 'warning', 'error', 'fatal'
+
+    // Per-file wasmPaths: keep CPU-SIMD local, redirect JSEP (WebGPU) to CDN.
+    // The local CPU loader/wasm live at /workers/ (web_accessible_resources).
+    const localBase = new URL('./', self.location.href).href;
+    ort.env.wasm.wasmPaths = {
+      'ort-wasm-simd-threaded.mjs': localBase + 'ort-wasm-simd-threaded.mjs',
+      'ort-wasm-simd-threaded.wasm': localBase + 'ort-wasm-simd-threaded.wasm',
+      'ort-wasm-simd-threaded.jsep.mjs': ORT_CDN_BASE + 'ort-wasm-simd-threaded.jsep.mjs',
+      'ort-wasm-simd-threaded.jsep.wasm': ORT_CDN_BASE + 'ort-wasm-simd-threaded.jsep.wasm',
+    };
+
     ortEnvConfigured = true;
 
     sessionOptions = {

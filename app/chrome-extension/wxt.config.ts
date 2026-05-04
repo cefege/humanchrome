@@ -51,7 +51,6 @@ export default defineConfig({
       'bookmarks',
       'offscreen',
       'storage',
-      'declarativeNetRequest',
       'alarms',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',
@@ -116,9 +115,11 @@ export default defineConfig({
           cross_origin_embedder_policy: { value: 'require-corp' as const },
           cross_origin_opener_policy: { value: 'same-origin' as const },
           content_security_policy: {
-            // Allow inline styles injected by Vite (compiled CSS) and data images used in UI thumbnails
+            // Allow inline styles injected by Vite (compiled CSS) and data images used in UI thumbnails.
+            // `connect-src` allows fetching the JSEP/WebGPU ONNX wasm from jsDelivr on demand
+            // (the local 22 MB file is intentionally not bundled — see workers/similarity.worker.js).
             extension_pages:
-              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;",
+              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co;",
           },
         }),
   },
@@ -167,7 +168,14 @@ export default defineConfig({
       reportCompressedSize: false,
       // Warn when a chunk exceeds 1500 KB.
       chunkSizeWarningLimit: 1500,
-      minify: false,
+      // Minify only for production builds; keep dev unminified for easier debugging.
+      minify: env.mode === 'production' ? 'esbuild' : false,
+    },
+    optimizeDeps: {
+      // markstream-vue lists several heavy peers (katex, mermaid, monaco-editor,
+      // vue-i18n, stream-markdown) as optional. We don't use them, so exclude
+      // from Vite's dep optimizer to suppress noisy warnings.
+      exclude: ['katex', 'mermaid', 'monaco-editor', 'vue-i18n', 'stream-markdown'],
     },
   }),
 });
