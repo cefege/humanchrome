@@ -1,10 +1,10 @@
 /** Bidirectional V2 ↔ V3 data converter. */
 
 import type { FlowV3, NodeV3, EdgeV3, FlowBinding } from '../../domain/flow';
-import type { TriggerSpec } from '../../domain/triggers';
+import type { TriggerSpec, UrlMatchRule } from '../../domain/triggers';
 import type { VariableDefinition } from '../../domain/variables';
 import type { NodeId, FlowId, EdgeId } from '../../domain/ids';
-import type { ISODateTimeString } from '../../domain/json';
+import type { ISODateTimeString, JsonObject, JsonValue } from '../../domain/json';
 import { FLOW_SCHEMA_VERSION } from '../../domain/flow';
 
 // ==================== V2 Types (imported from record-replay) ====================
@@ -175,7 +175,7 @@ function convertNodeV2ToV3(v2Node: V2Node): NodeV3 | null {
   const node: NodeV3 = {
     id: v2Node.id as NodeId,
     kind: v2Node.type, // V2 type -> V3 kind
-    config: (v2Node.config as Record<string, unknown>) || {},
+    config: (v2Node.config as JsonObject) || {},
   };
 
   if (v2Node.name) {
@@ -321,7 +321,7 @@ function convertVariablesV2ToV3(v2Variables: V2VariableDef[]): VariableDefinitio
         variable.sensitive = v.sensitive;
       }
       if (v.default !== undefined) {
-        variable.default = v.default;
+        variable.default = v.default as JsonValue;
       }
       if (v.rules?.required) {
         variable.required = v.rules.required;
@@ -471,7 +471,7 @@ export function convertTriggerV2ToV3(v2Trigger: V2Trigger): ConversionResult<Tri
         kind: 'command',
         flowId: v2Trigger.flowId as FlowId,
         enabled: v2Trigger.enabled ?? true,
-        command: v2Trigger.commandKey || 'run_workflow',
+        commandKey: v2Trigger.commandKey || 'run_workflow',
       };
       break;
 
@@ -481,7 +481,10 @@ export function convertTriggerV2ToV3(v2Trigger: V2Trigger): ConversionResult<Tri
         kind: 'url',
         flowId: v2Trigger.flowId as FlowId,
         enabled: v2Trigger.enabled ?? true,
-        patterns: (v2Trigger.match || []).map((m) => m.value),
+        match: (v2Trigger.match || []).map((m) => ({
+          kind: (m.kind as UrlMatchRule['kind']) || 'url',
+          value: m.value,
+        })),
       };
       break;
 

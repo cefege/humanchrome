@@ -120,6 +120,27 @@ export interface AgentActRequest {
   displayText?: string;
 }
 
+/**
+ * Optional client metadata payload attached to an /agent/chat request.
+ * Mirrored into the persisted user message metadata for special UI rendering
+ * (e.g., web editor apply/selection chips).
+ */
+export interface AgentActRequestClientMeta {
+  kind?: 'web_editor_apply_batch' | 'web_editor_apply_single' | string;
+  pageUrl?: string;
+  elementCount?: number;
+  elementLabels?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * Shape of an AgentMessage's `metadata` when it carries attachments.
+ */
+export interface AgentMessageAttachmentMetadata {
+  attachments?: AttachmentMetadata[];
+  [key: string]: unknown;
+}
+
 export interface AgentActResponse {
   requestId: string;
   sessionId: string;
@@ -226,6 +247,24 @@ export interface AgentManagementInfo {
 }
 
 /**
+ * Structured preview metadata for session list display.
+ * When present, allows rendering special styles (e.g., chip for web editor apply).
+ */
+export interface AgentSessionPreviewMeta {
+  /** Compact display text (e.g., user's message or "Apply changes") */
+  displayText?: string;
+  /** Client metadata for special rendering */
+  clientMeta?: {
+    kind?: 'web_editor_apply_batch' | 'web_editor_apply_single';
+    pageUrl?: string;
+    elementCount?: number;
+    elementLabels?: string[];
+  };
+  /** Full content for tooltip preview (truncated to avoid payload bloat) */
+  fullContent?: string;
+}
+
+/**
  * Agent session - represents an independent conversation within a project.
  */
 export interface AgentSession {
@@ -236,6 +275,8 @@ export interface AgentSession {
   name?: string;
   /** Preview text from first user message, for display in session list */
   preview?: string;
+  /** Structured preview metadata for special rendering (e.g., web editor apply chip) */
+  previewMeta?: AgentSessionPreviewMeta;
   model?: string;
   permissionMode: string;
   allowDangerouslySkipPermissions: boolean;
@@ -397,6 +438,8 @@ export interface AttachmentMetadata {
  */
 export interface AttachmentProjectStats {
   projectId: string;
+  /** Optional human-readable project name, when known */
+  projectName?: string;
   /** Directory path for this project's attachments */
   dirPath: string;
   /** Whether the directory exists */

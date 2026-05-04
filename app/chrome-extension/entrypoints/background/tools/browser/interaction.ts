@@ -209,6 +209,7 @@ class FillTool extends BaseBrowserToolExecutor {
       if (!tab.id) {
         return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
       }
+      const tabId = tab.id;
 
       let finalRef = ref;
       let finalSelector = selector;
@@ -246,9 +247,9 @@ class FillTool extends BaseBrowserToolExecutor {
       // Fill should never navigate. Wrap with the snapshot+post-assert guard so
       // a mid-call hard navigation surfaces as TARGET_NAVIGATED_AWAY rather
       // than the value getting written to the wrong document silently.
-      const result = await this.withNavigationGuard(tab.id, () =>
+      const result = await this.withNavigationGuard(tabId, () =>
         this.sendMessageToTab(
-          tab.id,
+          tabId,
           {
             action: TOOL_MESSAGE_TYPES.FILL_ELEMENT,
             selector: finalSelector,

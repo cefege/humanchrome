@@ -252,7 +252,7 @@ const ObjectField = defineComponent({
   },
 });
 
-const ArrayField = defineComponent({
+const ArrayField: any = defineComponent({
   name: 'ArrayField',
   props: ['field', 'modelValue'],
   emits: ['update:modelValue'],
@@ -276,7 +276,7 @@ const ArrayField = defineComponent({
       items.value.splice(i, 1);
       update();
     };
-    const compOf = (f: any) => {
+    const compOf = (f: any): any => {
       const w = getWidget(f.widget);
       if (w) return w as any;
       if (f.type === 'string') return StringField;
@@ -288,7 +288,7 @@ const ArrayField = defineComponent({
       if (f.type === 'array') return ArrayField;
       return StringField;
     };
-    return () =>
+    return (): any =>
       h('div', { class: 'array' }, [
         ...items.value.map((_, i) =>
           h('div', { class: 'array-item', key: i }, [

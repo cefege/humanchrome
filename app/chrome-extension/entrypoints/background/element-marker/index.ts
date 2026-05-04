@@ -181,6 +181,10 @@ export function initElementMarkerListeners() {
               offsetX?: number;
               offsetY?: number;
               relativeTo?: 'element' | 'viewport';
+              waitForNavigation?: boolean;
+              timeoutMs?: number;
+              scrollDirection?: 'up' | 'down' | 'left' | 'right';
+              scrollAmount?: number;
             };
             // enrich typing with optional nav + scroll params
             (req as any).waitForNavigation = (message as any).waitForNavigation;

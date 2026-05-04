@@ -104,7 +104,7 @@
       :model="model"
       :reasoning-effort="reasoningEffort"
       :use-ccr="useCcr"
-      :enable-humanchrome="enableHumanChrome"
+      :enable-human-chrome="enableHumanChrome"
       :engines="server.engines.value"
       :is-picking="isPickingDirectory"
       :is-saving="isSavingPreference"

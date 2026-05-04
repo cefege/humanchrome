@@ -146,7 +146,7 @@ function isGifMessage(message: unknown): message is GifMessage {
     OFFSCREEN_MESSAGE_TYPES.GIF_RESET,
   ];
 
-  return gifTypes.includes(msg.type as string);
+  return gifTypes.includes(msg.type as (typeof gifTypes)[number]);
 }
 
 export function handleGifMessage(

@@ -1339,7 +1339,8 @@ const confirmClearAllData = async () => {
   }
 };
 
-const switchModel = async (newModel: ModelPreset) => {
+const switchModel = async (preset: string) => {
+  const newModel = preset as ModelPreset;
   console.log(`🔄 switchModel called with newModel: ${newModel}`);
 
   if (isModelSwitching.value) {

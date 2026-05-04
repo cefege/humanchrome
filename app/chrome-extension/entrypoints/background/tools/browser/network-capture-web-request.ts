@@ -98,7 +98,7 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
   private lastActivityTime: Map<number, number> = new Map(); // tabId -> timestamp of last activity
   private requestCounters: Map<number, number> = new Map(); // tabId -> count of captured requests
   public static MAX_REQUESTS_PER_CAPTURE = LIMITS.MAX_NETWORK_REQUESTS; // Maximum capture request count
-  private listeners: { [key: string]: (details: any) => void } = {};
+  private listeners: { [key: string]: ((details: any) => void) | undefined } = {};
 
   // Static resource MIME types list (for filtering)
   private static STATIC_MIME_TYPES_TO_FILTER = [
@@ -479,26 +479,28 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
 
     // Register all listeners
     chrome.webRequest.onBeforeRequest.addListener(
-      this.listeners.onBeforeRequest,
+      this.listeners.onBeforeRequest!,
       { urls: ['<all_urls>'] },
       ['requestBody'],
     );
 
     chrome.webRequest.onSendHeaders.addListener(
-      this.listeners.onSendHeaders,
+      this.listeners.onSendHeaders!,
       { urls: ['<all_urls>'] },
       ['requestHeaders'],
     );
 
     chrome.webRequest.onHeadersReceived.addListener(
-      this.listeners.onHeadersReceived,
+      this.listeners.onHeadersReceived!,
       { urls: ['<all_urls>'] },
       ['responseHeaders'],
     );
 
-    chrome.webRequest.onCompleted.addListener(this.listeners.onCompleted, { urls: ['<all_urls>'] });
+    chrome.webRequest.onCompleted.addListener(this.listeners.onCompleted!, {
+      urls: ['<all_urls>'],
+    });
 
-    chrome.webRequest.onErrorOccurred.addListener(this.listeners.onErrorOccurred, {
+    chrome.webRequest.onErrorOccurred.addListener(this.listeners.onErrorOccurred!, {
       urls: ['<all_urls>'],
     });
   }
