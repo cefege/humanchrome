@@ -329,83 +329,104 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
-  // {
-  //   name: TOOL_NAMES.BROWSER.USERSCRIPT,
-  //   description:
-  //     'Unified userscript tool (create/list/get/enable/disable/update/remove/send_command/export). Paste JS/CSS/Tampermonkey script and the system will auto-select the best strategy (insertCSS / persistent script in ISOLATED or MAIN world / once by CDP) with CSP-aware fallbacks.',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       action: {
-  //         type: 'string',
-  //         description:
-  //           'Operation to perform',
-  //         enum: [
-  //           'create',
-  //           'list',
-  //           'get',
-  //           'enable',
-  //           'disable',
-  //           'update',
-  //           'remove',
-  //           'send_command',
-  //           'export',
-  //         ],
-  //       },
-  //       args: {
-  //         type: 'object',
-  //         description:
-  //           'Arguments for the specified action.\n- create: { script (required), name?, description?, matches?: string[], excludes?: string[], persist?: boolean (default true), runAt?: "document_start"|"document_end"|"document_idle"|"auto", world?: "auto"|"ISOLATED"|"MAIN", allFrames?: boolean (default true), mode?: "auto"|"css"|"persistent"|"once", dnrFallback?: boolean (default true), tags?: string[] }\n- list: { query?: string, status?: "enabled"|"disabled", domain?: string }\n- get: { id (required) }\n- enable/disable: { id (required) }\n- update: { id (required), script?, name?, description?, matches?, excludes?, runAt?, world?, allFrames?, persist?, dnrFallback?, tags? }\n- remove: { id (required) }\n- send_command: { id (required), payload?: string, tabId?: number }\n- export: {}\nTip: For a one-off execution that returns a value, use create with args.mode="once". The returned value is included as onceResult in the tool response.',
-  //         properties: {
-  //           // Common identifiers
-  //           id: { type: 'string', description: 'Userscript id (for get/enable/disable/update/remove/send_command)' },
-  //           // Create / Update fields
-  //           script: { type: 'string', description: 'JS/CSS/Tampermonkey script source (required for create)' },
-  //           name: { type: 'string', description: 'Userscript name (optional)' },
-  //           description: { type: 'string', description: 'Userscript description (optional)' },
-  //           matches: {
-  //             type: 'array',
-  //             items: { type: 'string' },
-  //             description: 'Match patterns for pages to apply to (e.g., https://*.example.com/*)'
-  //           },
-  //           excludes: {
-  //             type: 'array',
-  //             items: { type: 'string' },
-  //             description: 'Exclude patterns'
-  //           },
-  //           persist: { type: 'boolean', description: 'Persist userscript for matched pages (default true)' },
-  //           runAt: {
-  //             type: 'string',
-  //             description: 'Injection timing',
-  //             enum: ['document_start', 'document_end', 'document_idle', 'auto'],
-  //           },
-  //           world: {
-  //             type: 'string',
-  //             description: 'Execution world',
-  //             enum: ['auto', 'ISOLATED', 'MAIN'],
-  //           },
-  //           allFrames: { type: 'boolean', description: 'Inject into all frames (default true)' },
-  //           mode: {
-  //             type: 'string',
-  //             description:
-  //               'Injection strategy: auto | css | persistent | once. Use once to evaluate immediately (no persistence) and include the return value in onceResult.',
-  //             enum: ['auto', 'css', 'persistent', 'once'],
-  //           },
-  //           dnrFallback: { type: 'boolean', description: 'Use DNR fallback when needed (default true)' },
-  //           tags: { type: 'array', items: { type: 'string' }, description: 'Custom tags' },
-  //           // List filters
-  //           query: { type: 'string', description: 'Search by name/description (list action)' },
-  //           status: { type: 'string', enum: ['enabled', 'disabled'], description: 'Filter by status (list action)' },
-  //           domain: { type: 'string', description: 'Filter by domain (list action)' },
-  //           // Send command
-  //           payload: { type: 'string', description: 'Arbitrary payload (stringified) for send_command' },
-  //           tabId: { type: 'number', description: 'Target tab for send_command (default active tab)' },
-  //         },
-  //       },
-  //     },
-  //     required: ['action'],
-  //   },
-  // },
+  {
+    name: TOOL_NAMES.BROWSER.USERSCRIPT,
+    description:
+      'Unified userscript tool (create/list/get/enable/disable/update/remove/send_command/export). Paste JS/CSS/Tampermonkey script and the system will auto-select the best strategy (insertCSS / persistent script in ISOLATED or MAIN world / once by CDP) with CSP-aware fallbacks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description: 'Operation to perform',
+          enum: [
+            'create',
+            'list',
+            'get',
+            'enable',
+            'disable',
+            'update',
+            'remove',
+            'send_command',
+            'export',
+          ],
+        },
+        args: {
+          type: 'object',
+          description:
+            'Arguments for the specified action.\n- create: { script (required), name?, description?, matches?: string[], excludes?: string[], persist?: boolean (default true), runAt?: "document_start"|"document_end"|"document_idle"|"auto", world?: "auto"|"ISOLATED"|"MAIN", allFrames?: boolean (default true), mode?: "auto"|"css"|"persistent"|"once", dnrFallback?: boolean (default true), tags?: string[] }\n- list: { query?: string, status?: "enabled"|"disabled", domain?: string }\n- get: { id (required) }\n- enable/disable: { id (required) }\n- update: { id (required), script?, name?, description?, matches?, excludes?, runAt?, world?, allFrames?, persist?, dnrFallback?, tags? }\n- remove: { id (required) }\n- send_command: { id (required), payload?: string, tabId?: number }\n- export: {}\nTip: For a one-off execution that returns a value, use create with args.mode="once". The returned value is included as onceResult in the tool response.',
+          properties: {
+            // Common identifiers
+            id: {
+              type: 'string',
+              description: 'Userscript id (for get/enable/disable/update/remove/send_command)',
+            },
+            // Create / Update fields
+            script: {
+              type: 'string',
+              description: 'JS/CSS/Tampermonkey script source (required for create)',
+            },
+            name: { type: 'string', description: 'Userscript name (optional)' },
+            description: { type: 'string', description: 'Userscript description (optional)' },
+            matches: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Match patterns for pages to apply to (e.g., https://*.example.com/*)',
+            },
+            excludes: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Exclude patterns',
+            },
+            persist: {
+              type: 'boolean',
+              description: 'Persist userscript for matched pages (default true)',
+            },
+            runAt: {
+              type: 'string',
+              description: 'Injection timing',
+              enum: ['document_start', 'document_end', 'document_idle', 'auto'],
+            },
+            world: {
+              type: 'string',
+              description: 'Execution world',
+              enum: ['auto', 'ISOLATED', 'MAIN'],
+            },
+            allFrames: { type: 'boolean', description: 'Inject into all frames (default true)' },
+            mode: {
+              type: 'string',
+              description:
+                'Injection strategy: auto | css | persistent | once. Use once to evaluate immediately (no persistence) and include the return value in onceResult.',
+              enum: ['auto', 'css', 'persistent', 'once'],
+            },
+            dnrFallback: {
+              type: 'boolean',
+              description: 'Use DNR fallback when needed (default true)',
+            },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Custom tags' },
+            // List filters
+            query: { type: 'string', description: 'Search by name/description (list action)' },
+            status: {
+              type: 'string',
+              enum: ['enabled', 'disabled'],
+              description: 'Filter by status (list action)',
+            },
+            domain: { type: 'string', description: 'Filter by domain (list action)' },
+            // Send command
+            payload: {
+              type: 'string',
+              description: 'Arbitrary payload (stringified) for send_command',
+            },
+            tabId: {
+              type: 'number',
+              description: 'Target tab for send_command (default active tab)',
+            },
+          },
+        },
+      },
+      required: ['action'],
+    },
+  },
   {
     name: TOOL_NAMES.BROWSER.NAVIGATE,
     description:

@@ -213,7 +213,7 @@ Yes. Any MCP-aware client. Use the Streamable HTTP config block above.
 Yes. POST to `http://127.0.0.1:12306/api/tools/<name>`. See "Use it without MCP" above. The OpenAPI spec at `/api/openapi.json` is generated from the same tool catalog.
 
 **Q: Does this work in Firefox?**
-Not yet. Manifest V3 plus native messaging in Firefox needs a separate code path. Open an issue if you want it.
+No, and not planned. The native messaging host registers Chrome/Chromium hosts only. Adding Firefox would need MV3 + a separate `~/.mozilla/native-messaging-hosts/` registration path. Open an issue if you want to discuss it.
 
 **Q: How do I debug when something goes wrong?**
 The bridge logs to `~/Library/Logs/humanchrome-bridge` (macOS), `%LOCALAPPDATA%\humanchrome-bridge\logs` (Windows), or `~/.local/state/humanchrome-bridge/logs` (Linux). Every tool call is correlated by `requestId`. The `chrome_debug_dump` tool returns the per-call entries. Failures in the live-test harness produce paste-ready markdown prompts under `app/native-server/live-test/results/failures/`.

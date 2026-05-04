@@ -1,0 +1,10 @@
+Arc90 Readability
+=================
+
+`web-fetcher-helper.js` includes derivative code from the Arc90 Readability
+project (https://github.com/mozilla/readability), originally Apache 2.0
+licensed. The Apache 2.0 attribution header is preserved at the top of
+`web-fetcher-helper.js` as required by §4(c) of the license.
+
+Upstream license: Apache License 2.0
+Original source: https://github.com/mozilla/readability/blob/master/Readability.js
