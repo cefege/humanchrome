@@ -50,7 +50,7 @@
   "devDependencies": {
     "@iconify-json/lucide": "^1.1.0",
     "@tailwindcss/vite": "^4.0.0",
-    "@types/chrome": "^0.0.318",
+    "@types/chrome": "^0.1.40",
     "@wxt-dev/module-vue": "^1.0.2",
     "dotenv": "^16.5.0",
     "fake-indexeddb": "^6.2.5",
