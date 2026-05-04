@@ -237,4 +237,4 @@ Found a vulnerability? Open a private security advisory: <https://github.com/cef
 
 ---
 
-Originally derived from earlier open-source work on Chrome-extension-based browser automation.
+Forked from [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) (MIT). The fork rebrands the project, switches the UI to English, and reorients it around hard-to-automate platforms.

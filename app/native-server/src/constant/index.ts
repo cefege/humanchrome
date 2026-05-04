@@ -67,7 +67,7 @@ export const MCP_HTTP_PORT_ENV = 'MCP_HTTP_PORT';
  * Get the actual port the HumanChrome bridge is listening on.
  * Priority: HUMANCHROME_PORT env > MCP_HTTP_PORT env > NATIVE_SERVER_PORT default
  */
-export function getChromeMcpPort(): number {
+export function getHumanChromePort(): number {
   const raw = process.env[HUMANCHROME_PORT_ENV] || process.env[MCP_HTTP_PORT_ENV];
   const port = raw ? Number.parseInt(String(raw), 10) : NaN;
   return Number.isFinite(port) && port > 0 && port <= 65535 ? port : NATIVE_SERVER_PORT;
@@ -77,6 +77,6 @@ export function getChromeMcpPort(): number {
  * Get the full URL to the local HumanChrome HTTP endpoint.
  * This URL is used by Claude/Codex agents to connect to the MCP server.
  */
-export function getChromeMcpUrl(): string {
-  return `http://${SERVER_CONFIG.HOST}:${getChromeMcpPort()}/mcp`;
+export function getHumanChromeUrl(): string {
+  return `http://${SERVER_CONFIG.HOST}:${getHumanChromePort()}/mcp`;
 }

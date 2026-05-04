@@ -175,7 +175,7 @@
     </div>
 
     <!-- HumanChrome Option - only shown when Claude or Codex CLI is selected -->
-    <div v-if="showChromeMcpOption" class="px-3 py-2 flex items-center gap-2">
+    <div v-if="showHumanChromeOption" class="px-3 py-2 flex items-center gap-2">
       <span class="text-xs w-12" :style="{ color: 'var(--ac-text-muted, #6e6e6e)' }"> MCP </span>
       <label
         class="flex items-center gap-2 cursor-pointer"
@@ -183,12 +183,12 @@
       >
         <input
           type="checkbox"
-          :checked="enableChromeMcp"
+          :checked="enableHumanChrome"
           class="w-4 h-4 rounded"
           :style="{
             accentColor: 'var(--ac-accent, #c87941)',
           }"
-          @change="handleChromeMcpChange"
+          @change="handleHumanChromeChange"
         />
         <span class="text-xs" :style="{ color: 'var(--ac-text, #1a1a1a)' }">
           Enable HumanChrome
@@ -237,7 +237,7 @@ const props = defineProps<{
   model: string;
   reasoningEffort: CodexReasoningEffort;
   useCcr: boolean;
-  enableChromeMcp: boolean;
+  enableHumanChrome: boolean;
   engines: AgentEngineInfo[];
   isPicking: boolean;
   isSaving: boolean;
@@ -251,7 +251,7 @@ const emit = defineEmits<{
   'model:update': [model: string];
   'reasoning-effort:update': [effort: CodexReasoningEffort];
   'ccr:update': [useCcr: boolean];
-  'chrome-mcp:update': [enableChromeMcp: boolean];
+  'humanchrome:update': [enableHumanChrome: boolean];
   save: [];
 }>();
 
@@ -307,7 +307,7 @@ const showCcrOption = computed(() => {
 
 // Show HumanChrome option when Claude, Codex, or Auto (empty) CLI is selected
 // Auto typically defaults to Claude, and users should be able to manage this project-level setting
-const showChromeMcpOption = computed(() => {
+const showHumanChromeOption = computed(() => {
   return !props.selectedCli || props.selectedCli === 'claude' || props.selectedCli === 'codex';
 });
 
@@ -337,8 +337,8 @@ function handleCcrChange(event: Event): void {
   emit('ccr:update', (event.target as HTMLInputElement).checked);
 }
 
-function handleChromeMcpChange(event: Event): void {
-  emit('chrome-mcp:update', (event.target as HTMLInputElement).checked);
+function handleHumanChromeChange(event: Event): void {
+  emit('humanchrome:update', (event.target as HTMLInputElement).checked);
 }
 
 function handleModelChange(event: Event): void {

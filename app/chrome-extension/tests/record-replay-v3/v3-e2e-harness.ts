@@ -66,11 +66,11 @@ import { isTerminalStatus } from '@/entrypoints/background/record-replay-v3/doma
 
 type Logger = Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
 
-interface TestNodeConfig {
+type TestNodeConfig = {
   action: 'succeed' | 'fail';
   outputs?: JsonObject;
   delayMs?: number;
-}
+} & JsonObject;
 
 /**
  * E2E Harness configuration options.

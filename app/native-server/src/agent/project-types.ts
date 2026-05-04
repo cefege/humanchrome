@@ -21,7 +21,7 @@ export interface CreateOrUpdateProjectInput {
    * Whether to enable the local HumanChrome bridge integration for this project.
    * Defaults to true when omitted.
    */
-  enableChromeMcp?: boolean;
+  enableHumanChrome?: boolean;
   /**
    * If true, create the directory if it doesn't exist.
    * Should only be set after user confirmation.

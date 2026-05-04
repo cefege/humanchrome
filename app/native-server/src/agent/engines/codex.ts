@@ -11,7 +11,7 @@ import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './t
 import type { AgentMessage, RealtimeEvent } from '../types';
 import { AgentToolBridge } from '../tool-bridge';
 import { getProject } from '../project-service';
-import { getChromeMcpUrl } from '../../constant';
+import { getHumanChromeUrl } from '../../constant';
 
 type TodoListPhase = 'started' | 'update' | 'completed';
 
@@ -79,15 +79,15 @@ export class CodexEngine implements AgentEngine {
     }
 
     // Resolve project-scoped HumanChrome toggle (default: enabled)
-    const enableChromeMcp = await (async (): Promise<boolean> => {
+    const enableHumanChrome = await (async (): Promise<boolean> => {
       if (!projectId) return true;
       try {
         const project = await getProject(projectId);
-        return project?.enableChromeMcp !== false;
+        return project?.enableHumanChrome !== false;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
-          `[CodexEngine] Failed to load project enableChromeMcp, defaulting to enabled: ${message}`,
+          `[CodexEngine] Failed to load project enableHumanChrome, defaulting to enabled: ${message}`,
         );
         return true;
       }
@@ -115,12 +115,12 @@ export class CodexEngine implements AgentEngine {
 
     // Inject local HumanChrome bridge via runtime config override (no global codex config mutation)
     // Use a unique server name to avoid collision with any existing global config
-    if (enableChromeMcp) {
-      const chromeMcpUrl = getChromeMcpUrl();
+    if (enableHumanChrome) {
+      const humanchromeUrl = getHumanChromeUrl();
       // Set both url and type for complete HTTP MCP server configuration
-      args.push('-c', `mcp_servers.humanchrome.url=${JSON.stringify(chromeMcpUrl)}`);
+      args.push('-c', `mcp_servers.humanchrome.url=${JSON.stringify(humanchromeUrl)}`);
       args.push('-c', `mcp_servers.humanchrome.type="http"`);
-      console.error(`[CodexEngine] HumanChrome bridge enabled: ${chromeMcpUrl}`);
+      console.error(`[CodexEngine] HumanChrome bridge enabled: ${humanchromeUrl}`);
     } else {
       console.error('[CodexEngine] HumanChrome bridge disabled');
     }

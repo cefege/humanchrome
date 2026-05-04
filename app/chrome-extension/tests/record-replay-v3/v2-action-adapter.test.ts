@@ -29,6 +29,36 @@ import { FLOW_SCHEMA_VERSION } from '@/entrypoints/background/record-replay-v3/d
 
 import { adaptV2ActionHandlerToV3NodeDefinition } from '@/entrypoints/background/record-replay-v3/engine/plugins/v2-action-adapter';
 
+// Declaration merging: register a synthetic 'test' action type so
+// these unit tests can exercise the adapter against a controlled handler.
+declare module '@/entrypoints/background/record-replay/actions/types' {
+  interface ActionParamsByType {
+    test: Record<string, unknown>;
+  }
+  interface ActionOutputsByType {
+    test: Record<string, unknown>;
+  }
+}
+
+// ==================== Type Helpers ====================
+
+type SucceededResult = Extract<NodeExecutionResult, { status: 'succeeded' }>;
+type FailedResult = Extract<NodeExecutionResult, { status: 'failed' }>;
+
+function asSucceeded(result: NodeExecutionResult): SucceededResult {
+  if (result.status !== 'succeeded') {
+    throw new Error(`Expected succeeded result but got ${result.status}`);
+  }
+  return result;
+}
+
+function asFailed(result: NodeExecutionResult): FailedResult {
+  if (result.status !== 'failed') {
+    throw new Error(`Expected failed result but got ${result.status}`);
+  }
+  return result;
+}
+
 // ==================== Test Fixtures ====================
 
 function createMockV3Context(overrides: Partial<NodeExecutionContext> = {}): NodeExecutionContext {
@@ -116,8 +146,8 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.TIMEOUT);
-      expect(result.error?.message).toBe('Timed out');
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.TIMEOUT);
+      expect(asFailed(result).error?.message).toBe('Timed out');
     });
 
     it('handles V2 handler throwing exception', async () => {
@@ -132,8 +162,8 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.INTERNAL);
-      expect(result.error?.message).toContain('Unexpected error');
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.INTERNAL);
+      expect(asFailed(result).error?.message).toContain('Unexpected error');
     });
   });
 
@@ -151,7 +181,11 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({ op: 'set', name: 'newVar', value: 'value' });
+      expect(asSucceeded(result).varsPatch).toContainEqual({
+        op: 'set',
+        name: 'newVar',
+        value: 'value',
+      });
     });
 
     it('generates set patch for modified variable', async () => {
@@ -167,7 +201,11 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({ op: 'set', name: 'existing', value: 'modified' });
+      expect(asSucceeded(result).varsPatch).toContainEqual({
+        op: 'set',
+        name: 'existing',
+        value: 'modified',
+      });
     });
 
     it('generates delete patch for removed variable', async () => {
@@ -183,7 +221,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({ op: 'delete', name: 'toDelete' });
+      expect(asSucceeded(result).varsPatch).toContainEqual({ op: 'delete', name: 'toDelete' });
     });
 
     it('handles deep object changes', async () => {
@@ -199,7 +237,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({
+      expect(asSucceeded(result).varsPatch).toContainEqual({
         op: 'set',
         name: 'obj',
         value: { nested: { value: 42 } },
@@ -218,7 +256,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toBeUndefined();
+      expect(asSucceeded(result).varsPatch).toBeUndefined();
     });
   });
 
@@ -236,7 +274,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
     });
 
     it('does not set next when no nextLabel', async () => {
@@ -251,7 +289,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toBeUndefined();
+      expect(asSucceeded(result).next).toBeUndefined();
     });
   });
 
@@ -285,7 +323,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
         const result = await nodeDef.execute(ctx, node as any);
 
         expect(result.status).toBe('failed');
-        expect(result.error?.code).toBe(v3Code);
+        expect(asFailed(result).error?.code).toBe(v3Code);
       });
     });
   });
@@ -304,7 +342,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({
+      expect(asSucceeded(result).varsPatch).toContainEqual({
         op: 'set',
         name: '__rr_v2__tabId',
         value: 42,
@@ -324,7 +362,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.varsPatch).toContainEqual({
+      expect(asSucceeded(result).varsPatch).toContainEqual({
         op: 'set',
         name: '__rr_v2__frameId',
         value: 5,
@@ -382,7 +420,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
 
       const result = await nodeDef.execute(ctx, node as any);
 
-      expect(result.varsPatch).toContainEqual({
+      expect(asSucceeded(result).varsPatch).toContainEqual({
         op: 'set',
         name: 'custom_tab',
         value: 42,
@@ -403,7 +441,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.RUN_PAUSED);
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.RUN_PAUSED);
     });
 
     it('returns failed for control directive (foreach)', async () => {
@@ -424,8 +462,8 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.UNSUPPORTED_NODE);
-      expect(result.error?.message).toContain('foreach');
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.UNSUPPORTED_NODE);
+      expect(asFailed(result).error?.message).toContain('foreach');
     });
 
     it('returns failed for control directive (while)', async () => {
@@ -433,7 +471,12 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
         status: 'success',
         control: {
           kind: 'while' as const,
-          condition: { left: 'a', op: '==', right: 'b' },
+          condition: {
+            kind: 'compare' as const,
+            left: 'a',
+            op: 'eq' as const,
+            right: 'b',
+          },
           subflowId: 'subflow-1',
           maxIterations: 10,
         },
@@ -446,8 +489,8 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.UNSUPPORTED_NODE);
-      expect(result.error?.message).toContain('while');
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.UNSUPPORTED_NODE);
+      expect(asFailed(result).error?.message).toContain('while');
     });
   });
 
@@ -465,7 +508,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.outputs).toEqual({
+      expect(asSucceeded(result).outputs).toEqual({
         'extract-node': { extracted: 'data' },
       });
     });
@@ -485,7 +528,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.outputs).toBeUndefined();
+      expect(asSucceeded(result).outputs).toBeUndefined();
     });
 
     it('does not include outputs when no output', async () => {
@@ -500,7 +543,7 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.outputs).toBeUndefined();
+      expect(asSucceeded(result).outputs).toBeUndefined();
     });
   });
 
@@ -519,8 +562,8 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
       const result = await nodeDef.execute(ctx, node as any);
 
       expect(result.status).toBe('failed');
-      expect(result.error?.code).toBe(RR_ERROR_CODES.VALIDATION_ERROR);
-      expect(result.error?.message).toContain('Invalid config');
+      expect(asFailed(result).error?.code).toBe(RR_ERROR_CODES.VALIDATION_ERROR);
+      expect(asFailed(result).error?.message).toContain('Invalid config');
     });
 
     it('proceeds with execution when validation passes', async () => {

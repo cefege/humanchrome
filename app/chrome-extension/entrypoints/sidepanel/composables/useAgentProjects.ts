@@ -494,12 +494,12 @@ export function useAgentProjects(options: UseAgentProjectsOptions) {
     }
   }
 
-  // Save project preference (CLI, model, useCcr, enableChromeMcp)
+  // Save project preference (CLI, model, useCcr, enableHumanChrome)
   async function saveProjectPreference(
     cli?: string,
     model?: string,
     useCcr?: boolean,
-    enableChromeMcp?: boolean,
+    enableHumanChrome?: boolean,
   ): Promise<void> {
     const project = selectedProject.value;
     const serverPort = options.getServerPort();
@@ -518,7 +518,7 @@ export function useAgentProjects(options: UseAgentProjectsOptions) {
           preferredCli: cli?.trim() ?? project.preferredCli,
           selectedModel: model?.trim() ?? project.selectedModel,
           useCcr: useCcr ?? project.useCcr,
-          enableChromeMcp: enableChromeMcp ?? project.enableChromeMcp,
+          enableHumanChrome: enableHumanChrome ?? project.enableHumanChrome,
         }),
       });
 

@@ -4,7 +4,7 @@ import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './t
 import type { AgentMessage, RealtimeEvent } from '../types';
 import { detectCcr, validateCcrConfig } from '../ccr-detector';
 import { getProject } from '../project-service';
-import { getChromeMcpUrl } from '../../constant';
+import { getHumanChromeUrl } from '../../constant';
 
 // Images are provided to Claude Code via local file paths referenced in the prompt text.
 // Claude Code CLI reads images from local paths, so we write base64 images to temp files and reference them.
@@ -507,15 +507,15 @@ export class ClaudeEngine implements AgentEngine {
           : undefined;
 
       // Resolve project-scoped HumanChrome toggle (default: enabled)
-      const enableChromeMcp = await (async (): Promise<boolean> => {
+      const enableHumanChrome = await (async (): Promise<boolean> => {
         if (!projectId) return true;
         try {
           const project = await getProject(projectId);
-          return project?.enableChromeMcp !== false;
+          return project?.enableHumanChrome !== false;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           console.error(
-            `[ClaudeEngine] Failed to load project enableChromeMcp, defaulting to enabled: ${message}`,
+            `[ClaudeEngine] Failed to load project enableHumanChrome, defaulting to enabled: ${message}`,
           );
           return true;
         }
@@ -726,8 +726,8 @@ export class ClaudeEngine implements AgentEngine {
 
       // Inject the local HumanChrome bridge based on project preference.
       // This only controls the built-in "humanchrome" entry; user-configured MCP servers remain untouched.
-      const CHROME_MCP_SERVER_NAME = 'humanchrome';
-      if (enableChromeMcp) {
+      const HUMANCHROME_SERVER_NAME = 'humanchrome';
+      if (enableHumanChrome) {
         const existingMcpServers =
           queryOptions.mcpServers &&
           typeof queryOptions.mcpServers === 'object' &&
@@ -737,12 +737,12 @@ export class ClaudeEngine implements AgentEngine {
 
         queryOptions.mcpServers = {
           ...existingMcpServers,
-          [CHROME_MCP_SERVER_NAME]: {
+          [HUMANCHROME_SERVER_NAME]: {
             type: 'http',
-            url: getChromeMcpUrl(),
+            url: getHumanChromeUrl(),
           },
         };
-        console.error(`[ClaudeEngine] HumanChrome bridge enabled: ${getChromeMcpUrl()}`);
+        console.error(`[ClaudeEngine] HumanChrome bridge enabled: ${getHumanChromeUrl()}`);
       } else if (
         queryOptions.mcpServers &&
         typeof queryOptions.mcpServers === 'object' &&
@@ -750,8 +750,8 @@ export class ClaudeEngine implements AgentEngine {
       ) {
         // If HumanChrome is disabled, remove it from existing mcpServers if present
         const existing = queryOptions.mcpServers as Record<string, unknown>;
-        if (CHROME_MCP_SERVER_NAME in existing) {
-          const { [CHROME_MCP_SERVER_NAME]: _removed, ...rest } = existing;
+        if (HUMANCHROME_SERVER_NAME in existing) {
+          const { [HUMANCHROME_SERVER_NAME]: _removed, ...rest } = existing;
           if (Object.keys(rest).length > 0) {
             queryOptions.mcpServers = rest;
           } else {

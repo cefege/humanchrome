@@ -24,7 +24,16 @@ import { PluginRegistry } from '@/entrypoints/background/record-replay-v3/engine
 import { ifHandler } from '@/entrypoints/background/record-replay/actions/handlers/control-flow';
 import { delayHandler } from '@/entrypoints/background/record-replay/actions/handlers/delay';
 import { adaptV2ActionHandlerToV3NodeDefinition } from '@/entrypoints/background/record-replay-v3/engine/plugins/v2-action-adapter';
+import type { NodeExecutionResult } from '@/entrypoints/background/record-replay-v3/engine/plugins/types';
 import { createV3E2EHarness, type V3E2EHarness, type RpcClient } from './v3-e2e-harness';
+
+type SucceededResult = Extract<NodeExecutionResult, { status: 'succeeded' }>;
+function asSucceeded(result: NodeExecutionResult): SucceededResult {
+  if (result.status !== 'succeeded') {
+    throw new Error(`Expected succeeded result but got ${result.status}`);
+  }
+  return result;
+}
 
 // ==================== Test Fixtures ====================
 
@@ -179,7 +188,7 @@ describe('V2 Action Adapter Integration', () => {
       const result = await nodeDef.execute(mockCtx as any, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'yes' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'yes' });
     });
 
     it('evaluates falsy condition and returns false label', async () => {
@@ -211,7 +220,7 @@ describe('V2 Action Adapter Integration', () => {
       const result = await nodeDef.execute(mockCtx as any, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'no' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'no' });
     });
 
     it('handles compare condition (eq)', async () => {
@@ -246,7 +255,7 @@ describe('V2 Action Adapter Integration', () => {
       const result = await nodeDef.execute(mockCtx as any, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
     });
 
     it('handles branches mode', async () => {
@@ -296,7 +305,7 @@ describe('V2 Action Adapter Integration', () => {
       const result = await nodeDef.execute(mockCtx as any, node as any);
 
       expect(result.status).toBe('succeeded');
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'in-progress' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'in-progress' });
     });
   });
 
@@ -394,7 +403,7 @@ describe('V2 Action Adapter Integration', () => {
       };
 
       const result = await nodeDef.execute(mockCtx as any, node as any);
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
     });
 
     it('handles OR condition', async () => {
@@ -428,7 +437,7 @@ describe('V2 Action Adapter Integration', () => {
       };
 
       const result = await nodeDef.execute(mockCtx as any, node as any);
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
     });
 
     it('handles NOT condition', async () => {
@@ -459,7 +468,7 @@ describe('V2 Action Adapter Integration', () => {
       };
 
       const result = await nodeDef.execute(mockCtx as any, node as any);
-      expect(result.next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
     });
 
     it('handles string comparison operators', async () => {
@@ -502,7 +511,7 @@ describe('V2 Action Adapter Integration', () => {
 
         const result = await nodeDef.execute(mockCtx as any, node as any);
         const expectedLabel = expected ? 'true' : 'false';
-        expect(result.next).toEqual({ kind: 'edgeLabel', label: expectedLabel });
+        expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: expectedLabel });
       }
     });
   });

@@ -164,7 +164,7 @@ function rowToProject(row: ProjectRow): AgentProject {
     selectedModel: row.selectedModel ?? undefined,
     activeClaudeSessionId: row.activeClaudeSessionId ?? undefined,
     useCcr: row.useCcr === '1',
-    enableChromeMcp: row.enableChromeMcp !== '0',
+    enableHumanChrome: row.enableHumanChrome !== '0',
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastActiveAt: row.lastActiveAt ?? undefined,
@@ -206,15 +206,15 @@ export async function upsertProject(input: CreateOrUpdateProjectInput): Promise<
 
   // Convert booleans to strings for SQLite storage:
   // - useCcr: '1' or null (legacy)
-  // - enableChromeMcp: '1' or '0' (non-null; defaults to enabled)
+  // - enableHumanChrome: '1' or '0' (non-null; defaults to enabled)
   const useCcrValue =
     input.useCcr !== undefined ? (input.useCcr ? '1' : null) : existing?.useCcr ? '1' : null;
 
-  let enableChromeMcpValue: '1' | '0';
-  if (typeof input.enableChromeMcp === 'boolean') {
-    enableChromeMcpValue = input.enableChromeMcp ? '1' : '0';
+  let enableHumanChromeValue: '1' | '0';
+  if (typeof input.enableHumanChrome === 'boolean') {
+    enableHumanChromeValue = input.enableHumanChrome ? '1' : '0';
   } else {
-    enableChromeMcpValue = existing?.enableChromeMcp === false ? '0' : '1';
+    enableHumanChromeValue = existing?.enableHumanChrome === false ? '0' : '1';
   }
 
   const projectData = {
@@ -227,7 +227,7 @@ export async function upsertProject(input: CreateOrUpdateProjectInput): Promise<
     // Preserve activeClaudeSessionId from existing project (not settable via upsert)
     activeClaudeSessionId: existing?.activeClaudeSessionId ?? null,
     useCcr: useCcrValue,
-    enableChromeMcp: enableChromeMcpValue,
+    enableHumanChrome: enableHumanChromeValue,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     lastActiveAt: now,

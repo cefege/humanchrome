@@ -463,15 +463,13 @@ async function run(id: string) {
 }
 
 function edit(id: string) {
-  // V3 Builder not yet implemented - show message
-  alert('V3 builder not implemented yet — cannot edit workflow');
-  // TODO: openBuilder({ flowId: id });
+  // V3 builder not wired up yet; clicks are intentionally a no-op until it ships.
+  console.info('[workflows] edit not implemented yet (V3 builder pending)', { flowId: id });
 }
 
 function createFlow() {
-  // V3 Builder not yet implemented - show message
-  alert('V3 builder not implemented yet — cannot create workflow');
-  // TODO: openBuilder({ newFlow: true });
+  // V3 builder not wired up yet; clicks are intentionally a no-op until it ships.
+  console.info('[workflows] createFlow not implemented yet (V3 builder pending)');
 }
 
 async function remove(id: string) {

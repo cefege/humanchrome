@@ -154,7 +154,7 @@ export interface AgentProject {
    * Whether to enable HumanChrome integration for this project.
    * Default: true
    */
-  enableChromeMcp?: boolean;
+  enableHumanChrome?: boolean;
   createdAt: string;
   updatedAt: string;
   lastActiveAt?: string;

@@ -124,11 +124,11 @@ describe('property-panel: live style sync', () => {
 describe('property-panel: rAF throttling', () => {
   it('should coalesce multiple style changes into single refresh', () => {
     let rafCallCount = 0;
-    let scheduledCallback: FrameRequestCallback | null = null;
+    const scheduledCallbacks: FrameRequestCallback[] = [];
 
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallCount++;
-      scheduledCallback = cb;
+      scheduledCallbacks.push(cb);
       return rafCallCount;
     });
 
@@ -153,8 +153,9 @@ describe('property-panel: rAF throttling', () => {
     expect(rafCallCount).toBe(1);
 
     // Execute the callback
-    if (scheduledCallback) {
-      scheduledCallback(performance.now());
+    const cb = scheduledCallbacks[0];
+    if (cb) {
+      cb(performance.now());
     }
 
     // Only one refresh should have occurred

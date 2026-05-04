@@ -104,7 +104,7 @@
       :model="model"
       :reasoning-effort="reasoningEffort"
       :use-ccr="useCcr"
-      :enable-chrome-mcp="enableChromeMcp"
+      :enable-humanchrome="enableHumanChrome"
       :engines="server.engines.value"
       :is-picking="isPickingDirectory"
       :is-saving="isSavingPreference"
@@ -115,7 +115,7 @@
       @model:update="model = $event"
       @reasoning-effort:update="reasoningEffort = $event"
       @ccr:update="useCcr = $event"
-      @chrome-mcp:update="enableChromeMcp = $event"
+      @humanchrome:update="enableHumanChrome = $event"
       @save="handleSaveSettings"
     />
 
@@ -218,7 +218,7 @@ const selectedCli = ref('');
 const model = ref('');
 const reasoningEffort = ref<CodexReasoningEffort>('medium');
 const useCcr = ref(false);
-const enableChromeMcp = ref(true);
+const enableHumanChrome = ref(true);
 const isSavingPreference = ref(false);
 
 /**
@@ -828,7 +828,7 @@ async function handleProjectSelect(projectId: string): Promise<void> {
     selectedCli.value = project.preferredCli ?? '';
     model.value = project.selectedModel ?? '';
     useCcr.value = project.useCcr ?? false;
-    enableChromeMcp.value = project.enableChromeMcp !== false;
+    enableHumanChrome.value = project.enableHumanChrome !== false;
   }
   // Load sessions for the new project
   await sessions.ensureDefaultSession(
@@ -862,7 +862,7 @@ async function handleNewProject(): Promise<void> {
         selectedCli.value = project.preferredCli ?? '';
         model.value = project.selectedModel ?? '';
         useCcr.value = project.useCcr ?? false;
-        enableChromeMcp.value = project.enableChromeMcp !== false;
+        enableHumanChrome.value = project.enableHumanChrome !== false;
 
         // Ensure a default session exists for the new project
         const engineName =
@@ -899,7 +899,7 @@ async function handleSaveSettings(): Promise<void> {
       selectedCli.value,
       normalizedModel,
       normalizedCcr,
-      enableChromeMcp.value,
+      enableHumanChrome.value,
     );
     // Sync local state with normalized values
     model.value = normalizedModel;
@@ -984,7 +984,7 @@ async function handleSessionSelectAndNavigate(sessionId: string): Promise<void> 
       selectedCli.value = project.preferredCli ?? '';
       model.value = project.selectedModel ?? '';
       useCcr.value = project.useCcr ?? false;
-      enableChromeMcp.value = project.enableChromeMcp !== false;
+      enableHumanChrome.value = project.enableHumanChrome !== false;
     }
 
     // Fetch sessions for the new project
@@ -1318,7 +1318,7 @@ onMounted(async () => {
         selectedCli.value = project.preferredCli ?? '';
         model.value = project.selectedModel ?? '';
         useCcr.value = project.useCcr ?? false;
-        enableChromeMcp.value = project.enableChromeMcp !== false;
+        enableHumanChrome.value = project.enableHumanChrome !== false;
       }
 
       // Load sessions for the project
