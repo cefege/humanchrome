@@ -188,7 +188,6 @@ const filtered = computed(() => {
   scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
 }
 
-/* 搜索框 */
 .search-box {
   position: relative;
   display: flex;
@@ -216,14 +215,12 @@ const filtered = computed(() => {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.06);
 }
 
-/* 节点区域 */
 .nodes-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-/* 节点按钮 */
 .node-btn {
   display: flex;
   align-items: center;
@@ -246,7 +243,6 @@ const filtered = computed(() => {
   transform: scale(0.98);
 }
 
-/* 节点图标 - 彩色圆形 */
 .btn-icon {
   width: 30px;
   height: 30px;
@@ -346,7 +342,6 @@ const filtered = computed(() => {
   background: transparent !important;
 }
 
-/* 节点标签 */
 .btn-label {
   font-size: 13px;
   font-weight: 500;
@@ -354,7 +349,6 @@ const filtered = computed(() => {
   flex: 1;
 }
 
-/* 分割线 */
 .section-divider {
   display: flex;
   align-items: center;

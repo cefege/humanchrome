@@ -2,9 +2,9 @@
   <div class="selector">
     <div class="row">
       <input class="form-input" :placeholder="placeholder" :value="text" @input="onInput" />
-      <button class="btn-mini" type="button" title="从页面拾取" @click="onPick">拾取</button>
+      <button class="btn-mini" type="button" title="Pick from page" @click="onPick">Pick</button>
     </div>
-    <div class="help">可输入 CSS 选择器，或点击“拾取”在页面中选择元素</div>
+    <div class="help">Type a CSS selector, or click "Pick" to choose an element on the page</div>
     <div v-if="err" class="error-item">{{ err }}</div>
   </div>
 </template>
@@ -44,12 +44,12 @@ async function onPick() {
     err.value = '';
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tabs?.[0]?.id;
-    if (!tabId) throw new Error('未找到活动页签');
+    if (!tabId) throw new Error('No active tab found');
     await ensurePickerInjected(tabId);
     const res: any = await chrome.tabs.sendMessage(tabId, { action: 'rr_picker_start' } as any);
     if (!res || !res.success) {
       if (res?.cancelled) return;
-      throw new Error(res?.error || '拾取失败');
+      throw new Error(res?.error || 'Pick failed');
     }
     const candidates = Array.isArray(res.candidates) ? res.candidates : [];
     const prefer = ['css', 'attr', 'aria', 'text'];
@@ -66,7 +66,7 @@ async function onPick() {
       text.value = sel;
       emit('update:modelValue', sel);
     } else {
-      err.value = '未生成有效选择器，请手动输入';
+      err.value = 'No valid selector generated — please enter one manually';
     }
   } catch (e: any) {
     err.value = e?.message || String(e);

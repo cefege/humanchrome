@@ -1,8 +1,10 @@
 <template>
   <div class="form-section">
     <div class="section-header">
-      <span class="section-title">{{ title || '选择器' }}</span>
-      <button v-if="allowPick" class="btn-sm btn-primary" @click="pickFromPage">从页面选择</button>
+      <span class="section-title">{{ title || 'Selector' }}</span>
+      <button v-if="allowPick" class="btn-sm btn-primary" @click="pickFromPage"
+        >Pick from page</button
+      >
     </div>
     <div class="selector-list" data-field="target.candidates">
       <div class="selector-item" v-for="(c, i) in list" :key="i">
@@ -13,12 +15,12 @@
           <option value="text">Text</option>
           <option value="xpath">XPath</option>
         </select>
-        <input class="form-input-sm flex-1" v-model="c.value" placeholder="选择器值" />
+        <input class="form-input-sm flex-1" v-model="c.value" placeholder="Selector value" />
         <button class="btn-icon-sm" @click="move(i, -1)" :disabled="i === 0">↑</button>
         <button class="btn-icon-sm" @click="move(i, 1)" :disabled="i === list.length - 1">↓</button>
         <button class="btn-icon-sm danger" @click="remove(i)">×</button>
       </div>
-      <button class="btn-sm" @click="add">+ 添加选择器</button>
+      <button class="btn-sm" @click="add">+ Add selector</button>
     </div>
   </div>
 </template>

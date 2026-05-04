@@ -1,11 +1,9 @@
 /**
- * Action System - 导出模块
+ * Action System - public exports
  */
 
-// 类型导出
 export * from './types';
 
-// 注册表导出
 export {
   ActionRegistry,
   createActionRegistry,
@@ -23,7 +21,6 @@ export {
   type ActionRegistryHooks,
 } from './registry';
 
-// 适配器导出
 export {
   execCtxToActionCtx,
   stepToAction,
@@ -34,7 +31,6 @@ export {
   type StepExecutionAttempt,
 } from './adapter';
 
-// Handler 工厂导出
 export {
   createReplayActionRegistry,
   registerReplayHandlers,
