@@ -41,6 +41,15 @@ export default defineConfig([
       },
     },
   },
+  {
+    // Node-side scripts (smoke tests, build helpers) need Node globals.
+    files: ['**/*.mjs', '**/*.cjs', '**/scripts/**/*.{js,mjs,cjs,ts}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   ...tseslint.configs.recommended,
   {
     rules: {

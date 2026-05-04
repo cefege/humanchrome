@@ -2,7 +2,64 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import * as net from 'net';
+import { lookup as dnsLookup } from 'dns/promises';
 import fetch from 'node-fetch';
+
+const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+
+// Reject loopback, link-local, and RFC1918 ranges so the bridge can't be used
+// to probe internal services or fetch cloud-metadata endpoints.
+function isPrivateIp(addr: string): boolean {
+  if (!net.isIP(addr)) return false;
+  if (net.isIPv4(addr)) {
+    const octets = addr.split('.').map(Number);
+    return (
+      octets[0] === 10 ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168) ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      octets[0] === 127 ||
+      octets[0] === 0
+    );
+  }
+  // IPv6: ::1, fc00::/7, fe80::/10, ::ffff:<v4>
+  const lower = addr.toLowerCase();
+  if (lower === '::1' || lower === '::') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  if (
+    lower.startsWith('fe8') ||
+    lower.startsWith('fe9') ||
+    lower.startsWith('fea') ||
+    lower.startsWith('feb')
+  )
+    return true;
+  if (lower.startsWith('::ffff:')) return isPrivateIp(lower.replace('::ffff:', ''));
+  return false;
+}
+
+async function assertSafeUrl(rawUrl: string): Promise<URL> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`URL scheme not allowed: ${url.protocol}`);
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (host === 'localhost') throw new Error('Loopback URLs are not allowed');
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) throw new Error('Private/loopback IP not allowed');
+  } else {
+    const resolved = await dnsLookup(host, { all: true }).catch(() => []);
+    for (const r of resolved) {
+      if (isPrivateIp(r.address)) throw new Error('Hostname resolves to private/loopback IP');
+    }
+  }
+  return url;
+}
 
 /**
  * File handler for managing file uploads through the native messaging host
@@ -78,19 +135,28 @@ export class FileHandler {
    */
   private async downloadFile(fileUrl: string, fileName?: string): Promise<any> {
     try {
-      const response = await fetch(fileUrl);
+      const safeUrl = await assertSafeUrl(fileUrl);
+      const response = await fetch(safeUrl.toString(), { redirect: 'manual' });
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error('Redirects not allowed (could re-target an internal IP)');
+      }
       if (!response.ok) {
         throw new Error(`Failed to download file: ${response.statusText}`);
       }
 
-      // Generate filename if not provided
+      const declaredSize = Number(response.headers.get('content-length') || '0');
+      if (declaredSize > MAX_DOWNLOAD_BYTES) {
+        throw new Error(`File too large: ${declaredSize} bytes (cap ${MAX_DOWNLOAD_BYTES})`);
+      }
+
       const finalFileName = fileName || this.generateFileName(fileUrl);
       const filePath = path.join(this.tempDir, finalFileName);
 
-      // Get the file buffer
       const buffer = await response.buffer();
+      if (buffer.length > MAX_DOWNLOAD_BYTES) {
+        throw new Error(`File too large after download: ${buffer.length} bytes`);
+      }
 
-      // Save to file
       fs.writeFileSync(filePath, buffer);
 
       return {
@@ -170,19 +236,27 @@ export class FileHandler {
    */
   private async readBase64File(filePath: string): Promise<any> {
     try {
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`File does not exist: ${filePath}`);
+      // Path traversal guard: only files inside our temp dir are readable.
+      const resolved = path.resolve(filePath);
+      if (!resolved.startsWith(this.tempDir + path.sep) && resolved !== this.tempDir) {
+        throw new Error('readBase64File only allowed inside the bridge temp directory');
       }
-      const stats = fs.statSync(filePath);
+      if (!fs.existsSync(resolved)) {
+        throw new Error(`File does not exist: ${resolved}`);
+      }
+      const stats = fs.statSync(resolved);
       if (!stats.isFile()) {
-        throw new Error(`Path is not a file: ${filePath}`);
+        throw new Error(`Path is not a file: ${resolved}`);
       }
-      const buf = fs.readFileSync(filePath);
+      if (stats.size > MAX_DOWNLOAD_BYTES) {
+        throw new Error(`File too large to read: ${stats.size} bytes`);
+      }
+      const buf = fs.readFileSync(resolved);
       const base64 = buf.toString('base64');
       return {
         success: true,
-        filePath,
-        fileName: path.basename(filePath),
+        filePath: resolved,
+        fileName: path.basename(resolved),
         size: stats.size,
         base64Data: base64,
       };

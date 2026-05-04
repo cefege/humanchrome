@@ -85,6 +85,46 @@ export class Server {
       methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
       credentials: true,
     });
+
+    // DNS-rebinding + cross-origin defence on state-changing methods.
+    // - Reject requests whose Host header isn't a loopback name (DNS rebinding).
+    // - Reject Origin headers not in the allowlist.
+    // - If HUMANCHROME_TOKEN is set, require Authorization: Bearer <token>.
+    const requiredToken = process.env.HUMANCHROME_TOKEN?.trim() || null;
+    const STATE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+    const HOST_ALLOW = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+    this.fastify.addHook('preHandler', async (request, reply) => {
+      const method = request.method.toUpperCase();
+      if (!STATE_METHODS.has(method)) return;
+
+      const hostHeader = String(request.headers.host || '');
+      const hostName = hostHeader.split(':')[0].toLowerCase();
+      if (!HOST_ALLOW.has(hostName) && !HOST_ALLOW.has(hostHeader.toLowerCase())) {
+        reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Host not allowed' });
+        return;
+      }
+
+      const origin = request.headers.origin;
+      if (origin) {
+        const allowed = SERVER_CONFIG.CORS_ORIGIN.some((pattern) =>
+          pattern instanceof RegExp ? pattern.test(origin) : origin.startsWith(pattern),
+        );
+        if (!allowed) {
+          reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Origin not allowed' });
+          return;
+        }
+      }
+
+      if (requiredToken) {
+        const auth = String(request.headers.authorization || '');
+        const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+        if (presented !== requiredToken) {
+          reply.status(HTTP_STATUS.UNAUTHORIZED).send({ error: 'Invalid or missing bearer token' });
+          return;
+        }
+      }
+    });
   }
 
   private setupRoutes(): void {

@@ -821,7 +821,7 @@ const saveSemanticEngineState = async () => {
       status: semanticEngineStatus.value,
       lastUpdated: semanticEngineLastUpdated.value,
     };
-    // eslint-disable-next-line no-undef
+
     await chrome.storage.local.set({ semanticEngineState });
   } catch (error) {
     console.error('Failed to save semantic engine state:', error);
@@ -846,7 +846,6 @@ const initializeSemanticEngine = async () => {
   await saveSemanticEngineState();
 
   try {
-    // eslint-disable-next-line no-undef
     chrome.runtime
       .sendMessage({
         type: BACKGROUND_MESSAGE_TYPES.INITIALIZE_SEMANTIC_ENGINE,
@@ -879,7 +878,6 @@ const initializeSemanticEngine = async () => {
 
 const checkSemanticEngineStatus = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: BACKGROUND_MESSAGE_TYPES.GET_MODEL_STATUS,
     });
@@ -957,7 +955,6 @@ const updatePort = async (event: Event) => {
 
 const checkNativeConnection = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({ type: 'ping_native' });
     nativeConnectionStatus.value = response?.connected ? 'connected' : 'disconnected';
   } catch (error) {
@@ -968,7 +965,6 @@ const checkNativeConnection = async () => {
 
 const checkServerStatus = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: BACKGROUND_MESSAGE_TYPES.GET_SERVER_STATUS,
     });
@@ -986,7 +982,6 @@ const checkServerStatus = async () => {
 
 const refreshServerStatus = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: BACKGROUND_MESSAGE_TYPES.REFRESH_SERVER_STATUS,
     });
@@ -1025,12 +1020,11 @@ const testNativeConnection = async () => {
   isConnecting.value = true;
   try {
     if (nativeConnectionStatus.value === 'connected') {
-      // eslint-disable-next-line no-undef
       await chrome.runtime.sendMessage({ type: 'disconnect_native' });
       nativeConnectionStatus.value = 'disconnected';
     } else {
       console.log(`Attempting to connect to port: ${nativeServerPort.value}`);
-      // eslint-disable-next-line no-undef
+
       const response = await chrome.runtime.sendMessage({
         type: 'connectNative',
         port: nativeServerPort.value,
@@ -1054,7 +1048,6 @@ const testNativeConnection = async () => {
 
 const loadModelPreference = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const result = await chrome.storage.local.get([
       'selectedModel',
       'selectedVersion',
@@ -1128,7 +1121,6 @@ const loadModelPreference = async () => {
 
 const saveModelPreference = async (model: ModelPreset) => {
   try {
-    // eslint-disable-next-line no-undef
     await chrome.storage.local.set({ selectedModel: model });
   } catch (error) {
     console.error('Failed to save model preference:', error);
@@ -1137,7 +1129,6 @@ const saveModelPreference = async (model: ModelPreset) => {
 
 const saveVersionPreference = async (version: 'full' | 'quantized' | 'compressed') => {
   try {
-    // eslint-disable-next-line no-undef
     await chrome.storage.local.set({ selectedVersion: version });
   } catch (error) {
     console.error('Failed to save version preference:', error);
@@ -1146,7 +1137,6 @@ const saveVersionPreference = async (version: 'full' | 'quantized' | 'compressed
 
 const savePortPreference = async (port: number) => {
   try {
-    // eslint-disable-next-line no-undef
     await chrome.storage.local.set({ nativeServerPort: port });
     console.log(`Port preference saved: ${port}`);
   } catch (error) {
@@ -1156,7 +1146,6 @@ const savePortPreference = async (port: number) => {
 
 const loadPortPreference = async () => {
   try {
-    // eslint-disable-next-line no-undef
     const result = await chrome.storage.local.get(['nativeServerPort']);
     if (result.nativeServerPort) {
       nativeServerPort.value = result.nativeServerPort;
@@ -1175,7 +1164,7 @@ const saveModelState = async () => {
       isDownloading: isModelDownloading.value,
       lastUpdated: Date.now(),
     };
-    // eslint-disable-next-line no-undef
+
     await chrome.storage.local.set({ modelState });
   } catch (error) {
     console.error('Failed to save model state:', error);
@@ -1192,7 +1181,6 @@ const startModelStatusMonitoring = () => {
 
   statusMonitoringInterval = setInterval(async () => {
     try {
-      // eslint-disable-next-line no-undef
       const response = await chrome.runtime.sendMessage({
         type: 'get_model_status',
       });
@@ -1258,7 +1246,6 @@ const refreshStorageStats = async () => {
   try {
     console.log('🔄 Refreshing storage statistics...');
 
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: 'get_storage_stats',
     });
@@ -1309,7 +1296,6 @@ const confirmClearAllData = async () => {
   try {
     console.log('🗑️ Starting to clear all data...');
 
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: 'clear_all_data',
     });
@@ -1392,7 +1378,6 @@ const switchModel = async (preset: string) => {
 
     startModelStatusMonitoring();
 
-    // eslint-disable-next-line no-undef
     const response = await chrome.runtime.sendMessage({
       type: 'switch_semantic_model',
       modelPreset: newModel,
@@ -1460,7 +1445,6 @@ const switchModel = async (preset: string) => {
 };
 
 const setupServerStatusListener = () => {
-  // eslint-disable-next-line no-undef
   const onMessage = (message: { type?: string; payload?: unknown }) => {
     // Server status changes
     if (message.type === BACKGROUND_MESSAGE_TYPES.SERVER_STATUS_CHANGED && message.payload) {

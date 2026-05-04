@@ -107,7 +107,7 @@ function wrapUserCode(code) {
 // (async () => { ... })(), each eval returns a Promise.
 async function evalWrapped(code) {
   const wrapped = wrapUserCode(code);
-  return await eval(wrapped); // eslint-disable-line no-eval
+  return await eval(wrapped);  
 }
 
 // T4 — bare expression auto-returns.

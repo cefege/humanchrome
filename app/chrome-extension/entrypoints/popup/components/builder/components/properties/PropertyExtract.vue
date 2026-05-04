@@ -33,7 +33,6 @@
 </template>
 
 <script lang="ts" setup>
-/* eslint-disable vue/no-mutating-props */
 import type { NodeBase } from '@/entrypoints/background/record-replay/types';
 defineProps<{ node: NodeBase }>();
 </script>

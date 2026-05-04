@@ -12,6 +12,9 @@ export default defineConfig({
       '~': rootDir,
       // Mock hnswlib-wasm-static to avoid native module issues in tests
       'hnswlib-wasm-static': `${rootDir}/tests/__mocks__/hnswlib-wasm-static.ts`,
+      // Mock @xenova/transformers to avoid pulling in `sharp` (no prebuilt
+      // binary on darwin-arm64v8 with the pinned 0.32.6 version).
+      '@xenova/transformers': `${rootDir}/tests/__mocks__/transformers.ts`,
     },
   },
   test: {

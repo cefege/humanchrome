@@ -30,6 +30,10 @@ import {
 import VarInput from '@/entrypoints/popup/components/builder/widgets/VarInput.vue';
 import type { VariableOption } from '@/entrypoints/popup/components/builder/model/variables';
 
+/* eslint-disable vue/no-mutating-props */
+// This component intentionally writes to `props.node.config` to fan defaults out
+// to the parent's reactive node graph. Matches the pattern used by every other
+// Property*.vue in this directory.
 const props = defineProps<{
   node: any; // NodeBase
   variables?: VariableOption[];
