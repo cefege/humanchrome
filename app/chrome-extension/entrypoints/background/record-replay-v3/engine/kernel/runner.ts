@@ -1,8 +1,3 @@
-/**
- * @fileoverview RunRunner 接口和实现
- * @description 定义和实现单个 Run 的顺序执行器
- */
-
 import type { NodeId, RunId } from '../../domain/ids';
 import { EDGE_LABELS } from '../../domain/ids';
 import type { FlowV3, NodeV3 } from '../../domain/flow';
@@ -34,74 +29,39 @@ import type { RunResult } from './kernel';
 
 // ==================== Types ====================
 
-/**
- * RunRunner 运行时状态
- */
 export interface RunnerRuntimeState {
-  /** Run ID */
   runId: RunId;
-  /** 当前节点 ID */
   currentNodeId: NodeId | null;
-  /** 当前尝试次数 */
   attempt: number;
-  /** 变量表 */
   vars: Record<string, JsonValue>;
-  /** 是否暂停 */
   paused: boolean;
-  /** 是否取消 */
   canceled: boolean;
 }
 
-/**
- * RunRunner 配置
- */
 export interface RunnerConfig {
-  /** Flow 快照 */
   flow: FlowV3;
-  /** Tab ID */
   tabId: number;
-  /** 初始参数 */
   args?: JsonObject;
-  /** 起始节点 ID */
   startNodeId?: NodeId;
-  /** 调试配置 */
   debug?: { breakpoints?: NodeId[]; pauseOnStart?: boolean };
 }
 
-/**
- * RunRunner 接口
- */
 export interface RunRunner {
-  /** Run ID */
   readonly runId: RunId;
-  /** 当前状态 */
   readonly state: RunnerRuntimeState;
-  /** 订阅事件 */
   onEvent(listener: (event: RunEvent) => void): Unsubscribe;
-  /** 开始执行 */
   start(): Promise<RunResult>;
-  /** 暂停执行 */
   pause(): void;
-  /** 恢复执行 */
   resume(): void;
-  /** 取消执行 */
   cancel(reason?: string): void;
-  /** 获取变量值 */
   getVar(name: string): JsonValue | undefined;
-  /** 设置变量值 */
   setVar(name: string, value: JsonValue): void;
 }
 
-/**
- * RunRunner 工厂接口
- */
 export interface RunRunnerFactory {
   create(runId: RunId, config: RunnerConfig): RunRunner;
 }
 
-/**
- * RunRunner 工厂依赖
- */
 export interface RunRunnerFactoryDeps {
   storage: StoragePort;
   events: EventsBus;
@@ -224,9 +184,6 @@ class SerialQueue {
 
 // ==================== Factory ====================
 
-/**
- * 创建 NotImplemented 的 RunRunnerFactory
- */
 export function createNotImplementedRunnerFactory(): RunRunnerFactory {
   return {
     create: () => {
@@ -235,9 +192,6 @@ export function createNotImplementedRunnerFactory(): RunRunnerFactory {
   };
 }
 
-/**
- * 创建 RunRunner 工厂
- */
 export function createRunRunnerFactory(deps: RunRunnerFactoryDeps): RunRunnerFactory {
   const plugins = deps.plugins ?? getPluginRegistry();
   const artifactService = deps.artifactService ?? createNotImplementedArtifactService();

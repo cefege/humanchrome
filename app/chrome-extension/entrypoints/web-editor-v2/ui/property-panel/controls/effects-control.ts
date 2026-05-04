@@ -2310,8 +2310,8 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
     setPopoverOpen(newEffect.id);
   });
 
-  // Close popover when clicking outside the open item
-  // 使用 document 的捕获阶段监听，确保点击 Effects 控件外也能关闭
+  // Close popover when clicking outside the open item.
+  // Capture-phase document listener so clicks outside the Effects control still close it.
   const handleClickOutside = (e: MouseEvent) => {
     const openId = openItemId;
     if (!openId) return;
@@ -2332,13 +2332,11 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
     closePopover({ commit: true });
   };
 
-  // 在 document 上监听捕获阶段的点击事件
   const doc = root.ownerDocument;
   doc.addEventListener('click', handleClickOutside, true);
   disposer.add(() => doc.removeEventListener('click', handleClickOutside, true));
 
-  // Escape closes the popover and rolls back the current preview transaction
-  // 在 root 上监听捕获阶段的键盘事件
+  // Escape closes the popover and rolls back the current preview transaction.
   const handleEscape = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
     if (!openItemId) return;

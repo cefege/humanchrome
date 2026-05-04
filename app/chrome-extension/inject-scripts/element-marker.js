@@ -614,7 +614,7 @@
       <div class="em-panel" id="em_panel_root">
         <!-- Header -->
         <div class="em-header em-drag-handle" id="__em_drag_handle" title="Drag to move">
-          <h2 class="em-title">元素标注</h2>
+          <h2 class="em-title">Element Marker</h2>
           <div class="em-header-actions">
             <button class="em-icon-btn" id="__em_close" title="Close">
               <svg viewBox="0 0 24 24">
@@ -632,7 +632,7 @@
               <option value="xpath">XPath</option>
             </select>
           </div>
-          <button class="em-square-btn" id="__em_toggle_list" title="列表模式 - 批量标注相似元素 (仅支持CSS)">
+          <button class="em-square-btn" id="__em_toggle_list" title="List mode - mark similar elements in bulk (CSS only)">
             <svg viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
@@ -1108,7 +1108,6 @@
     return { init, destroy };
   })();
 
-  // [继续下一部分...]
   // ============================================================================
   // Selector Engine - Heuristic Selector Generation
   // ============================================================================
@@ -2251,7 +2250,7 @@
         StateStore.set({
           validation: {
             status: 'success',
-            message: `✓ 验证成功 (匹配 ${filteredMatches.length} 个元素)`,
+            message: `Verified (${filteredMatches.length} elements matched)`,
           },
           validationHistory: history,
         });
