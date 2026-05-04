@@ -1,5 +1,5 @@
 /**
- * Selector Stability - 选择器稳定性评估
+ * Selector Stability - scoring for how robust a candidate selector is.
  */
 
 import type {
@@ -78,9 +78,6 @@ function lengthPenalty(value: string): number {
   return 0.18;
 }
 
-/**
- * 计算选择器稳定性评分
- */
 export function computeSelectorStability(candidate: SelectorCandidate): SelectorStability {
   if (candidate.type === 'css' || candidate.type === 'attr') {
     const composite = splitCompositeSelector(candidate.value);
@@ -145,9 +142,6 @@ export function computeSelectorStability(candidate: SelectorCandidate): Selector
   return { score: clamp01(score), signals };
 }
 
-/**
- * 为选择器候选添加稳定性评分
- */
 export function withStability(candidate: SelectorCandidate): SelectorCandidate {
   if (candidate.stability) return candidate;
   return { ...candidate, stability: computeSelectorStability(candidate) };
@@ -171,26 +165,21 @@ function typePriority(type: SelectorType): number {
 }
 
 /**
- * 比较两个选择器候选的优先级
- * 返回负数表示 a 优先，正数表示 b 优先
+ * Negative result means `a` is preferred over `b`.
  */
 export function compareSelectorCandidates(a: SelectorCandidate, b: SelectorCandidate): number {
-  // 1. 用户指定的权重优先
   const aw = a.weight ?? 0;
   const bw = b.weight ?? 0;
   if (aw !== bw) return bw - aw;
 
-  // 2. 稳定性评分
   const as = a.stability?.score ?? computeSelectorStability(a).score;
   const bs = b.stability?.score ?? computeSelectorStability(b).score;
   if (as !== bs) return bs - as;
 
-  // 3. 类型优先级
   const ap = typePriority(a.type);
   const bp = typePriority(b.type);
   if (ap !== bp) return bp - ap;
 
-  // 4. 长度（越短越好）
   const alen = String(a.value || '').length;
   const blen = String(b.value || '').length;
   return alen - blen;

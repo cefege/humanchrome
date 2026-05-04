@@ -1,6 +1,5 @@
 /**
- * Selector Generator - 选择器生成器
- * 为 DOM 元素生成多个候选选择器
+ * Selector Generator - produces multiple candidate selectors for a DOM element.
  */
 
 import type {
@@ -40,9 +39,6 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
-/**
- * 标准化选择器生成选项
- */
 export function normalizeSelectorGenerationOptions(
   options: SelectorGenerationOptions | undefined,
 ): NormalizedSelectorGenerationOptions {
@@ -59,7 +55,6 @@ export function normalizeSelectorGenerationOptions(
 }
 
 /**
- * CSS 字符串转义
  * Uses native CSS.escape when available; otherwise falls back to a spec-inspired polyfill.
  */
 export function cssEscape(value: string): string {
@@ -148,9 +143,6 @@ export interface GenerateSelectorTargetOptions extends SelectorGenerationOptions
   strategies?: ReadonlyArray<SelectorStrategy>;
 }
 
-/**
- * 为 DOM 元素生成选择器目标
- */
 export function generateSelectorTarget(
   element: Element,
   options: GenerateSelectorTargetOptions = {},

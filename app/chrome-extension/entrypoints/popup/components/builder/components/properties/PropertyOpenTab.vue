@@ -1,7 +1,7 @@
 <template>
   <div class="form-section">
     <div class="form-group">
-      <label class="form-label">URL 地址（可选）</label>
+      <label class="form-label">URL (optional)</label>
       <input
         class="form-input"
         v-model="(node as any).config.url"
@@ -10,7 +10,7 @@
     </div>
     <div class="form-group checkbox-group">
       <label class="checkbox-label"
-        ><input type="checkbox" v-model="(node as any).config.newWindow" /> 新窗口</label
+        ><input type="checkbox" v-model="(node as any).config.newWindow" /> New window</label
       >
     </div>
   </div>
