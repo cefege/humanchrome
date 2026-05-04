@@ -346,7 +346,7 @@ describe('V3 service-level E2E', () => {
       const runId = 'run-completed-orphan';
       await h.storage.runs.save(createRunRecord(runId, flow.id, 'succeeded'));
 
-      // 模拟崩溃场景：Run 完成但队列项未清理
+      // Simulate crash: Run completed but queue item was never cleaned up.
       await h.storage.queue.enqueue({ id: runId, flowId: flow.id, priority: 0 });
       await h.storage.queue.markRunning(runId, 'owner-old', Date.now());
 
@@ -360,7 +360,6 @@ describe('V3 service-level E2E', () => {
 
       expect(recovery.cleanedTerminal).toContain(runId);
 
-      // 队列应该为空
       const remaining = await h.storage.queue.list();
       expect(remaining).toHaveLength(0);
     });

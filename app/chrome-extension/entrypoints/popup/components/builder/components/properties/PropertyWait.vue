@@ -1,7 +1,7 @@
 <template>
   <div class="form-section">
     <div class="form-group">
-      <label class="form-label">等待条件 (JSON)</label>
+      <label class="form-label">Wait condition (JSON)</label>
       <textarea
         class="form-textarea"
         v-model="waitJson"

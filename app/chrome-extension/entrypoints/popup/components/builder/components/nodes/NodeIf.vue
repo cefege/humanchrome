@@ -21,7 +21,7 @@
 
     <div class="if-cases">
       <div v-for="(b, idx) in branches" :key="b.id" class="case-row">
-        <div class="case-label">{{ b.name || `条件${idx + 1}` }}</div>
+        <div class="case-label">{{ b.name || `Case ${idx + 1}` }}</div>
         <Handle
           type="source"
           :position="Position.Right"
