@@ -1,77 +1,45 @@
-/**
- * @fileoverview 变量类型定义
- * @description 定义 Record-Replay V3 中使用的变量指针和持久化变量
- */
-
 import type { JsonValue, UnixMillis } from './json';
 
-/** 变量名称 */
 export type VariableName = string;
 
-/** 持久化变量名称（以 $ 开头） */
+/** Persistent variable name — must start with `$`. */
 export type PersistentVariableName = `$${string}`;
 
-/** 变量作用域 */
 export type VariableScope = 'run' | 'flow' | 'persistent';
 
-/**
- * 变量指针
- * @description 指向变量的引用，支持 JSON path 访问
- */
 export interface VariablePointer {
-  /** 变量作用域 */
   scope: VariableScope;
-  /** 变量名称 */
   name: VariableName;
-  /** JSON path（用于访问嵌套属性） */
+  /** Optional JSON path for accessing nested properties. */
   path?: ReadonlyArray<string | number>;
 }
 
-/**
- * 变量定义
- * @description Flow 中声明的变量
- */
 export interface VariableDefinition {
-  /** 变量名称 */
   name: VariableName;
-  /** 显示标签 */
   label?: string;
-  /** 描述 */
   description?: string;
-  /** 是否敏感（不显示/导出） */
+  /** When true, the variable is hidden from display/export. */
   sensitive?: boolean;
-  /** 是否必需 */
   required?: boolean;
-  /** 默认值 */
   default?: JsonValue;
-  /** 作用域（不含 persistent，persistent 通过 $ 前缀判断） */
+  /** Persistent scope is implied by a `$` prefix and excluded here. */
   scope?: Exclude<VariableScope, 'persistent'>;
 }
 
-/**
- * 持久化变量记录
- * @description 存储在 IndexedDB 中的持久化变量
- */
 export interface PersistentVarRecord {
-  /** 变量键（以 $ 开头） */
   key: PersistentVariableName;
-  /** 变量值 */
   value: JsonValue;
-  /** 最后更新时间 */
   updatedAt: UnixMillis;
-  /** 版本号（单调递增，用于 LWW 和调试） */
+  /** Monotonic version, used for LWW and debugging. */
   version: number;
 }
 
-/**
- * 判断变量名是否为持久化变量
- */
 export function isPersistentVariable(name: string): name is PersistentVariableName {
   return name.startsWith('$');
 }
 
 /**
- * 解析变量指针字符串
+ * Parse a variable reference string.
  * @example "$user.name" -> { scope: 'persistent', name: '$user', path: ['name'] }
  */
 export function parseVariablePointer(ref: string): VariablePointer | null {
@@ -89,7 +57,6 @@ export function parseVariablePointer(ref: string): VariablePointer | null {
     };
   }
 
-  // 默认为 run 作用域
   return {
     scope: 'run',
     name,

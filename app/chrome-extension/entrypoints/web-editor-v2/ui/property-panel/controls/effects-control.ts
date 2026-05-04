@@ -1011,7 +1011,6 @@ export function createLegacyEffectsControl(options: EffectsControlOptions): Desi
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BOX_SHADOW_PROPERTY = 'box-shadow';
 
-// 效果类型定义
 const EFFECT_TYPE_OPTIONS = [
   { value: 'drop-shadow', label: 'Drop Shadow', category: 'shadow' },
   { value: 'inner-shadow', label: 'Inner Shadow', category: 'shadow' },
@@ -1049,7 +1048,6 @@ interface EffectItemBase {
   enabled: boolean;
 }
 
-// Shadow 类型效果（Drop Shadow / Inner Shadow）
 interface ShadowEffectItem extends EffectItemBase {
   type: 'drop-shadow' | 'inner-shadow';
   kind: 'parsed';
@@ -1061,14 +1059,13 @@ interface ShadowEffectItem extends EffectItemBase {
   color: string;
 }
 
-// Blur 类型效果（Layer Blur / Backdrop Blur）
 interface BlurEffectItem extends EffectItemBase {
   type: 'layer-blur' | 'backdrop-blur';
   kind: 'parsed';
   radius: string;
 }
 
-// 无法解析的原始效果
+/** Raw effect we could not parse; preserved verbatim so we don't lose user CSS. */
 interface RawEffectItem extends EffectItemBase {
   type: 'raw';
   kind: 'raw';
@@ -1443,11 +1440,9 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
   const { container, transactionManager, tokensService, headerActionsContainer } = options;
   const disposer = new Disposer();
 
-  // 每个元素的 effect items 缓存（仅限当前编辑会话）
-  // 使用 WeakMap 的原因：
-  // 1. 隐藏的 effect 不会写入 CSS（enabled=false），但需要在会话内记住以便恢复
-  // 2. WeakMap 保证元素被移除时自动释放内存，无需手动清理
-  // 3. 只读取 inline style（不读 computed），因此缓存仅用于保留用户的隐藏操作
+  // Per-target effect cache (current editor session only). WeakMap is used so
+  // disabled effects (enabled=false, not written to CSS) are remembered without
+  // leaking when the element is removed.
   const perTargetItems = new WeakMap<Element, EffectItem[]>();
 
   let currentTarget: Element | null = null;
@@ -1471,11 +1466,9 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
   addBtn.append(createPlusIcon());
 
   if (headerActionsContainer) {
-    // 将 + 按钮放在 group header 的右侧（chevron 左边）
     headerActionsContainer.insertBefore(addBtn, headerActionsContainer.firstChild);
     disposer.add(() => addBtn.remove());
   } else {
-    // 回退：在内容区域显示 toolbar
     const toolbar = document.createElement('div');
     toolbar.className = 'we-effects-toolbar';
     toolbar.append(addBtn);
@@ -1537,8 +1530,8 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
   }
 
   function isEditing(): boolean {
-    // 只在有打开的 popover 或正在进行事务时阻止刷新
-    // 避免过于宽泛的 focus 检测导致外部样式变化无法同步
+    // Only block refresh while a popover is open or a transaction is in flight;
+    // a broader focus check would prevent external style changes from syncing.
     return activeHandle !== null || openItemId !== null;
   }
 
@@ -1632,8 +1625,8 @@ export function createEffectsControl(options: EffectsControlOptions): DesignCont
     openItemId = null;
     for (const view of views.values()) view.setOpen(false);
 
-    // 关闭后同步一次，确保 currentItems 与真实 inline 一致
-    // 避免浏览器归一化/修正值后产生不一致
+    // Re-sync after close so currentItems reflect any browser normalization of
+    // the inline style (e.g. value rounding) that happened during the edit.
     if (wasOpen && !rollback) {
       syncFromTarget(true);
     }
