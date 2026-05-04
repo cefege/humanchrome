@@ -826,85 +826,86 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
-  // {
-  //   name: TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT,
-  //   description:
-  //     'search for related content from the currently open tab and return the corresponding web pages.',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       query: {
-  //         type: 'string',
-  //         description: 'the query to search for related content.',
-  //       },
-  //     },
-  //     required: ['query'],
-  //   },
-  // },
-  // {
-  //   name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
-  //   description:
-  //     'inject the user-specified content script into the webpage. By default, inject into the currently active tab',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       url: {
-  //         type: 'string',
-  //         description:
-  //           'If a URL is specified, inject the script into the webpage corresponding to the URL.',
-  //       },
-  //       tabId: {
-  //         type: 'number',
-  //         description:
-  //           'Target an existing tab by ID to inject into. Overrides url/active tab selection when provided.',
-  //       },
-  //       windowId: {
-  //         type: 'number',
-  //         description:
-  //           'Target window ID for selecting active tab or creating new tab when url is provided and tabId is omitted.',
-  //       },
-  //       background: {
-  //         type: 'boolean',
-  //         description:
-  //           'Do not activate tab/focus window during injection when true (default: false).',
-  //       },
-  //       type: {
-  //         type: 'string',
-  //         description:
-  //           'the javaScript world for a script to execute within. must be ISOLATED or MAIN',
-  //       },
-  //       jsScript: {
-  //         type: 'string',
-  //         description: 'the content script to inject',
-  //       },
-  //     },
-  //     required: ['type', 'jsScript'],
-  //   },
-  // },
-  // {
-  //   name: TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT,
-  //   description:
-  //     'if the script injected using chrome_inject_script listens for user-defined events, this tool can be used to trigger those events',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       tabId: {
-  //         type: 'number',
-  //         description:
-  //           'the tab where you previously injected the script(if not provided,  use the currently active tab)',
-  //       },
-  //       eventName: {
-  //         type: 'string',
-  //         description: 'the eventName your injected content script listen for',
-  //       },
-  //       payload: {
-  //         type: 'string',
-  //         description: 'the payload passed to event, must be a json string',
-  //       },
-  //     },
-  //     required: ['eventName'],
-  //   },
-  // },
+  {
+    name: TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT,
+    description:
+      'Semantic vector search across the content of currently open tabs. Returns matching tabs with relevance scores and snippets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The query to search for related content across open tabs.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
+    description:
+      'Inject a user-specified content script into a webpage. By default, injects into the currently active tab. Use chrome_userscript for persistent/CSP-aware injections; use this for one-off ISOLATED/MAIN-world script execution with a custom event bridge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'If a URL is specified, inject the script into the webpage corresponding to the URL. If no matching tab exists, a new tab is created.',
+        },
+        tabId: {
+          type: 'number',
+          description:
+            'Target an existing tab by ID to inject into. Overrides url/active tab selection when provided.',
+        },
+        windowId: {
+          type: 'number',
+          description:
+            'Target window ID for selecting active tab or creating new tab when url is provided and tabId is omitted.',
+        },
+        background: {
+          type: 'boolean',
+          description:
+            'Do not activate tab/focus window during injection when true (default: false).',
+        },
+        type: {
+          type: 'string',
+          enum: ['ISOLATED', 'MAIN'],
+          description:
+            'The JavaScript world the script should execute in. Must be ISOLATED or MAIN.',
+        },
+        jsScript: {
+          type: 'string',
+          description: 'The JavaScript source to inject.',
+        },
+      },
+      required: ['type', 'jsScript'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT,
+    description:
+      'If the script injected via chrome_inject_script listens for user-defined events, this tool dispatches those events to the injected script.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description:
+            'The tab where you previously injected the script. If not provided, uses the currently active tab.',
+        },
+        eventName: {
+          type: 'string',
+          description: 'The event name your injected content script listens for.',
+        },
+        payload: {
+          type: 'string',
+          description: 'The payload passed to the event. Must be a JSON string.',
+        },
+      },
+      required: ['eventName'],
+    },
+  },
   {
     name: TOOL_NAMES.BROWSER.JAVASCRIPT,
     description: [

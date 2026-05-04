@@ -108,3 +108,11 @@ export function _resetTabLocksForTests(): void {
 export function activeLockedTabCount(): number {
   return queues.size;
 }
+
+// Drop the queue entry as soon as the tab dies. Holders will still settle their
+// own async work normally; this just frees the Map slot before the chain drains.
+if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    queues.delete(tabId);
+  });
+}

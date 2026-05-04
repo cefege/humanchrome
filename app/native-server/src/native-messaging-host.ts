@@ -14,6 +14,7 @@ interface PendingRequest {
 export class NativeMessagingHost {
   private associatedServer: Server | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
+  private static readonly MAX_PENDING_REQUESTS = 1000;
 
   public setServer(serverInstance: Server): void {
     this.associatedServer = serverInstance;
@@ -205,6 +206,17 @@ export class NativeMessagingHost {
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const id = requestId || uuidv4();
+
+      // DoS guard: cap how many requests can be in-flight simultaneously so a
+      // misbehaving client (or a buggy build) can't grow the Map without bound.
+      if (this.pendingRequests.size >= NativeMessagingHost.MAX_PENDING_REQUESTS) {
+        reject(
+          new Error(
+            `Too many pending requests (${this.pendingRequests.size} >= ${NativeMessagingHost.MAX_PENDING_REQUESTS})`,
+          ),
+        );
+        return;
+      }
 
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(id);

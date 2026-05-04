@@ -60,11 +60,11 @@
     "chrome-devtools-frontend": "^1.0.1299282",
     "humanchrome-shared": "workspace:*",
     "commander": "^13.1.0",
-    "drizzle-orm": "^0.38.2",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^5.3.2",
     "is-admin": "^4.0.0",
     "node-fetch": "2",
-    "uuid": "^11.1.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

@@ -7,3 +7,7 @@ onlyBuiltDependencies:
   - sharp
   - esbuild
   - '@parcel/watcher'
+
+# Force-pin transitive deps with critical/high CVEs.
+overrides:
+  protobufjs: '>=7.5.5'

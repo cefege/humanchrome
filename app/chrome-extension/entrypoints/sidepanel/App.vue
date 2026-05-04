@@ -438,13 +438,13 @@ async function exportFlow(id: string) {
 }
 
 function createTrigger() {
-  // V3 Trigger management not yet implemented
-  alert('V3 trigger management not implemented yet — cannot create trigger');
+  // V3 trigger builder not wired up yet; clicks are intentionally a no-op until it ships.
+  console.info('[triggers] createTrigger not implemented yet (V3 builder pending)');
 }
 
-function editTrigger(_id: string) {
-  // V3 Trigger management not yet implemented
-  alert('V3 trigger management not implemented yet — cannot edit trigger');
+function editTrigger(triggerId: string) {
+  // V3 trigger builder not wired up yet; clicks are intentionally a no-op until it ships.
+  console.info('[triggers] editTrigger not implemented yet (V3 builder pending)', { triggerId });
 }
 
 async function removeTrigger(id: string) {

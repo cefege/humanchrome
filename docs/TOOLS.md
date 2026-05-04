@@ -9,6 +9,7 @@ Complete reference for all available tools and their parameters.
 - [Network Monitoring](#network-monitoring)
 - [Content Analysis](#content-analysis)
 - [Interaction](#interaction)
+- [Scripting](#scripting)
 - [Data Management](#data-management)
 - [Response Format](#response-format)
 
@@ -102,23 +103,7 @@ Switch to a specific browser tab.
 }
 ```
 
-### `chrome_go_back_or_forward`
-
-Navigate browser history.
-
-**Parameters**:
-
-- `direction` (string, required): "back" or "forward"
-- `tabId` (number, optional): Specific tab ID (default: active tab)
-
-**Example**:
-
-```json
-{
-  "direction": "back",
-  "tabId": 123
-}
-```
+> **History navigation**: Use `chrome_navigate` with `url: "back"` or `url: "forward"` (and optional `tabId`) to navigate the tab's history. There is no separate `chrome_go_back_or_forward` tool.
 
 ## 📸 Screenshots & Visual
 
@@ -164,34 +149,31 @@ Take advanced screenshots with various options.
 
 ## 🌐 Network Monitoring
 
-### `chrome_network_capture_start`
+### `chrome_network_capture`
 
-Start capturing network requests using webRequest API.
+Unified network capture tool. Use `action: "start"` to begin capturing and `action: "stop"` to end and retrieve results. By default, uses the lightweight webRequest API (no debugger conflict, no response bodies). Set `needResponseBody: true` to switch to the Debugger API and capture response bodies (note: may conflict with an open DevTools session).
 
 **Parameters**:
 
-- `url` (string, optional): URL to navigate to and capture
-- `maxCaptureTime` (number, optional): Maximum capture time in ms (default: 30000)
-- `inactivityTimeout` (number, optional): Stop after inactivity in ms (default: 3000)
-- `includeStatic` (boolean, optional): Include static resources (default: false)
+- `action` (string, required): `"start"` or `"stop"`
+- `needResponseBody` (boolean, optional): Capture response bodies via Debugger API (default: false)
+- `url` (string, optional): URL to navigate to and capture (for `action: "start"`)
+- `maxCaptureTime` (number, optional): Maximum capture time in ms (default: 180000)
+- `inactivityTimeout` (number, optional): Stop after inactivity in ms (default: 60000; set 0 to disable)
+- `includeStatic` (boolean, optional): Include static resources like images/scripts/styles (default: false)
 
 **Example**:
 
 ```json
 {
+  "action": "start",
   "url": "https://api.example.com",
   "maxCaptureTime": 60000,
-  "includeStatic": false
+  "needResponseBody": true
 }
 ```
 
-### `chrome_network_capture_stop`
-
-Stop network capture and return collected data.
-
-**Parameters**: None
-
-**Response**:
+**Response (after `action: "stop"`)**:
 
 ```json
 {
@@ -213,17 +195,7 @@ Stop network capture and return collected data.
 }
 ```
 
-### `chrome_network_debugger_start`
-
-Start capturing with Chrome Debugger API (includes response bodies).
-
-**Parameters**:
-
-- `url` (string, optional): URL to navigate to and capture
-
-### `chrome_network_debugger_stop`
-
-Stop debugger capture and return data with response bodies.
+> Response bodies are capped at 1 MiB. If a body exceeds the cap, the request entry includes `responseBodyTruncation` so callers can detect partial reads.
 
 ### `chrome_network_request`
 
@@ -442,6 +414,80 @@ Simulate keyboard input and shortcuts.
 }
 ```
 
+## 🧩 Scripting
+
+### `chrome_userscript`
+
+Unified userscript tool: create, list, get, enable, disable, update, remove, send commands to, or export userscripts. Paste JS / CSS / Tampermonkey-style scripts and the system auto-selects the best injection strategy (`insertCSS`, persistent script in ISOLATED or MAIN world, or `once` evaluation via CDP) with CSP-aware fallbacks.
+
+**Parameters**:
+
+- `action` (string, required): One of `"create" | "list" | "get" | "enable" | "disable" | "update" | "remove" | "send_command" | "export"`
+- `args` (object, optional): Action-specific arguments. Common shapes:
+  - `create`: `{ script (required), name?, description?, matches?, excludes?, persist?, runAt?, world?, allFrames?, mode?: "auto"|"css"|"persistent"|"once", dnrFallback?, tags? }`
+  - `list`: `{ query?, status?: "enabled"|"disabled", domain? }`
+  - `get` / `enable` / `disable` / `remove`: `{ id (required) }`
+  - `update`: `{ id (required), ...partial create fields }`
+  - `send_command`: `{ id (required), payload?: string, tabId?: number }`
+  - `export`: `{}`
+
+> Tip: For one-off execution that returns a value, use `create` with `args.mode: "once"`. The return value is included as `onceResult` in the response.
+
+**Example** (create + run a simple highlighter):
+
+```json
+{
+  "action": "create",
+  "args": {
+    "name": "Highlight links",
+    "matches": ["https://example.com/*"],
+    "script": "document.querySelectorAll('a').forEach(a => a.style.outline='2px solid red');",
+    "runAt": "document_idle"
+  }
+}
+```
+
+### `chrome_inject_script`
+
+Inject a one-off content script into a webpage. Defaults to the active tab. Use this when you need ISOLATED- or MAIN-world execution with a custom event bridge for `chrome_send_command_to_inject_script`. For persistent / CSP-aware injections, prefer `chrome_userscript`.
+
+**Parameters**:
+
+- `type` (string, required): `"ISOLATED"` or `"MAIN"` — the JavaScript world to execute in
+- `jsScript` (string, required): The JavaScript source to inject
+- `url` (string, optional): If specified, inject into the tab matching this URL (creates a new tab if none matches)
+- `tabId` (number, optional): Target an existing tab by ID; overrides `url`/active-tab selection
+- `windowId` (number, optional): Window ID for picking the active tab or creating a new tab when `url` is provided
+- `background` (boolean, optional): Do not activate the tab or focus the window during injection (default: false)
+
+**Example**:
+
+```json
+{
+  "type": "ISOLATED",
+  "jsScript": "window.addEventListener('humanchrome:ping', e => console.log('pong', e.detail));"
+}
+```
+
+### `chrome_send_command_to_inject_script`
+
+Dispatch a custom event to a script previously injected with `chrome_inject_script`. The injected script must register a listener for the event name.
+
+**Parameters**:
+
+- `eventName` (string, required): The event name your injected script listens for
+- `payload` (string, optional): Payload passed with the event. Must be a JSON string.
+- `tabId` (number, optional): Target tab. Defaults to the currently active tab.
+
+**Example**:
+
+```json
+{
+  "eventName": "humanchrome:ping",
+  "payload": "{\"value\":42}"
+}
+```
+
 ## 📚 Data Management
 
 ### `chrome_history`
@@ -572,7 +618,8 @@ const screenshot = await callTool('chrome_screenshot', {
 });
 
 // 3. Start network monitoring
-await callTool('chrome_network_capture_start', {
+await callTool('chrome_network_capture', {
+  action: 'start',
   maxCaptureTime: 30000,
 });
 
@@ -587,7 +634,7 @@ const searchResults = await callTool('search_tabs_content', {
 });
 
 // 6. Stop network capture
-const networkData = await callTool('chrome_network_capture_stop');
+const networkData = await callTool('chrome_network_capture', { action: 'stop' });
 
 // 7. Save bookmark
 await callTool('chrome_bookmark_add', {
