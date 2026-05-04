@@ -24,16 +24,8 @@ import { PluginRegistry } from '@/entrypoints/background/record-replay-v3/engine
 import { ifHandler } from '@/entrypoints/background/record-replay/actions/handlers/control-flow';
 import { delayHandler } from '@/entrypoints/background/record-replay/actions/handlers/delay';
 import { adaptV2ActionHandlerToV3NodeDefinition } from '@/entrypoints/background/record-replay-v3/engine/plugins/v2-action-adapter';
-import type { NodeExecutionResult } from '@/entrypoints/background/record-replay-v3/engine/plugins/types';
 import { createV3E2EHarness, type V3E2EHarness, type RpcClient } from './v3-e2e-harness';
-
-type SucceededResult = Extract<NodeExecutionResult, { status: 'succeeded' }>;
-function asSucceeded(result: NodeExecutionResult): SucceededResult {
-  if (result.status !== 'succeeded') {
-    throw new Error(`Expected succeeded result but got ${result.status}`);
-  }
-  return result;
-}
+import { asSucceeded } from './test-utils/result-helpers';
 
 // ==================== Test Fixtures ====================
 

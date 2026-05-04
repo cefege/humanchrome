@@ -145,17 +145,9 @@ function runMigrations(sqlite: Database.Database): void {
     sqlite.exec('ALTER TABLE projects ADD COLUMN use_ccr TEXT');
   }
 
-  // Migration 3: Add enable_humanchrome column to projects table (default enabled)
-  // - If a legacy column from older builds exists, rename it.
-  // - Otherwise, add enable_humanchrome directly.
-  // Legacy column name is constructed to avoid string-literal references for branding grep checks.
-  const legacyEnableHumanChromeColumn = `enable_chrome${'_'}mcp`;
   if (!columnExists(sqlite, 'projects', 'enable_humanchrome')) {
-    if (columnExists(sqlite, 'projects', legacyEnableHumanChromeColumn)) {
-      // Migration 4: Rename legacy column -> enable_humanchrome
-      sqlite.exec(
-        `ALTER TABLE projects RENAME COLUMN ${legacyEnableHumanChromeColumn} TO enable_humanchrome`,
-      );
+    if (columnExists(sqlite, 'projects', 'enable_chrome_mcp')) {
+      sqlite.exec('ALTER TABLE projects RENAME COLUMN enable_chrome_mcp TO enable_humanchrome');
     } else {
       sqlite.exec("ALTER TABLE projects ADD COLUMN enable_humanchrome TEXT NOT NULL DEFAULT '1'");
     }

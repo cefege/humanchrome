@@ -252,6 +252,8 @@ const ObjectField = defineComponent({
   },
 });
 
+// `any` annotations break the recursive component cycle: ArrayField references compOf
+// which references ArrayField. TS can't infer the type without a hint.
 const ArrayField: any = defineComponent({
   name: 'ArrayField',
   props: ['field', 'modelValue'],

@@ -825,6 +825,7 @@ class GifRecorderTool extends BaseBrowserToolExecutor {
             };
 
             // Save GIF file
+            // Reconstruct as Uint8Array<ArrayBuffer> so it satisfies BlobPart under newer TS lib.
             const blob = new Blob([new Uint8Array(stopResult.gifData)], { type: 'image/gif' });
             const dataUrl = await blobToDataUrl(blob);
 
@@ -980,6 +981,7 @@ class GifRecorderTool extends BaseBrowserToolExecutor {
 
           if (download) {
             // Download mode
+            // Reconstruct as Uint8Array<ArrayBuffer> so it satisfies BlobPart under newer TS lib.
             const blob = new Blob([new Uint8Array(lastRecordedGif.gifData)], { type: 'image/gif' });
             const dataUrl = await blobToDataUrl(blob);
 

@@ -18,16 +18,14 @@ import type {
   ActionExecutionResult,
   ActionHandler,
 } from '@/entrypoints/background/record-replay/actions/types';
-import type {
-  NodeExecutionContext,
-  NodeExecutionResult,
-} from '@/entrypoints/background/record-replay-v3/engine/plugins/types';
+import type { NodeExecutionContext } from '@/entrypoints/background/record-replay-v3/engine/plugins/types';
 import type { FlowV3 } from '@/entrypoints/background/record-replay-v3/domain/flow';
 import type { RunId, NodeId } from '@/entrypoints/background/record-replay-v3/domain/ids';
 import { RR_ERROR_CODES } from '@/entrypoints/background/record-replay-v3/domain/errors';
 import { FLOW_SCHEMA_VERSION } from '@/entrypoints/background/record-replay-v3/domain/flow';
 
 import { adaptV2ActionHandlerToV3NodeDefinition } from '@/entrypoints/background/record-replay-v3/engine/plugins/v2-action-adapter';
+import { asSucceeded, asFailed } from './test-utils/result-helpers';
 
 // Declaration merging: register a synthetic 'test' action type so
 // these unit tests can exercise the adapter against a controlled handler.
@@ -38,25 +36,6 @@ declare module '@/entrypoints/background/record-replay/actions/types' {
   interface ActionOutputsByType {
     test: Record<string, unknown>;
   }
-}
-
-// ==================== Type Helpers ====================
-
-type SucceededResult = Extract<NodeExecutionResult, { status: 'succeeded' }>;
-type FailedResult = Extract<NodeExecutionResult, { status: 'failed' }>;
-
-function asSucceeded(result: NodeExecutionResult): SucceededResult {
-  if (result.status !== 'succeeded') {
-    throw new Error(`Expected succeeded result but got ${result.status}`);
-  }
-  return result;
-}
-
-function asFailed(result: NodeExecutionResult): FailedResult {
-  if (result.status !== 'failed') {
-    throw new Error(`Expected failed result but got ${result.status}`);
-  }
-  return result;
 }
 
 // ==================== Test Fixtures ====================
