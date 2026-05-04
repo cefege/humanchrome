@@ -248,8 +248,9 @@ function createEmptyAnchors(): SnapAnchors {
  * 5. Take nearest N elements
  * 6. Extract left/center/right and top/middle/bottom anchors
  *
- * 中文说明：使用双向扫描策略，从 target 位置向两侧扩展，
- * 避免当 target 在 children 后半部分时完全扫描不到附近元素。
+ * Uses a bidirectional windowed scan from the target's index outward so that
+ * when the target sits late in a large children list we still find nearby
+ * siblings instead of running off the start of the list.
  */
 export function collectSiblingAnchors(target: Element): SnapAnchors {
   const parent = target.parentElement;
@@ -821,10 +822,9 @@ function clamp(value: number, min: number, max: number): number {
  *   - Edge align shows the corresponding margin; if filtered, fallback to opposite side
  *   - Center align shows both margins (may yield 2 labels)
  *
- * 中文说明：
- * - 当发生对齐时，显示"另一个方向"的间距
- * - lockX 是垂直对齐线，所以显示 Y 方向的间距
- * - lockY 是水平对齐线，所以显示 X 方向的间距
+ * When a snap lock is active we show the gap in the *other* axis:
+ * lockX is a vertical guide line, so it surfaces the Y-axis distance, and
+ * lockY is a horizontal guide line, so it surfaces the X-axis distance.
  */
 export function computeDistanceLabels(params: ComputeDistanceLabelsParams): DistanceLabel[] {
   const { rect, lockX, lockY, viewport, minGapPx } = params;

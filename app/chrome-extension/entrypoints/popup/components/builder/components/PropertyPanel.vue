@@ -4,10 +4,10 @@
     <div v-if="node" class="panel-content">
       <div class="panel-header">
         <div>
-          <div class="header-title">节点属性</div>
+          <div class="header-title">Node Properties</div>
           <div class="header-id">{{ node.id }}</div>
         </div>
-        <button class="btn-delete" type="button" title="删除节点" @click.stop="onRemove">
+        <button class="btn-delete" type="button" title="Delete node" @click.stop="onRemove">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
               d="m4 4 8 8M12 4 4 12"
@@ -21,14 +21,13 @@
 
       <div class="form-section">
         <div class="form-group">
-          <label class="form-label">节点名称</label>
-          <input class="form-input" v-model="node.name" placeholder="输入节点名称" />
+          <label class="form-label">Node name</label>
+          <input class="form-input" v-model="node.name" placeholder="Enter node name" />
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <!-- 属性表单：统一使用 NodeSpec 驱动的表单引擎渲染 -->
       <PropertyFromSpec
         v-if="node"
         :key="node.type + ':' + node.id"
@@ -37,29 +36,28 @@
       />
       <div class="divider"></div>
 
-      <!-- 通用设置 -->
       <div class="form-section">
-        <div class="section-title">通用设置</div>
+        <div class="section-title">General Settings</div>
         <div class="form-group">
-          <label class="form-label">超时 (ms)</label>
+          <label class="form-label">Timeout (ms)</label>
           <input
             class="form-input"
             type="number"
             v-model.number="(node.config as any).timeoutMs"
             min="0"
-            placeholder="默认使用全局超时"
+            placeholder="Use global timeout by default"
           />
         </div>
         <div class="form-group checkbox-group">
           <label class="checkbox-label">
             <input type="checkbox" v-model="(node.config as any).screenshotOnFail" />
-            <span>失败时截图</span>
+            <span>Screenshot on failure</span>
           </label>
         </div>
       </div>
 
       <div v-if="nodeErrors.length > 0" class="error-box">
-        <div class="error-title">⚠️ 配置错误</div>
+        <div class="error-title">⚠️ Configuration Errors</div>
         <div v-for="e in nodeErrors" :key="e" class="error-item">{{ e }}</div>
       </div>
     </div>
@@ -83,7 +81,7 @@
           opacity="0.3"
         />
       </svg>
-      <div class="empty-text">选择一个节点<br />查看和编辑属性</div>
+      <div class="empty-text">Select a node<br />to view and edit properties</div>
     </div>
   </aside>
 </template>
@@ -260,7 +258,7 @@ const whileJson = computed({
 });
 
 function onCreateSubflow() {
-  const id = prompt('请输入新子流ID');
+  const id = prompt('Enter new subflow ID');
   if (!id) return;
   // Emit kebab-case event to match parent template listener
   emit('create-subflow', id);
@@ -273,8 +271,8 @@ const extractErrors = computed(() => {
   const n = props.node;
   if (!n || n.type !== 'extract') return [] as string[];
   const errs: string[] = [];
-  if (!n.config?.saveAs) errs.push('需填写保存变量名');
-  if (!n.config?.selector && !n.config?.js) errs.push('需提供 selector 或 js');
+  if (!n.config?.saveAs) errs.push('Save variable name is required');
+  if (!n.config?.selector && !n.config?.js) errs.push('Either selector or js is required');
   return errs;
 });
 const switchTabError = computed(() => {
@@ -474,7 +472,6 @@ onMounted(async () => {
     if (res && res.success) flows.value = res.flows || [];
   } catch {}
 });
-// 高亮并滚动到指定字段
 watch(
   () => props.highlightField,
   (field) => {
@@ -518,7 +515,6 @@ watch(
   scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
 }
 
-/* 头部 */
 .panel-header {
   padding: 12px 12px 12px 20px;
   border-bottom: 1px solid var(--rr-border);
@@ -557,7 +553,6 @@ watch(
   border-color: rgba(239, 68, 68, 0.3);
 }
 
-/* 内容区 */
 .panel-content {
   display: flex;
   flex-direction: column;
@@ -597,7 +592,6 @@ watch(
   color: var(--rr-text-secondary);
 }
 
-/* 表单区域 */
 .panel-content :deep(.form-section) {
   padding: 16px 20px;
   display: flex;
@@ -605,7 +599,6 @@ watch(
   gap: 14px;
 }
 
-/* 区域头部 */
 .panel-content :deep(.section-header) {
   display: flex;
   align-items: center;
@@ -618,7 +611,6 @@ watch(
   color: var(--rr-text);
 }
 
-/* 表单组 */
 .panel-content :deep(.form-group) {
   display: flex;
   flex-direction: column;
@@ -630,7 +622,6 @@ watch(
   color: var(--rr-text-secondary);
 }
 
-/* 表单输入 */
 .panel-content :deep(.form-input),
 .panel-content :deep(.form-select),
 .panel-content :deep(.form-textarea) {
@@ -684,7 +675,6 @@ watch(
   cursor: pointer;
 }
 
-/* 选择器列表 */
 .panel-content :deep(.selector-list) {
   display: flex;
   flex-direction: column;
@@ -715,7 +705,6 @@ watch(
   flex: 1;
 }
 
-/* 按钮 */
 .panel-content :deep(.btn-sm) {
   padding: 6px 12px;
   border: 1px solid var(--rr-border);
@@ -769,13 +758,11 @@ watch(
   color: var(--rr-danger);
 }
 
-/* 分割线 */
 .divider {
   height: 1px;
   background: var(--rr-border);
 }
 
-/* 错误提示 */
 .error-box {
   margin: 0 20px 20px;
   padding: 12px;
@@ -796,7 +783,6 @@ watch(
   margin: 4px 0;
 }
 
-/* 空状态 */
 .panel-empty {
   flex: 1;
   display: flex;
@@ -816,7 +802,6 @@ watch(
   line-height: 1.6;
 }
 
-/* 高亮字段 */
 .panel-content :where([data-field].hl) {
   outline: 2px solid var(--rr-warn);
   background: rgba(245, 158, 11, 0.08);

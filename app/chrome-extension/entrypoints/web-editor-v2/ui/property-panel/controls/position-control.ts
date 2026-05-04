@@ -391,14 +391,12 @@ function createPositionIcon(position: PositionValue): SVGElement {
 
   switch (position) {
     case 'static':
-      // 三条水平线表示正常文档流
       addLine(3.5, 4.5, 8);
       addLine(3.5, 7.5, 8);
       addLine(3.5, 10.5, 8);
       break;
 
     case 'relative': {
-      // 虚线框表示原位置，实心块表示偏移后的位置
       const ghost = document.createElementNS(SVG_NS, 'rect');
       ghost.setAttribute('x', '3.5');
       ghost.setAttribute('y', '3.5');
