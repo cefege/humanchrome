@@ -130,12 +130,19 @@ describe('tab cursor integration (M3-full batch 2)', () => {
     mocks.windowsUpdate.mockResolvedValue({});
 
     // Stub chrome.* globals
+    // openTab handler awaits waitForTabComplete which arms onUpdated/onRemoved
+    // listeners and reads chrome.tabs.get(). Our tabsGet mock already returns
+    // status: 'complete', so the fast-path resolves immediately — the listeners
+    // just need to exist as no-op vi.fn()s so addListener/removeListener don't
+    // throw "Cannot read properties of undefined".
     vi.stubGlobal('chrome', {
       tabs: {
         query: mocks.tabsQuery,
         get: mocks.tabsGet,
         create: mocks.tabsCreate,
         update: mocks.tabsUpdate,
+        onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
+        onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
       },
       windows: {
         create: mocks.windowsCreate,
