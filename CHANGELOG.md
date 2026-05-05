@@ -6,6 +6,11 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- **macOS Tahoe TCC compatibility — doctor surfaces existing bad installs**:
+  `humanchrome-bridge doctor` now flags an existing manifest whose `path`
+  field points into a TCC-protected directory, so users who registered the
+  bridge before the register-time guard get a diagnostic instead of silent
+  spawn failures. Pairs with the register-side check below.
 - **macOS Tahoe TCC compatibility**: `humanchrome-bridge register` now refuses
   to write a Native Messaging manifest when the resolved bridge path is inside
   a TCC-protected directory (`~/Documents`, `~/Desktop`, `~/Downloads`,

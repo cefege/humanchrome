@@ -69,6 +69,24 @@ npm install -g ./app/native-server
 humanchrome-bridge register
 ```
 
+> **macOS Tahoe (15+) install location.** Don't keep your bridge install
+> under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Pictures`, `~/Movies`,
+> `~/Music`, or iCloud Drive. macOS TCC blocks Chrome from `exec()`'ing
+> scripts in those dirs even with Full Disk Access — registration succeeds
+> but every `connectNative()` silently fails with `lastError: 'Native host
+has exited.'`. `humanchrome-bridge register` refuses to write a manifest
+> pointing into a TCC-protected dir starting in this release. Recommended
+> install via the standalone-deploy recipe:
+>
+> ```bash
+> SAFE_DIR="$HOME/Library/Application Support/humanchrome-bridge"
+> pnpm deploy --filter humanchrome-bridge --prod --legacy "$SAFE_DIR"
+> cd "$SAFE_DIR" && humanchrome-bridge register
+> ```
+>
+> `humanchrome-bridge doctor` also flags an existing bad manifest from a
+> previous install.
+
 4. Load the extension in Chrome:
    - Go to `chrome://extensions/`, enable Developer mode.
    - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from your clone (or the released zip from the GitHub Releases tab).

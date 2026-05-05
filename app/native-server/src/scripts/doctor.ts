@@ -23,6 +23,7 @@ import {
   ensureExecutionPermissions,
   tryRegisterUserLevelHost,
   getLogDir,
+  tccProtectedRootContaining,
 } from './utils';
 import { NATIVE_SERVER_PORT } from '../constant';
 
@@ -848,6 +849,15 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
       const expected = normalizeComparablePath(wrapperPath);
       if (actual !== expected) issues.push('path does not match installed wrapper');
       if (!fs.existsSync(manifest.path)) issues.push('path target does not exist');
+      // macOS Tahoe TCC: Chrome cannot exec scripts under TCC-protected dirs
+      // even with Full Disk Access. Manifest looks valid but every connectNative
+      // call will silently fail. Surface this as an error with relocation hint.
+      const tccRoot = tccProtectedRootContaining(manifest.path);
+      if (tccRoot) {
+        issues.push(
+          `path is inside ${tccRoot} (macOS TCC-protected — Chrome cannot exec scripts here; reinstall under ~/Library/Application Support/humanchrome-bridge/)`,
+        );
+      }
     }
     const allowedOrigins = manifest.allowed_origins;
     if (!Array.isArray(allowedOrigins) || !allowedOrigins.includes(expectedOrigin)) {
