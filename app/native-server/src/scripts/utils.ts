@@ -111,8 +111,6 @@ export function getSystemManifestPath(): string {
  * Chrome with Full Disk Access can READ these paths but cannot EXEC scripts
  * located inside them — Chrome's NM spawn fails silently with
  * "Operation not permitted" and the user sees only "Native host has exited."
- *
- * Verified May 2026 on macOS Tahoe (Darwin 25.x). Returns absolute paths.
  */
 function darwinTccProtectedRoots(): string[] {
   if (os.platform() !== 'darwin') return [];
@@ -148,39 +146,29 @@ export function tccProtectedRootContaining(absPath: string): string | undefined 
  * pointing at such a path looks fine but Chrome will silently fail to spawn it.
  */
 export async function getMainPath(): Promise<string> {
-  try {
-    const packageDistDir = path.join(__dirname, '..');
-    const wrapperScriptName = process.platform === 'win32' ? 'run_host.bat' : 'run_host.sh';
-    const absoluteWrapperPath = path.resolve(packageDistDir, wrapperScriptName);
+  const packageDistDir = path.join(__dirname, '..');
+  const wrapperScriptName = process.platform === 'win32' ? 'run_host.bat' : 'run_host.sh';
+  const absoluteWrapperPath = path.resolve(packageDistDir, wrapperScriptName);
 
-    const tccRoot = tccProtectedRootContaining(absoluteWrapperPath);
-    if (tccRoot) {
-      const safeDir = path.join(
-        os.homedir(),
-        'Library',
-        'Application Support',
-        'humanchrome-bridge',
-      );
-      throw new Error(
-        `Refusing to register native messaging host at ${absoluteWrapperPath}.\n\n` +
-          `That path is inside ${tccRoot}, which macOS protects via TCC.\n` +
-          `Chrome cannot exec scripts under TCC-protected directories — registration\n` +
-          `would succeed but every connectNative() call would silently fail with\n` +
-          `'Native host has exited.'\n\n` +
-          `Reinstall the bridge under a non-protected location, e.g.:\n` +
-          `  ${safeDir}\n\n` +
-          `Quick recipe (from the monorepo root):\n` +
-          `  pnpm deploy --filter humanchrome-bridge --prod --legacy "${safeDir}"\n` +
-          `  "${safeDir}/dist/run_host.sh"  # smoke-test\n` +
-          `  cd "${safeDir}" && humanchrome-bridge register\n`,
-      );
-    }
-
-    return absoluteWrapperPath;
-  } catch (error) {
-    console.log(colorText('Cannot find global package path, using current directory', 'yellow'));
-    throw error;
+  const tccRoot = tccProtectedRootContaining(absoluteWrapperPath);
+  if (tccRoot) {
+    const safeDir = path.join(os.homedir(), 'Library', 'Application Support', 'humanchrome-bridge');
+    throw new Error(
+      `Refusing to register native messaging host at ${absoluteWrapperPath}.\n\n` +
+        `That path is inside ${tccRoot}, which macOS protects via TCC.\n` +
+        `Chrome cannot exec scripts under TCC-protected directories — registration\n` +
+        `would succeed but every connectNative() call would silently fail with\n` +
+        `'Native host has exited.'\n\n` +
+        `Reinstall the bridge under a non-protected location, e.g.:\n` +
+        `  ${safeDir}\n\n` +
+        `Quick recipe (from the monorepo root):\n` +
+        `  pnpm deploy --filter humanchrome-bridge --prod --legacy "${safeDir}"\n` +
+        `  "${safeDir}/dist/run_host.sh"  # smoke-test\n` +
+        `  cd "${safeDir}" && humanchrome-bridge register\n`,
+    );
   }
+
+  return absoluteWrapperPath;
 }
 
 /**
