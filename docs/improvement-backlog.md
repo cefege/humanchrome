@@ -115,7 +115,7 @@ The order of items inside ## Active is sorted by score descending.
 - **Status**: done
 - **Completed**: 2026-05-05
 - **Summary**: Added `onUpdated` + `onRemoved` no-op listener stubs to the `vi.stubGlobal('chrome', ...)` `tabs` block; the existing `tabsGet` mock returning `status: 'complete'` lets `waitForTabComplete` resolve via its fast-path. Extension vitest: 640 → 641 passed (full green). pnpm -w build: green.
-- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-ae99b9a2 (branch `worktree-agent-ae99b9a2`)
+- **Commit**: `e8eb2b5` on main
 
 ### IMP-0003 · Add chrome_get_cookies and chrome_set_cookies tools (feat) · score: 4
 
@@ -123,13 +123,12 @@ The order of items inside ## Active is sorted by score descending.
 - **Status**: done
 - **Completed**: 2026-05-05
 - **Summary**: Added 3 tools (chrome_get_cookies, chrome_set_cookie, chrome_remove_cookie) in new file cookies.ts (+219). Schemas + TOOL_NAMES in tools.ts (+127). **Permission escalation**: added `cookies` to wxt.config.ts manifest permissions (was NOT pre-existing despite the proposal's claim) + PERMISSIONS.md justification — review before publishing as it triggers Chrome Web Store re-review and an update prompt for users. Bridge tests: 36/36. Extension vitest: 641/641. pnpm -w build: green.
-- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-aa6bcd43 (branch `worktree-agent-aa6bcd43`)
+- **Commit**: `51d31b0` on main
 
 ### IMP-0004 · Add chrome_await_element tool for element presence polling (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-05
 - **Status**: done
 - **Completed**: 2026-05-05
-- **Summary**: Added `chrome_await_element` (await-element.ts +152, schema +56) using MutationObserver in extended wait-helper.js (+127). Resolves target via ref / CSS / XPath; observer watches document.documentElement (subtree+childList+attributes); returns immediately when goal state already holds. timeoutMs clamped to [0, 120000] with 15000 default; emits ToolErrorCode.TIMEOUT envelope on miss. Read-only (mutates=false). Bridge tests: 36/36. Extension vitest: 641/641. pnpm -w build: green.
-- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-ac16d6fa (branch `worktree-agent-ac16d6fa`)
-- **Note**: Worktree was branched from main @ `6fe8158` (pre-Phase-1-4 of MCP-cleanup), so the schema hand-rolls tabId/windowId/background/ref/selector instead of using the TAB_TARGETING/REF_PROP/SELECTOR_PROP fragments added in Phase 2. If the cleanup phases land first, this schema can be tightened in a follow-up.
+- **Summary**: Added `chrome_await_element` (await-element.ts +143, schema +32) using MutationObserver in extended wait-helper.js (+134). Resolves target via ref / CSS / XPath; observer watches document.documentElement (subtree+childList+attributes); returns immediately when goal state already holds. timeoutMs clamped to [0, 120000] with 15000 default; emits ToolErrorCode.TIMEOUT envelope on miss. Read-only (mutates=false). Schema uses the shared SELECTOR_PROP / SELECTOR_TYPE_PROP / TAB_TARGETING / FRAME_ID_PROP fragments (tightened during the rebase onto post-Phase-2 main). Bridge tests: 36/36. Extension vitest: 641/641. pnpm -w build: green.
+- **Commit**: `bb39a05` on main
