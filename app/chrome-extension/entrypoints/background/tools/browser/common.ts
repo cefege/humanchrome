@@ -470,6 +470,102 @@ class NavigateTool extends BaseBrowserToolExecutor {
 }
 export const navigateTool = new NavigateTool();
 
+interface NavigateBatchToolParams {
+  urls: string[];
+  windowId?: number;
+  background?: boolean;
+  perTabDelayMs?: number;
+}
+
+/**
+ * Open many URLs at once and return their tabIds.
+ *
+ * Why this exists
+ * ---------------
+ * The fan-out workflow — open N tabs, then iterate through them sequentially
+ * — needs a single round-trip primitive instead of N `chrome_navigate` calls.
+ * Tabs open in the background by default so the user's foreground tab keeps
+ * focus while everything loads. Pair with `chrome_wait_for_tab` to drain.
+ */
+class NavigateBatchTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.NAVIGATE_BATCH;
+  static readonly mutates = true;
+
+  async execute(args: NavigateBatchToolParams): Promise<ToolResult> {
+    const { urls, windowId, background = true, perTabDelayMs = 0 } = args ?? {};
+
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return createErrorResponse(
+        'urls must be a non-empty array of strings',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+    for (const u of urls) {
+      if (typeof u !== 'string' || u.length === 0) {
+        return createErrorResponse(
+          'every entry in urls must be a non-empty string',
+          ToolErrorCode.INVALID_ARGS,
+        );
+      }
+    }
+
+    let targetWindowId = windowId;
+    if (typeof targetWindowId !== 'number') {
+      try {
+        const lastFocused = await chrome.windows.getLastFocused({ populate: false });
+        if (lastFocused.id !== undefined) targetWindowId = lastFocused.id;
+      } catch {
+        // No existing window — chrome.tabs.create without windowId will create one.
+      }
+    }
+
+    const opened: Array<{ tabId: number; url: string }> = [];
+    const errors: Array<{ url: string; message: string }> = [];
+
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      try {
+        const tab = await chrome.tabs.create({
+          url,
+          active: !background,
+          ...(typeof targetWindowId === 'number' ? { windowId: targetWindowId } : {}),
+        });
+        if (typeof tab.id !== 'number') {
+          errors.push({ url, message: 'Created tab returned no id' });
+          continue;
+        }
+        opened.push({ tabId: tab.id, url });
+      } catch (err) {
+        errors.push({
+          url,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // Throttle bursts when the caller asked for it (some sites flag rapid opens).
+      if (perTabDelayMs > 0 && i < urls.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, perTabDelayMs));
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            tabs: opened,
+            windowId: targetWindowId,
+            count: opened.length,
+            ...(errors.length > 0 ? { errors } : {}),
+          }),
+        },
+      ],
+      isError: false,
+    };
+  }
+}
+export const navigateBatchTool = new NavigateBatchTool();
+
 interface CloseTabsToolParams {
   tabIds?: number[];
   url?: string;

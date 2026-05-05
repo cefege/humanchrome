@@ -5,6 +5,8 @@ export const TOOL_NAMES = {
     GET_WINDOWS_AND_TABS: 'get_windows_and_tabs',
     SEARCH_TABS_CONTENT: 'search_tabs_content',
     NAVIGATE: 'chrome_navigate',
+    NAVIGATE_BATCH: 'chrome_navigate_batch',
+    WAIT_FOR_TAB: 'chrome_wait_for_tab',
     SCREENSHOT: 'chrome_screenshot',
     CLOSE_TABS: 'chrome_close_tabs',
     SWITCH_TAB: 'chrome_switch_tab',
@@ -475,6 +477,57 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.NAVIGATE_BATCH,
+    description:
+      "Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens — does NOT wait for any tab to finish loading.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'URLs to open. Each becomes a new tab.',
+        },
+        windowId: {
+          type: 'number',
+          description:
+            'Target window for the new tabs. If omitted, uses the last-focused window (or creates one).',
+        },
+        background: {
+          type: 'boolean',
+          description:
+            'Open without stealing focus (default true). Set false to foreground each new tab as it opens.',
+        },
+        perTabDelayMs: {
+          type: 'number',
+          description:
+            'Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens.',
+        },
+      },
+      required: ['urls'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.WAIT_FOR_TAB,
+    description:
+      'Block until the given tab transitions to status:"complete". Event-driven via chrome.tabs.onUpdated — does not poll. Use after chrome_navigate or chrome_navigate_batch to drain a fan-out workflow before reading from each tab. Throws TAB_CLOSED if the tab is closed during the wait, TIMEOUT if the deadline elapses.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description:
+            'Tab to wait on. Required (no implicit active-tab fallback). Pass the tabId returned by chrome_navigate or chrome_navigate_batch.',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Maximum wait in milliseconds (default 30000).',
+        },
+      },
+      required: ['tabId'],
     },
   },
   {

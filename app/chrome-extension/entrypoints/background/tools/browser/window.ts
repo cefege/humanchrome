@@ -18,6 +18,7 @@ class WindowTool extends BaseBrowserToolExecutor {
               url: tab.url || '',
               title: tab.title || '',
               active: tab.active || false,
+              status: tab.status || 'unloaded',
             };
           }) || [];
 

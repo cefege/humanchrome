@@ -10,6 +10,7 @@
 
 import { failed, invalid, ok, tryResolveString } from '../registry';
 import type { ActionHandler, DownloadInfo, DownloadState, VariableStore } from '../types';
+import { waitForTabComplete } from '../../../utils/wait-for-tab';
 
 /** Default timeout for tab operations */
 const DEFAULT_TAB_TIMEOUT_MS = 10000;
@@ -75,7 +76,7 @@ export const openTabHandler: ActionHandler<'openTab'> = {
 
       // Wait for tab to be ready if URL was specified
       if (url) {
-        await waitForTabComplete(tabId, DEFAULT_TAB_TIMEOUT_MS);
+        await waitForTabComplete(tabId, { timeoutMs: DEFAULT_TAB_TIMEOUT_MS });
       }
 
       // Return newTabId for ctx.tabId sync
@@ -382,38 +383,3 @@ export const handleDownloadHandler: ActionHandler<'handleDownload'> = {
     });
   },
 };
-
-// ================================
-// Helper Functions
-// ================================
-
-/**
- * Wait for a tab to complete loading
- */
-async function waitForTabComplete(tabId: number, timeoutMs: number): Promise<void> {
-  const startTime = Date.now();
-
-  return new Promise((resolve, reject) => {
-    const checkStatus = async () => {
-      try {
-        const tab = await chrome.tabs.get(tabId);
-
-        if (tab.status === 'complete') {
-          resolve();
-          return;
-        }
-
-        if (Date.now() - startTime > timeoutMs) {
-          reject(new Error(`Tab load timeout after ${timeoutMs}ms`));
-          return;
-        }
-
-        setTimeout(checkStatus, 100);
-      } catch (e) {
-        reject(e);
-      }
-    };
-
-    checkStatus();
-  });
-}
