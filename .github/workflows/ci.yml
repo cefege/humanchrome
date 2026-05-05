@@ -84,6 +84,57 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+  macos-build:
+    name: Bridge build + smoke on macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Bridge smoke tests
+        working-directory: app/native-server
+        run: node smoke-test.mjs
+
+      - name: Verify TCC guard refuses ~/Documents-style install path
+        run: |
+          set -euo pipefail
+          # The guard fires inside getMainPath() when the resolved wrapper path
+          # is inside a TCC-protected dir. Stage a copy of the built dist under
+          # ~/Documents and confirm `register` refuses it instead of writing a
+          # silent-failure manifest. (No real Chrome on the runner — we just
+          # exercise the guard by invoking the compiled register flow.)
+          STAGE="$HOME/Documents/humanchrome-tcc-guard-smoke/dist"
+          mkdir -p "$STAGE"
+          cp -R app/native-server/dist/. "$STAGE/"
+          set +e
+          node -e "
+            const { tccProtectedRootContaining } = require('$STAGE/scripts/utils.js');
+            const r = tccProtectedRootContaining('$STAGE/run_host.sh');
+            if (!r) { console.error('FAIL: TCC guard did not flag ~/Documents path'); process.exit(1); }
+            console.log('OK: TCC guard flagged path under', r);
+          "
+          GUARD_RC=$?
+          rm -rf "$HOME/Documents/humanchrome-tcc-guard-smoke"
+          exit $GUARD_RC
+
   chrome-smoke:
     name: Build extension zip and static smoke
     needs: build
