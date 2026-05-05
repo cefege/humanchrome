@@ -76,9 +76,9 @@ humanchrome-bridge register
 > back into the repo, which on macOS often sits under `~/Documents`. That
 > matters because macOS TCC blocks Chrome from `exec()`'ing scripts under
 > `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Pictures`, `~/Movies`,
-> `~/Music`, or iCloud Drive — even with Full Disk Access. Registration would
-> succeed but every `connectNative()` silently fails with `lastError: 'Native
-host has exited.'`. `humanchrome-bridge register` refuses to write a
+> `~/Music`, or iCloud Drive — even with Full Disk Access. Registration
+> succeeds but every `connectNative()` silently fails, with Chrome reporting
+> `Native host has exited.` `humanchrome-bridge register` refuses to write a
 > manifest pointing into a TCC-protected dir, and `humanchrome-bridge doctor`
 > flags existing bad manifests from earlier installs.
 
