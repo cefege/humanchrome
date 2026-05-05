@@ -12,6 +12,9 @@ import type { AgentMessage, RealtimeEvent } from '../types';
 import { AgentToolBridge } from '../tool-bridge';
 import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
+import { withContext } from '../../util/logger';
+
+const log = withContext({ component: 'codex-engine' });
 
 type TodoListPhase = 'started' | 'update' | 'completed';
 
@@ -86,8 +89,9 @@ export class CodexEngine implements AgentEngine {
         return project?.enableHumanChrome !== false;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[CodexEngine] Failed to load project enableHumanChrome, defaulting to enabled: ${message}`,
+        log.warn(
+          { err: message, projectId },
+          'failed to load project.enableHumanChrome — defaulting to true',
         );
         return true;
       }
@@ -120,9 +124,9 @@ export class CodexEngine implements AgentEngine {
       // Set both url and type for complete HTTP MCP server configuration
       args.push('-c', `mcp_servers.humanchrome.url=${JSON.stringify(humanchromeUrl)}`);
       args.push('-c', `mcp_servers.humanchrome.type="http"`);
-      console.error(`[CodexEngine] HumanChrome bridge enabled: ${humanchromeUrl}`);
+      log.info({ url: humanchromeUrl }, 'HumanChrome bridge enabled for codex run');
     } else {
-      console.error('[CodexEngine] HumanChrome bridge disabled');
+      log.info('HumanChrome bridge disabled for codex run');
     }
 
     if (model && model.trim()) {
@@ -135,7 +139,7 @@ export class CodexEngine implements AgentEngine {
 
     if (hasResolvedPaths) {
       // Use pre-resolved persistent paths (preferred - no temp files needed)
-      console.error(`[CodexEngine] Using ${resolvedImagePaths.length} pre-resolved image path(s)`);
+      log.debug({ count: resolvedImagePaths.length }, 'using pre-resolved image paths');
       for (const imagePath of resolvedImagePaths) {
         args.push('--image', imagePath);
       }
@@ -148,7 +152,10 @@ export class CodexEngine implements AgentEngine {
             tempFiles.push(tempFile);
             args.push('--image', tempFile);
           } catch (err) {
-            console.error('[CodexEngine] Failed to write attachment to temp file:', err);
+            log.error(
+              { err: err instanceof Error ? err.message : String(err) },
+              'failed to write attachment to temp file',
+            );
           }
         }
       }
@@ -192,10 +199,13 @@ export class CodexEngine implements AgentEngine {
         for (const filePath of tempFiles) {
           try {
             await fs.unlink(filePath);
-            console.error(`[CodexEngine] Cleaned up temp file: ${filePath}`);
+            log.debug({ filePath }, 'cleaned up temp file');
           } catch (err) {
             // Ignore errors during cleanup - file may already be deleted
-            console.error(`[CodexEngine] Failed to cleanup temp file ${filePath}:`, err);
+            log.warn(
+              { filePath, err: err instanceof Error ? err.message : String(err) },
+              'failed to cleanup temp file',
+            );
           }
         }
       };
@@ -255,7 +265,7 @@ export class CodexEngine implements AgentEngine {
       // Listen for abort signal to cancel execution
       const abortHandler = signal
         ? () => {
-            console.error('[CodexEngine] Execution cancelled via abort signal');
+            log.info({ sessionId }, 'codex execution cancelled via abort signal');
             void finish(new Error('CodexEngine: execution was cancelled'));
           }
         : null;
@@ -275,7 +285,7 @@ export class CodexEngine implements AgentEngine {
           stderrBuffer.splice(0, stderrBuffer.length - CodexEngine.MAX_STDERR_LINES);
         }
 
-        console.error('[CodexEngine][stderr]', text);
+        log.debug({ sessionId, text }, 'codex stderr');
       });
 
       rl = readline.createInterface({ input: child.stdout });
@@ -596,7 +606,7 @@ export class CodexEngine implements AgentEngine {
             try {
               event = JSON.parse(trimmed) as Record<string, unknown>;
             } catch {
-              console.warn('[CodexEngine] Failed to parse Codex event line:', trimmed);
+              log.warn({ line: trimmed }, 'failed to parse codex event line');
               continue;
             }
 
@@ -701,7 +711,10 @@ Current files in project directory: ${visible.sort().join(', ')}
 Work directly in the current directory. Do not create subdirectories unless specifically requested.
 </current_project_context>`;
     } catch (error) {
-      console.warn('[CodexEngine] Failed to append project context:', error);
+      log.warn(
+        { err: error instanceof Error ? error.message : String(error), repoPath },
+        'failed to append project context',
+      );
       return baseInstruction;
     }
   }

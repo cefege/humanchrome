@@ -31,9 +31,16 @@
             color: 'var(--ac-text-muted, #6e6e6e)',
             borderRadius: 'var(--ac-radius-button)',
           }"
+          aria-label="Close session settings"
           @click="handleClose"
         >
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -99,6 +106,7 @@
             </label>
             <select
               v-model="localModel"
+              aria-label="Model"
               class="w-full px-2 py-1.5 text-xs"
               :style="{
                 backgroundColor: 'var(--ac-surface, #ffffff)',
@@ -124,6 +132,7 @@
             </label>
             <select
               v-model="localReasoningEffort"
+              aria-label="Reasoning effort"
               class="w-full px-2 py-1.5 text-xs"
               :style="{
                 backgroundColor: 'var(--ac-surface, #ffffff)',
@@ -154,6 +163,7 @@
             </label>
             <select
               v-model="localPermissionMode"
+              aria-label="Permission mode"
               class="w-full px-2 py-1.5 text-xs"
               :style="{
                 backgroundColor: 'var(--ac-surface, #ffffff)',
@@ -201,6 +211,7 @@
                 <textarea
                   v-if="localAppendToPrompt"
                   v-model="localPromptAppend"
+                  aria-label="Append to system prompt"
                   class="mt-1 w-full px-2 py-1.5 text-xs resize-none"
                   :style="{
                     backgroundColor: 'var(--ac-surface, #ffffff)',
@@ -224,6 +235,7 @@
               <textarea
                 v-if="localUseCustomPrompt"
                 v-model="localCustomPrompt"
+                aria-label="Custom system prompt"
                 class="w-full px-2 py-1.5 text-xs resize-none"
                 :style="{
                   backgroundColor: 'var(--ac-surface, #ffffff)',

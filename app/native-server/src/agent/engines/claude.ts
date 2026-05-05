@@ -5,6 +5,9 @@ import type { AgentMessage, RealtimeEvent } from '../types';
 import { detectCcr, validateCcrConfig } from '../ccr-detector';
 import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
+import { withContext } from '../../util/logger';
+
+const log = withContext({ component: 'claude-engine' });
 
 // Images are provided to Claude Code via local file paths referenced in the prompt text.
 // Claude Code CLI reads images from local paths, so we write base64 images to temp files and reference them.
@@ -371,24 +374,29 @@ export class ClaudeEngine implements AgentEngine {
         for (const filePath of tempFiles) {
           try {
             await fs.unlink(filePath);
-            console.error(`[ClaudeEngine] Cleaned up temp file: ${filePath}`);
+            log.debug({ filePath }, 'cleaned up temp file');
           } catch (err) {
             // Best-effort cleanup; ignore failures (file may already be deleted)
-            console.error(`[ClaudeEngine] Failed to cleanup temp file ${filePath}:`, err);
+            log.warn(
+              { filePath, err: err instanceof Error ? err.message : String(err) },
+              'failed to cleanup temp file',
+            );
           }
         }
       } catch (err) {
-        console.error('[ClaudeEngine] Failed to cleanup temp files:', err);
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'failed to cleanup temp files',
+        );
       }
     };
 
     // Build prompt instruction (may be modified if images are attached)
     let promptInstruction = normalizedInstruction;
 
+    const runLog = log.child({ sessionId, requestId, projectId, model: resolvedModel });
     try {
-      // Use console.error for logging to avoid polluting stdout (Native Messaging protocol)
-      console.error(`[ClaudeEngine] Starting query with model: ${resolvedModel}`);
-      console.error(`[ClaudeEngine] Working directory: ${repoPath}`);
+      runLog.info({ repoPath }, 'starting Claude query');
 
       // Check for image attachments - prefer resolvedImagePaths (persisted), fallback to temp files
       const hasResolvedPaths = resolvedImagePaths && resolvedImagePaths.length > 0;
@@ -405,16 +413,15 @@ export class ClaudeEngine implements AgentEngine {
 
         if (hasResolvedPaths) {
           // Use pre-resolved persistent paths (preferred - no temp files needed)
-          console.error(
-            `[ClaudeEngine] Using ${resolvedImagePaths.length} pre-resolved image path(s)`,
-          );
+          runLog.debug({ count: resolvedImagePaths.length }, 'using pre-resolved image paths');
           for (let index = 0; index < resolvedImagePaths.length; index++) {
             imageLines.push(`Image #${index + 1} path: ${resolvedImagePaths[index]}`);
           }
         } else {
           // Fallback: write base64 to temp files (legacy behavior)
-          console.error(
-            `[ClaudeEngine] Writing ${imageAttachments.length} image attachment(s) to temp files (fallback)`,
+          runLog.debug(
+            { count: imageAttachments.length },
+            'writing image attachments to temp files (fallback)',
           );
           for (let index = 0; index < imageAttachments.length; index++) {
             const attachment = imageAttachments[index];
@@ -430,8 +437,9 @@ export class ClaudeEngine implements AgentEngine {
           .join('\n\n')
           .trim();
 
-        console.error(
-          `[ClaudeEngine] Prompt with image paths: ${promptInstruction.slice(0, 200)}...`,
+        runLog.debug(
+          { previewLen: 200, preview: promptInstruction.slice(0, 200) },
+          'prompt with image paths built',
         );
       }
 
@@ -472,8 +480,9 @@ export class ClaudeEngine implements AgentEngine {
         resolvedPermissionMode = normalizedPermissionMode;
       } else {
         // Invalid permission mode - fall back to SDK default and warn
-        console.error(
-          `[ClaudeEngine] Invalid permissionMode "${normalizedPermissionMode}", falling back to SDK default "default"`,
+        runLog.warn(
+          { provided: normalizedPermissionMode },
+          'invalid permissionMode — falling back to SDK default "default"',
         );
         resolvedPermissionMode = 'default';
       }
@@ -489,8 +498,8 @@ export class ClaudeEngine implements AgentEngine {
         if (resolvedPermissionMode === 'bypassPermissions') {
           // Force true for bypassPermissions mode - SDK requirement
           if (explicitValue === false) {
-            console.error(
-              '[ClaudeEngine] Warning: allowDangerouslySkipPermissions=false is incompatible with bypassPermissions mode, forcing to true',
+            runLog.warn(
+              'allowDangerouslySkipPermissions=false is incompatible with bypassPermissions mode — forcing to true',
             );
           }
           return true;
@@ -514,8 +523,9 @@ export class ClaudeEngine implements AgentEngine {
           return project?.enableHumanChrome !== false;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(
-            `[ClaudeEngine] Failed to load project enableHumanChrome, defaulting to enabled: ${message}`,
+          runLog.warn(
+            { err: message },
+            'failed to load project.enableHumanChrome — defaulting to true',
           );
           return true;
         }
@@ -530,7 +540,7 @@ export class ClaudeEngine implements AgentEngine {
 
         // Check for explicit isolation mode (empty array)
         if (Array.isArray(raw) && raw.length === 0) {
-          console.error('[ClaudeEngine] Isolation mode enabled: settingSources=[]');
+          runLog.debug('isolation mode enabled: settingSources=[]');
           return [];
         }
 
@@ -628,7 +638,7 @@ export class ClaudeEngine implements AgentEngine {
             stderrBuffer.shift();
           }
           stderrBuffer.push(line);
-          console.error(`[ClaudeEngine][stderr] ${line}`);
+          runLog.debug({ line }, 'claude stderr');
         },
       };
 
@@ -742,7 +752,7 @@ export class ClaudeEngine implements AgentEngine {
             url: getHumanChromeUrl(),
           },
         };
-        console.error(`[ClaudeEngine] HumanChrome bridge enabled: ${getHumanChromeUrl()}`);
+        runLog.info({ url: getHumanChromeUrl() }, 'HumanChrome bridge enabled');
       } else if (
         queryOptions.mcpServers &&
         typeof queryOptions.mcpServers === 'object' &&
@@ -758,13 +768,13 @@ export class ClaudeEngine implements AgentEngine {
             delete (queryOptions as Record<string, unknown>).mcpServers;
           }
         }
-        console.error('[ClaudeEngine] HumanChrome bridge disabled');
+        runLog.info('HumanChrome bridge disabled');
       }
 
       // Add resume option if we have a valid Claude session ID
       if (resumeClaudeSessionId) {
         queryOptions.resume = resumeClaudeSessionId;
-        console.error(`[ClaudeEngine] Resuming Claude session: ${resumeClaudeSessionId}`);
+        runLog.info({ resumeClaudeSessionId }, 'resuming claude session');
       }
 
       const response = query({
@@ -776,11 +786,11 @@ export class ClaudeEngine implements AgentEngine {
       for await (const message of response) {
         // Check for cancellation before processing each message
         if (signal?.aborted) {
-          console.error('[ClaudeEngine] Execution cancelled via abort signal');
+          runLog.info('claude execution cancelled via abort signal');
           throw new Error('ClaudeEngine: execution was cancelled');
         }
 
-        console.error('[ClaudeEngine] Message type:', message.type);
+        runLog.trace({ type: message.type }, 'claude message');
 
         if (message.type === 'stream_event') {
           const event = (message as unknown as { event?: Record<string, unknown> }).event ?? {};
@@ -848,11 +858,18 @@ export class ClaudeEngine implements AgentEngine {
                     input = JSON.parse(fullJsonStr);
                   }
                 } catch (e) {
-                  console.error(`[ClaudeEngine] Failed to parse tool input JSON: ${e}`);
+                  runLog.warn(
+                    { err: e instanceof Error ? e.message : String(e) },
+                    'failed to parse tool input JSON',
+                  );
                 }
 
-                console.error(
-                  `[ClaudeEngine] content_block_stop - toolName: ${pending.toolName}, input: ${JSON.stringify(input).slice(0, 500)}`,
+                runLog.debug(
+                  {
+                    toolName: pending.toolName,
+                    inputPreview: JSON.stringify(input).slice(0, 500),
+                  },
+                  'content_block_stop',
                 );
 
                 // Build metadata with full input
@@ -956,7 +973,7 @@ export class ClaudeEngine implements AgentEngine {
           const resultRecord = message as unknown as Record<string, unknown>;
 
           // Log full result for debugging
-          console.error(`[ClaudeEngine] Result message: ${JSON.stringify(resultRecord, null, 2)}`);
+          runLog.debug({ result: resultRecord }, 'claude result message');
 
           // Extract and emit usage statistics
           const usage = resultRecord.usage as Record<string, unknown> | undefined;
@@ -997,7 +1014,7 @@ export class ClaudeEngine implements AgentEngine {
             const errorMsg = errors?.length
               ? errors.join('; ')
               : resultText || 'Unknown error from Claude Code';
-            console.error(`[ClaudeEngine] Result error: ${errorMsg}`);
+            runLog.error({ errorMsg }, 'claude result error');
 
             // Check if this is a resume failure
             const isResumeFailure =
@@ -1011,7 +1028,7 @@ export class ClaudeEngine implements AgentEngine {
                 try {
                   // Pass empty string to clear the session
                   await ctx.persistClaudeSessionId('');
-                  console.error('[ClaudeEngine] Cleared invalid session ID');
+                  runLog.warn('cleared invalid session ID');
                 } catch {
                   // Ignore clear errors
                 }
@@ -1040,15 +1057,21 @@ export class ClaudeEngine implements AgentEngine {
             const claudeSessionId = record.session_id ? String(record.session_id) : undefined;
 
             if (claudeSessionId) {
-              console.error(`[ClaudeEngine] Session initialized: ${claudeSessionId}`);
+              runLog.info({ claudeSessionId }, 'claude session initialized');
 
               // Persist the session ID if callback is provided and projectId exists
               if (ctx.persistClaudeSessionId && projectId) {
                 try {
                   await ctx.persistClaudeSessionId(claudeSessionId);
-                  console.error(`[ClaudeEngine] Session ID persisted for project: ${projectId}`);
+                  runLog.debug({ projectId }, 'claude session id persisted for project');
                 } catch (persistError) {
-                  console.error('[ClaudeEngine] Failed to persist session ID:', persistError);
+                  runLog.warn(
+                    {
+                      err:
+                        persistError instanceof Error ? persistError.message : String(persistError),
+                    },
+                    'failed to persist session id',
+                  );
                 }
               }
             }
@@ -1098,15 +1121,21 @@ export class ClaudeEngine implements AgentEngine {
                 };
 
                 await ctx.persistManagementInfo(managementInfo);
-                console.error('[ClaudeEngine] Management info persisted');
+                runLog.debug('management info persisted');
               } catch (persistError) {
-                console.error('[ClaudeEngine] Failed to persist management info:', persistError);
+                runLog.warn(
+                  {
+                    err:
+                      persistError instanceof Error ? persistError.message : String(persistError),
+                  },
+                  'failed to persist management info',
+                );
               }
             }
           } else if (subtype === 'status') {
             // system:status - log for debugging (e.g., compacting)
             const statusText = this.pickFirstString(record.status);
-            console.error(`[ClaudeEngine] System status: ${statusText || 'unknown'}`);
+            runLog.debug({ statusText: statusText || 'unknown' }, 'claude system status');
           }
         } else if (message.type === 'auth_status') {
           // Handle authentication status - SDK fields: isAuthenticating, output, error
@@ -1117,9 +1146,7 @@ export class ClaudeEngine implements AgentEngine {
             : [];
           const authError = this.pickFirstString(record.error);
 
-          console.error(
-            `[ClaudeEngine] Auth status: isAuthenticating=${isAuthenticating}, hasError=${!!authError}`,
-          );
+          runLog.info({ isAuthenticating, hasError: !!authError }, 'claude auth status');
 
           // Build content from output or error
           const content = authError || output.join('\n') || 'Authentication in progress...';
@@ -1172,7 +1199,7 @@ export class ClaudeEngine implements AgentEngine {
             const displayName = toolName || toolUseId || 'tool';
             const elapsedStr =
               elapsedTimeSeconds !== undefined ? ` (${elapsedTimeSeconds.toFixed(1)}s)` : '';
-            console.error(`[ClaudeEngine] Tool progress: ${displayName}${elapsedStr}`);
+            runLog.debug({ tool: displayName, elapsedTimeSeconds }, 'claude tool progress');
 
             // Use tool_use_id as message id if available, so UI can update the same progress entry
             const messageId = toolUseId ? `progress-${toolUseId}` : randomUUID();
@@ -1209,15 +1236,17 @@ export class ClaudeEngine implements AgentEngine {
         emitAssistant(true);
       }
 
-      console.error('[ClaudeEngine] Query completed successfully');
+      runLog.info('claude query completed successfully');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
       // Log full stderr for debugging
-      console.error(`[ClaudeEngine] Error: ${message}`);
+      runLog.error({ err: message }, 'claude query error');
       if (stderrBuffer.length > 0) {
-        console.error(`[ClaudeEngine] Stderr (${stderrBuffer.length} lines):`);
-        stderrBuffer.slice(-10).forEach((line) => console.error(`  ${line}`));
+        runLog.error(
+          { lines: stderrBuffer.length, tail: stderrBuffer.slice(-10) },
+          'claude stderr tail',
+        );
       }
 
       // Check if this is a resume failure from stderr
@@ -1232,7 +1261,7 @@ export class ClaudeEngine implements AgentEngine {
         // Clear the stored session ID so next request starts fresh
         try {
           await ctx.persistClaudeSessionId('');
-          console.error('[ClaudeEngine] Cleared invalid session ID due to resume failure');
+          runLog.warn('cleared invalid session id due to resume failure');
         } catch {
           // Ignore clear errors
         }
@@ -1278,17 +1307,15 @@ export class ClaudeEngine implements AgentEngine {
         if (ccrResult.detected && ccrResult.baseUrl && ccrResult.authToken) {
           env.ANTHROPIC_BASE_URL = ccrResult.baseUrl;
           env.ANTHROPIC_AUTH_TOKEN = ccrResult.authToken;
-          console.error(`[ClaudeEngine] CCR auto-detected (source: ${ccrResult.source})`);
+          log.info({ source: ccrResult.source }, 'CCR auto-detected');
         } else if (ccrResult.error) {
-          console.error(`[ClaudeEngine] CCR detection failed: ${ccrResult.error}`);
+          log.warn({ err: ccrResult.error }, 'CCR detection failed');
         } else {
-          console.error(
-            '[ClaudeEngine] CCR enabled but not detected (config not found or service not running)',
-          );
+          log.warn('CCR enabled but not detected (config not found or service not running)');
         }
       } catch (err) {
         // CCR detection is best-effort, don't fail the request
-        console.error(`[ClaudeEngine] CCR detection error: ${err}`);
+        log.warn({ err: err instanceof Error ? err.message : String(err) }, 'CCR detection error');
       }
     }
 
@@ -1296,12 +1323,12 @@ export class ClaudeEngine implements AgentEngine {
     const baseUrl = env.ANTHROPIC_BASE_URL;
     const authToken = env.ANTHROPIC_AUTH_TOKEN;
     if (baseUrl) {
-      console.error(`[ClaudeEngine] Using ANTHROPIC_BASE_URL: ${baseUrl}`);
+      log.debug({ baseUrl }, 'using ANTHROPIC_BASE_URL');
     }
     if (authToken) {
       const preview =
         authToken.length > 8 ? `${authToken.slice(0, 4)}...${authToken.slice(-4)}` : '****';
-      console.error(`[ClaudeEngine] Using ANTHROPIC_AUTH_TOKEN: ${preview}`);
+      log.debug({ preview }, 'using ANTHROPIC_AUTH_TOKEN');
     }
 
     return env;
@@ -1437,7 +1464,7 @@ export class ClaudeEngine implements AgentEngine {
       }
 
       const content = lines.join('\n');
-      console.error(`[ClaudeEngine] CCR config warning: ${validation.issue}`);
+      log.warn({ issue: validation.issue, sessionId, requestId }, 'CCR config warning');
 
       const warningMessage: AgentMessage = {
         id: randomUUID(),
@@ -1461,7 +1488,10 @@ export class ClaudeEngine implements AgentEngine {
       ctx.emit({ type: 'message', data: warningMessage });
     } catch (err) {
       // CCR config validation is best-effort, don't fail the request
-      console.error('[ClaudeEngine] CCR config validation error:', err);
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'CCR config validation error',
+      );
     }
   }
 

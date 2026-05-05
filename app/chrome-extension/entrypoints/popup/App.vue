@@ -19,6 +19,7 @@
                   class="refresh-status-button"
                   @click="refreshServerStatus"
                   :title="getMessage('refreshStatusButton')"
+                  :aria-label="getMessage('refreshStatusButton')"
                 >
                   <RefreshIcon className="icon-small" />
                 </button>
@@ -76,6 +77,7 @@
               class="rr-icon-btn rr-icon-btn-record rr-icon-btn-coming-soon has-tooltip"
               @click="startRecording"
               data-tooltip="Recording (coming soon)"
+              aria-label="Start recording (coming soon)"
             >
               <RecordIcon :recording="false" />
             </button>
@@ -83,6 +85,7 @@
               class="rr-icon-btn rr-icon-btn-stop rr-icon-btn-coming-soon has-tooltip"
               @click="stopRecording"
               data-tooltip="Recording (coming soon)"
+              aria-label="Stop recording (coming soon)"
             >
               <StopIcon />
             </button>
@@ -90,6 +93,7 @@
               class="rr-icon-btn rr-icon-btn-edit has-tooltip"
               @click="toggleWebEditor"
               data-tooltip="Toggle page edit mode"
+              aria-label="Toggle page edit mode"
             >
               <EditIcon />
             </button>
@@ -97,6 +101,7 @@
               class="rr-icon-btn rr-icon-btn-marker has-tooltip"
               @click="toggleElementMarker"
               data-tooltip="Toggle element annotations"
+              aria-label="Toggle element annotations"
             >
               <MarkerIcon />
             </button>
@@ -311,13 +316,14 @@
 
     <!-- Coming Soon Toast -->
     <Transition name="toast">
-      <div v-if="comingSoonToast.show" class="coming-soon-toast">
+      <div v-if="comingSoonToast.show" class="coming-soon-toast" role="alert" aria-live="polite">
         <svg
           class="toast-icon"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           stroke-width="2"
+          aria-hidden="true"
         >
           <circle cx="12" cy="12" r="10" />
           <path d="M12 6v6l4 2" stroke-linecap="round" stroke-linejoin="round" />

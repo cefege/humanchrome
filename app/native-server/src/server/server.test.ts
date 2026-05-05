@@ -19,13 +19,17 @@ const sseAcceptHeaders = {
 };
 
 describe('Bridge HTTP smoke', () => {
+  // ts-jest's first compile of the Server module pulls in the agent engines,
+  // drizzle/sqlite, the MCP transport, etc — that can take a few seconds on a
+  // cold jest cache. Bump the hook timeouts so CI / local first runs don't
+  // flake on the default 5 s budget.
   beforeAll(async () => {
     await Server.getInstance().ready();
-  });
+  }, 30_000);
 
   afterAll(async () => {
     await Server.stop();
-  });
+  }, 30_000);
 
   test('GET /ping returns pong', async () => {
     const response = await supertest(Server.getInstance().server)

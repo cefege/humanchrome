@@ -22,6 +22,7 @@
           class="opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-pointer"
           :style="{ color: 'var(--ac-text-subtle)' }"
           title="Edit (coming soon)"
+          aria-label="Edit message (coming soon)"
         >
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path

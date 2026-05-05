@@ -80,6 +80,7 @@
                   class="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                   :style="removeButtonStyle"
                   title="Remove image"
+                  :aria-label="`Remove image ${attachment.name}`"
                   @click="emit('attachment:remove', index)"
                 >
                   <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -112,6 +113,7 @@
               <textarea
                 ref="textareaRef"
                 :value="modelValue"
+                aria-label="Message"
                 class="w-full flex-1 min-h-0 bg-transparent border-none focus:ring-0 focus:outline-none resize-none p-3 text-sm"
                 :style="textareaStyle"
                 :placeholder="placeholder"

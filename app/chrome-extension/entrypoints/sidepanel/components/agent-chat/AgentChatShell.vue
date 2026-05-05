@@ -38,6 +38,8 @@
       <!-- Error Banner (above input) -->
       <div
         v-if="errorMessage"
+        role="alert"
+        aria-live="assertive"
         class="mb-2 px-4 py-2 text-xs rounded-lg flex items-start gap-2"
         :style="{
           backgroundColor: 'var(--ac-diff-del-bg)',

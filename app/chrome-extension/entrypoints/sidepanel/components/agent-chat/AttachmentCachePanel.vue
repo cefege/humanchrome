@@ -46,6 +46,7 @@
               opacity: !serverReady || isLoading || isClearing ? 0.6 : 1,
             }"
             title="Refresh"
+            aria-label="Refresh"
             @click="refresh"
           >
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

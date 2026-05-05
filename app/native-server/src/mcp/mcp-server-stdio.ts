@@ -14,6 +14,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { withContext } from '../util/logger';
+
+const log = withContext({ component: 'mcp-stdio' });
 
 let stdioMcpServer: Server | null = null;
 let mcpClient: Client | null = null;
@@ -25,7 +28,10 @@ const loadConfig = () => {
     const configData = fs.readFileSync(configPath, 'utf8');
     return JSON.parse(configData);
   } catch (error) {
-    console.error('Failed to load stdio-config.json:', error);
+    log.fatal(
+      { err: error instanceof Error ? error.message : String(error) },
+      'failed to load stdio-config.json',
+    );
     throw new Error('Configuration file stdio-config.json not found or invalid');
   }
 };
@@ -69,7 +75,10 @@ export const ensureMcpClient = async () => {
   } catch (error) {
     mcpClient?.close();
     mcpClient = null;
-    console.error('Failed to connect to MCP server:', error);
+    log.error(
+      { err: error instanceof Error ? error.message : String(error) },
+      'failed to connect to MCP server',
+    );
   }
 };
 
@@ -120,6 +129,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Fatal error HumanChrome main():', error);
+  log.fatal(
+    { err: error instanceof Error ? error.message : String(error), stack: error?.stack },
+    'fatal error in HumanChrome stdio main()',
+  );
   process.exit(1);
 });

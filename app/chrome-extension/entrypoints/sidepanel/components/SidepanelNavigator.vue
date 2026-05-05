@@ -9,6 +9,8 @@
       ref="triggerRef"
       class="navigator-trigger"
       :class="{ 'navigator-trigger-active': isOpen }"
+      :aria-expanded="isOpen"
+      aria-label="Switch page (drag to move, double-click to reset position)"
       @click="handleTriggerClick"
       @dblclick="resetToDefault"
       title="Switch page (drag to move, double-click to reset position)"
@@ -21,6 +23,7 @@
         fill="none"
         stroke="currentColor"
         stroke-width="2"
+        aria-hidden="true"
       >
         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
       </svg>
@@ -28,10 +31,17 @@
 
     <Transition name="navigator-menu">
       <div v-if="isOpen" class="navigator-overlay" @click="closeMenu">
-        <div class="navigator-menu" :style="menuStyle" @click.stop>
+        <div
+          class="navigator-menu"
+          :style="menuStyle"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Switch page"
+          @click.stop
+        >
           <div class="navigator-header">
             <span class="navigator-title">Switch Page</span>
-            <button class="navigator-close" @click="closeMenu">
+            <button class="navigator-close" aria-label="Close menu" @click="closeMenu">
               <svg
                 viewBox="0 0 24 24"
                 width="18"
@@ -39,6 +49,7 @@
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                aria-hidden="true"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>

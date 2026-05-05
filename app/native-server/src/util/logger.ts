@@ -1,69 +1,127 @@
 /**
- * Lightweight structured logger.
+ * Structured logger (pino) for the native bridge.
  *
- * Writes to stderr only — stdout is reserved for native messaging framing,
- * so any accidental stdout write would corrupt the protocol.
+ * CRITICAL: stdout is reserved for the Chrome Native Messaging wire format
+ * (4-byte length-prefixed JSON frames). Anything we accidentally write to
+ * stdout corrupts the protocol and tears down the host. Therefore the logger
+ * is hard-pinned to `process.stderr`. Do not change the destination.
  *
- * Goals:
- * - Per-request binding so each tool call is traceable end-to-end via a
- *   correlation `requestId` shared with the extension's debug log.
- * - Levels filterable at runtime via `MCP_LOG_LEVEL=debug|info|warn|error`.
- * - Zero deps. No file output here — the extension keeps the persistent log;
- *   the server just emits to stderr where it can be tail'd alongside the
- *   native-host process.
+ * Configuration (env):
+ * - `HUMANCHROME_LOG_LEVEL` — trace|debug|info|warn|error|fatal (default: info)
+ * - `NODE_ENV`               — when not "production", logs are pretty-printed
+ *                              if stderr is a TTY; otherwise NDJSON.
+ *
+ * Conventions:
+ * - One bound logger per request: `const log = withContext({ requestId, tool });`
+ * - Pass correlation fields explicitly. The same `requestId` shows up in the
+ *   extension's ring buffer (chrome_debug_dump), so traces can be stitched.
  */
+import pino, { type Logger, type LoggerOptions } from 'pino';
+import * as path from 'path';
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+let pkgVersion = '0.0.0';
+try {
+  // src/util/logger.ts → ../../package.json. After build the file ends up at
+  // dist/util/logger.js, same relative path, so this resolves both pre- and
+  // post-compile. Wrapped in try/catch so a renamed package.json never crashes
+  // the host on startup.
 
-const LEVEL_ORDER: Record<LogLevel, number> = {
-  debug: 10,
-  info: 20,
-  warn: 30,
-  error: 40,
-};
+  pkgVersion =
+    (require(path.join(__dirname, '..', '..', 'package.json')) as { version: string }).version ||
+    pkgVersion;
+} catch {
+  /* keep default */
+}
 
-function envLevel(): LogLevel {
-  const raw = (process.env.MCP_LOG_LEVEL || 'info').toLowerCase();
-  if (raw in LEVEL_ORDER) return raw as LogLevel;
+const VALID_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const;
+type LogLevel = (typeof VALID_LEVELS)[number];
+
+function resolveLevel(): LogLevel {
+  const raw = (process.env.HUMANCHROME_LOG_LEVEL || '').trim().toLowerCase();
+  if ((VALID_LEVELS as readonly string[]).includes(raw)) return raw as LogLevel;
+  // Legacy var kept for backwards compatibility with existing dev scripts.
+  const legacy = (process.env.MCP_LOG_LEVEL || '').trim().toLowerCase();
+  if ((VALID_LEVELS as readonly string[]).includes(legacy)) return legacy as LogLevel;
   return 'info';
 }
 
-let activeLevel: LogLevel = envLevel();
+const REDACT_PATHS = [
+  'password',
+  'token',
+  'authorization',
+  'cookie',
+  'apiKey',
+  'Authorization',
+  'set-cookie',
+  '*.password',
+  '*.token',
+  '*.authorization',
+  '*.cookie',
+  '*.apiKey',
+  '*.Authorization',
+  'headers.authorization',
+  'headers.cookie',
+  'headers["set-cookie"]',
+  'headers["Authorization"]',
+];
+
+function buildLogger(): Logger {
+  const level = resolveLevel();
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isTTY = Boolean((process.stderr as NodeJS.WriteStream).isTTY);
+
+  const options: LoggerOptions = {
+    level,
+    base: { pid: process.pid, version: pkgVersion },
+    timestamp: pino.stdTimeFunctions.isoTime,
+    redact: { paths: REDACT_PATHS, censor: '[REDACTED]' },
+    formatters: {
+      level: (label) => ({ level: label }),
+    },
+  };
+
+  // Pretty-print only in dev TTY. In prod or when piped to a wrapper log file,
+  // emit NDJSON so log shippers can parse it. We avoid pino.transport() because
+  // worker threads conflict with how Chrome launches the native host.
+  if (!isProduction && isTTY) {
+    try {
+      const pretty = require('pino-pretty');
+      const stream = pretty({
+        destination: 2, // stderr
+        colorize: true,
+        translateTime: 'SYS:HH:MM:ss.l',
+        ignore: 'pid,hostname,version',
+        singleLine: false,
+      });
+      return pino(options, stream);
+    } catch {
+      /* fall through to NDJSON on stderr */
+    }
+  }
+
+  // Default: NDJSON to stderr. Never use the default pino destination (stdout).
+  // Sync mode is used in tests so the logger doesn't keep an open handle that
+  // jest's --detectOpenHandles would flag and that can delay process exit.
+  const isTest = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
+  return pino(options, pino.destination({ fd: 2, sync: isTest }));
+}
+
+const baseLogger: Logger = buildLogger();
+
+export type { LogLevel };
+export type LogContext = Record<string, unknown>;
+
+export const logger = baseLogger;
+
+/**
+ * Create a child logger bound to a request/tool/etc. Prefer this at the start
+ * of any request handler so every downstream line carries the same correlation
+ * fields.
+ */
+export function withContext(ctx: LogContext): Logger {
+  return baseLogger.child(ctx);
+}
 
 export function setLogLevel(level: LogLevel): void {
-  activeLevel = level;
+  baseLogger.level = level;
 }
-
-interface LogContext {
-  requestId?: string;
-  tool?: string;
-  [key: string]: unknown;
-}
-
-function emit(level: LogLevel, msg: string, ctx?: LogContext): void {
-  if (LEVEL_ORDER[level] < LEVEL_ORDER[activeLevel]) return;
-  const ts = new Date().toISOString();
-  const ctxStr = ctx && Object.keys(ctx).length ? ' ' + JSON.stringify(ctx) : '';
-  process.stderr.write(`[${ts}] [${level.toUpperCase()}] ${msg}${ctxStr}\n`);
-}
-
-export const logger = {
-  debug: (msg: string, ctx?: LogContext) => emit('debug', msg, ctx),
-  info: (msg: string, ctx?: LogContext) => emit('info', msg, ctx),
-  warn: (msg: string, ctx?: LogContext) => emit('warn', msg, ctx),
-  error: (msg: string, ctx?: LogContext) => emit('error', msg, ctx),
-  /**
-   * Bind a context object so subsequent calls share its fields.
-   * Use one bound logger per request: `const log = logger.with({ requestId, tool })`.
-   */
-  with(base: LogContext) {
-    return {
-      debug: (msg: string, extra?: LogContext) => emit('debug', msg, { ...base, ...extra }),
-      info: (msg: string, extra?: LogContext) => emit('info', msg, { ...base, ...extra }),
-      warn: (msg: string, extra?: LogContext) => emit('warn', msg, { ...base, ...extra }),
-      error: (msg: string, extra?: LogContext) => emit('error', msg, { ...base, ...extra }),
-    };
-  },
-};
-
-export type { LogLevel, LogContext };

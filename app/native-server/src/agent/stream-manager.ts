@@ -1,5 +1,8 @@
 import type { ServerResponse } from 'node:http';
 import type { RealtimeEvent } from './types';
+import { withContext } from '../util/logger';
+
+const log = withContext({ component: 'agent-stream' });
 
 type WebSocketLike = {
   readyState?: number;
@@ -78,7 +81,7 @@ export class AgentStreamManager {
     if (!targetSessionId) {
       // Drop events without sessionId to prevent cross-session leakage.
 
-      console.warn('[AgentStreamManager] Dropping event without sessionId:', event.type);
+      log.warn({ type: event.type }, 'dropping event without sessionId');
       return;
     }
 

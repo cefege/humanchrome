@@ -39,6 +39,69 @@ interface ExtensionRequestPayload {
 }
 
 // ============================================================
+// Security preHandler factory
+// ============================================================
+
+/**
+ * DNS-rebinding + cross-origin defence on state-changing methods.
+ *
+ * Applied via `fastify.addHook('preHandler', ...)`. Rules (in order):
+ *   1. Skip non-state-changing methods (GET / HEAD / OPTIONS).
+ *   2. Reject requests whose Host header isn't a loopback name (defends
+ *      against DNS rebinding attacks where a public DNS name resolves to
+ *      127.0.0.1).
+ *   3. Reject Origin headers that aren't in the CORS allowlist.
+ *   4. If `HUMANCHROME_TOKEN` is set in the environment, require an exact
+ *      `Authorization: Bearer <token>` match.
+ *
+ * Exported as a factory so the regression suite can mount it on a bare
+ * Fastify instance via `fastify.inject()` without booting the whole Server
+ * (which pulls in better-sqlite3, drizzle, the agent engines, etc).
+ */
+export function createSecurityPreHandler(): (
+  request: FastifyRequest,
+  reply: FastifyReply,
+) => Promise<void> {
+  // Read env at hook-creation time to mirror production behaviour: the token
+  // is captured when the server starts, not on every request.
+  const requiredToken = process.env.HUMANCHROME_TOKEN?.trim() || null;
+  const STATE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+  const HOST_ALLOW = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+  return async (request, reply) => {
+    const method = request.method.toUpperCase();
+    if (!STATE_METHODS.has(method)) return;
+
+    const hostHeader = String(request.headers.host || '');
+    const hostName = hostHeader.split(':')[0].toLowerCase();
+    if (!HOST_ALLOW.has(hostName) && !HOST_ALLOW.has(hostHeader.toLowerCase())) {
+      reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Host not allowed' });
+      return;
+    }
+
+    const origin = request.headers.origin;
+    if (origin) {
+      const allowed = SERVER_CONFIG.CORS_ORIGIN.some((pattern) =>
+        pattern instanceof RegExp ? pattern.test(origin) : origin.startsWith(pattern),
+      );
+      if (!allowed) {
+        reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Origin not allowed' });
+        return;
+      }
+    }
+
+    if (requiredToken) {
+      const auth = String(request.headers.authorization || '');
+      const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      if (presented !== requiredToken) {
+        reply.status(HTTP_STATUS.UNAUTHORIZED).send({ error: 'Invalid or missing bearer token' });
+        return;
+      }
+    }
+  };
+}
+
+// ============================================================
 // Server Class
 // ============================================================
 
@@ -58,8 +121,19 @@ export class Server {
       engines: [new CodexEngine(), new ClaudeEngine()],
       streamManager: this.agentStreamManager,
     });
-    this.setupPlugins();
+    // Order + sync registration matter:
+    //   * Fastify's `register()` is a thenable — `await register(cors, ...)`
+    //     would trigger fastify's boot sequence as a side effect of `await`
+    //     and deadlock subsequent `addHook()` calls (the root plugin gets
+    //     marked "booted" before the hook is queued).
+    //   * Therefore call `register()` *without* awaiting and queue the hook
+    //     synchronously after it. Fastify's plugin-load order is preserved
+    //     because both calls land in the same internal queue.
+    //   * Routes are registered first so they sit before the plugin/hook in
+    //     the queue and inherit the cors + preHandler configuration when
+    //     fastify drains the queue inside `ready()`.
     this.setupRoutes();
+    this.setupPlugins();
   }
 
   /**
@@ -69,8 +143,11 @@ export class Server {
     this.nativeHost = nativeHost;
   }
 
-  private async setupPlugins(): Promise<void> {
-    await this.fastify.register(cors, {
+  private setupPlugins(): void {
+    // NOTE: do NOT `await` the `register()` call. Fastify's register thenable
+    // would trigger boot on await, racing with the addHook below. Both calls
+    // land in the same plugin queue and run in order during `ready()`.
+    this.fastify.register(cors, {
       origin: (origin, cb) => {
         // Allow requests with no origin (e.g., curl, server-to-server)
         if (!origin) {
@@ -86,45 +163,7 @@ export class Server {
       credentials: true,
     });
 
-    // DNS-rebinding + cross-origin defence on state-changing methods.
-    // - Reject requests whose Host header isn't a loopback name (DNS rebinding).
-    // - Reject Origin headers not in the allowlist.
-    // - If HUMANCHROME_TOKEN is set, require Authorization: Bearer <token>.
-    const requiredToken = process.env.HUMANCHROME_TOKEN?.trim() || null;
-    const STATE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
-    const HOST_ALLOW = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-
-    this.fastify.addHook('preHandler', async (request, reply) => {
-      const method = request.method.toUpperCase();
-      if (!STATE_METHODS.has(method)) return;
-
-      const hostHeader = String(request.headers.host || '');
-      const hostName = hostHeader.split(':')[0].toLowerCase();
-      if (!HOST_ALLOW.has(hostName) && !HOST_ALLOW.has(hostHeader.toLowerCase())) {
-        reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Host not allowed' });
-        return;
-      }
-
-      const origin = request.headers.origin;
-      if (origin) {
-        const allowed = SERVER_CONFIG.CORS_ORIGIN.some((pattern) =>
-          pattern instanceof RegExp ? pattern.test(origin) : origin.startsWith(pattern),
-        );
-        if (!allowed) {
-          reply.status(HTTP_STATUS.FORBIDDEN).send({ error: 'Origin not allowed' });
-          return;
-        }
-      }
-
-      if (requiredToken) {
-        const auth = String(request.headers.authorization || '');
-        const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-        if (presented !== requiredToken) {
-          reply.status(HTTP_STATUS.UNAUTHORIZED).send({ error: 'Invalid or missing bearer token' });
-          return;
-        }
-      }
-    });
+    this.fastify.addHook('preHandler', createSecurityPreHandler());
   }
 
   private setupRoutes(): void {

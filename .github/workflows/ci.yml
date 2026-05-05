@@ -83,3 +83,185 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+  chrome-smoke:
+    name: Build extension zip and static smoke
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build shared (extension depends on it)
+        run: pnpm build:shared
+
+      - name: Build extension (unpacked)
+        run: pnpm build:extension
+
+      - name: Zip extension (wxt zip)
+        run: pnpm --filter humanchrome-extension zip
+
+      - name: Locate built zip
+        id: locate-zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_PATH="$(ls app/chrome-extension/.output/humanchrome-*.zip | head -n 1)"
+          if [ -z "${ZIP_PATH}" ] || [ ! -f "${ZIP_PATH}" ]; then
+            echo "::error::No humanchrome-*.zip found in app/chrome-extension/.output/"
+            ls -la app/chrome-extension/.output/ || true
+            exit 1
+          fi
+          echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "Found extension zip: ${ZIP_PATH}"
+
+      - name: Static smoke check (manifest + referenced files + icon sizes)
+        shell: bash
+        env:
+          UNPACKED_DIR: app/chrome-extension/.output/chrome-mv3
+          ZIP_PATH: ${{ steps.locate-zip.outputs.zip_path }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/extension-smoke.mjs <<'SMOKE_EOF'
+          import { readFileSync, existsSync, statSync } from 'node:fs';
+          import { join, resolve, normalize } from 'node:path';
+
+          const root = resolve(process.env.UNPACKED_DIR);
+          if (!existsSync(root)) {
+            console.error('Unpacked extension directory missing:', root);
+            process.exit(1);
+          }
+
+          const manifestPath = join(root, 'manifest.json');
+          if (!existsSync(manifestPath)) {
+            console.error('manifest.json missing at', manifestPath);
+            process.exit(1);
+          }
+
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          const errors = [];
+
+          // Required top-level keys.
+          const requiredKeys = ['manifest_version', 'name', 'version', 'icons', 'background', 'permissions'];
+          for (const k of requiredKeys) {
+            if (!(k in manifest)) errors.push('manifest missing required key: ' + k);
+          }
+          if (manifest.manifest_version !== 3) {
+            errors.push('manifest_version must be 3, got ' + manifest.manifest_version);
+          }
+          if (!manifest.background || !manifest.background.service_worker) {
+            errors.push('manifest.background.service_worker missing');
+          }
+
+          // Track all referenced relative paths.
+          const refs = new Set();
+          const stripLead = (p) => (p.startsWith('/') ? p.slice(1) : p);
+          const addRef = (p) => {
+            if (typeof p === 'string' && p.length) refs.add(stripLead(p));
+          };
+
+          if (manifest.background?.service_worker) addRef(manifest.background.service_worker);
+          if (manifest.action?.default_popup) addRef(manifest.action.default_popup);
+          if (manifest.options_ui?.page) addRef(manifest.options_ui.page);
+          if (manifest.side_panel?.default_path) addRef(manifest.side_panel.default_path);
+
+          for (const [, p] of Object.entries(manifest.icons || {})) addRef(p);
+          if (manifest.action?.default_icon) {
+            if (typeof manifest.action.default_icon === 'string') addRef(manifest.action.default_icon);
+            else for (const [, p] of Object.entries(manifest.action.default_icon)) addRef(p);
+          }
+
+          for (const cs of manifest.content_scripts || []) {
+            for (const j of cs.js || []) addRef(j);
+            for (const c of cs.css || []) addRef(c);
+          }
+          for (const war of manifest.web_accessible_resources || []) {
+            for (const r of war.resources || []) {
+              // Skip glob patterns; they cannot be statically resolved.
+              if (!r.includes('*')) addRef(r);
+            }
+          }
+
+          // Verify every referenced file exists inside the unpacked dir.
+          for (const rel of refs) {
+            const abs = normalize(join(root, rel));
+            if (!abs.startsWith(root)) {
+              errors.push('reference escapes extension root: ' + rel);
+              continue;
+            }
+            if (!existsSync(abs)) {
+              errors.push('referenced file missing: ' + rel);
+            }
+          }
+
+          // Validate icon PNG dimensions (PNG IHDR: bytes 16..23 are width, height as big-endian uint32).
+          const expectedIcons = manifest.icons || {};
+          for (const [size, rel] of Object.entries(expectedIcons)) {
+            const abs = join(root, stripLead(rel));
+            if (!existsSync(abs)) continue; // already reported.
+            const buf = readFileSync(abs);
+            const isPng =
+              buf.length >= 24 &&
+              buf[0] === 0x89 &&
+              buf[1] === 0x50 &&
+              buf[2] === 0x4e &&
+              buf[3] === 0x47;
+            if (!isPng) {
+              errors.push('icon ' + rel + ' is not a valid PNG');
+              continue;
+            }
+            const w = buf.readUInt32BE(16);
+            const h = buf.readUInt32BE(20);
+            const want = Number(size);
+            if (w !== want || h !== want) {
+              errors.push('icon ' + rel + ' expected ' + want + 'x' + want + ', got ' + w + 'x' + h);
+            }
+          }
+
+          // Sanity-check the zip exists and is non-trivial.
+          const zipPath = process.env.ZIP_PATH;
+          if (!zipPath || !existsSync(zipPath)) {
+            errors.push('built zip missing: ' + zipPath);
+          } else {
+            const sz = statSync(zipPath).size;
+            if (sz < 10000) errors.push('zip suspiciously small: ' + sz + ' bytes');
+            console.log('zip size:', sz, 'bytes');
+          }
+
+          if (errors.length) {
+            console.error('Smoke check failed:');
+            for (const e of errors) console.error('  - ' + e);
+            process.exit(1);
+          }
+          console.log(
+            'Static smoke OK. Verified',
+            refs.size,
+            'referenced files and',
+            Object.keys(expectedIcons).length,
+            'icons.',
+          );
+          SMOKE_EOF
+          node /tmp/extension-smoke.mjs
+
+      - name: Upload chrome-mv3 zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-mv3-${{ github.sha }}
+          path: ${{ steps.locate-zip.outputs.zip_path }}
+          if-no-files-found: error
+          retention-days: 14

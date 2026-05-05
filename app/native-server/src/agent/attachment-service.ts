@@ -9,7 +9,10 @@
  * Storage structure:
  *   ~/.humanchrome-agent/attachments/{projectId}/{messageId}-{index}-{uuid}.{ext}
  */
+import { withContext } from '../util/logger';
 import fs from 'node:fs/promises';
+
+const log = withContext({ component: 'attachment-service' });
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -232,7 +235,7 @@ export class AttachmentService {
       createdAt: new Date().toISOString(),
     };
 
-    console.error(`[AttachmentService] Saved attachment: ${absolutePath} (${sizeBytes} bytes)`);
+    log.debug({ absolutePath, sizeBytes }, 'saved attachment');
 
     return {
       absolutePath,
@@ -270,7 +273,10 @@ export class AttachmentService {
           totalBytes += stats.totalBytes;
         } catch (error) {
           // Skip directories we can't read
-          console.error(`[AttachmentService] Failed to stat project ${projectId}:`, error);
+          log.warn(
+            { err: error instanceof Error ? error.message : String(error), projectId },
+            'failed to stat project attachments dir',
+          );
         }
       }
     } catch {
@@ -370,7 +376,7 @@ export class AttachmentService {
     // Clean each project
     for (const projectId of projectIds) {
       if (!isValidProjectId(projectId)) {
-        console.error(`[AttachmentService] Skipping invalid projectId: ${projectId}`);
+        log.warn({ projectId }, 'skipping invalid projectId during cleanup');
         continue;
       }
 
@@ -411,8 +417,9 @@ export class AttachmentService {
       // Remove directory and all contents
       await fs.rm(dirPath, { recursive: true, force: true });
 
-      console.error(
-        `[AttachmentService] Cleaned up ${stats.fileCount} files (${stats.totalBytes} bytes) for project ${projectId}`,
+      log.info(
+        { fileCount: stats.fileCount, totalBytes: stats.totalBytes, projectId },
+        'cleaned up project attachments',
       );
 
       return {
@@ -423,7 +430,10 @@ export class AttachmentService {
         removedBytes: stats.totalBytes,
       };
     } catch (error) {
-      console.error(`[AttachmentService] Failed to cleanup project ${projectId}:`, error);
+      log.warn(
+        { err: error instanceof Error ? error.message : String(error), projectId },
+        'failed to cleanup project attachments',
+      );
       return {
         projectId,
         dirPath,

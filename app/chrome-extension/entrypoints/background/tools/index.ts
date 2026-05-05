@@ -5,6 +5,7 @@ import { flowRunTool, listPublishedFlowsTool } from './record-replay';
 import { debugLog } from '../utils/debug-log';
 import { recordClientTab, resolveTabIdForClient } from '../utils/client-state';
 import { acquireTabLock } from '../utils/tab-lock';
+import { runWithContext } from '../utils/request-context';
 
 const tools = { ...browserTools, flowRunTool, listPublishedFlowsTool } as any;
 const toolsMap = new Map(Object.values(tools).map((tool: any) => [tool.name, tool]));
@@ -69,16 +70,15 @@ export const handleCallTool = async (
     param = { ...param, args: { ...param.args, tabId } };
   }
   const startedAt = Date.now();
-  debugLog.info('tool call start', {
-    requestId,
-    tool: param.name,
-    tabId,
-    data: { clientId: clientId ?? '<no-client>' },
-  });
+  // Bind a child logger so every line for this dispatch carries the same
+  // correlation fields. The same `requestId` lands in the bridge's stderr
+  // pino output via the native messaging envelope.
+  const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
+  log.info('tool call start');
 
   const tool = toolsMap.get(param.name);
   if (!tool) {
-    debugLog.warn('tool not found', { requestId, tool: param.name });
+    log.warn('tool not found');
     return createErrorResponse(`Tool ${param.name} not found`, ToolErrorCode.INVALID_ARGS, {
       tool: param.name,
     });
@@ -86,7 +86,13 @@ export const handleCallTool = async (
 
   const run = async () => {
     try {
-      const result = await tool.execute(param.args);
+      // Bind the active request context so BaseBrowserToolExecutor.sendMessageToTab
+      // can tag outbound envelopes with the same correlation id we just logged.
+      // The envelope shape is unchanged for callers that don't read the field.
+      const result = await runWithContext<any>(
+        { requestId, clientId, tool: param.name, tabId },
+        () => tool.execute(param.args),
+      );
       const ok = !(result && (result as any).isError === true);
       if (ok) {
         // Tools like chrome_navigate pick a tab themselves when the caller
@@ -100,30 +106,17 @@ export const handleCallTool = async (
         if (typeof effectiveTabId === 'number') {
           recordClientTab(clientId, effectiveTabId);
         }
-        debugLog.debug('client tab recorded', {
-          requestId,
-          tool: param.name,
+        log.debug('client tab recorded', {
           tabId: effectiveTabId,
-          data: {
-            inputTabId: tabId ?? null,
-            sniffed: sniffed ?? null,
-            clientId: clientId ?? '<no-client>',
-          },
+          data: { inputTabId: tabId ?? null, sniffed: sniffed ?? null },
         });
       }
-      debugLog.info('tool call done', {
-        requestId,
-        tool: param.name,
-        tabId,
+      log.info('tool call done', {
         data: { ok, durationMs: Date.now() - startedAt },
       });
       return result;
     } catch (error) {
-      console.error(`Tool execution failed for ${param.name}:`, error);
-      debugLog.error('tool call threw', {
-        requestId,
-        tool: param.name,
-        tabId,
+      log.error('tool call threw', {
         data: {
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
@@ -141,7 +134,7 @@ export const handleCallTool = async (
   try {
     release = await acquireTabLock(tabId);
   } catch (err) {
-    debugLog.warn('tab lock timeout', { requestId, tool: param.name, tabId });
+    log.warn('tab lock timeout');
     return createErrorResponseFromThrown(err);
   }
   try {

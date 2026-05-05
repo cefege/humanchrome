@@ -4,8 +4,9 @@ import { NATIVE_HOST, STORAGE_KEYS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/c
 import { handleCallTool } from './tools';
 import { listPublished, getFlow } from './record-replay/flow-store';
 import { acquireKeepalive } from './keepalive-manager';
+import { debugLog } from './utils/debug-log';
 
-const LOG_PREFIX = '[NativeHost]';
+const log = debugLog.with({ tool: 'native-host' });
 
 let nativePort: chrome.runtime.Port | null = null;
 export const HOST_NAME = NATIVE_HOST.NAME;
@@ -95,7 +96,9 @@ async function saveServerStatus(status: ServerStatus): Promise<void> {
   try {
     await chrome.storage.local.set({ [STORAGE_KEYS.SERVER_STATUS]: status });
   } catch (error) {
-    console.error(ERROR_MESSAGES.SERVER_STATUS_SAVE_FAILED, error);
+    log.error(ERROR_MESSAGES.SERVER_STATUS_SAVE_FAILED, {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
   }
 }
 
@@ -109,7 +112,9 @@ async function loadServerStatus(): Promise<ServerStatus> {
       return result[STORAGE_KEYS.SERVER_STATUS];
     }
   } catch (error) {
-    console.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, error);
+    log.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
   }
   return {
     isRunning: false,
@@ -194,14 +199,14 @@ function syncKeepaliveHold(): void {
   if (autoConnectEnabled) {
     if (!keepaliveRelease) {
       keepaliveRelease = acquireKeepalive('native-host');
-      console.debug(`${LOG_PREFIX} Acquired keepalive`);
+      log.debug('acquired keepalive');
     }
     return;
   }
   if (keepaliveRelease) {
     try {
       keepaliveRelease();
-      console.debug(`${LOG_PREFIX} Released keepalive`);
+      log.debug('released keepalive');
     } catch {
       // Ignore
     }
@@ -220,7 +225,9 @@ async function loadNativeAutoConnectEnabled(): Promise<boolean> {
     const raw = result[STORAGE_KEYS.NATIVE_AUTO_CONNECT_ENABLED];
     if (typeof raw === 'boolean') return raw;
   } catch (error) {
-    console.warn(`${LOG_PREFIX} Failed to load nativeAutoConnectEnabled`, error);
+    log.warn('failed to load nativeAutoConnectEnabled', {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
   }
   return true; // Default to enabled
 }
@@ -233,9 +240,11 @@ async function setNativeAutoConnectEnabled(enabled: boolean): Promise<void> {
   autoConnectLoaded = true;
   try {
     await chrome.storage.local.set({ [STORAGE_KEYS.NATIVE_AUTO_CONNECT_ENABLED]: enabled });
-    console.debug(`${LOG_PREFIX} Set nativeAutoConnectEnabled=${enabled}`);
+    log.debug('set nativeAutoConnectEnabled', { data: { enabled } });
   } catch (error) {
-    console.warn(`${LOG_PREFIX} Failed to persist nativeAutoConnectEnabled`, error);
+    log.warn('failed to persist nativeAutoConnectEnabled', {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
   }
   syncKeepaliveHold();
 }
@@ -263,7 +272,9 @@ async function getPreferredPort(override?: unknown): Promise<number> {
     const statusPort = normalizePort(status?.port);
     if (statusPort) return statusPort;
   } catch (error) {
-    console.warn(`${LOG_PREFIX} Failed to read preferred port`, error);
+    log.warn('failed to read preferred port', {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
   }
 
   const inMemoryPort = normalizePort(currentServerStatus.port);
@@ -284,9 +295,9 @@ function scheduleReconnect(reason: string): void {
   if (reconnectTimer) return;
 
   const delay = getReconnectDelayMs(reconnectAttempts);
-  console.debug(
-    `${LOG_PREFIX} Reconnect scheduled in ${delay}ms (attempt=${reconnectAttempts}, reason=${reason})`,
-  );
+  log.debug('reconnect scheduled', {
+    data: { delayMs: delay, attempt: reconnectAttempts, reason },
+  });
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -315,7 +326,7 @@ async function markServerStopped(reason: string): Promise<void> {
     // Ignore
   }
   broadcastServerStatusChange(currentServerStatus);
-  console.debug(`${LOG_PREFIX} Server marked stopped (${reason})`);
+  log.debug('server marked stopped', { data: { reason } });
 }
 
 // ==================== Core Ensure Function ====================
@@ -342,7 +353,7 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // If auto-connect is disabled, do nothing
     if (!autoConnectEnabled) {
-      console.debug(`${LOG_PREFIX} Auto-connect disabled, skipping ensure (trigger=${trigger})`);
+      log.debug('auto-connect disabled, skipping ensure', { data: { trigger } });
       return false;
     }
 
@@ -351,23 +362,23 @@ async function ensureNativeConnected(trigger: string, portOverride?: unknown): P
 
     // Already connected
     if (nativePort) {
-      console.debug(`${LOG_PREFIX} Already connected (trigger=${trigger})`);
+      log.debug('already connected', { data: { trigger } });
       return true;
     }
 
     // Get the port to use
     const port = await getPreferredPort(portOverride);
-    console.debug(`${LOG_PREFIX} Attempting connection on port ${port} (trigger=${trigger})`);
+    log.debug('attempting connection', { data: { port, trigger } });
 
     // Attempt connection
     const ok = connectNativeHost(port);
     if (!ok) {
-      console.warn(`${LOG_PREFIX} Connection failed (trigger=${trigger})`);
+      log.warn('connection failed', { data: { trigger } });
       scheduleReconnect(`connect_failed:${trigger}`);
       return false;
     }
 
-    console.debug(`${LOG_PREFIX} Connection initiated successfully (trigger=${trigger})`);
+    log.debug('connection initiated successfully', { data: { trigger } });
     // Note: Don't reset reconnect state here. Wait for SERVER_STARTED confirmation.
     // Chrome may return a Port but disconnect immediately if native host is missing.
     return true;
@@ -465,7 +476,7 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         broadcastServerStatusChange(currentServerStatus);
         // Server is confirmed running - now we can reset reconnect state
         resetReconnectState();
-        console.log(`${SUCCESS_MESSAGES.SERVER_STARTED} on port ${port}`);
+        log.info(SUCCESS_MESSAGES.SERVER_STARTED, { data: { port } });
       } else if (message.type === NativeMessageType.SERVER_STOPPED) {
         currentServerStatus = {
           isRunning: false,
@@ -474,9 +485,11 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         };
         await saveServerStatus(currentServerStatus);
         broadcastServerStatusChange(currentServerStatus);
-        console.log(SUCCESS_MESSAGES.SERVER_STOPPED);
+        log.info(SUCCESS_MESSAGES.SERVER_STOPPED);
       } else if (message.type === NativeMessageType.ERROR_FROM_NATIVE_HOST) {
-        console.error('Error from native host:', message.payload?.message || 'Unknown error');
+        log.error('error from native host', {
+          data: { msg: message.payload?.message || 'Unknown error' },
+        });
       } else if (message.type === 'file_operation_response') {
         // Resolve a pending direct-to-native request (background-context
         // callers that used sendNativeRequest). Fall through to the legacy
@@ -501,7 +514,9 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
     });
 
     nativePort.onDisconnect.addListener(() => {
-      console.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, chrome.runtime.lastError);
+      log.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, {
+        data: { lastError: chrome.runtime.lastError?.message },
+      });
       nativePort = null;
       // Reject any in-flight direct-to-native requests so callers don't hang
       // until their own timeouts fire.
@@ -528,7 +543,9 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
     // Chrome may return a Port but disconnect immediately if native host is missing.
     return true;
   } catch (error) {
-    console.warn(ERROR_MESSAGES.NATIVE_CONNECTION_FAILED, error);
+    log.warn(ERROR_MESSAGES.NATIVE_CONNECTION_FAILED, {
+      data: { err: error instanceof Error ? error.message : String(error) },
+    });
     nativePort = null;
     return false;
   }
@@ -544,7 +561,9 @@ export const initNativeHostListener = () => {
       currentServerStatus = status;
     })
     .catch((error) => {
-      console.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, error);
+      log.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, {
+        data: { err: error instanceof Error ? error.message : String(error) },
+      });
     });
 
   // Auto-connect on SW activation (covers SW restart after idle termination)
@@ -672,7 +691,9 @@ export const initNativeHostListener = () => {
           });
         })
         .catch((error) => {
-          console.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, error);
+          log.error(ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED, {
+            data: { err: error instanceof Error ? error.message : String(error) },
+          });
           sendResponse({
             success: false,
             error: ERROR_MESSAGES.SERVER_STATUS_LOAD_FAILED,

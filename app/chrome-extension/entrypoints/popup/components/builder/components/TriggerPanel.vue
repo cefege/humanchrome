@@ -13,8 +13,14 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
       </div>
       <div class="header-right">
         <button class="btn-sm" type="button" :disabled="loading" @click="refresh"> Refresh </button>
-        <button class="btn-close" type="button" title="Close" @click="emit('close')">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <button
+          class="btn-close"
+          type="button"
+          title="Close"
+          aria-label="Close trigger panel"
+          @click="emit('close')"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path
               d="m4 4 8 8M12 4 4 12"
               stroke="currentColor"
@@ -101,6 +107,7 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
                   class="btn-icon-sm"
                   type="button"
                   title="Edit"
+                  aria-label="Edit trigger"
                   :disabled="busyIds[trigger.id]"
                   @click="openEdit(trigger)"
                 >
@@ -111,6 +118,7 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
+                    aria-hidden="true"
                   >
                     <path d="M12 20h9" />
                     <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" />
@@ -120,6 +128,7 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
                   class="btn-icon-sm danger"
                   type="button"
                   title="Delete"
+                  aria-label="Delete trigger"
                   :disabled="busyIds[trigger.id]"
                   @click="removePanelTrigger(trigger)"
                 >
@@ -130,6 +139,7 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
+                    aria-hidden="true"
                   >
                     <path
                       d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"
@@ -144,12 +154,19 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
     </div>
 
     <!-- Editor Modal -->
-    <div v-if="editorOpen" class="rr-modal" @click.self="closeEditor">
+    <div
+      v-if="editorOpen"
+      class="rr-modal"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="editorTitle"
+      @click.self="closeEditor"
+    >
       <div class="rr-dialog small">
         <div class="rr-header">
           <div class="title">{{ editorTitle }}</div>
-          <button class="close" type="button" @click="closeEditor">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <button class="close" type="button" aria-label="Close editor" @click="closeEditor">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path
                 d="m4 4 8 8M12 4 4 12"
                 stroke="currentColor"
@@ -161,8 +178,13 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
         </div>
         <div class="rr-body">
           <div class="form-group">
-            <label class="form-label">Type</label>
-            <select class="form-select" v-model="editorKind" :disabled="editorMode === 'edit'">
+            <label class="form-label" for="rr-trigger-kind">Type</label>
+            <select
+              id="rr-trigger-kind"
+              class="form-select"
+              v-model="editorKind"
+              :disabled="editorMode === 'edit'"
+            >
               <option value="interval">interval</option>
               <option value="once">once</option>
             </select>
@@ -176,8 +198,9 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
 
           <template v-if="editorKind === 'interval'">
             <div class="form-group">
-              <label class="form-label">Interval (minutes)</label>
+              <label class="form-label" for="rr-trigger-interval">Interval (minutes)</label>
               <input
+                id="rr-trigger-interval"
                 class="form-input"
                 type="number"
                 min="1"
@@ -190,8 +213,13 @@ triggers (interval, once) * - Manual trigger support for 'manual' type triggers 
 
           <template v-else>
             <div class="form-group">
-              <label class="form-label">Trigger Time</label>
-              <input class="form-input" type="datetime-local" v-model="editorWhenLocal" />
+              <label class="form-label" for="rr-trigger-when">Trigger Time</label>
+              <input
+                id="rr-trigger-when"
+                class="form-input"
+                type="datetime-local"
+                v-model="editorWhenLocal"
+              />
             </div>
             <div class="hint"> Will auto-disable after firing. Time is in local timezone. </div>
           </template>

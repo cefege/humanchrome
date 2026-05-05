@@ -2,6 +2,8 @@ import { ToolExecutor } from '@/common/tool-handler';
 import type { ToolResult } from '@/common/tool-handler';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 import { ToolError, ToolErrorCode } from 'humanchrome-shared';
+import { getCurrentRequestContext } from '../utils/request-context';
+import { debugLog } from '../utils/debug-log';
 
 const PING_TIMEOUT_MS = 300;
 
@@ -78,15 +80,17 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
         if (await this.pingOnce(tabId, pingFrameId)) return;
         await new Promise((r) => setTimeout(r, POST_INJECT_DELAY_MS));
       }
-      console.warn(
-        `Post-inject ping never returned pong for tab ${tabId} (${files.join(',')}); proceeding anyway`,
-      );
+      debugLog.warn('post-inject ping never returned pong; proceeding anyway', {
+        tabId,
+        data: { files },
+      });
     } catch (injectionError) {
       const errorMessage =
         injectionError instanceof Error ? injectionError.message : String(injectionError);
-      console.error(
-        `Content script '${files.join(', ')}' injection failed for tab ${tabId}: ${errorMessage}`,
-      );
+      debugLog.error('content script injection failed', {
+        tabId,
+        data: { files, err: errorMessage },
+      });
       // Tabs closed mid-call surface as "No tab with id" — classify distinctly so
       // callers can retry against a different target rather than treat it as a CSP issue.
       const code = /no tab with id/i.test(errorMessage)
@@ -101,14 +105,24 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
   }
 
   /**
-   * Send message to tab
+   * Send message to tab.
+   *
+   * Tags the outbound envelope with `_humanchromeRequestId` (when there is an
+   * active request context) so inject-scripts can echo the same id back into
+   * the structured logger for end-to-end tracing. Existing callers don't read
+   * the field, so this is shape-compatible.
    */
   protected async sendMessageToTab(tabId: number, message: any, frameId?: number): Promise<any> {
+    const ctx = getCurrentRequestContext();
+    const tagged =
+      ctx?.requestId && message && typeof message === 'object'
+        ? { ...message, _humanchromeRequestId: ctx.requestId }
+        : message;
     try {
       const response =
         typeof frameId === 'number'
-          ? await chrome.tabs.sendMessage(tabId, message, { frameId })
-          : await chrome.tabs.sendMessage(tabId, message);
+          ? await chrome.tabs.sendMessage(tabId, tagged, { frameId })
+          : await chrome.tabs.sendMessage(tabId, tagged);
 
       if (response && response.error) {
         throw new Error(String(response.error));
@@ -117,9 +131,13 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
       return response;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(
-        `Error sending message to tab ${tabId} for action ${message?.action || 'unknown'}: ${errorMessage}`,
-      );
+      debugLog.warn('sendMessageToTab failed', {
+        tabId,
+        requestId: ctx?.requestId,
+        clientId: ctx?.clientId,
+        tool: ctx?.tool,
+        data: { action: message?.action || 'unknown', err: errorMessage },
+      });
 
       if (error instanceof ToolError) throw error;
       // bfcache: page navigated away (often via SPA back/forward) and the

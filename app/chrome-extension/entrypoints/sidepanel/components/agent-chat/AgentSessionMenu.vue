@@ -56,6 +56,7 @@
                   ref="renameInputRef"
                   v-model="editingName"
                   type="text"
+                  aria-label="Session name"
                   class="w-full px-1 py-0.5 text-sm"
                   :style="{
                     backgroundColor: 'var(--ac-surface, #ffffff)',
@@ -110,6 +111,7 @@
                 borderRadius: 'var(--ac-radius-button)',
               }"
               title="Rename session"
+              aria-label="Rename session"
               @click.stop="startRename(session)"
             >
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -129,6 +131,7 @@
                 borderRadius: 'var(--ac-radius-button)',
               }"
               title="Delete session"
+              aria-label="Delete session"
               @click.stop="handleDeleteSession(session.id)"
             >
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

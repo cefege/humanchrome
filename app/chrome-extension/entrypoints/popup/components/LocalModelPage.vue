@@ -1,7 +1,12 @@
 <template>
   <div class="local-model-page">
     <div class="page-header">
-      <button class="back-button" @click="$emit('back')" title="Back to home">
+      <button
+        class="back-button"
+        @click="$emit('back')"
+        title="Back to home"
+        aria-label="Back to home"
+      >
         <svg
           viewBox="0 0 24 24"
           width="20"
@@ -9,6 +14,7 @@
           fill="none"
           stroke="currentColor"
           stroke-width="2"
+          aria-hidden="true"
         >
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
@@ -92,7 +98,17 @@
                 disabled: isModelSwitching || isModelDownloading,
               },
             ]"
+            role="button"
+            :tabindex="isModelSwitching || isModelDownloading ? -1 : 0"
+            :aria-pressed="currentModel === model.preset"
+            :aria-disabled="isModelSwitching || isModelDownloading"
             @click="!isModelSwitching && !isModelDownloading && $emit('switchModel', model.preset)"
+            @keydown.enter.prevent="
+              !isModelSwitching && !isModelDownloading && $emit('switchModel', model.preset)
+            "
+            @keydown.space.prevent="
+              !isModelSwitching && !isModelDownloading && $emit('switchModel', model.preset)
+            "
           >
             <div class="model-header">
               <div class="model-info">

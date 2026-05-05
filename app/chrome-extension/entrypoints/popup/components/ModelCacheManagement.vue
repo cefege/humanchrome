@@ -35,7 +35,9 @@
             <div class="entry-details">
               <span class="entry-size">{{ entry.sizeMB }} MB</span>
               <span class="entry-age">{{ entry.age }}</span>
-              <span v-if="entry.expired" class="entry-expired">{{ getMessage('expiredLabel') }}</span>
+              <span v-if="entry.expired" class="entry-expired">{{
+                getMessage('expiredLabel')
+              }}</span>
             </div>
           </div>
         </div>
@@ -62,17 +64,29 @@
 
     <!-- Action Buttons -->
     <div class="cache-actions">
-      <div class="secondary-button" :disabled="isManagingCache" @click="$emit('cleanup-cache')">
-        <span class="stats-icon"><DatabaseIcon /></span>
+      <button
+        type="button"
+        class="secondary-button"
+        :disabled="isManagingCache"
+        @click="$emit('cleanup-cache')"
+      >
+        <span class="stats-icon" aria-hidden="true"><DatabaseIcon /></span>
         <span>{{
           isManagingCache ? getMessage('cleaningStatus') : getMessage('cleanExpiredCacheButton')
         }}</span>
-      </div>
+      </button>
 
-      <div class="danger-button" :disabled="isManagingCache" @click="$emit('clear-all-cache')">
-        <span class="stats-icon"><TrashIcon /></span>
-        <span>{{ isManagingCache ? getMessage('clearingStatus') : getMessage('clearAllCacheButton') }}</span>
-      </div>
+      <button
+        type="button"
+        class="danger-button"
+        :disabled="isManagingCache"
+        @click="$emit('clear-all-cache')"
+      >
+        <span class="stats-icon" aria-hidden="true"><TrashIcon /></span>
+        <span>{{
+          isManagingCache ? getMessage('clearingStatus') : getMessage('clearAllCacheButton')
+        }}</span>
+      </button>
     </div>
   </div>
 </template>

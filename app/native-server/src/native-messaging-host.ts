@@ -4,6 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
+import { withContext } from './util/logger';
+
+const log = withContext({ component: 'native-messaging-host' });
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -24,7 +27,9 @@ export class NativeMessagingHost {
   public start(): void {
     try {
       this.setupMessageHandling();
+      log.info('native messaging host started');
     } catch (error: any) {
+      log.fatal({ err: error?.message || String(error) }, 'failed to start native messaging host');
       process.exit(1);
     }
   }
@@ -66,6 +71,10 @@ export class NativeMessagingHost {
           const message = JSON.parse(messageBuffer.toString());
           this.handleMessage(message);
         } catch (error: any) {
+          log.warn(
+            { err: error?.message || String(error), bytes: messageBuffer.length },
+            'failed to parse inbound message',
+          );
           this.sendError(`Failed to parse message: ${error.message}`);
         }
       }
@@ -85,10 +94,12 @@ export class NativeMessagingHost {
     });
 
     stdin.on('end', () => {
+      log.info('stdin ended — cleaning up');
       this.cleanup();
     });
 
-    stdin.on('error', () => {
+    stdin.on('error', (err) => {
+      log.error({ err: (err as Error)?.message || String(err) }, 'stdin error — cleaning up');
       this.cleanup();
     });
   }
@@ -125,13 +136,14 @@ export class NativeMessagingHost {
         }
         this.pendingRequests.delete(requestId);
       } else {
-        // just ignore
+        log.debug({ requestId }, 'response for unknown/expired requestId — ignoring');
       }
       return;
     }
 
     // Handle directive messages from Chrome
     try {
+      log.debug({ type: message.type, requestId: message.requestId }, 'inbound directive');
       switch (message.type) {
         case NativeMessageType.START:
           await this.startServer(message.payload?.port || 12306);
@@ -149,12 +161,17 @@ export class NativeMessagingHost {
         default:
           // Double check when message type is not supported
           if (!message.responseToRequestId) {
+            log.warn({ type: message.type }, 'unknown message type from extension');
             this.sendError(
               `Unknown message type or non-response message: ${message.type || 'no type'}`,
             );
           }
       }
     } catch (error: any) {
+      log.error(
+        { err: error?.message || String(error), type: message.type },
+        'failed to handle directive',
+      );
       this.sendError(`Failed to handle directive message: ${error.message}`);
     }
   }
@@ -163,6 +180,11 @@ export class NativeMessagingHost {
    * Handle file operations from the extension
    */
   private async handleFileOperation(message: any): Promise<void> {
+    const opLog = withContext({
+      component: 'file-handler',
+      requestId: message?.requestId,
+      action: message?.payload?.action,
+    });
     try {
       const result = await fileHandler.handleFileRequest(message.payload);
 
@@ -180,11 +202,13 @@ export class NativeMessagingHost {
           payload: result,
         });
       }
+      opLog.debug({ ok: result?.success ?? true }, 'file operation handled');
     } catch (error: any) {
       const errorResponse = {
         success: false,
         error: error.message || 'Unknown error during file operation',
       };
+      opLog.error({ err: errorResponse.error }, 'file operation failed');
 
       if (message.requestId) {
         this.sendMessage({
@@ -262,11 +286,13 @@ export class NativeMessagingHost {
    */
   private async startServer(port: number): Promise<void> {
     if (!this.associatedServer) {
+      log.error('startServer called before server was associated');
       this.sendError('Internal error: server instance not set');
       return;
     }
     try {
       if (this.associatedServer.isRunning) {
+        log.warn({ port }, 'startServer called but server already running');
         this.sendMessage({
           type: NativeMessageType.ERROR,
           payload: { message: 'Server is already running' },
@@ -275,12 +301,14 @@ export class NativeMessagingHost {
       }
 
       await this.associatedServer.start(port, this);
+      log.info({ port }, 'fastify server started');
 
       this.sendMessage({
         type: NativeMessageType.SERVER_STARTED,
         payload: { port },
       });
     } catch (error: any) {
+      log.error({ err: error?.message || String(error), port }, 'failed to start fastify server');
       this.sendError(`Failed to start server: ${error.message}`);
     }
   }
@@ -290,12 +318,14 @@ export class NativeMessagingHost {
    */
   private async stopServer(): Promise<void> {
     if (!this.associatedServer) {
+      log.error('stopServer called before server was associated');
       this.sendError('Internal error: server instance not set');
       return;
     }
     try {
       // Check status through associatedServer
       if (!this.associatedServer.isRunning) {
+        log.warn('stopServer called but server already stopped');
         this.sendMessage({
           type: NativeMessageType.ERROR,
           payload: { message: 'Server is not running' },
@@ -304,10 +334,12 @@ export class NativeMessagingHost {
       }
 
       await this.associatedServer.stop();
+      log.info('fastify server stopped');
       // this.serverStarted = false; // Server should update its own status after successful stop
 
       this.sendMessage({ type: NativeMessageType.SERVER_STOPPED }); // Distinguish from previous 'stopped'
     } catch (error: any) {
+      log.error({ err: error?.message || String(error) }, 'failed to stop fastify server');
       this.sendError(`Failed to stop server: ${error.message}`);
     }
   }
@@ -324,15 +356,22 @@ export class NativeMessagingHost {
       // Ensure atomic write
       stdout.write(Buffer.concat([headerBuffer, messageBuffer]), (err) => {
         if (err) {
-          // Consider how to handle write failure, may affect request completion
-        } else {
-          // Message sent successfully, no action needed
+          // Don't log to stdout — that's the wire. Logger pins stderr.
+          log.warn(
+            { err: err.message, type: message?.type, requestId: message?.requestId },
+            'native stdout write failed',
+          );
         }
       });
     } catch (error: any) {
-      // Catch JSON.stringify or Buffer operation errors
-      // If preparation stage fails, associated request may never be sent
-      // Need to consider whether to reject corresponding Promise (if called within sendRequestToExtensionAndWait)
+      log.error(
+        {
+          err: error?.message || String(error),
+          type: message?.type,
+          requestId: message?.requestId,
+        },
+        'failed to serialize native message',
+      );
     }
   }
 
@@ -350,6 +389,7 @@ export class NativeMessagingHost {
    * Clean up resources
    */
   private cleanup(): void {
+    log.info({ pendingCount: this.pendingRequests.size }, 'cleanup starting');
     // Reject all pending requests
     this.pendingRequests.forEach((pending) => {
       clearTimeout(pending.timeoutId);
@@ -361,9 +401,11 @@ export class NativeMessagingHost {
       this.associatedServer
         .stop()
         .then(() => {
+          log.info('clean shutdown complete');
           process.exit(0);
         })
-        .catch(() => {
+        .catch((err) => {
+          log.error({ err: (err as Error)?.message || String(err) }, 'shutdown error');
           process.exit(1);
         });
     } else {

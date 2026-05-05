@@ -17,6 +17,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { withContext } from '../util/logger';
+
+const log = withContext({ component: 'ccr-detector' });
 
 /**
  * Result of CCR detection.
@@ -254,7 +257,10 @@ function parseJson5Config(content: string): CcrConfig | null {
     return parsed as CcrConfig;
   } catch (parseError) {
     // Log parse error for debugging
-    console.error('[CCR] Failed to parse config:', parseError);
+    log.warn(
+      { err: parseError instanceof Error ? parseError.message : String(parseError) },
+      'failed to parse CCR config',
+    );
     return null;
   }
 }

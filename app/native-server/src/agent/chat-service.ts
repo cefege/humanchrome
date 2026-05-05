@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { withContext } from '../util/logger';
 import type { AgentActRequest } from './types';
+
+const log = withContext({ component: 'agent-chat' });
 import type {
   AgentEngine,
   EngineExecutionContext,
@@ -153,8 +156,9 @@ export class AgentChatService {
 
       if (imageAttachments.length > 0) {
         try {
-          console.error(
-            `[AgentChatService] Saving ${imageAttachments.length} image attachment(s) for project ${projectId}`,
+          log.debug(
+            { count: imageAttachments.length, projectId },
+            'saving image attachments for project',
           );
 
           for (let i = 0; i < imageAttachments.length; i++) {
@@ -173,11 +177,15 @@ export class AgentChatService {
           // Build paths array for engine consumption
           resolvedImagePaths = savedAttachments.map((s) => s.absolutePath);
 
-          console.error(
-            `[AgentChatService] Saved ${savedAttachments.length} attachment(s): ${resolvedImagePaths.join(', ')}`,
+          log.debug(
+            { count: savedAttachments.length, paths: resolvedImagePaths },
+            'saved attachments',
           );
         } catch (error) {
-          console.error('[AgentChatService] Failed to save attachments:', error);
+          log.warn(
+            { err: error instanceof Error ? error.message : String(error), projectId },
+            'failed to save attachments',
+          );
           // Continue without attachments - don't fail the entire request
         }
       }
@@ -241,7 +249,10 @@ export class AgentChatService {
           metadata: userMessageMetadata,
         });
       } catch (error) {
-        console.error('[AgentChatService] Failed to persist user message:', error);
+        log.warn(
+          { err: error instanceof Error ? error.message : String(error), projectId, sessionId },
+          'failed to persist user message',
+        );
       }
     }
 
@@ -295,7 +306,10 @@ export class AgentChatService {
             id: msg.id,
             createdAt: msg.createdAt,
           }).catch((error) => {
-            console.error('[AgentChatService] Failed to persist agent message:', error);
+            log.warn(
+              { err: error instanceof Error ? error.message : String(error), projectId },
+              'failed to persist agent message',
+            );
           });
         }
       },

@@ -23,6 +23,7 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search workflows..."
+            aria-label="Search workflows"
             class="w-full pl-9 pr-3 py-2 text-sm"
             :style="inputStyle"
           />
@@ -34,6 +35,7 @@
           :style="refreshButtonStyle"
           @click="$emit('refresh')"
           title="Refresh"
+          aria-label="Refresh workflows"
         >
           <svg
             class="w-4 h-4"

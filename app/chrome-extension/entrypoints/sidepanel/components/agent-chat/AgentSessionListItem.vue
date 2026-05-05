@@ -2,7 +2,13 @@
   <div
     class="group relative px-3 py-3 cursor-pointer transition-colors"
     :style="containerStyle"
+    role="button"
+    tabindex="0"
+    :aria-pressed="!!selected"
+    :aria-label="`Open session ${displayName}`"
     @click="handleClick"
+    @keydown.enter.prevent="handleClick"
+    @keydown.space.prevent="handleClick"
   >
     <!-- Main Content -->
     <div class="flex items-start gap-3">
@@ -24,6 +30,7 @@
               ref="renameInputRef"
               v-model="editingName"
               type="text"
+              aria-label="Session name"
               class="flex-1 px-2 py-0.5 text-sm"
               :style="inputStyle"
               @click.stop
@@ -128,6 +135,7 @@
             class="p-1.5 rounded-md transition-colors cursor-pointer"
             :style="actionButtonStyle"
             title="Open project"
+            aria-label="Open project"
             @click.stop="handleOpenProject"
           >
             <svg
@@ -152,6 +160,7 @@
             class="p-1.5 rounded-md transition-colors cursor-pointer"
             :style="actionButtonStyle"
             title="Rename"
+            aria-label="Rename session"
             @click.stop="startRename"
           >
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -169,6 +178,7 @@
             class="p-1.5 rounded-md transition-colors cursor-pointer"
             :style="deleteButtonStyle"
             title="Delete"
+            aria-label="Delete session"
             @click.stop="handleDelete"
           >
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

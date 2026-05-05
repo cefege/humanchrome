@@ -55,6 +55,7 @@
             color: 'white',
           }"
           title="Remove image"
+          :aria-label="`Remove image ${attachment.name}`"
           @click="$emit('attachment:remove', index)"
         >
           <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -101,6 +102,7 @@
         <textarea
           ref="textareaRef"
           :value="modelValue"
+          aria-label="Message"
           :class="[
             'w-full bg-transparent border-none focus:ring-0 focus:outline-none resize-none p-3 text-sm',
             showExpandButton ? 'pr-10' : '',
@@ -136,6 +138,7 @@
             class="absolute top-2 right-2 p-1.5 transition-all hover:scale-105 cursor-pointer"
             :style="expandButtonStyle"
             title="Expand editor"
+            aria-label="Expand editor"
             @click="openDrawer"
           >
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -159,9 +162,16 @@
             class="p-1.5 ac-btn"
             :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
             data-tooltip="Attach image (drag, paste, or click)"
+            aria-label="Attach image"
             @click="$emit('attachment:add')"
           >
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -183,6 +193,7 @@
             </span>
             <select
               :value="selectedModel"
+              aria-label="Switch model"
               class="py-0.5 text-[10px] border-none bg-transparent cursor-pointer appearance-none pr-4 pl-1.5"
               :style="{
                 color: 'var(--ac-text-muted)',
@@ -219,6 +230,7 @@
               isCodexEngine && availableReasoningEfforts && availableReasoningEfforts.length > 0
             "
             :value="reasoningEffort"
+            aria-label="Reasoning effort"
             class="px-1.5 py-0.5 text-[10px] border-none bg-transparent cursor-pointer"
             :style="{
               color: 'var(--ac-text-muted)',
@@ -238,6 +250,7 @@
             class="p-1 ac-btn"
             :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
             data-tooltip="Reset conversation"
+            aria-label="Reset conversation"
             @click="handleReset"
           >
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -255,6 +268,7 @@
             class="p-1 ac-btn"
             :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
             data-tooltip="Session settings"
+            aria-label="Session settings"
             @click="handleOpenSettings"
           >
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -336,6 +350,7 @@
             class="p-1.5 ac-btn"
             :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
             data-tooltip="Attach image"
+            aria-label="Attach image"
             @click="$emit('attachment:add')"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -352,6 +367,7 @@
           <div v-if="availableModels.length > 0" class="relative" data-tooltip="Switch model">
             <select
               :value="selectedModel"
+              aria-label="Switch model"
               class="py-0.5 text-[10px] border-none bg-transparent cursor-pointer appearance-none pr-4 pl-1.5"
               :style="{
                 color: 'var(--ac-text-muted)',

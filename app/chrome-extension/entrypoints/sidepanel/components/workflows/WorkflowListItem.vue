@@ -35,8 +35,9 @@
           :style="actionPrimaryStyle"
           @click.stop="$emit('run', flow.id)"
           title="Run workflow"
+          :aria-label="`Run workflow ${flow.name || 'Untitled'}`"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
             <path d="M8 5v14l11-7z" />
           </svg>
         </button>
@@ -45,6 +46,7 @@
           :style="actionStyle"
           @click.stop="$emit('edit', flow.id)"
           title="Edit workflow"
+          :aria-label="`Edit workflow ${flow.name || 'Untitled'}`"
         >
           <svg
             viewBox="0 0 24 24"
@@ -53,6 +55,7 @@
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -66,8 +69,10 @@
           :style="actionStyle"
           @click.stop="toggleMoreMenu"
           title="More actions"
+          :aria-label="`More actions for ${flow.name || 'Untitled'}`"
+          :aria-expanded="showMoreMenu"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
             <circle cx="12" cy="5" r="2" />
             <circle cx="12" cy="12" r="2" />
             <circle cx="12" cy="19" r="2" />

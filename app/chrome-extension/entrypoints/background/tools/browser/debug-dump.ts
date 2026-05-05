@@ -11,11 +11,16 @@ import {
 
 interface DebugDumpArgs {
   requestId?: string;
+  clientId?: string;
   tool?: string;
   tabId?: number;
   level?: DebugLogLevel;
   sinceMs?: number;
   limit?: number;
+  /** Pagination offset, applied newest-first. Defaults to 0. */
+  offset?: number;
+  /** When true, return chronological order (oldest first). Default newest first. */
+  chronological?: boolean;
   clear?: boolean;
 }
 
@@ -39,11 +44,15 @@ class DebugDumpTool extends BaseBrowserToolExecutor {
 
     const entries = await dumpLog({
       requestId: args.requestId,
+      clientId: args.clientId,
       tool: args.tool,
       tabId: args.tabId,
       level: args.level,
       sinceMs: args.sinceMs,
       limit: args.limit,
+      offset: args.offset,
+      // Default newest-first; respect explicit chronological=true.
+      newestFirst: args.chronological !== true,
     });
 
     return {
@@ -55,6 +64,8 @@ class DebugDumpTool extends BaseBrowserToolExecutor {
             entries,
             returned: entries.length,
             bufferSize: getBufferSize(),
+            offset: args.offset ?? 0,
+            limit: args.limit ?? 200,
           }),
         },
       ],

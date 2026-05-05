@@ -13,6 +13,9 @@ import type {
   AgentCliPreference,
   AgentUsageStats,
 } from 'humanchrome-shared';
+import { logger } from '@/utils/logger';
+
+const log = logger.with({ tool: 'agent-chat' });
 
 /**
  * Request lifecycle state.
@@ -130,7 +133,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
         }
         break;
       case 'connected':
-        console.log('[AgentChat] Connected to session:', event.data.sessionId);
+        log.info('connected to session', { data: { sessionId: event.data.sessionId } });
         break;
       case 'heartbeat':
         // Heartbeat received, connection is alive
@@ -405,7 +408,9 @@ export function useAgentChat(options: UseAgentChatOptions) {
         return;
       }
 
-      console.error('Failed to send agent act request:', error);
+      log.error('failed to send agent act request', {
+        data: { err: error instanceof Error ? error.message : String(error) },
+      });
       errorMessage.value =
         error instanceof Error ? error.message : 'Failed to send request to agent server.';
       // Restore input on error
@@ -448,7 +453,7 @@ export function useAgentChat(options: UseAgentChatOptions) {
         // Cancel failed - show error but keep request state intact
         // so user can try again or wait for natural completion
         const errorMsg = data?.message || `Failed to cancel request (HTTP ${response.status})`;
-        console.error('Cancel request failed:', errorMsg);
+        log.error('cancel request failed', { data: { errorMsg } });
         errorMessage.value = errorMsg;
         return;
       }
@@ -460,7 +465,9 @@ export function useAgentChat(options: UseAgentChatOptions) {
       // Keep cancelling=true so UI shows "Stopping..." until SSE confirms
       // cancelling will be reset when handleStatusEvent receives 'cancelled' status
     } catch (error) {
-      console.error('Failed to cancel request:', error);
+      log.error('failed to cancel request', {
+        data: { err: error instanceof Error ? error.message : String(error) },
+      });
       errorMessage.value = error instanceof Error ? error.message : 'Failed to cancel request';
       // Only reset cancelling on error, not on success
       cancelling.value = false;

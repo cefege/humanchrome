@@ -65,6 +65,8 @@
     "fastify": "^5.3.2",
     "is-admin": "^4.0.0",
     "node-fetch": "2",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
     "uuid": "^14.0.0"
   },
   "devDependencies": {

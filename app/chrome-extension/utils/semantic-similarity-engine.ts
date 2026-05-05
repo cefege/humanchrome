@@ -1,4 +1,4 @@
-// `@xenova/transformers` is ~3 MB minified; static-importing it pulls the
+// `@huggingface/transformers` is ~3 MB minified; static-importing it pulls the
 // whole library into every consumer of this module (popup, background, etc.)
 // even though runtime usage only happens inside `SemanticSimilarityEngine`,
 // which is constructed *exclusively* in the offscreen document. Use dynamic
@@ -8,7 +8,7 @@ import type {
   env as TransformersEnvType,
   Tensor as TransformersTensor,
   PreTrainedTokenizer,
-} from '@xenova/transformers';
+} from '@huggingface/transformers';
 
 type TransformersModule = {
   AutoTokenizer: typeof AutoTokenizerType;
@@ -17,10 +17,10 @@ type TransformersModule = {
 
 let transformersModulePromise: Promise<TransformersModule> | null = null;
 
-/** Lazily load `@xenova/transformers`. Cached after first call. */
+/** Lazily load `@huggingface/transformers`. Cached after first call. */
 function loadTransformers(): Promise<TransformersModule> {
   if (!transformersModulePromise) {
-    transformersModulePromise = import('@xenova/transformers').then((mod) => ({
+    transformersModulePromise = import('@huggingface/transformers').then((mod) => ({
       AutoTokenizer: mod.AutoTokenizer,
       env: mod.env,
     }));

@@ -1,13 +1,21 @@
 <template>
-  <div v-if="visible" class="confirmation-dialog" @click.self="$emit('cancel')">
+  <div
+    v-if="visible"
+    class="confirmation-dialog"
+    role="alertdialog"
+    aria-modal="true"
+    :aria-labelledby="dialogTitleId"
+    :aria-describedby="dialogMessageId"
+    @click.self="$emit('cancel')"
+  >
     <div class="dialog-content">
       <div class="dialog-header">
-        <span class="dialog-icon">{{ icon }}</span>
-        <h3 class="dialog-title">{{ title }}</h3>
+        <span class="dialog-icon" aria-hidden="true">{{ icon }}</span>
+        <h3 class="dialog-title" :id="dialogTitleId">{{ title }}</h3>
       </div>
 
       <div class="dialog-body">
-        <p class="dialog-message">{{ message }}</p>
+        <p class="dialog-message" :id="dialogMessageId">{{ message }}</p>
 
         <ul v-if="items && items.length > 0" class="dialog-list">
           <li v-for="item in items" :key="item">{{ item }}</li>
@@ -35,6 +43,7 @@
 </template>
 
 <script lang="ts" setup>
+import { useId } from 'vue';
 import { getMessage } from '@/utils/i18n';
 interface Props {
   visible: boolean;
@@ -63,6 +72,9 @@ withDefaults(defineProps<Props>(), {
 });
 
 defineEmits<Emits>();
+
+const dialogTitleId = useId();
+const dialogMessageId = useId();
 </script>
 
 <style scoped>

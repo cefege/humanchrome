@@ -87,6 +87,7 @@
       <span class="text-xs w-12" :style="{ color: 'var(--ac-text-muted, #6e6e6e)' }"> CLI </span>
       <select
         :value="selectedCli"
+        aria-label="CLI"
         class="flex-1 px-2 py-1 text-xs rounded"
         :style="{
           backgroundColor: 'var(--ac-surface-muted, #f2f0eb)',
@@ -108,6 +109,7 @@
       <span class="text-xs w-12" :style="{ color: 'var(--ac-text-muted, #6e6e6e)' }"> Model </span>
       <select
         :value="normalizedModel"
+        aria-label="Model"
         class="flex-1 px-2 py-1 text-xs rounded"
         :style="{
           backgroundColor: 'var(--ac-surface-muted, #f2f0eb)',
@@ -133,6 +135,7 @@
         </span>
         <select
           :value="normalizedReasoningEffort"
+          aria-label="Reasoning effort"
           class="flex-1 px-2 py-1 text-xs rounded"
           :style="{
             backgroundColor: 'var(--ac-surface-muted, #f2f0eb)',

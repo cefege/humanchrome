@@ -23,6 +23,7 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search sessions..."
+            aria-label="Search sessions"
             class="w-full pl-9 pr-3 py-2 text-sm"
             :style="inputStyle"
           />

@@ -11,6 +11,7 @@
           borderRadius: 'var(--ac-radius-button)',
         }"
         title="Back to sessions"
+        aria-label="Back to sessions"
         @click="$emit('back')"
       >
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -112,6 +113,7 @@
         class="p-1 ac-btn ac-hover-text"
         :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
         title="Open project in VS Code or Terminal"
+        aria-label="Open project in VS Code or Terminal"
         @click="$emit('toggle:openProjectMenu')"
       >
         <svg
@@ -133,6 +135,8 @@
       <button
         class="p-1 ac-btn ac-hover-text"
         :style="{ color: 'var(--ac-text-subtle)', borderRadius: 'var(--ac-radius-button)' }"
+        title="Theme and settings"
+        aria-label="Open settings"
         @click="$emit('toggle:settingsMenu')"
       >
         <svg

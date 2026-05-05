@@ -40,7 +40,13 @@
         <!-- Toolbar: Search + Add Button -->
         <div class="em-toolbar">
           <div class="em-search-wrapper">
-            <svg class="em-search-icon" viewBox="0 0 20 20" width="16" height="16">
+            <svg
+              class="em-search-icon"
+              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
               <path
                 fill="currentColor"
                 d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
@@ -51,14 +57,16 @@
               class="em-search-input"
               placeholder="Search annotations or selector..."
               type="text"
+              aria-label="Search annotations or selector"
             />
             <button
               v-if="markerSearch"
               class="em-search-clear"
               type="button"
+              aria-label="Clear search"
               @click="markerSearch = ''"
             >
-              <svg viewBox="0 0 20 20" width="14" height="14">
+              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
                 <path
                   fill="currentColor"
                   d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
@@ -66,8 +74,13 @@
               </svg>
             </button>
           </div>
-          <button class="em-add-btn" @click="openMarkerEditor()" title="Add annotation">
-            <svg viewBox="0 0 20 20" width="18" height="18">
+          <button
+            class="em-add-btn"
+            @click="openMarkerEditor()"
+            title="Add annotation"
+            aria-label="Add annotation"
+          >
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
               <path
                 fill="currentColor"
                 d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
@@ -77,14 +90,21 @@
         </div>
 
         <!-- Modal: Add/Edit Marker -->
-        <div v-if="markerEditorOpen" class="em-modal-overlay" @click.self="closeMarkerEditor">
+        <div
+          v-if="markerEditorOpen"
+          class="em-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="editingMarkerId ? 'Edit annotation' : 'Add annotation'"
+          @click.self="closeMarkerEditor"
+        >
           <div class="em-modal">
             <div class="em-modal-header">
               <h3 class="em-modal-title">{{
                 editingMarkerId ? 'Edit annotation' : 'Add annotation'
               }}</h3>
-              <button class="em-modal-close" @click="closeMarkerEditor">
-                <svg viewBox="0 0 20 20" width="18" height="18">
+              <button class="em-modal-close" aria-label="Close" @click="closeMarkerEditor">
+                <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
                   <path
                     fill="currentColor"
                     d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
@@ -175,7 +195,16 @@
             class="em-domain-group"
           >
             <!-- Domain Header -->
-            <div class="em-domain-header" @click="toggleDomain(domainGroup.domain)">
+            <div
+              class="em-domain-header"
+              role="button"
+              tabindex="0"
+              :aria-expanded="expandedDomains.has(domainGroup.domain)"
+              :aria-label="`Toggle ${domainGroup.domain} (${domainGroup.count} annotations)`"
+              @click="toggleDomain(domainGroup.domain)"
+              @keydown.enter.prevent="toggleDomain(domainGroup.domain)"
+              @keydown.space.prevent="toggleDomain(domainGroup.domain)"
+            >
               <div class="em-domain-info">
                 <svg
                   class="em-domain-icon"
@@ -183,6 +212,7 @@
                   viewBox="0 0 20 20"
                   width="16"
                   height="16"
+                  aria-hidden="true"
                 >
                   <path fill="currentColor" d="M6 8l4 4 4-4" />
                 </svg>
@@ -212,10 +242,11 @@
                         <div class="em-marker-actions">
                           <button
                             class="em-action-btn em-action-verify"
+                            :aria-label="`Verify annotation ${marker.name}`"
                             @click="validateMarker(marker)"
                             title="Verify"
                           >
-                            <svg viewBox="0 0 24 24" width="14" height="14">
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                               <path
                                 stroke-linecap="round"
                                 stroke-linejoin="round"
@@ -225,10 +256,11 @@
                           </button>
                           <button
                             class="em-action-btn em-action-edit"
+                            :aria-label="`Edit annotation ${marker.name}`"
                             @click="editMarker(marker)"
                             title="Edit"
                           >
-                            <svg viewBox="0 0 24 24" width="14" height="14">
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                               <path
                                 stroke-linecap="round"
                                 stroke-linejoin="round"
@@ -238,10 +270,11 @@
                           </button>
                           <button
                             class="em-action-btn em-action-delete"
+                            :aria-label="`Delete annotation ${marker.name}`"
                             @click="deleteMarker(marker)"
                             title="Delete"
                           >
-                            <svg viewBox="0 0 24 24" width="14" height="14">
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                               <path
                                 stroke-linecap="round"
                                 stroke-linejoin="round"

@@ -6,6 +6,9 @@ import * as net from 'net';
 import { lookup as dnsLookup } from 'dns/promises';
 import fetch from 'node-fetch';
 import { FileOperationPayloadSchema } from 'humanchrome-shared';
+import { withContext } from './util/logger';
+
+const log = withContext({ component: 'file-handler' });
 
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -350,12 +353,14 @@ export class FileHandler {
         const stats = fs.statSync(filePath);
         if (now - stats.mtimeMs > oneHour) {
           fs.unlinkSync(filePath);
-          // Use stderr to avoid polluting stdout (Native Messaging protocol)
-          console.error(`Cleaned up old temp file: ${file}`);
+          log.info({ file }, 'cleaned up old temp file');
         }
       }
     } catch (error) {
-      console.error('Error cleaning up old files:', error);
+      log.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'error cleaning up old files',
+      );
     }
   }
 }

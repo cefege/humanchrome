@@ -1,7 +1,7 @@
 <template>
   <!-- rr-theme container provides CSS variables; data-theme for light/dark -->
   <div class="builder-page rr-theme" :data-theme="theme">
-    <div v-if="fallbackNotice" class="notice-top">
+    <div v-if="fallbackNotice" class="notice-top" role="status" aria-live="polite">
       <span>Applied fallback suggestion: promoted {{ fallbackNotice.type }} priority</span>
       <button class="mini" @click="undoFallbackPromotion">Undo</button>
     </div>
@@ -181,7 +181,7 @@
       />
 
       <div class="bottom-toolbar">
-        <button class="toolbar-btn" @click="store.undo" title="Undo (⌘/Ctrl+Z)">
+        <button class="toolbar-btn" @click="store.undo" title="Undo (⌘/Ctrl+Z)" aria-label="Undo">
           <svg
             width="16"
             height="16"
@@ -189,11 +189,17 @@
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            aria-hidden="true"
           >
             <path d="M3 7v6h6M21 17a9 9 0 00-9-9 9 9 0 00-9 9" />
           </svg>
         </button>
-        <button class="toolbar-btn" @click="store.redo" title="Redo (⌘/Ctrl+Shift+Z)">
+        <button
+          class="toolbar-btn"
+          @click="store.redo"
+          title="Redo (⌘/Ctrl+Shift+Z)"
+          aria-label="Redo"
+        >
           <svg
             width="16"
             height="16"
@@ -201,12 +207,18 @@
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            aria-hidden="true"
           >
             <path d="M21 7v6h-6M3 17a9 9 0 019-9 9 9 0 019 9" />
           </svg>
         </button>
         <span class="toolbar-divider" />
-        <button class="toolbar-btn" @click="store.layoutAuto" title="Auto layout">
+        <button
+          class="toolbar-btn"
+          @click="store.layoutAuto"
+          title="Auto layout"
+          aria-label="Auto layout"
+        >
           <svg
             width="16"
             height="16"
@@ -214,6 +226,7 @@
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            aria-hidden="true"
           >
             <rect x="3" y="3" width="7" height="7" rx="1" />
             <rect x="14" y="3" width="7" height="7" rx="1" />
@@ -221,7 +234,7 @@
             <rect x="3" y="14" width="7" height="7" rx="1" />
           </svg>
         </button>
-        <button class="toolbar-btn" @click="fitAll" title="Fit to view">
+        <button class="toolbar-btn" @click="fitAll" title="Fit to view" aria-label="Fit to view">
           <svg
             width="16"
             height="16"
@@ -229,6 +242,7 @@
             fill="none"
             stroke="currentColor"
             stroke-width="2"
+            aria-hidden="true"
           >
             <path
               d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"
@@ -238,27 +252,44 @@
       </div>
     </div>
     <!-- simple toast container -->
-    <div class="rr-toast-container">
-      <div v-for="t in toasts" :key="t.id" class="rr-toast" :data-level="t.level">
+    <div class="rr-toast-container" role="region" aria-label="Notifications">
+      <div
+        v-for="t in toasts"
+        :key="t.id"
+        class="rr-toast"
+        :data-level="t.level"
+        :role="t.level === 'error' ? 'alert' : 'status'"
+        :aria-live="t.level === 'error' ? 'assertive' : 'polite'"
+      >
         {{ t.message }}
       </div>
     </div>
   </div>
   <!-- Rename dialog -->
-  <div v-if="renameVisible" class="rr-modal">
+  <div
+    v-if="renameVisible"
+    class="rr-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="rr-rename-title"
+  >
     <div class="rr-dialog small">
       <div class="rr-header">
-        <div class="title">Rename workflow</div>
-        <button class="close" @click="renameVisible = false">✕</button>
+        <div class="title" id="rr-rename-title">Rename workflow</div>
+        <button class="close" aria-label="Close" @click="renameVisible = false">✕</button>
       </div>
       <div class="rr-body">
         <div class="row">
-          <label>Name</label>
-          <input v-model="renameName" placeholder="Workflow name" />
+          <label for="rr-rename-name">Name</label>
+          <input id="rr-rename-name" v-model="renameName" placeholder="Workflow name" />
         </div>
         <div class="row">
-          <label>Description</label>
-          <textarea v-model="renameDesc" placeholder="Optional description"></textarea>
+          <label for="rr-rename-desc">Description</label>
+          <textarea
+            id="rr-rename-desc"
+            v-model="renameDesc"
+            placeholder="Optional description"
+          ></textarea>
         </div>
       </div>
       <div class="rr-footer">

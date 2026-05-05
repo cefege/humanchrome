@@ -10,7 +10,7 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import nativeMessagingHostInstance from '../native-messaging-host';
 import { NativeMessageType } from 'humanchrome-shared';
-import { logger } from '../util/logger';
+import { withContext } from '../util/logger';
 
 const FLOW_PREFIX = 'flow.';
 const TOOL_CALL_TIMEOUT_MS = 120_000;
@@ -86,7 +86,7 @@ export async function dispatchTool(
   clientId?: string,
 ): Promise<CallToolResult> {
   const requestId = nativeMessagingHostInstance.newRequestId();
-  const log = logger.with({ requestId, tool: name, clientId });
+  const log = withContext({ requestId, tool: name, clientId });
   const startedAt = Date.now();
   log.info('tool call start');
 
@@ -110,14 +110,13 @@ export async function dispatchTool(
         clientId,
       );
       if (proxyRes.status === 'success') {
-        log.info('tool call ok', { durationMs: Date.now() - startedAt, kind: 'flow' });
+        log.info({ durationMs: Date.now() - startedAt, kind: 'flow' }, 'tool call ok');
         return proxyRes.data;
       }
-      log.warn('tool call error', {
-        durationMs: Date.now() - startedAt,
-        error: proxyRes.error,
-        kind: 'flow',
-      });
+      log.warn(
+        { durationMs: Date.now() - startedAt, error: proxyRes.error, kind: 'flow' },
+        'tool call error',
+      );
       return {
         content: [{ type: 'text', text: `Error calling dynamic flow tool: ${proxyRes.error}` }],
         isError: true,
@@ -132,22 +131,19 @@ export async function dispatchTool(
       clientId,
     );
     if (response.status === 'success') {
-      log.info('tool call ok', { durationMs: Date.now() - startedAt });
+      log.info({ durationMs: Date.now() - startedAt }, 'tool call ok');
       return response.data;
     }
-    log.warn('tool call error', {
-      durationMs: Date.now() - startedAt,
-      error: response.error,
-    });
+    log.warn({ durationMs: Date.now() - startedAt, error: response.error }, 'tool call error');
     return {
       content: [{ type: 'text', text: `Error calling tool: ${response.error}` }],
       isError: true,
     };
   } catch (error: any) {
-    log.error('tool call threw', {
-      durationMs: Date.now() - startedAt,
-      error: error?.message || String(error),
-    });
+    log.error(
+      { durationMs: Date.now() - startedAt, error: error?.message || String(error) },
+      'tool call threw',
+    );
     return {
       content: [{ type: 'text', text: `Error calling tool: ${error.message}` }],
       isError: true,

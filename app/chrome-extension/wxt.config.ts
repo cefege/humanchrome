@@ -171,6 +171,15 @@ export default defineConfig({
       // Minify only for production builds; keep dev unminified for easier debugging.
       minify: env.mode === 'production' ? 'esbuild' : false,
     },
+    // `onnxruntime-web` 1.26+ ships a "bundle" entry that materialises its
+    // ~24 MB WASM as a `new URL(..., import.meta.url)` reference, which
+    // Rolldown then base64-inlines into `background.js` (50 MB+ regression).
+    // Opt into the package's `onnxruntime-web-use-extern-wasm` condition so
+    // the wasm files stay external and are loaded at runtime via the path
+    // configured on `env.backends.onnx.wasm.wasmPaths`.
+    resolve: {
+      conditions: ['onnxruntime-web-use-extern-wasm'],
+    },
     optimizeDeps: {
       // markstream-vue lists several heavy peers (katex, mermaid, monaco-editor,
       // vue-i18n, stream-markdown) as optional. We don't use them, so exclude
