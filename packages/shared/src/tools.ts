@@ -718,6 +718,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'Include static resources like images/scripts/styles (default: false)',
         },
+        background: {
+          type: 'boolean',
+          description:
+            'Do not activate tab/focus window when starting capture (default: true). Only honored by the debugger backend (needResponseBody:true); the webRequest backend never activates. Pass false to bring the tab forward.',
+        },
       },
       required: ['action'],
     },

@@ -13,6 +13,8 @@ interface NetworkCaptureToolParams {
   maxCaptureTime?: number;
   inactivityTimeout?: number;
   includeStatic?: boolean;
+  /** Forwarded to the debugger backend; ignored by the webRequest backend (which never activates). */
+  background?: boolean;
 }
 
 /**
@@ -111,6 +113,7 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
       maxCaptureTime: args.maxCaptureTime,
       inactivityTimeout: args.inactivityTimeout,
       includeStatic: args.includeStatic,
+      ...(typeof args.background === 'boolean' ? { background: args.background } : {}),
     });
 
     return decorateJsonResult(result, { backend, needResponseBody: wantBody });
