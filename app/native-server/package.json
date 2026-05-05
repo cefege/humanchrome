@@ -31,6 +31,7 @@
   },
   "files": [
     "dist",
+    "scripts/postinstall-guard.cjs",
     "!dist/node_path.txt"
   ],
   "engines": {

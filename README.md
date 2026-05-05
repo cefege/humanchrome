@@ -62,30 +62,25 @@ cd humanchrome
 pnpm install
 pnpm --filter humanchrome-bridge build
 
-# 2. Install the bridge globally from the built workspace
-npm install -g ./app/native-server
+# 2. Deploy to a stable install dir outside the repo, then install globally
+SAFE_DIR="$HOME/Library/Application Support/humanchrome-bridge"
+pnpm deploy --filter humanchrome-bridge --prod --legacy "$SAFE_DIR"
+npm install -g "$SAFE_DIR"
 
 # 3. Register the native messaging host
 humanchrome-bridge register
 ```
 
-> **macOS Tahoe (15+) install location.** Don't keep your bridge install
-> under `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Pictures`, `~/Movies`,
-> `~/Music`, or iCloud Drive. macOS TCC blocks Chrome from `exec()`'ing
-> scripts in those dirs even with Full Disk Access — registration succeeds
-> but every `connectNative()` silently fails with `lastError: 'Native host
-has exited.'`. `humanchrome-bridge register` refuses to write a manifest
-> pointing into a TCC-protected dir starting in this release. Recommended
-> install via the standalone-deploy recipe:
->
-> ```bash
-> SAFE_DIR="$HOME/Library/Application Support/humanchrome-bridge"
-> pnpm deploy --filter humanchrome-bridge --prod --legacy "$SAFE_DIR"
-> cd "$SAFE_DIR" && humanchrome-bridge register
-> ```
->
-> `humanchrome-bridge doctor` also flags an existing bad manifest from a
-> previous install.
+> **Why deploy outside the repo.** Don't `npm install -g ./app/native-server`
+> from inside the workspace — pnpm intercepts that and creates a global symlink
+> back into the repo, which on macOS often sits under `~/Documents`. That
+> matters because macOS TCC blocks Chrome from `exec()`'ing scripts under
+> `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Pictures`, `~/Movies`,
+> `~/Music`, or iCloud Drive — even with Full Disk Access. Registration would
+> succeed but every `connectNative()` silently fails with `lastError: 'Native
+host has exited.'`. `humanchrome-bridge register` refuses to write a
+> manifest pointing into a TCC-protected dir, and `humanchrome-bridge doctor`
+> flags existing bad manifests from earlier installs.
 
 4. Load the extension in Chrome:
    - Go to `chrome://extensions/`, enable Developer mode.
