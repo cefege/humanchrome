@@ -3,7 +3,11 @@ import { ToolErrorCode } from 'humanchrome-shared';
 import * as browserTools from './browser';
 import { flowRunTool, listPublishedFlowsTool } from './record-replay';
 import { debugLog } from '../utils/debug-log';
-import { recordClientTab, resolveTabIdForClient } from '../utils/client-state';
+import {
+  recordClientTab,
+  resolveTabIdForClient,
+  resolveWindowIdForClient,
+} from '../utils/client-state';
 import { acquireTabLock } from '../utils/tab-lock';
 import { runWithContext } from '../utils/request-context';
 
@@ -26,23 +30,42 @@ function resolveTargetTabId(args: any, clientId: string | undefined): number | u
   return resolveTabIdForClient(clientId);
 }
 
+function resolveTargetWindowId(args: any, clientId: string | undefined): number | undefined {
+  const explicit = typeof args?.windowId === 'number' ? (args.windowId as number) : undefined;
+  if (explicit !== undefined) return explicit;
+  return resolveWindowIdForClient(clientId);
+}
+
 /**
- * Sniff a numeric `tabId` out of a tool's response payload. Tool responses
+ * Sniff a numeric field out of a tool's response payload. Tool responses
  * serialize their JSON inside a single text content block; navigate-like
- * tools include a `tabId` field for the tab they ended up using. Used to
- * record the client's preferred-tab pointer when the caller didn't pin one.
+ * tools include `tabId` / `windowId` for the tab/window they ended up using.
+ * Used to record the client's preferred-tab/window pointer when the caller
+ * didn't pin one.
  */
-function extractTabIdFromResult(result: any): number | undefined {
+function extractFromResult(
+  result: any,
+  paths: Array<(parsed: any) => unknown>,
+): number | undefined {
   const block = result?.content?.find?.((c: any) => c?.type === 'text');
   if (!block?.text || typeof block.text !== 'string') return undefined;
   try {
     const parsed = JSON.parse(block.text);
-    const id = parsed?.tabId ?? parsed?.tab?.id;
-    return typeof id === 'number' ? id : undefined;
+    for (const path of paths) {
+      const id = path(parsed);
+      if (typeof id === 'number') return id;
+    }
   } catch {
-    return undefined;
+    // body wasn't JSON — fine
   }
+  return undefined;
 }
+
+const extractTabIdFromResult = (result: any) =>
+  extractFromResult(result, [(p) => p?.tabId, (p) => p?.tab?.id]);
+
+const extractWindowIdFromResult = (result: any) =>
+  extractFromResult(result, [(p) => p?.windowId, (p) => p?.tab?.windowId]);
 
 /**
  * Handle tool execution.
@@ -59,15 +82,19 @@ export const handleCallTool = async (
   clientId?: string,
 ) => {
   const tabId = resolveTargetTabId(param.args, clientId);
-  // Surface the resolved tab into args so the tool sees a tabId even when the
-  // caller omitted one. Tool internals stay unchanged.
+  const windowId = resolveTargetWindowId(param.args, clientId);
+  // Surface the resolved tab/window into args so the tool sees them even when
+  // the caller omitted them. Tool internals stay unchanged.
   if (
-    tabId !== undefined &&
     param.args &&
     typeof param.args === 'object' &&
-    param.args.tabId !== tabId
+    ((tabId !== undefined && param.args.tabId !== tabId) ||
+      (windowId !== undefined && param.args.windowId !== windowId))
   ) {
-    param = { ...param, args: { ...param.args, tabId } };
+    const next: Record<string, unknown> = { ...param.args };
+    if (tabId !== undefined) next.tabId = tabId;
+    if (windowId !== undefined) next.windowId = windowId;
+    param = { ...param, args: next };
   }
   const startedAt = Date.now();
   // Bind a child logger so every line for this dispatch carries the same
@@ -101,14 +128,22 @@ export const handleCallTool = async (
         // Skip the sniff when the caller already pinned a tab; tool responses
         // can be tens of KB (read-page) and JSON-parsing them per call adds
         // up on hot paths.
-        const sniffed = tabId === undefined ? extractTabIdFromResult(result) : undefined;
-        const effectiveTabId = tabId ?? sniffed;
+        const sniffedTab = tabId === undefined ? extractTabIdFromResult(result) : undefined;
+        const sniffedWindow =
+          windowId === undefined ? extractWindowIdFromResult(result) : undefined;
+        const effectiveTabId = tabId ?? sniffedTab;
+        const effectiveWindowId = windowId ?? sniffedWindow;
         if (typeof effectiveTabId === 'number') {
-          recordClientTab(clientId, effectiveTabId);
+          recordClientTab(clientId, effectiveTabId, effectiveWindowId);
         }
         log.debug('client tab recorded', {
           tabId: effectiveTabId,
-          data: { inputTabId: tabId ?? null, sniffed: sniffed ?? null },
+          data: {
+            inputTabId: tabId ?? null,
+            sniffedTab: sniffedTab ?? null,
+            inputWindowId: windowId ?? null,
+            sniffedWindow: sniffedWindow ?? null,
+          },
         });
       }
       log.info('tool call done', {

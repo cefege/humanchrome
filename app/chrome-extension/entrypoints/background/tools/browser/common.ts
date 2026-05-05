@@ -370,7 +370,10 @@ class NavigateTool extends BaseBrowserToolExecutor {
           targetWindow = await chrome.windows.get(windowId, { populate: false });
         }
         if (!targetWindow) {
-          targetWindow = await chrome.windows.getLastFocused({ populate: false });
+          targetWindow = await chrome.windows.getLastFocused({
+            populate: false,
+            windowTypes: ['normal'],
+          });
         }
 
         if (targetWindow && targetWindow.id !== undefined) {
@@ -512,7 +515,12 @@ class NavigateBatchTool extends BaseBrowserToolExecutor {
     let targetWindowId = windowId;
     if (typeof targetWindowId !== 'number') {
       try {
-        const lastFocused = await chrome.windows.getLastFocused({ populate: false });
+        // windowTypes filter excludes devtools/popup so the fallback can't
+        // pick a window the user isn't actually working in.
+        const lastFocused = await chrome.windows.getLastFocused({
+          populate: false,
+          windowTypes: ['normal'],
+        });
         if (lastFocused.id !== undefined) targetWindowId = lastFocused.id;
       } catch {
         // No existing window — chrome.tabs.create without windowId will create one.

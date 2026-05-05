@@ -55,12 +55,17 @@ try {
   // non-extension test context — listener is best-effort
 }
 
-export function recordClientTab(clientId: string | undefined, tabId: number): void {
+export function recordClientTab(
+  clientId: string | undefined,
+  tabId: number,
+  windowId?: number,
+): void {
   if (!clientId || typeof tabId !== 'number') return;
   const now = Date.now();
   gc(now);
   const existing = STATE.get(clientId) ?? { lastSeenAt: now };
   existing.lastTabId = tabId;
+  if (typeof windowId === 'number') existing.lastWindowId = windowId;
   existing.lastSeenAt = now;
   STATE.set(clientId, existing);
 }
@@ -88,6 +93,21 @@ export function resolveTabIdForClient(
   if (typeof explicitTabId === 'number') return explicitTabId;
   if (!clientId) return undefined;
   return STATE.get(clientId)?.lastTabId;
+}
+
+/**
+ * Same shape as `resolveTabIdForClient` but for windowId. Used by
+ * `chrome_navigate` and `chrome_navigate_batch` so that once a client has
+ * touched a tab in window X, fan-out from that client lands in window X by
+ * default — no more silent drift to a different window via `getLastFocused`.
+ */
+export function resolveWindowIdForClient(
+  clientId: string | undefined,
+  explicitWindowId?: number,
+): number | undefined {
+  if (typeof explicitWindowId === 'number') return explicitWindowId;
+  if (!clientId) return undefined;
+  return STATE.get(clientId)?.lastWindowId;
 }
 
 export function getClientState(clientId: string | undefined): ClientState | undefined {
