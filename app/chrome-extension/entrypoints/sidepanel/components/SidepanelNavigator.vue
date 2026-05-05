@@ -96,44 +96,6 @@
             </button>
             <button
               class="navigator-item"
-              :class="{ 'navigator-item-active': activeTab === 'workflows' }"
-              @click="selectTab('workflows')"
-            >
-              <div class="navigator-item-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  width="20"
-                  height="20"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
-                  />
-                </svg>
-              </div>
-              <div class="navigator-item-content">
-                <span class="navigator-item-title">Workflows</span>
-                <span class="navigator-item-desc">Record and replay automation flows</span>
-              </div>
-              <div v-if="activeTab === 'workflows'" class="navigator-item-check">
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-            </button>
-            <button
-              class="navigator-item"
               :class="{ 'navigator-item-active': activeTab === 'element-markers' }"
               @click="selectTab('element-markers')"
             >
@@ -181,7 +143,7 @@
 import { ref, computed } from 'vue';
 import { useFloatingDrag } from '../composables/useFloatingDrag';
 
-type TabType = 'workflows' | 'element-markers' | 'agent-chat';
+type TabType = 'element-markers' | 'agent-chat';
 
 const BUTTON_SIZE = 36;
 const CLAMP_MARGIN = 12;

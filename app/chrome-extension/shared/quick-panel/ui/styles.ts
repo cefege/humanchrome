@@ -97,11 +97,12 @@ export const QUICK_PANEL_STYLES = /* css */ `
     --ac-surface-muted: #f2f0eb;
     --ac-surface-inset: #f2f0eb;
 
+    /* Text — subtle/placeholder use Material 3 light neutrals (≥4.5:1 on bg) */
     --ac-text: #1a1a1a;
     --ac-text-muted: #6e6e6e;
-    --ac-text-subtle: #a8a29e;
+    --ac-text-subtle: #49454f;
     --ac-text-inverse: #ffffff;
-    --ac-text-placeholder: #a8a29e;
+    --ac-text-placeholder: #79747e;
 
     --ac-border: #e7e5e4;
     --ac-border-strong: #d6d3d1;
@@ -162,11 +163,12 @@ export const QUICK_PANEL_STYLES = /* css */ `
     --ac-surface-muted: #0a0c10;
     --ac-surface-inset: #1a1d26;
 
+    /* Dark theme: Material 3 dark neutrals (≥4.5:1 against bg #0f1117) */
     --ac-text: #e5e7eb;
-    --ac-text-muted: #9ca3af;
-    --ac-text-subtle: #6b7280;
+    --ac-text-muted: #cac4d0;
+    --ac-text-subtle: #cac4d0;
     --ac-text-inverse: #0a0c10;
-    --ac-text-placeholder: #4b5563;
+    --ac-text-placeholder: #938f99;
 
     --ac-border: #1f2937;
     --ac-border-strong: #374151;

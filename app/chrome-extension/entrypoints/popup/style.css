@@ -17,7 +17,8 @@
   --text-primary: #2d3748;
   --text-secondary: #4a5568;
   --text-muted: #718096;
-  --text-light: #a0aec0;
+  /* WCAG AA: bumped from #a0aec0 (2.7:1) → #79747e (4.5:1+ on white) */
+  --text-light: #79747e;
 
   --bg-primary: #ffffff;
   --bg-secondary: #f7fafc;

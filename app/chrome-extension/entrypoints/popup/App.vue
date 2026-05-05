@@ -74,22 +74,6 @@
           <h2 class="section-title">Quick Tools</h2>
           <div class="rr-icon-buttons">
             <button
-              class="rr-icon-btn rr-icon-btn-record rr-icon-btn-coming-soon has-tooltip"
-              @click="startRecording"
-              data-tooltip="Recording (coming soon)"
-              aria-label="Start recording (coming soon)"
-            >
-              <RecordIcon :recording="false" />
-            </button>
-            <button
-              class="rr-icon-btn rr-icon-btn-stop rr-icon-btn-coming-soon has-tooltip"
-              @click="stopRecording"
-              data-tooltip="Recording (coming soon)"
-              aria-label="Stop recording (coming soon)"
-            >
-              <StopIcon />
-            </button>
-            <button
               class="rr-icon-btn rr-icon-btn-edit has-tooltip"
               @click="toggleWebEditor"
               data-tooltip="Toggle page edit mode"
@@ -132,29 +116,6 @@
               <div class="entry-content">
                 <span class="entry-title">AI Agent</span>
                 <span class="entry-desc">Agent chat & tasks</span>
-              </div>
-              <svg
-                class="entry-arrow"
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button class="entry-item entry-item-coming-soon" @click="openWorkflowSidepanel">
-              <div class="entry-icon workflow">
-                <WorkflowIcon />
-              </div>
-              <div class="entry-content">
-                <span class="entry-title">
-                  Workflows
-                  <span class="coming-soon-badge">Coming Soon</span>
-                </span>
-                <span class="entry-desc">Record &amp; replay automation flows</span>
               </div>
               <svg
                 class="entry-arrow"
@@ -361,9 +322,6 @@ import {
   CheckIcon,
   TabIcon,
   VectorIcon,
-  RecordIcon,
-  StopIcon,
-  WorkflowIcon,
   RefreshIcon,
   EditIcon,
   MarkerIcon,
@@ -428,18 +386,6 @@ function isFlowBoundToCurrent(flow: any) {
     return false;
   }
 }
-
-const startRecording = async () => {
-  // TODO: Record & replay is in development; intercept for now
-  showComingSoonToast('Record & replay');
-  return;
-};
-
-const stopRecording = async () => {
-  // TODO: Record & replay is in development; intercept for now
-  showComingSoonToast('Record & replay');
-  return;
-};
 
 const runFlow = async (flowId: string) => {
   try {
@@ -603,12 +549,6 @@ async function openSidepanelAndClose(tab: string) {
   } catch (e) {
     console.warn(`Failed to open sidepanel (${tab}):`, e);
   }
-}
-
-// Open sidepanel from popup for workflow management
-function openWorkflowSidepanel() {
-  // TODO: Workflow feature is in development; intercept for now
-  showComingSoonToast('Workflow management');
 }
 
 // Open sidepanel for element marker management
