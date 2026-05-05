@@ -152,19 +152,20 @@ Multiple clients can connect at once. Each gets its own MCP session, and each se
 ## Tools
 
 Roughly 30 tools across these categories. Full reference in [`docs/TOOLS.md`](docs/TOOLS.md).
+For the multi-tab "open many, drain serially" pattern, see [Multi-tab fan-out workflow](docs/TOOLS.md#multi-tab-fan-out-workflow).
 
-| Category           | Tools                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Browser management | `get_windows_and_tabs`, `chrome_navigate`, `chrome_switch_tab`, `chrome_close_tabs`, `chrome_inject_script`   |
-| Interaction        | `chrome_click_element`, `chrome_fill_or_select`, `chrome_keyboard`, `chrome_handle_dialog`                    |
-| Reading            | `chrome_get_web_content`, `chrome_read_page`, `chrome_get_interactive_elements`, `chrome_screenshot`          |
-| Scripting          | `chrome_javascript`, `chrome_userscript`, `chrome_send_command_to_inject_script`                              |
-| Network            | `chrome_network_capture`, `chrome_network_request`, `chrome_intercept_response`                               |
-| Files              | `chrome_upload_file`, `chrome_handle_download`, `chrome_gif_recorder`                                         |
-| State              | `chrome_console`, `chrome_history`, `chrome_bookmark_search`, `chrome_bookmark_add`, `chrome_bookmark_delete` |
-| Search             | `search_tabs_content` (semantic vector search across open tabs)                                               |
-| Performance        | `performance_start_trace`, `performance_stop_trace`, `performance_analyze_insight`                            |
-| Diagnostics        | `chrome_debug_dump`, `chrome_computer`                                                                        |
+| Category           | Tools                                                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser management | `get_windows_and_tabs`, `chrome_navigate`, `chrome_navigate_batch`, `chrome_wait_for_tab`, `chrome_switch_tab`, `chrome_close_tabs`, `chrome_inject_script` |
+| Interaction        | `chrome_click_element`, `chrome_fill_or_select`, `chrome_keyboard`, `chrome_handle_dialog`                                                                  |
+| Reading            | `chrome_get_web_content`, `chrome_read_page`, `chrome_get_interactive_elements`, `chrome_screenshot`                                                        |
+| Scripting          | `chrome_javascript`, `chrome_userscript`, `chrome_send_command_to_inject_script`                                                                            |
+| Network            | `chrome_network_capture`, `chrome_network_request`, `chrome_intercept_response`                                                                             |
+| Files              | `chrome_upload_file`, `chrome_handle_download`, `chrome_gif_recorder`                                                                                       |
+| State              | `chrome_console`, `chrome_history`, `chrome_bookmark_search`, `chrome_bookmark_add`, `chrome_bookmark_delete`                                               |
+| Search             | `search_tabs_content` (semantic vector search across open tabs)                                                                                             |
+| Performance        | `performance_start_trace`, `performance_stop_trace`, `performance_analyze_insight`                                                                          |
+| Diagnostics        | `chrome_debug_dump`, `chrome_computer`                                                                                                                      |
 
 ## Architecture
 

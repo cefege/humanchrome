@@ -15,6 +15,26 @@ Complete reference for all available tools and their parameters.
 
 ## 📊 Browser Management
 
+### Multi-tab fan-out workflow
+
+Mirror the natural human pattern of opening a batch of tabs and processing
+them one at a time. The tabs all load in the background while the agent
+works through them sequentially:
+
+```text
+chrome_navigate_batch({ urls: [...] })  → returns tabIds for all tabs
+for each tabId:
+  chrome_wait_for_tab({ tabId })        → block until that tab is loaded
+  chrome_get_web_content({ tabId })     → read in background
+```
+
+Per-tab locks (keyed on tabId) keep mutating ops on the same tab serialized
+without forcing different tabs to wait on each other. The tools that touch
+content (`chrome_get_web_content`, `chrome_screenshot`, `chrome_inject_script`,
+`chrome_console`, `chrome_network_capture` debugger backend) all default
+`background: true`, so the drain loop doesn't yank focus away from whatever
+tab the user is actually looking at.
+
 ### `get_windows_and_tabs`
 
 List all currently open browser windows and tabs.
@@ -35,13 +55,17 @@ List all currently open browser windows and tabs.
           "tabId": 456,
           "url": "https://example.com",
           "title": "Example Page",
-          "active": true
+          "active": true,
+          "status": "complete"
         }
       ]
     }
   ]
 }
 ```
+
+`status` is `"loading"`, `"complete"`, or `"unloaded"`. Useful for peeking
+at load state without a dedicated `chrome_wait_for_tab` call.
 
 ### `chrome_navigate`
 
@@ -52,7 +76,7 @@ Navigate to a URL with optional viewport control.
 - `url` (string, optional): URL to navigate to (omit when `refresh=true`)
 - `newWindow` (boolean, optional): Create new window (default: false)
 - `tabId` (number, optional): Target an existing tab by ID (navigate/refresh that tab)
-- `background` (boolean, optional): Do not activate the tab or focus the window (default: false)
+- `background` (boolean, optional): Do not activate the tab or focus the window (default: true). Pass false to bring the tab forward.
 - `width` (number, optional): Viewport width in pixels (default: 1280)
 - `height` (number, optional): Viewport height in pixels (default: 720)
 
@@ -66,6 +90,62 @@ Navigate to a URL with optional viewport control.
   "height": 1080
 }
 ```
+
+### `chrome_navigate_batch`
+
+Open many URLs at once and return their tabIds. Tabs open in the background
+by default so the user's foreground tab keeps focus. Returns immediately
+after issuing the opens — pair with `chrome_wait_for_tab` to drain.
+
+**Parameters**:
+
+- `urls` (string[], required): URLs to open. Each becomes a new tab.
+- `windowId` (number, optional): Target window. Defaults to the last-focused window.
+- `background` (boolean, optional): Open without stealing focus (default: true).
+- `perTabDelayMs` (number, optional): Delay between consecutive opens, in ms. Default 0. Use 50–200 ms on sites that flag burst opens.
+
+**Response**:
+
+```json
+{
+  "tabs": [
+    { "tabId": 101, "url": "https://example.com/a" },
+    { "tabId": 102, "url": "https://example.com/b" }
+  ],
+  "windowId": 7,
+  "count": 2
+}
+```
+
+If individual opens fail, the response includes an `errors` array (`[{ url, message }]`).
+
+### `chrome_wait_for_tab`
+
+Block until the given tab transitions to `status: "complete"`. Event-driven
+via `chrome.tabs.onUpdated` — does not poll.
+
+**Parameters**:
+
+- `tabId` (number, required): Tab to wait on. No implicit active-tab fallback. Pass the tabId returned by `chrome_navigate` or `chrome_navigate_batch`.
+- `timeoutMs` (number, optional): Maximum wait in ms (default: 30000).
+
+**Response**:
+
+```json
+{
+  "tabId": 101,
+  "status": "complete",
+  "url": "https://example.com/a",
+  "title": "Example A",
+  "durationMs": 842
+}
+```
+
+**Errors**:
+
+- `TAB_NOT_FOUND` — no such tabId.
+- `TAB_CLOSED` — the tab was closed during the wait.
+- `TIMEOUT` — the deadline elapsed before the tab finished loading.
 
 ### `chrome_close_tabs`
 
