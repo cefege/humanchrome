@@ -26,7 +26,7 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     const url = args.url;
     const selector = args.selector;
     const explicitTabId = args.tabId;
-    const background = args.background !== false;
+    const { background = true } = args;
     const windowId = args.windowId;
 
     console.log(`Starting web fetcher with options:`, {
