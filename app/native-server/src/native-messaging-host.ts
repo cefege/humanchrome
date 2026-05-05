@@ -1,7 +1,7 @@
 import { stdin, stdout } from 'process';
 import { Server } from './server';
 import { v4 as uuidv4 } from 'uuid';
-import { NativeMessageType } from 'humanchrome-shared';
+import { NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
 
@@ -93,11 +93,24 @@ export class NativeMessagingHost {
     });
   }
 
-  private async handleMessage(message: any): Promise<void> {
-    if (!message || typeof message !== 'object') {
+  private async handleMessage(rawMessage: any): Promise<void> {
+    if (!rawMessage || typeof rawMessage !== 'object') {
       this.sendError('Invalid message format');
       return;
     }
+
+    // Runtime-validate the wire frame at the IPC boundary. The schema is
+    // intentionally permissive (passthrough on unknown keys) so a slightly
+    // newer extension build can add fields without us rejecting it; we're
+    // only filtering obvious garbage here.
+    const parsed = NativeMessageSchema.safeParse(rawMessage);
+    if (!parsed.success) {
+      this.sendError(
+        `Invalid native message: ${parsed.error.issues[0]?.message ?? 'schema validation failed'}`,
+      );
+      return;
+    }
+    const message: any = parsed.data;
 
     if (message.responseToRequestId) {
       const requestId = message.responseToRequestId;

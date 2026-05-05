@@ -1,6 +1,7 @@
 {
   "name": "@humanchrome/wasm-simd",
   "version": "0.1.0",
+  "private": true,
   "description": "SIMD-optimized WebAssembly math functions for HumanChrome semantic search.",
   "main": "pkg/simd_math.js",
   "types": "pkg/simd_math.d.ts",

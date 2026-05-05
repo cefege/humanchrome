@@ -26,7 +26,8 @@
     "lint:fix": "eslint 'src/**/*.{js,ts}' --fix",
     "format": "prettier --write 'src/**/*.{js,ts,json}'",
     "register:dev": "node dist/scripts/register-dev.js",
-    "postinstall": "node scripts/postinstall-guard.cjs"
+    "postinstall": "node scripts/postinstall-guard.cjs",
+    "prepublishOnly": "pnpm build"
   },
   "files": [
     "dist",

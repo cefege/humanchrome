@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import * as net from 'net';
 import { lookup as dnsLookup } from 'dns/promises';
 import fetch from 'node-fetch';
+import { FileOperationPayloadSchema } from 'humanchrome-shared';
 
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -79,7 +80,19 @@ export class FileHandler {
    * Handle file preparation request from the extension
    */
   async handleFileRequest(request: any): Promise<any> {
-    const { action, fileUrl, base64Data, fileName, filePath, traceFilePath, insightName } = request;
+    // Runtime-validate at the IPC boundary. The native-messaging-host already
+    // runs an outer NativeMessageSchema check on the envelope; this one
+    // validates the inner payload shape so we don't blindly destructure
+    // fields off arbitrary input.
+    const parsed = FileOperationPayloadSchema.safeParse(request);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: `Invalid file_operation payload: ${parsed.error.issues[0]?.message ?? 'schema validation failed'}`,
+      };
+    }
+    const { action, fileUrl, base64Data, fileName, filePath, traceFilePath, insightName } =
+      parsed.data;
 
     try {
       switch (action) {
@@ -99,6 +112,7 @@ export class FileHandler {
         }
 
         case 'cleanupFile':
+          if (!filePath) return { success: false, error: 'filePath is required' };
           return await this.cleanupFile(filePath);
 
         case 'analyzeTrace': {

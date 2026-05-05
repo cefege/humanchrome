@@ -14,7 +14,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { TOOL_SCHEMAS } from 'humanchrome-shared';
+import { ToolCallBodySchema, TOOL_SCHEMAS } from 'humanchrome-shared';
 import { HTTP_STATUS } from '../../constant';
 import { dispatchTool, listDynamicFlowTools } from '../../mcp/dispatch';
 
@@ -109,8 +109,28 @@ export function registerApiRoutes(fastify: FastifyInstance): void {
       reply: FastifyReply,
     ) => {
       const { name } = request.params;
-      const body = request.body || {};
-      const args = body.args ?? {};
+
+      // Runtime-validate the request body at the IPC boundary. We only enforce
+      // the envelope shape ({ args }) here — per-tool argument validation
+      // already lives in each tool's `inputSchema`, so doing it twice would
+      // only add maintenance cost. `.strict()` rejects extra top-level keys
+      // so callers can't smuggle in fields like `clientId` that belong in the
+      // header.
+      const rawBody = request.body ?? { args: {} };
+      const parsedBody = ToolCallBodySchema.safeParse(rawBody);
+      if (!parsedBody.success) {
+        reply.status(HTTP_STATUS.BAD_REQUEST).send({
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `Invalid request body: ${parsedBody.error.issues[0]?.message ?? 'schema validation failed'}`,
+            },
+          ],
+        });
+        return;
+      }
+      const args = (parsedBody.data.args ?? {}) as Record<string, unknown>;
       const clientIdHeader = request.headers['x-client-id'];
       const clientId = Array.isArray(clientIdHeader) ? clientIdHeader[0] : clientIdHeader;
 
