@@ -23,19 +23,11 @@ export interface WaitForTabOptions {
 
 export const DEFAULT_WAIT_FOR_TAB_TIMEOUT_MS = 30_000;
 
-export async function waitForTabComplete(
+export function waitForTabComplete(
   tabId: number,
   opts: WaitForTabOptions = {},
 ): Promise<chrome.tabs.Tab> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_FOR_TAB_TIMEOUT_MS;
-
-  let initial: chrome.tabs.Tab;
-  try {
-    initial = await chrome.tabs.get(tabId);
-  } catch {
-    throw new ToolError(ToolErrorCode.TAB_NOT_FOUND, `Tab ${tabId} not found`, { tabId });
-  }
-  if (initial.status === 'complete') return initial;
 
   return new Promise<chrome.tabs.Tab>((resolve, reject) => {
     const cleanup = () => {
@@ -79,7 +71,22 @@ export async function waitForTabComplete(
       );
     }, timeoutMs);
 
+    // Arm listeners before reading current status so we don't miss a
+    // `complete` event in the gap between read and attach.
     chrome.tabs.onUpdated.addListener(onUpdated);
     chrome.tabs.onRemoved.addListener(onRemoved);
+
+    chrome.tabs.get(tabId).then(
+      (tab) => {
+        if (tab.status === 'complete') {
+          cleanup();
+          resolve(tab);
+        }
+      },
+      () => {
+        cleanup();
+        reject(new ToolError(ToolErrorCode.TAB_NOT_FOUND, `Tab ${tabId} not found`, { tabId }));
+      },
+    );
   });
 }
