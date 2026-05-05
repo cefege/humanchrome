@@ -1700,3 +1700,96 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
 ];
+
+/**
+ * Maps each MCP tool name (the string value in TOOL_SCHEMAS) to a human-readable
+ * category label. Used by `app/native-server/scripts/generate-tools-doc.mjs`
+ * to group tools in the auto-generated section of `docs/TOOLS.md`.
+ *
+ * Keep this map next to TOOL_SCHEMAS rather than embedding category metadata in
+ * each schema's `_meta` — that avoids 30+ inline edits and keeps category
+ * labels off the MCP wire (clients don't see this).
+ *
+ * Coverage invariant: every tool in TOOL_SCHEMAS must have an entry here.
+ * The doc generator asserts this at run time and exits non-zero if a tool is
+ * missing (so adding a new tool without a category fails loudly in CI).
+ */
+export const TOOL_CATEGORIES: Record<string, string> = {
+  // Browser management — opening/closing/switching tabs and windows.
+  [TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS]: 'Browser management',
+  [TOOL_NAMES.BROWSER.NAVIGATE]: 'Browser management',
+  [TOOL_NAMES.BROWSER.NAVIGATE_BATCH]: 'Browser management',
+  [TOOL_NAMES.BROWSER.WAIT_FOR_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.CLOSE_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
+
+  // Reading — pulling page content / structure / pixels for the model.
+  [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
+  [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
+  // Note: TOOL_NAMES.BROWSER.GET_INTERACTIVE_ELEMENTS exists but has no
+  // TOOL_SCHEMAS entry (handler is exported but not published). If/when it
+  // gets a schema, add it back here under "Reading".
+  [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
+  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: 'Reading',
+
+  // Interaction — clicks, typing, dialogs, manual element-pick handoff, DOM waits.
+  [TOOL_NAMES.BROWSER.CLICK]: 'Interaction',
+  [TOOL_NAMES.BROWSER.FILL]: 'Interaction',
+  [TOOL_NAMES.BROWSER.KEYBOARD]: 'Interaction',
+  [TOOL_NAMES.BROWSER.COMPUTER]: 'Interaction',
+  [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: 'Interaction',
+  [TOOL_NAMES.BROWSER.HANDLE_DIALOG]: 'Interaction',
+  [TOOL_NAMES.BROWSER.AWAIT_ELEMENT]: 'Interaction',
+
+  // Scripting — running custom JS in the page (one-off + persistent userscripts).
+  [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
+  [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',
+  [TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT]: 'Scripting',
+  [TOOL_NAMES.BROWSER.USERSCRIPT]: 'Scripting',
+
+  // Network — making/observing/intercepting HTTP traffic.
+  [TOOL_NAMES.BROWSER.NETWORK_REQUEST]: 'Network',
+  [TOOL_NAMES.BROWSER.NETWORK_CAPTURE]: 'Network',
+  [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: 'Network',
+
+  // Files — uploads, downloads, GIF capture.
+  [TOOL_NAMES.BROWSER.FILE_UPLOAD]: 'Files',
+  [TOOL_NAMES.BROWSER.HANDLE_DOWNLOAD]: 'Files',
+  [TOOL_NAMES.BROWSER.GIF_RECORDER]: 'Files',
+
+  // State — console, history, bookmarks, cookies (browser state surfaces).
+  [TOOL_NAMES.BROWSER.CONSOLE]: 'State',
+  [TOOL_NAMES.BROWSER.HISTORY]: 'State',
+  [TOOL_NAMES.BROWSER.BOOKMARK_SEARCH]: 'State',
+  [TOOL_NAMES.BROWSER.BOOKMARK_ADD]: 'State',
+  [TOOL_NAMES.BROWSER.BOOKMARK_UPDATE]: 'State',
+  [TOOL_NAMES.BROWSER.BOOKMARK_DELETE]: 'State',
+  [TOOL_NAMES.BROWSER.GET_COOKIES]: 'State',
+  [TOOL_NAMES.BROWSER.SET_COOKIE]: 'State',
+  [TOOL_NAMES.BROWSER.REMOVE_COOKIE]: 'State',
+
+  // Performance — DevTools trace recording + analysis.
+  [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: 'Performance',
+  [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: 'Performance',
+  [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: 'Performance',
+
+  // Diagnostics — debug-log dump.
+  [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
+};
+
+/**
+ * Order in which categories appear in the generated docs. Categories not
+ * listed here would be appended alphabetically by the generator, but every
+ * known category should be present.
+ */
+export const TOOL_CATEGORY_ORDER: ReadonlyArray<string> = [
+  'Browser management',
+  'Reading',
+  'Interaction',
+  'Scripting',
+  'Network',
+  'Files',
+  'State',
+  'Performance',
+  'Diagnostics',
+];
