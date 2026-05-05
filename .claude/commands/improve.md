@@ -88,11 +88,32 @@ on the exact line.
 ## Step 5 — Spawn the implementer agent
 
 Spawn a `general-purpose` subagent with `isolation: "worktree"`. The prompt
-**must** be self-contained (the agent has no conversation context). Include:
+**must** be self-contained (the agent has no conversation context).
+
+**Read the current main commit hash first**: run
+`git -C /Users/mike/Documents/Code/humanchrome rev-parse main` — capture
+the value as `MAIN_SHA`. The harness has a known bug where worktree
+isolation branches from a stale base (a session-fixed commit, not current
+main HEAD). The implementer must reset to MAIN_SHA before doing any work,
+otherwise it builds on stale code and ships fundamentally broken changes
+(missing renames, missing tools added in earlier improvements, etc.).
+
+Include this in the prompt:
 
 ```
 You're implementing one item from the humanchrome improvement backlog.
-The full entry is below. Do all of the following before reporting:
+The full entry is below.
+
+STEP 0 — Sync to current main (MANDATORY, before any other action):
+  cd /Users/mike/Documents/Code/humanchrome/.claude/worktrees/<your-worktree>
+  CURRENT_MAIN={MAIN_SHA}
+  git fetch /Users/mike/Documents/Code/humanchrome main:_target_main
+  git reset --hard _target_main
+  git branch -D _target_main
+  Confirm `git rev-parse HEAD` matches {MAIN_SHA}. If it doesn't, abort
+  with a clear error — don't try to work on stale code.
+
+After step 0:
 
   1. Implement the change.
   2. Run pnpm -w build (must finish green).
@@ -101,7 +122,8 @@ The full entry is below. Do all of the following before reporting:
      touching the extension.
   4. Report (in your single returned message): files changed with line
      counts, build status, test status, any blockers, and the worktree path
-     + branch name.
+     + branch name. **Confirm in the report that step 0 completed and that
+     HEAD matched the supplied MAIN_SHA.**
 
 DO NOT commit. DO NOT push. Leave the worktree clean for the user to review.
 If the change is not feasible as scoped, stop and report why.
@@ -113,6 +135,11 @@ If the change is not feasible as scoped, stop and report why.
 Likely-relevant files (best-effort grep): {list of file paths from a quick
 search using the title and "why" keywords}
 ```
+
+After the agent returns, check the report mentions a successful sync to
+MAIN_SHA. If it doesn't (or if the agent skipped step 0), the work is
+suspect — rebase the worktree onto current main yourself before merging,
+the same way IMP-0002 was rebased.
 
 The implementer agent runs in the foreground (the user is waiting). When it
 returns:

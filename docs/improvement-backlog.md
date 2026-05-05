@@ -78,15 +78,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Add `function assertDomainUnchanged(ctx: ScreenshotContext | null, currentHostname: string, action: string): void` near top of file; type `ctx` via the existing `ScreenshotContext` import so the cast disappears; call from each of the 6 case branches.
 - **Risk**: Low — purely mechanical extraction, logic is identical across all 6 sites.
 
-### IMP-0002 · Auto-generate docs/TOOLS.md from schemas (docs) · score: 3
-
-- **Proposed by**: seed · 2026-05-05
-- **Status**: queued
-- **Why**: Phase 5 of the MCP-cleanup plan was scoped but not yet implemented. `docs/TOOLS.md` (~726 lines) duplicates schema descriptions by hand and goes stale. A small Node script can read `TOOL_SCHEMAS` + a category map and emit the doc between AUTO-GEN markers.
-- **Cost**: M
-- **Value**: M
-- **Notes**: Plan exists in `~/.claude/plans/can-you-make-a-linear-hare.md` (the prior MCP-tool plan, before this rewrite). Categories: Browser management, Reading, Interaction, Scripting, Network, Files, State, Performance, Diagnostics. Use external `TOOL_CATEGORIES` map next to `TOOL_SCHEMAS` rather than `_meta` — avoids 33 inline edits and keeps category metadata off the MCP wire.
-
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -132,3 +123,12 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-05
 - **Summary**: Added `chrome_await_element` (await-element.ts +143, schema +32) using MutationObserver in extended wait-helper.js (+134). Resolves target via ref / CSS / XPath; observer watches document.documentElement (subtree+childList+attributes); returns immediately when goal state already holds. timeoutMs clamped to [0, 120000] with 15000 default; emits ToolErrorCode.TIMEOUT envelope on miss. Read-only (mutates=false). Schema uses the shared SELECTOR_PROP / SELECTOR_TYPE_PROP / TAB_TARGETING / FRAME_ID_PROP fragments (tightened during the rebase onto post-Phase-2 main). Bridge tests: 36/36. Extension vitest: 641/641. pnpm -w build: green.
 - **Commit**: `bb39a05` on main
+
+### IMP-0002 · Auto-generate docs/TOOLS.md from schemas (docs) · score: 3
+
+- **Proposed by**: seed · 2026-05-05
+- **Status**: done
+- **Completed**: 2026-05-05
+- **Summary**: TOOL_CATEGORIES + TOOL_CATEGORY_ORDER appended to packages/shared/src/tools.ts. Generator at app/native-server/scripts/generate-tools-doc.mjs reads built shared dist, replaces content between `<!-- AUTO-GEN BELOW -->` / `<!-- AUTO-GEN END -->` in docs/TOOLS.md. `docs:tools` npm script. Coverage jest test fails CI if a TOOL_SCHEMAS tool lacks a category. 40 tools across 9 categories; second run zero diff (idempotent). Bridge tests: 45/45 (+3 coverage). Extension vitest: 641/641.
+- **Commit**: `ee27339` on main
+- **Note**: This worktree initially branched from a stale base (`cb903ce`, before the MCP cleanup + earlier IMP-0001/0003/0004 merges). The implementer built TOOL_CATEGORIES against an old surface; rebase resolved the conflict and the categories were extended to cover cookies / await_element / bookmark_update / navigate_batch / wait_for_tab / get_interactive_elements. The same harness bug will affect future implementer worktrees — see follow-up commit that updates `/improve` Step 5 to make the agent reset to current main as its first action.
