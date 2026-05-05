@@ -6,6 +6,14 @@ interface HandleDownloadParams {
   filenameContains?: string;
   timeoutMs?: number; // default 60000
   waitForComplete?: boolean; // default true
+  /**
+   * Optional source-tab filter. chrome.downloads events surface a `tabId`
+   * field for downloads kicked off by user navigation; when provided, only
+   * downloads from this tab are matched. Filter is best-effort — programmatic
+   * downloads (a.click() on detached anchor, fetch+blob) often surface
+   * tabId=undefined and are matched regardless.
+   */
+  tabId?: number;
 }
 
 /**
@@ -18,9 +26,10 @@ class HandleDownloadTool extends BaseBrowserToolExecutor {
     const filenameContains = String(args?.filenameContains || '').trim();
     const waitForComplete = args?.waitForComplete !== false;
     const timeoutMs = Math.max(1000, Math.min(Number(args?.timeoutMs ?? 60000), 300000));
+    const tabId = typeof args?.tabId === 'number' ? args.tabId : undefined;
 
     try {
-      const result = await waitForDownload({ filenameContains, waitForComplete, timeoutMs });
+      const result = await waitForDownload({ filenameContains, waitForComplete, timeoutMs, tabId });
       return {
         content: [{ type: 'text', text: JSON.stringify({ success: true, download: result }) }],
         isError: false,
@@ -35,8 +44,9 @@ async function waitForDownload(opts: {
   filenameContains?: string;
   waitForComplete: boolean;
   timeoutMs: number;
+  tabId?: number;
 }) {
-  const { filenameContains, waitForComplete, timeoutMs } = opts;
+  const { filenameContains, waitForComplete, timeoutMs, tabId } = opts;
   return new Promise<any>((resolve, reject) => {
     let timer: any = null;
     const onError = (err: any) => {
@@ -55,6 +65,13 @@ async function waitForDownload(opts: {
       } catch {}
     };
     const matches = (item: chrome.downloads.DownloadItem) => {
+      // tabId on DownloadItem is non-standard but Chrome surfaces it on
+      // user-initiated downloads. When defined and non-matching, skip;
+      // undefined (programmatic blob downloads) falls through unfiltered.
+      if (tabId !== undefined) {
+        const itemTabId = (item as unknown as { tabId?: number }).tabId;
+        if (typeof itemTabId === 'number' && itemTabId !== tabId) return false;
+      }
       if (!filenameContains) return true;
       const name = (item.filename || '').split(/[/\\]/).pop() || '';
       return name.includes(filenameContains) || (item.url || '').includes(filenameContains);

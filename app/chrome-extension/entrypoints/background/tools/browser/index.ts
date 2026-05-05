@@ -14,7 +14,12 @@ export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-cap
 export { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 export { keyboardTool } from './keyboard';
 export { historyTool } from './history';
-export { bookmarkSearchTool, bookmarkAddTool, bookmarkDeleteTool } from './bookmark';
+export {
+  bookmarkSearchTool,
+  bookmarkAddTool,
+  bookmarkUpdateTool,
+  bookmarkDeleteTool,
+} from './bookmark';
 export { injectScriptTool, sendCommandToInjectScriptTool } from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';

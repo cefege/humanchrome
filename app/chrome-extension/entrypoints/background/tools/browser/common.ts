@@ -583,7 +583,7 @@ interface CloseTabsToolParams {
  * Tool for closing browser tabs
  */
 class CloseTabsTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.CLOSE_TABS;
+  name = TOOL_NAMES.BROWSER.CLOSE_TAB;
 
   async execute(args: CloseTabsToolParams): Promise<ToolResult> {
     const { tabIds, url } = args;

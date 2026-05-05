@@ -19,7 +19,7 @@ interface ClickToolParams {
   ref?: string; // Element ref from accessibility tree (window.__claudeElementMap)
   coordinates?: Coordinates; // Coordinates to click at (x, y relative to viewport)
   waitForNavigation?: boolean; // Whether to wait for navigation to complete after click
-  timeout?: number; // Timeout in milliseconds for waiting for the element or navigation
+  timeoutMs?: number; // Timeout in milliseconds for waiting for the element or navigation
   frameId?: number; // Target frame for ref/selector resolution
   double?: boolean; // Perform double click when true
   button?: 'left' | 'right' | 'middle';
@@ -46,7 +46,7 @@ class ClickTool extends BaseBrowserToolExecutor {
       selectorType = 'css',
       coordinates,
       waitForNavigation = false,
-      timeout = TIMEOUTS.DEFAULT_WAIT * 5,
+      timeoutMs = TIMEOUTS.DEFAULT_WAIT * 5,
       frameId,
       button,
       bubbles,
@@ -123,7 +123,7 @@ class ClickTool extends BaseBrowserToolExecutor {
           coordinates,
           ref: finalRef,
           waitForNavigation,
-          timeout,
+          timeout: timeoutMs,
           double: args.double === true,
           button,
           bubbles,

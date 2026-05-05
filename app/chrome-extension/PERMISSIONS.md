@@ -10,7 +10,7 @@ Used to launch and communicate with the local `humanchrome-bridge` Native Messag
 
 ## `tabs`
 
-The MCP/HTTP tool surface is tab-scoped. Tool-call routing requires the extension to read the active tab's id and URL, and to enumerate windows/tabs for tools like `get_windows_and_tabs`, `chrome_switch_tab`, and `chrome_close_tabs`. Without `tabs` the agent cannot answer "which tab is the user looking at?" and every tool that takes a `tabId` argument fails.
+The MCP/HTTP tool surface is tab-scoped. Tool-call routing requires the extension to read the active tab's id and URL, and to enumerate windows/tabs for tools like `chrome_get_windows_and_tabs`, `chrome_switch_tab`, and `chrome_close_tab`. Without `tabs` the agent cannot answer "which tab is the user looking at?" and every tool that takes a `tabId` argument fails.
 
 ## `activeTab`
 
@@ -38,7 +38,7 @@ Used by the wait-for-navigation step in the record-replay engine and by tools th
 
 ## `debugger`
 
-Required only for CDP-only operations: `Runtime.evaluate` with deterministic timeouts, the trace-collection used by `performance_start_trace`/`performance_stop_trace`/`performance_analyze_insight`, and a small number of edge-case tools (e.g. dialog interception, certain network-interception modes) that the standard extension APIs cannot deliver. The Chrome "this browser is being debugged" warning bar is an accepted cost of enabling these tools.
+Required only for CDP-only operations: `Runtime.evaluate` with deterministic timeouts, the trace-collection used by `chrome_performance_start_trace`/`chrome_performance_stop_trace`/`chrome_performance_analyze_insight`, and a small number of edge-case tools (e.g. dialog interception, certain network-interception modes) that the standard extension APIs cannot deliver. The Chrome "this browser is being debugged" warning bar is an accepted cost of enabling these tools.
 
 ## `history`
 
@@ -46,11 +46,11 @@ Backs the `chrome_history` tool, which performs full-text search across the user
 
 ## `bookmarks`
 
-Backs the `chrome_bookmark_search`, `chrome_bookmark_add`, and `chrome_bookmark_delete` CRUD tools. The agent uses these to organize bookmarks on the user's behalf or to look up a previously bookmarked page.
+Backs the `chrome_bookmark_search`, `chrome_bookmark_add`, `chrome_bookmark_update`, and `chrome_bookmark_delete` CRUD tools. The agent uses these to organize bookmarks on the user's behalf or to look up a previously bookmarked page.
 
 ## `offscreen`
 
-Hosts the offscreen document that runs the semantic search worker (`workers/similarity.worker.js`) used by `search_tabs_content`. The MV3 service worker cannot load WebAssembly modules with `instantiateStreaming` or hold the long-lived state the embedding model requires; an offscreen document is the only supported MV3 way to run this worker.
+Hosts the offscreen document that runs the semantic search worker (`workers/similarity.worker.js`) used by `chrome_search_tabs_content`. The MV3 service worker cannot load WebAssembly modules with `instantiateStreaming` or hold the long-lived state the embedding model requires; an offscreen document is the only supported MV3 way to run this worker.
 
 ## `storage`
 

@@ -1087,7 +1087,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
             const appear = (params as any).appear !== false; // default to true
             const timeoutMs = Math.max(
               0,
-              Math.min(((params as any).timeout as number) || 10000, 120000),
+              Math.min(((params as any).timeoutMs as number) || 10000, 120000),
             );
             const resp = await this.sendMessageToTab(tab.id, {
               action: TOOL_MESSAGE_TYPES.WAIT_FOR_TEXT,

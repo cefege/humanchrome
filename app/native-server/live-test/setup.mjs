@@ -105,7 +105,7 @@ export async function openFixture(client, fixtureBase, page = 'index.html', { wa
  */
 export async function closeFixtureTabs(client, fixtureBase) {
   try {
-    const result = await client.callTool('get_windows_and_tabs', {});
+    const result = await client.callTool('chrome_get_windows_and_tabs', {});
     const parsed = client.parseTextPayload(result);
     const ids = [];
     const windows = Array.isArray(parsed?.windows) ? parsed.windows : [];
@@ -117,7 +117,7 @@ export async function closeFixtureTabs(client, fixtureBase) {
       }
     }
     if (ids.length) {
-      await client.callTool('chrome_close_tabs', { tabIds: ids });
+      await client.callTool('chrome_close_tab', { tabIds: ids });
     }
   } catch {
     // best-effort; teardown failures shouldn't fail the run

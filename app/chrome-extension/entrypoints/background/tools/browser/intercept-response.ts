@@ -31,11 +31,11 @@ const MAX_TIMEOUT_MS = 120_000;
 const OWNER = 'intercept-response' as const;
 
 interface InterceptResponseParams {
-  url_pattern: string;
+  urlPattern: string;
   method?: string;
-  timeout_ms?: number;
+  timeoutMs?: number;
   tabId?: number;
-  return_body?: boolean;
+  returnBody?: boolean;
 }
 
 interface PendingMatch {
@@ -85,16 +85,16 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE;
 
   async execute(args: InterceptResponseParams): Promise<ToolResult> {
-    if (!args || typeof args.url_pattern !== 'string' || !args.url_pattern.trim()) {
-      return createErrorResponse('url_pattern is required', ToolErrorCode.INVALID_ARGS, {
-        arg: 'url_pattern',
+    if (!args || typeof args.urlPattern !== 'string' || !args.urlPattern.trim()) {
+      return createErrorResponse('urlPattern is required', ToolErrorCode.INVALID_ARGS, {
+        arg: 'urlPattern',
       });
     }
     const timeoutMs = Math.min(
       MAX_TIMEOUT_MS,
-      Math.max(100, Number(args.timeout_ms) || DEFAULT_TIMEOUT_MS),
+      Math.max(100, Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS),
     );
-    const wantBody = args.return_body !== false;
+    const wantBody = args.returnBody !== false;
     const methodFilter = args.method ? args.method.toUpperCase() : null;
 
     // Resolve tab
@@ -110,7 +110,7 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
       }
     }
 
-    const matches = compilePattern(args.url_pattern);
+    const matches = compilePattern(args.urlPattern);
     const requests = new Map<string, { url: string; method: string }>();
 
     let attached = false;
@@ -142,7 +142,7 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
         await cleanup();
         resolve(
           createErrorResponse(
-            `Timed out after ${timeoutMs}ms waiting for response matching "${args.url_pattern}" on tab ${tabId}`,
+            `Timed out after ${timeoutMs}ms waiting for response matching "${args.urlPattern}" on tab ${tabId}`,
             ToolErrorCode.TIMEOUT,
             { tabId },
           ),

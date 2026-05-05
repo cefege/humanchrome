@@ -1,14 +1,74 @@
 import { type Tool } from '@modelcontextprotocol/sdk/types.js';
 
+// ---------------------------------------------------------------------------
+// Shared schema fragments
+//
+// These are spread into individual tool inputSchemas so the canonical wording
+// for cross-cutting concepts (tab targeting, generic timeouts, ref/selector)
+// lives in exactly one place. Tools that need different semantics (e.g.
+// chrome_wait_for_tab requiring tabId) override the field inline after the
+// spread.
+// ---------------------------------------------------------------------------
+
+const TAB_ID_DESC =
+  "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.";
+
+const WINDOW_ID_DESC = 'Target window ID to pick the active tab when tabId is omitted.';
+
+const BACKGROUND_DESC =
+  'Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward.';
+
+const TAB_ID_PROP = { type: 'number', description: TAB_ID_DESC } as const;
+const WINDOW_ID_PROP = { type: 'number', description: WINDOW_ID_DESC } as const;
+const BACKGROUND_PROP = {
+  type: 'boolean',
+  description: BACKGROUND_DESC,
+  default: true,
+} as const;
+
+/** Standard tabId/windowId/background trio. Spread into properties. */
+const TAB_TARGETING = {
+  tabId: TAB_ID_PROP,
+  windowId: WINDOW_ID_PROP,
+  background: BACKGROUND_PROP,
+};
+
+/** tabId+windowId only (no background flag — for tools that don't focus). */
+const TAB_TARGETING_NO_BG = {
+  tabId: TAB_ID_PROP,
+  windowId: WINDOW_ID_PROP,
+};
+
+const REF_PROP = {
+  type: 'string',
+  description: 'Element ref from chrome_read_page (takes precedence over selector).',
+} as const;
+
+const SELECTOR_PROP = {
+  type: 'string',
+  description: 'CSS selector or XPath for the element.',
+} as const;
+
+const SELECTOR_TYPE_PROP = {
+  type: 'string',
+  enum: ['css', 'xpath'],
+  description: 'Type of selector (default: "css").',
+} as const;
+
+const FRAME_ID_PROP = {
+  type: 'number',
+  description: 'Target frame ID for iframe support.',
+} as const;
+
 export const TOOL_NAMES = {
   BROWSER: {
-    GET_WINDOWS_AND_TABS: 'get_windows_and_tabs',
-    SEARCH_TABS_CONTENT: 'search_tabs_content',
+    GET_WINDOWS_AND_TABS: 'chrome_get_windows_and_tabs',
+    SEARCH_TABS_CONTENT: 'chrome_search_tabs_content',
     NAVIGATE: 'chrome_navigate',
     NAVIGATE_BATCH: 'chrome_navigate_batch',
     WAIT_FOR_TAB: 'chrome_wait_for_tab',
     SCREENSHOT: 'chrome_screenshot',
-    CLOSE_TABS: 'chrome_close_tabs',
+    CLOSE_TAB: 'chrome_close_tab',
     SWITCH_TAB: 'chrome_switch_tab',
     WEB_FETCHER: 'chrome_get_web_content',
     CLICK: 'chrome_click_element',
@@ -27,6 +87,7 @@ export const TOOL_NAMES = {
     HISTORY: 'chrome_history',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
     BOOKMARK_ADD: 'chrome_bookmark_add',
+    BOOKMARK_UPDATE: 'chrome_bookmark_update',
     BOOKMARK_DELETE: 'chrome_bookmark_delete',
     INJECT_SCRIPT: 'chrome_inject_script',
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
@@ -38,9 +99,9 @@ export const TOOL_NAMES = {
     HANDLE_DIALOG: 'chrome_handle_dialog',
     HANDLE_DOWNLOAD: 'chrome_handle_download',
     USERSCRIPT: 'chrome_userscript',
-    PERFORMANCE_START_TRACE: 'performance_start_trace',
-    PERFORMANCE_STOP_TRACE: 'performance_stop_trace',
-    PERFORMANCE_ANALYZE_INSIGHT: 'performance_analyze_insight',
+    PERFORMANCE_START_TRACE: 'chrome_performance_start_trace',
+    PERFORMANCE_STOP_TRACE: 'chrome_performance_stop_trace',
+    PERFORMANCE_ANALYZE_INSIGHT: 'chrome_performance_analyze_insight',
     GIF_RECORDER: 'chrome_gif_recorder',
     DEBUG_DUMP: 'chrome_debug_dump',
   },
@@ -183,15 +244,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Focus on the subtree rooted at this element refId (e.g., "ref_12"). The refId must come from a recent chrome_read_page response in the same tab (refs may expire).',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Target window ID to pick active tab when tabId is omitted.',
-        },
+        ...TAB_TARGETING_NO_BG,
         raw: {
           type: 'boolean',
           description:
@@ -208,16 +261,7 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        background: {
-          type: 'boolean',
-          description:
-            'Avoid focusing/activating tab/window for certain operations (best-effort). Default: false',
-        },
+        ...TAB_TARGETING,
         action: {
           type: 'string',
           description:
@@ -318,7 +362,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false)',
         },
-        timeout: {
+        timeoutMs: {
           type: 'number',
           description:
             'For action=wait with text: timeout in milliseconds (default 10000, max 120000)',
@@ -445,21 +489,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'Create a new window to navigate to the URL or not. Defaults to false',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target an existing tab by ID — when provided, navigate/refresh/back/forward that tab instead of the active tab. If omitted, the bridge prefers this MCP client's last-used tab before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description:
-            'Target an existing window by ID (when creating a new tab in existing window, or picking active tab if tabId is not provided).',
-        },
-        background: {
-          type: 'boolean',
-          description:
-            'Perform the operation without stealing focus (do not activate the tab or focus the window). Default: true. Pass false to bring the tab forward.',
-        },
+        ...TAB_TARGETING,
         width: {
           type: 'number',
           description:
@@ -539,19 +569,12 @@ export const TOOL_SCHEMAS: Tool[] = [
       properties: {
         name: { type: 'string', description: 'Name for the screenshot, if saving as PNG' },
         selector: { type: 'string', description: 'CSS selector for element to screenshot' },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID to capture from. If omitted, the bridge uses this MCP client's preferred tab before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Target window ID to pick active tab from when tabId is not provided.',
-        },
+        ...TAB_TARGETING_NO_BG,
         background: {
           type: 'boolean',
           description:
             'Attempt capture without bringing tab/window to foreground. CDP-based capture is used for simple viewport captures. For element/full-page capture, the tab may still be made active in its window without focusing the window. Default: true. Pass false to foreground.',
+          default: true,
         },
         width: { type: 'number', description: 'Width in pixels (default: 800)' },
         height: { type: 'number', description: 'Height in pixels (default: 600)' },
@@ -574,7 +597,7 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.CLOSE_TABS,
+    name: TOOL_NAMES.BROWSER.CLOSE_TAB,
     description: 'Close one or more browser tabs',
     inputSchema: {
       type: 'object',
@@ -620,15 +643,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'string',
           description: 'URL to fetch content from. If not provided, uses the current active tab',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        background: {
-          type: 'boolean',
-          description: 'Do not activate tab/focus window while fetching (default: true)',
-        },
+        ...TAB_TARGETING,
         htmlContent: {
           type: 'boolean',
           description:
@@ -730,11 +745,11 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
     description:
-      'Wait for the next network response on a tab whose URL matches the given pattern, then return the parsed JSON body (or raw body if non-JSON). Use this to grab API responses (e.g. LinkedIn Voyager, GraphQL endpoints) without DOM walking. Attaches the Chrome Debugger Network domain only for the duration of the wait. Returns within timeout_ms.',
+      'Wait for the next network response on a tab whose URL matches the given pattern, then return the parsed JSON body (or raw body if non-JSON). Use this to grab API responses (e.g. LinkedIn Voyager, GraphQL endpoints) without DOM walking. Attaches the Chrome Debugger Network domain only for the duration of the wait. Returns within timeoutMs.',
     inputSchema: {
       type: 'object',
       properties: {
-        url_pattern: {
+        urlPattern: {
           type: 'string',
           description:
             'Substring or regex (wrapped in / / for regex form, e.g. "/voyager/api/.*conversations/i") to match against the response URL.',
@@ -744,23 +759,19 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Optional HTTP method filter (GET, POST, etc). When omitted, matches any method.',
         },
-        timeout_ms: {
+        timeoutMs: {
           type: 'number',
           description:
             'Milliseconds to wait for a matching response before timing out (default 15000, max 120000).',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Tab to listen on. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        return_body: {
+        tabId: TAB_ID_PROP,
+        returnBody: {
           type: 'boolean',
           description:
             'When false (default true), skip getResponseBody and return only headers + status. Useful when you only need to detect that the call fired.',
         },
       },
-      required: ['url_pattern'],
+      required: ['urlPattern'],
     },
   },
   {
@@ -772,6 +783,11 @@ export const TOOL_SCHEMAS: Tool[] = [
         filenameContains: { type: 'string', description: 'Filter by substring in filename or URL' },
         timeoutMs: { type: 'number', description: 'Timeout in ms (default 60000, max 300000)' },
         waitForComplete: { type: 'boolean', description: 'Wait until completed (default true)' },
+        tabId: {
+          type: 'number',
+          description:
+            'Optional source-tab filter. When provided, only downloads originating from this tab are matched. Programmatic downloads (anchor.click on detached element, fetch+blob) often lack a tabId and are matched regardless.',
+        },
       },
       required: [],
     },
@@ -863,6 +879,45 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.BOOKMARK_UPDATE,
+    description:
+      'Update a Chrome bookmark: rename, change its URL, and/or move it to a different parent folder. Identify the bookmark by id (preferred) or by url.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bookmarkId: {
+          type: 'string',
+          description:
+            'ID of the bookmark to update. Either bookmarkId or url must be provided. When url matches multiple bookmarks, all matches are updated; pass bookmarkId to disambiguate.',
+        },
+        url: {
+          type: 'string',
+          description:
+            'URL of the bookmark to update. Used to look up the bookmark when bookmarkId is omitted.',
+        },
+        matchTitle: {
+          type: 'string',
+          description:
+            'Optional title substring used to disambiguate when looking up by url. Case-sensitive substring match.',
+        },
+        newUrl: {
+          type: 'string',
+          description: 'New URL to set on the bookmark.',
+        },
+        newTitle: {
+          type: 'string',
+          description: 'New title to set on the bookmark.',
+        },
+        newParentId: {
+          type: 'string',
+          description:
+            'New parent folder path or ID to move the bookmark into (e.g., "Work/Projects" or a folder ID). The parent must exist.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.BOOKMARK_DELETE,
     description: 'Delete a bookmark from Chrome',
     inputSchema: {
@@ -911,21 +966,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'If a URL is specified, inject the script into the webpage corresponding to the URL. If no matching tab exists, a new tab is created.',
         },
-        tabId: {
-          type: 'number',
-          description:
-            'Target an existing tab by ID to inject into. Overrides url/active tab selection when provided.',
-        },
-        windowId: {
-          type: 'number',
-          description:
-            'Target window ID for selecting active tab or creating new tab when url is provided and tabId is omitted.',
-        },
-        background: {
-          type: 'boolean',
-          description:
-            'Do not activate tab/focus window during injection (default: true). Pass false to foreground.',
-        },
+        ...TAB_TARGETING,
         type: {
           type: 'string',
           enum: ['ISOLATED', 'MAIN'],
@@ -947,11 +988,7 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: {
-          type: 'number',
-          description:
-            'The tab where you previously injected the script. If not provided, uses the currently active tab.',
-        },
+        tabId: TAB_ID_PROP,
         eventName: {
           type: 'string',
           description: 'The event name your injected content script listens for.',
@@ -988,11 +1025,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'JavaScript code to execute. Runs inside an async function body, so top-level await and "return ..." are supported. Bare trailing expressions are auto-returned.',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on); otherwise the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
+        tabId: TAB_ID_PROP,
         timeoutMs: {
           type: 'number',
           description: 'Execution timeout in milliseconds (default: 15000).',
@@ -1013,19 +1046,9 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        selector: {
-          type: 'string',
-          description: 'CSS selector or XPath for the element to click.',
-        },
-        selectorType: {
-          type: 'string',
-          enum: ['css', 'xpath'],
-          description: 'Type of selector (default: "css").',
-        },
-        ref: {
-          type: 'string',
-          description: 'Element ref from chrome_read_page (takes precedence over selector).',
-        },
+        selector: SELECTOR_PROP,
+        selectorType: SELECTOR_TYPE_PROP,
+        ref: REF_PROP,
         coordinates: {
           type: 'object',
           description: 'Viewport coordinates to click at.',
@@ -1058,23 +1081,12 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'Wait for navigation to complete after click (default: false).',
         },
-        timeout: {
+        timeoutMs: {
           type: 'number',
           description: 'Timeout in milliseconds for waiting (default: 5000).',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Window ID to select active tab from (when tabId is omitted).',
-        },
-        frameId: {
-          type: 'number',
-          description: 'Target frame ID for iframe support.',
-        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: FRAME_ID_PROP,
       },
       required: [],
     },
@@ -1086,37 +1098,16 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        selector: {
-          type: 'string',
-          description: 'CSS selector or XPath for the form element.',
-        },
-        selectorType: {
-          type: 'string',
-          enum: ['css', 'xpath'],
-          description: 'Type of selector (default: "css").',
-        },
-        ref: {
-          type: 'string',
-          description: 'Element ref from chrome_read_page (takes precedence over selector).',
-        },
+        selector: SELECTOR_PROP,
+        selectorType: SELECTOR_TYPE_PROP,
+        ref: REF_PROP,
         value: {
           type: ['string', 'number', 'boolean'],
           description:
             'Value to fill. For text inputs: string. For checkboxes/radios: boolean. For selects: option value or text.',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Window ID to select active tab from (when tabId is omitted).',
-        },
-        frameId: {
-          type: 'number',
-          description: 'Target frame ID for iframe support.',
-        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: FRAME_ID_PROP,
       },
       required: ['value'],
     },
@@ -1160,15 +1151,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Timeout in milliseconds for the user to complete all selections. Default: 180000 (3 minutes). Maximum: 600000 (10 minutes).',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Window ID to select active tab from (when tabId is omitted).',
-        },
+        ...TAB_TARGETING_NO_BG,
       },
       required: ['requests'],
     },
@@ -1185,32 +1168,14 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World".',
         },
-        selector: {
-          type: 'string',
-          description: 'CSS selector or XPath for target element to receive keyboard events.',
-        },
-        selectorType: {
-          type: 'string',
-          enum: ['css', 'xpath'],
-          description: 'Type of selector (default: "css").',
-        },
+        selector: SELECTOR_PROP,
+        selectorType: SELECTOR_TYPE_PROP,
         delay: {
           type: 'number',
           description: 'Delay between keystrokes in milliseconds (default: 50).',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Window ID to select active tab from (when tabId is omitted).',
-        },
-        frameId: {
-          type: 'number',
-          description: 'Target frame ID for iframe support.',
-        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: FRAME_ID_PROP,
       },
       required: ['keys'],
     },
@@ -1227,20 +1192,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'URL to navigate to and capture console from. If not provided, uses the current active tab',
         },
-        tabId: {
-          type: 'number',
-          description:
-            "Target an existing tab by ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Target window ID to pick active tab when tabId is omitted.',
-        },
-        background: {
-          type: 'boolean',
-          description:
-            'Do not activate tab/focus window when capturing via CDP. Default: true. Pass false to foreground.',
-        },
+        ...TAB_TARGETING,
         includeExceptions: {
           type: 'boolean',
           description: 'Include uncaught exceptions in the output (default: true)',
@@ -1301,15 +1253,7 @@ export const TOOL_SCHEMAS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: {
-          type: 'number',
-          description:
-            "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.",
-        },
-        windowId: {
-          type: 'number',
-          description: 'Target window ID to pick active tab when tabId is omitted',
-        },
+        ...TAB_TARGETING_NO_BG,
         selector: {
           type: 'string',
           description: 'CSS selector for the file input element (input[type="file"])',
@@ -1349,6 +1293,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'string',
           description: 'Optional prompt text when accepting a prompt',
         },
+        ...TAB_TARGETING_NO_BG,
       },
       required: ['action'],
     },

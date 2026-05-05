@@ -9,12 +9,42 @@
  */
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import nativeMessagingHostInstance from '../native-messaging-host';
-import { NativeMessageType } from 'humanchrome-shared';
+import { NativeMessageType, ToolErrorCode, serializeToolError } from 'humanchrome-shared';
 import { withContext } from '../util/logger';
 
 const FLOW_PREFIX = 'flow.';
 const TOOL_CALL_TIMEOUT_MS = 120_000;
 const FLOW_LIST_TIMEOUT_MS = 20_000;
+
+/**
+ * Make sure every error reaching the LLM is the same parseable JSON envelope:
+ *   {"error":{"code":"...","message":"...","details":{...}}}
+ *
+ * Tool handlers in the extension already produce this shape via
+ * `createErrorResponse`. This helper handles the two paths where the
+ * native-side bridge could otherwise drop structure:
+ *
+ *   1. The extension threw out of `handleCallTool` instead of returning a
+ *      structured CallToolResult (rare — wrapper bugs).
+ *   2. `sendRequestToExtensionAndWait` itself rejected (timeout, native
+ *      messaging hiccup) — there's no extension-shaped error to forward.
+ *
+ * Pre-serialized envelopes are passed through unchanged so codes survive.
+ */
+export function toErrorEnvelopeText(message: string | undefined): string {
+  const text = message ?? 'Unknown error';
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && parsed.error && parsed.error.code) {
+        return text;
+      }
+    } catch {
+      // not JSON — fall through to wrap
+    }
+  }
+  return serializeToolError(ToolErrorCode.UNKNOWN, text);
+}
 
 /**
  * Fetch dynamic flow tool schemas from the extension. Used by both the MCP
@@ -118,7 +148,7 @@ export async function dispatchTool(
         'tool call error',
       );
       return {
-        content: [{ type: 'text', text: `Error calling dynamic flow tool: ${proxyRes.error}` }],
+        content: [{ type: 'text', text: toErrorEnvelopeText(proxyRes.error) }],
         isError: true,
       };
     }
@@ -136,16 +166,14 @@ export async function dispatchTool(
     }
     log.warn({ durationMs: Date.now() - startedAt, error: response.error }, 'tool call error');
     return {
-      content: [{ type: 'text', text: `Error calling tool: ${response.error}` }],
+      content: [{ type: 'text', text: toErrorEnvelopeText(response.error) }],
       isError: true,
     };
   } catch (error: any) {
-    log.error(
-      { durationMs: Date.now() - startedAt, error: error?.message || String(error) },
-      'tool call threw',
-    );
+    const message = error?.message || String(error);
+    log.error({ durationMs: Date.now() - startedAt, error: message }, 'tool call threw');
     return {
-      content: [{ type: 'text', text: `Error calling tool: ${error.message}` }],
+      content: [{ type: 'text', text: toErrorEnvelopeText(message) }],
       isError: true,
     };
   }

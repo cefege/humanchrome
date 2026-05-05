@@ -23,6 +23,18 @@ interface BookmarkAddToolParams {
 }
 
 /**
+ * Bookmark update tool parameters interface
+ */
+interface BookmarkUpdateToolParams {
+  bookmarkId?: string;
+  url?: string;
+  matchTitle?: string;
+  newUrl?: string;
+  newTitle?: string;
+  newParentId?: string;
+}
+
+/**
  * Bookmark delete tool parameters interface
  */
 interface BookmarkDeleteToolParams {
@@ -511,6 +523,134 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
 }
 
 /**
+ * Bookmark update tool: rename, change URL, and/or move parent.
+ * Mirrors BookmarkDeleteTool's lookup behavior so callers can identify
+ * targets the same way (id beats url; url+matchTitle disambiguates).
+ */
+class BookmarkUpdateTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.BOOKMARK_UPDATE;
+
+  async execute(args: BookmarkUpdateToolParams): Promise<ToolResult> {
+    const { bookmarkId, url, matchTitle, newUrl, newTitle, newParentId } = args || {};
+
+    if (!bookmarkId && !url) {
+      return createErrorResponse(
+        'Must provide bookmarkId or url to identify the bookmark to update',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+    if (newUrl === undefined && newTitle === undefined && newParentId === undefined) {
+      return createErrorResponse(
+        'At least one of newUrl, newTitle, or newParentId must be provided',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+
+    try {
+      let targets: chrome.bookmarks.BookmarkTreeNode[] = [];
+
+      if (bookmarkId) {
+        try {
+          const nodes = await chrome.bookmarks.get(bookmarkId);
+          if (nodes && nodes.length > 0 && nodes[0].url) {
+            targets = nodes;
+          } else {
+            return createErrorResponse(
+              `Bookmark with ID "${bookmarkId}" not found, or the ID does not correspond to a bookmark`,
+              ToolErrorCode.INVALID_ARGS,
+              { arg: 'bookmarkId' },
+            );
+          }
+        } catch {
+          return createErrorResponse(
+            `Invalid bookmark ID: "${bookmarkId}"`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'bookmarkId' },
+          );
+        }
+      } else if (url) {
+        targets = await findBookmarksByUrl(url, matchTitle);
+        if (targets.length === 0) {
+          return createErrorResponse(
+            `No bookmark found with URL "${url}"${matchTitle ? ` (title contains: "${matchTitle}")` : ''}`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'url' },
+          );
+        }
+      }
+
+      // Resolve target parent up-front so all matched bookmarks land in the
+      // same place — and so a missing folder fails before any partial moves.
+      let resolvedParentId: string | undefined;
+      if (newParentId !== undefined) {
+        const folder = await findFolderByPathOrId(newParentId);
+        if (!folder) {
+          return createErrorResponse(
+            `Parent folder not found for newParentId: "${newParentId}". The folder must exist; chrome_bookmark_update does not auto-create folders.`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'newParentId' },
+          );
+        }
+        resolvedParentId = folder.id;
+      }
+
+      const updated: Array<{
+        id: string;
+        title: string;
+        url?: string;
+        folderPath: string;
+      }> = [];
+      const errors: string[] = [];
+
+      for (const bookmark of targets) {
+        try {
+          const changes: chrome.bookmarks.BookmarkChangesArg = {};
+          if (newUrl !== undefined) changes.url = newUrl;
+          if (newTitle !== undefined) changes.title = newTitle;
+          let next: chrome.bookmarks.BookmarkTreeNode = bookmark;
+          if (Object.keys(changes).length > 0) {
+            next = await chrome.bookmarks.update(bookmark.id, changes);
+          }
+          if (resolvedParentId !== undefined) {
+            next = await chrome.bookmarks.move(bookmark.id, { parentId: resolvedParentId });
+          }
+          const path = await getBookmarkFolderPath(next.id);
+          updated.push({ id: next.id, title: next.title, url: next.url, folderPath: path });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          errors.push(
+            `Failed to update bookmark "${bookmark.title}" (ID: ${bookmark.id}): ${errorMsg}`,
+          );
+        }
+      }
+
+      if (updated.length === 0) {
+        return createErrorResponse(`Failed to update bookmarks: ${errors.join('; ')}`);
+      }
+
+      const result: any = {
+        success: true,
+        message: `Successfully updated ${updated.length} bookmark(s)`,
+        updatedBookmarks: updated,
+      };
+      if (errors.length > 0) {
+        result.partialSuccess = true;
+        result.errors = errors;
+      }
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        isError: false,
+      };
+    } catch (error) {
+      return createErrorResponse(
+        `Error updating bookmark: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+/**
  * Bookmark delete tool
  * Used to delete bookmarks in Chrome browser
  */
@@ -627,4 +767,5 @@ class BookmarkDeleteTool extends BaseBrowserToolExecutor {
 
 export const bookmarkSearchTool = new BookmarkSearchTool();
 export const bookmarkAddTool = new BookmarkAddTool();
+export const bookmarkUpdateTool = new BookmarkUpdateTool();
 export const bookmarkDeleteTool = new BookmarkDeleteTool();

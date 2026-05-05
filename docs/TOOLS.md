@@ -35,7 +35,7 @@ content (`chrome_get_web_content`, `chrome_screenshot`, `chrome_inject_script`,
 `background: true`, so the drain loop doesn't yank focus away from whatever
 tab the user is actually looking at.
 
-### `get_windows_and_tabs`
+### `chrome_get_windows_and_tabs`
 
 List all currently open browser windows and tabs.
 
@@ -147,7 +147,7 @@ via `chrome.tabs.onUpdated` — does not poll.
 - `TAB_CLOSED` — the tab was closed during the wait.
 - `TIMEOUT` — the deadline elapsed before the tab finished loading.
 
-### `chrome_close_tabs`
+### `chrome_close_tab`
 
 Close specific tabs or windows.
 
@@ -322,7 +322,7 @@ Example:
 
 Response contains `pageContent` (text tree), `viewport`, and a `refMapCount` summary. Use `chrome_get_interactive_elements` or your own logic to act on returned refs.
 
-### `search_tabs_content`
+### `chrome_search_tabs_content`
 
 AI-powered semantic search across browser tabs.
 
@@ -709,7 +709,7 @@ await callTool('chrome_click_element', {
 });
 
 // 5. Search content semantically
-const searchResults = await callTool('search_tabs_content', {
+const searchResults = await callTool('chrome_search_tabs_content', {
   query: 'user data analysis',
 });
 

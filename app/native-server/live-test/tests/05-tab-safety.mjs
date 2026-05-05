@@ -244,7 +244,7 @@ export default [
       const callPromise = A.callTool('chrome_javascript', args);
       // Give it a beat to start, then close from B.
       await new Promise((r) => setTimeout(r, 80));
-      await B.callTool('chrome_close_tabs', { tabIds: [tabId] }).catch(() => undefined);
+      await B.callTool('chrome_close_tab', { tabIds: [tabId] }).catch(() => undefined);
       const result = await callPromise;
       const requestId = await correlateRequestId(A, 'chrome_javascript', sinceMs);
       const env = A.parseErrorEnvelope(result);

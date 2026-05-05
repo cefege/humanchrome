@@ -227,7 +227,8 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
             type: 'text',
             text: JSON.stringify({
               success: true,
-              message: 'Performance trace is recording. Use performance_stop_trace to stop it.',
+              message:
+                'Performance trace is recording. Use chrome_performance_stop_trace to stop it.',
               reload,
               autoStop,
             }),

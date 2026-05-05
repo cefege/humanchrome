@@ -44,7 +44,7 @@ The local bridge (`humanchrome-bridge`) listens only on `127.0.0.1:12306` (the l
 The extension uses local browser storage for a small number of things, all of which stay on your machine:
 
 - **`chrome.storage.local` / `chrome.storage.sync`.** Extension settings, the redaction toggle, element markers, saved workflows, and similar configuration.
-- **IndexedDB.** Vector cache for the semantic tab search feature (`search_tabs_content`), saved workflows, and recorder artifacts. The vector index is built locally from the pages you ask it to index; the embeddings never leave your machine.
+- **IndexedDB.** Vector cache for the semantic tab search feature (`chrome_search_tabs_content`), saved workflows, and recorder artifacts. The vector index is built locally from the pages you ask it to index; the embeddings never leave your machine.
 - **Local files in your OS profile directory.** The bridge writes logs to:
   - macOS: `~/Library/Logs/humanchrome-bridge`
   - Windows: `%LOCALAPPDATA%\humanchrome-bridge\logs`
