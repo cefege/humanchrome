@@ -145,6 +145,124 @@
     });
   }
 
+  function resolveBySelector(selector, selectorType) {
+    try {
+      if (selectorType === 'xpath') {
+        const result = document.evaluate(
+          selector,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null,
+        );
+        const node = result && result.singleNodeValue;
+        return node instanceof Element ? node : null;
+      }
+      return document.querySelector(selector);
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveByRef(ref) {
+    try {
+      const map = window.__claudeElementMap || {};
+      const weak = map[ref];
+      const el = weak && typeof weak.deref === 'function' ? weak.deref() : null;
+      // Confirm the element is still attached to the DOM. WeakRef may
+      // resolve to a detached node which counts as "absent" for our predicate.
+      if (el && el.isConnected) return el;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  function waitForElement({
+    selector,
+    selectorType = 'css',
+    ref,
+    state = 'present',
+    timeout = 15000,
+  }) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      let resolved = false;
+
+      const wantPresent = state !== 'absent';
+
+      const probe = () => {
+        if (ref) {
+          const el = resolveByRef(ref);
+          return el ? el : null;
+        }
+        if (selector) {
+          return resolveBySelector(selector, selectorType);
+        }
+        return null;
+      };
+
+      const isGoalReached = () => {
+        const found = probe();
+        if (wantPresent) return found ? found : null;
+        // For state==='absent' we want absence — treat null as goal-met,
+        // but we still need a sentinel value, so return a synthetic marker.
+        return found ? null : true;
+      };
+
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        try {
+          obs && obs.disconnect();
+        } catch {}
+        clearTimeout(timer);
+        resolve(result);
+      };
+
+      const check = () => {
+        try {
+          const goal = isGoalReached();
+          if (goal !== null) {
+            const matched =
+              wantPresent && goal instanceof Element
+                ? { ref: ensureRefForElement(goal), center: centerOf(goal) }
+                : null;
+            done({
+              success: true,
+              found: true,
+              matched,
+              tookMs: Date.now() - start,
+            });
+          }
+        } catch {}
+      };
+
+      const obs = new MutationObserver(check);
+      try {
+        obs.observe(document.documentElement || document.body, {
+          subtree: true,
+          childList: true,
+          characterData: false,
+          attributes: true,
+        });
+      } catch {}
+
+      // initial check
+      check();
+      const timer = setTimeout(
+        () =>
+          done({
+            success: false,
+            reason: 'timeout',
+            found: false,
+            tookMs: Date.now() - start,
+          }),
+        Math.max(0, timeout),
+      );
+    });
+  }
+
   function waitForSelector({ selector, visible = true, timeout = 5000 }) {
     return new Promise((resolve) => {
       const start = Date.now();
@@ -212,6 +330,22 @@
           return true;
         }
         waitFor({ text, appear, timeout }).then((res) => sendResponse(res));
+        return true; // async
+      }
+      if (request && request.action === 'waitForElement') {
+        const selector =
+          typeof request.selector === 'string' ? String(request.selector).trim() : '';
+        const selectorType = request.selectorType === 'xpath' ? 'xpath' : 'css';
+        const ref = typeof request.ref === 'string' ? String(request.ref).trim() : '';
+        const state = request.state === 'absent' ? 'absent' : 'present';
+        const timeout = Number(request.timeout || 15000);
+        if (!selector && !ref) {
+          sendResponse({ success: false, error: 'selector or ref is required' });
+          return true;
+        }
+        waitForElement({ selector, selectorType, ref, state, timeout }).then((res) =>
+          sendResponse(res),
+        );
         return true; // async
       }
       if (request && request.action === 'waitForSelector') {

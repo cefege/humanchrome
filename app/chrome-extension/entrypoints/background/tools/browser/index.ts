@@ -5,6 +5,7 @@ export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-s
 export { screenshotTool } from './screenshot';
 export { webFetcherTool, getInteractiveElementsTool } from './web-fetcher';
 export { clickTool, fillTool } from './interaction';
+export { awaitElementTool } from './await-element';
 export { elementPickerTool } from './element-picker';
 export { networkRequestTool } from './network-request';
 export { networkCaptureTool } from './network-capture';

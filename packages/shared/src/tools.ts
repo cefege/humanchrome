@@ -84,6 +84,7 @@ export const TOOL_NAMES = {
     NETWORK_DEBUGGER_STOP: 'chrome_network_debugger_stop',
     INTERCEPT_RESPONSE: 'chrome_intercept_response',
     KEYBOARD: 'chrome_keyboard',
+    AWAIT_ELEMENT: 'chrome_await_element',
     HISTORY: 'chrome_history',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
     BOOKMARK_ADD: 'chrome_bookmark_add',
@@ -1305,6 +1306,37 @@ export const TOOL_SCHEMAS: Tool[] = [
         frameId: FRAME_ID_PROP,
       },
       required: ['keys'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.AWAIT_ELEMENT,
+    description:
+      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS or XPath) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: SELECTOR_PROP,
+        selectorType: SELECTOR_TYPE_PROP,
+        ref: {
+          type: 'string',
+          description:
+            'Element ref from chrome_read_page. Takes precedence over selector. For state="absent", waits until the referenced element is detached or the ref no longer resolves.',
+        },
+        state: {
+          type: 'string',
+          enum: ['present', 'absent'],
+          description:
+            'Target state to wait for: "present" (default) waits for a matching element to appear, "absent" waits for it to disappear.',
+        },
+        timeoutMs: {
+          type: 'number',
+          description:
+            'Timeout in milliseconds (default: 15000, max: 120000). Returns a TIMEOUT error when the goal state is not reached in time.',
+        },
+        ...TAB_TARGETING,
+        frameId: FRAME_ID_PROP,
+      },
+      required: [],
     },
   },
   {
