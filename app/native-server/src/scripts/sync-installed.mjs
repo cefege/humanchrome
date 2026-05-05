@@ -20,8 +20,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_DIST = path.resolve(HERE, '..', '..', 'dist');
+const SHARED_DIST = path.resolve(HERE, '..', '..', '..', '..', 'packages', 'shared', 'dist');
 
 const MANIFEST_NAME = 'com.humanchrome.nativehost.json';
+
+/** Workspace deps that pnpm deploy bundled into <install>/node_modules. Their
+ *  source-of-truth dist directories must be re-synced or the bridge boots with
+ *  stale TOOL_SCHEMAS, error codes, etc. after a `pnpm build`. */
+const WORKSPACE_DEPS = [{ name: 'humanchrome-shared', distSrc: SHARED_DIST }];
 
 function manifestCandidates() {
   const home = os.homedir();
@@ -75,6 +81,26 @@ async function main() {
     console.log(`[sync-installed] ${REPO_DIST} → ${installedDist}`);
   } catch (err) {
     console.warn(`[sync-installed] copy failed: ${err.message}`);
+  }
+
+  // Also refresh the bundled workspace deps so a `pnpm build` of e.g.
+  // humanchrome-shared actually reaches the running bridge. Without this,
+  // pnpm-deploy's snapshot of these packages stays frozen at deploy time
+  // and the bridge keeps booting with old TOOL_SCHEMAS / error codes.
+  const installRoot = path.dirname(installedDist);
+  for (const dep of WORKSPACE_DEPS) {
+    const target = path.join(installRoot, 'node_modules', dep.name, 'dist');
+    try {
+      await fs.access(dep.distSrc);
+    } catch {
+      continue;
+    }
+    try {
+      await fs.cp(dep.distSrc, target, { recursive: true, force: true });
+      console.log(`[sync-installed] ${dep.distSrc} → ${target}`);
+    } catch (err) {
+      console.warn(`[sync-installed] dep ${dep.name} copy failed: ${err.message}`);
+    }
   }
 }
 
