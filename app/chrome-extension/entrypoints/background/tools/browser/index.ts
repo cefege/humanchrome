@@ -20,6 +20,7 @@ export {
   bookmarkUpdateTool,
   bookmarkDeleteTool,
 } from './bookmark';
+export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
 export { injectScriptTool, sendCommandToInjectScriptTool } from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';

@@ -89,6 +89,9 @@ export const TOOL_NAMES = {
     BOOKMARK_ADD: 'chrome_bookmark_add',
     BOOKMARK_UPDATE: 'chrome_bookmark_update',
     BOOKMARK_DELETE: 'chrome_bookmark_delete',
+    GET_COOKIES: 'chrome_get_cookies',
+    SET_COOKIE: 'chrome_set_cookie',
+    REMOVE_COOKIE: 'chrome_remove_cookie',
     INJECT_SCRIPT: 'chrome_inject_script',
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
     JAVASCRIPT: 'chrome_javascript',
@@ -937,6 +940,130 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.GET_COOKIES,
+    description:
+      "Read browser cookies for a URL or domain. Wraps chrome.cookies.getAll. At least one of `url` or `domain` is required to keep the response bounded. Returns an array of cookie objects with shape { name, value, domain, hostOnly, path, secure, httpOnly, sameSite, session, expirationDate?, storeId }. Use this to inspect a site's session/auth state before driving a page (e.g. to confirm a LinkedIn `li_at` cookie exists, or to debug why a request 401'd).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'Restrict to cookies that would be sent to this URL (matches scheme, host, and path). Either `url` or `domain` is required.',
+        },
+        domain: {
+          type: 'string',
+          description:
+            'Restrict to cookies whose domain matches (or is a subdomain of) this domain (e.g. "linkedin.com"). Either `url` or `domain` is required.',
+        },
+        name: {
+          type: 'string',
+          description: 'Optional: only return cookies with this exact name.',
+        },
+        path: {
+          type: 'string',
+          description: 'Optional: restrict to cookies with this path.',
+        },
+        secure: {
+          type: 'boolean',
+          description: 'Optional: when set, filter by the Secure flag.',
+        },
+        session: {
+          type: 'boolean',
+          description:
+            'Optional: when true, only session cookies; when false, only persistent cookies.',
+        },
+        storeId: {
+          type: 'string',
+          description:
+            "Optional: cookie store ID (e.g. for incognito). When omitted, the current execution context's store is used.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.SET_COOKIE,
+    description:
+      'Set a single cookie. Wraps chrome.cookies.set. The `url` argument is required — Chrome uses it to derive default values for `domain` and `path` and to validate the Secure attribute. Other fields are optional pass-throughs. Returns the resulting Cookie object on success. Use this to seed an auth cookie before navigation (e.g. restore a saved `li_at` to skip the LinkedIn sign-in UI).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'URL associated with the cookie (required). Determines default domain/path and is used to validate Secure cookies.',
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the cookie. Empty string by default.',
+        },
+        value: {
+          type: 'string',
+          description: 'Value of the cookie. Empty string by default.',
+        },
+        domain: {
+          type: 'string',
+          description:
+            'Domain of the cookie. If omitted, the cookie becomes a host-only cookie for the URL.',
+        },
+        path: {
+          type: 'string',
+          description: 'Path of the cookie. Defaults to the path portion of `url`.',
+        },
+        secure: {
+          type: 'boolean',
+          description: 'Whether the cookie should be marked Secure. Default: false.',
+        },
+        httpOnly: {
+          type: 'boolean',
+          description: 'Whether the cookie should be marked HttpOnly. Default: false.',
+        },
+        sameSite: {
+          type: 'string',
+          enum: ['no_restriction', 'lax', 'strict', 'unspecified'],
+          description: 'SameSite attribute. Default: "unspecified".',
+        },
+        expirationDate: {
+          type: 'number',
+          description:
+            'Expiration date in seconds since the Unix epoch. If omitted, the cookie becomes a session cookie.',
+        },
+        storeId: {
+          type: 'string',
+          description:
+            "The ID of the cookie store. By default the cookie is set in the current execution context's store.",
+        },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.REMOVE_COOKIE,
+    description:
+      'Delete a single cookie by URL + name. Wraps chrome.cookies.remove. Returns { url, name, storeId } on success, or null if no matching cookie was found. Use this to clear an auth cookie (e.g. force a LinkedIn re-login) without driving a logout flow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'URL associated with the cookie to delete. Combined with `name` to identify a unique cookie.',
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the cookie to delete.',
+        },
+        storeId: {
+          type: 'string',
+          description:
+            "Optional: cookie store ID. When omitted, the current execution context's store is used.",
+        },
+      },
+      required: ['url', 'name'],
     },
   },
   {

@@ -1,6 +1,6 @@
 # HumanChrome — Permission Justifications
 
-This document explains, one paragraph per permission, why every Chrome permission listed in [`wxt.config.ts`](./wxt.config.ts) (lines 40-57) is required for HumanChrome to function. These justifications are written in the form Chrome Web Store reviewers expect: a single user-visible feature that breaks if the permission is removed.
+This document explains, one paragraph per permission, why every Chrome permission listed in [`wxt.config.ts`](./wxt.config.ts) (lines 40-58) is required for HumanChrome to function. These justifications are written in the form Chrome Web Store reviewers expect: a single user-visible feature that breaks if the permission is removed.
 
 `host_permissions: ["<all_urls>"]` is required because the user (via their AI client) decides at runtime which site to operate on. HumanChrome cannot enumerate the set of sites in advance — the whole point of the extension is to drive whatever page you have open. Restricting `host_permissions` would make the extension useless on any site not pre-declared.
 
@@ -47,6 +47,10 @@ Backs the `chrome_history` tool, which performs full-text search across the user
 ## `bookmarks`
 
 Backs the `chrome_bookmark_search`, `chrome_bookmark_add`, `chrome_bookmark_update`, and `chrome_bookmark_delete` CRUD tools. The agent uses these to organize bookmarks on the user's behalf or to look up a previously bookmarked page.
+
+## `cookies`
+
+Backs the `chrome_get_cookies`, `chrome_set_cookie`, and `chrome_remove_cookie` tools, which expose `chrome.cookies.getAll`/`chrome.cookies.set`/`chrome.cookies.remove` to the AI client. Without this permission the agent can drive a page that has cookies (the existing `chrome_network_request` tool already sends them implicitly), but it cannot inspect what cookies the browser is holding for a domain or seed/clear an auth cookie before navigation. That's a hard requirement for session-debugging on sites like LinkedIn and WhatsApp Web, and for restoring a saved login state without forcing the user to walk through a UI sign-in flow each time.
 
 ## `offscreen`
 
