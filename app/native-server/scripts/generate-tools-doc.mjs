@@ -59,13 +59,11 @@ function renderType(prop) {
   if (Array.isArray(prop.enum) && prop.enum.length > 0) {
     return prop.enum.map((v) => `\`${v}\``).join(' | ');
   }
-  if (Array.isArray(prop.oneOf)) {
-    const inner = prop.oneOf.map((s) => renderType(s)).filter(Boolean);
-    return inner.length ? inner.join(' | ') : 'oneOf';
-  }
-  if (Array.isArray(prop.anyOf)) {
-    const inner = prop.anyOf.map((s) => renderType(s)).filter(Boolean);
-    return inner.length ? inner.join(' | ') : 'anyOf';
+  for (const key of ['oneOf', 'anyOf']) {
+    if (Array.isArray(prop[key])) {
+      const inner = prop[key].map((s) => renderType(s)).filter(Boolean);
+      return inner.length ? inner.join(' | ') : key;
+    }
   }
   if (Array.isArray(prop.type)) {
     return prop.type.join(' | ');
@@ -227,23 +225,17 @@ async function main() {
   const after = original.slice(endIdx);
   const generated = buildSection(byCategory, fullOrder);
   const next = `${before}\n\n${generated}\n\n${after}`;
+  const usedCats = fullOrder.filter((c) => (byCategory.get(c) || []).length > 0).length;
+  const summary = `${TOOL_SCHEMAS.length} tools across ${usedCats} categories`;
 
   if (next === original) {
-    console.log(
-      `[generate-tools-doc] no changes — wrote ${TOOL_SCHEMAS.length} tools across ${
-        fullOrder.filter((c) => (byCategory.get(c) || []).length > 0).length
-      } categories (idempotent)`,
-    );
+    console.log(`[generate-tools-doc] no changes — wrote ${summary} (idempotent)`);
     return;
   }
 
   await fs.writeFile(TOOLS_DOC, next, 'utf8');
-  const usedCats = fullOrder.filter((c) => (byCategory.get(c) || []).length > 0).length;
   console.log(
-    `[generate-tools-doc] wrote ${TOOL_SCHEMAS.length} tools across ${usedCats} categories → ${path.relative(
-      REPO_ROOT,
-      TOOLS_DOC,
-    )}`,
+    `[generate-tools-doc] wrote ${summary} → ${path.relative(REPO_ROOT, TOOLS_DOC)}`,
   );
 }
 

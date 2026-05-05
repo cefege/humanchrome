@@ -92,28 +92,26 @@ Spawn a `general-purpose` subagent with `isolation: "worktree"`. The prompt
 
 **Read the current main commit hash first**: run
 `git -C /Users/mike/Documents/Code/humanchrome rev-parse main` — capture
-the value as `MAIN_SHA`. The harness has a known bug where worktree
-isolation branches from a stale base (a session-fixed commit, not current
-main HEAD). The implementer must reset to MAIN_SHA before doing any work,
-otherwise it builds on stale code and ships fundamentally broken changes
-(missing renames, missing tools added in earlier improvements, etc.).
+as `MAIN_SHA`. The worktree harness branches from a stale, session-fixed
+base, not current main HEAD. The implementer must sync to MAIN_SHA before
+any other action, otherwise the change is built on missing renames /
+missing tools / dropped fixes from earlier `/improve` runs.
 
-Include this in the prompt:
+Include this in the prompt (substitute `{MAIN_SHA}`):
 
 ```
 You're implementing one item from the humanchrome improvement backlog.
-The full entry is below.
 
-STEP 0 — Sync to current main (MANDATORY, before any other action):
-  cd /Users/mike/Documents/Code/humanchrome/.claude/worktrees/<your-worktree>
-  CURRENT_MAIN={MAIN_SHA}
-  git fetch /Users/mike/Documents/Code/humanchrome main:_target_main
-  git reset --hard _target_main
-  git branch -D _target_main
-  Confirm `git rev-parse HEAD` matches {MAIN_SHA}. If it doesn't, abort
-  with a clear error — don't try to work on stale code.
+Sync first (mandatory, before any other action). From inside your
+worktree, run:
 
-After step 0:
+  node /Users/mike/Documents/Code/humanchrome/.claude/scripts/sync-worktree-to-main.mjs {MAIN_SHA}
+
+The script fetches main from the source repo, hard-resets HEAD to
+{MAIN_SHA}, and exits non-zero on mismatch. If it exits non-zero, abort —
+do not work on stale code.
+
+Then:
 
   1. Implement the change.
   2. Run pnpm -w build (must finish green).
@@ -121,12 +119,11 @@ After step 0:
      native server, and pnpm --dir app/chrome-extension test for any change
      touching the extension.
   4. Report (in your single returned message): files changed with line
-     counts, build status, test status, any blockers, and the worktree path
-     + branch name. **Confirm in the report that step 0 completed and that
-     HEAD matched the supplied MAIN_SHA.**
+     counts, build status, test status, any blockers, the worktree path +
+     branch name, and **the synced HEAD (it must match {MAIN_SHA})**.
 
-DO NOT commit. DO NOT push. Leave the worktree clean for the user to review.
-If the change is not feasible as scoped, stop and report why.
+DO NOT commit. DO NOT push. Leave the worktree clean for the user to
+review. If the change is not feasible as scoped, stop and report why.
 
 --- backlog entry (verbatim) ---
 {paste the full markdown entry, including the ### header line}
@@ -136,8 +133,8 @@ Likely-relevant files (best-effort grep): {list of file paths from a quick
 search using the title and "why" keywords}
 ```
 
-After the agent returns, check the report mentions a successful sync to
-MAIN_SHA. If it doesn't (or if the agent skipped step 0), the work is
+After the agent returns, check the report mentions a HEAD matching
+MAIN_SHA. If it doesn't (or the sync script wasn't called), the work is
 suspect — rebase the worktree onto current main yourself before merging,
 the same way IMP-0002 was rebased.
 
