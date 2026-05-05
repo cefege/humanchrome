@@ -4,6 +4,21 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS Tahoe TCC compatibility**: `humanchrome-bridge register` now refuses
+  to write a Native Messaging manifest when the resolved bridge path is inside
+  a TCC-protected directory (`~/Documents`, `~/Desktop`, `~/Downloads`,
+  `~/Pictures`, `~/Movies`, `~/Music`, `~/Library/Mobile Documents`/iCloud
+  Drive). Background: macOS Tahoe (Darwin 25.x) lets Chrome READ files in
+  those directories with Full Disk Access but blocks `exec()` of scripts
+  inside them. Registration would succeed, but every `connectNative()` call
+  would silently fail with `lastError: 'Native host has exited.'` and our
+  wrapper would never run (no log file, no spawn). The new check throws an
+  error pointing the user at `~/Library/Application Support/humanchrome-bridge/`
+  with a paste-able `pnpm deploy` recipe. New regression tests live at
+  `app/native-server/src/scripts/utils.test.ts`.
+
 ### Security
 
 - Bridge HTTP server now enforces a loopback-only `Host` header on

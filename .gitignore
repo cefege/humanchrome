@@ -50,3 +50,4 @@ CLAUDE.md
 
 .docs/
 .claude/build/
+.claude/settings.local.json
