@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0014 · Add chrome_console_clear tool to reset the captured console buffer (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: chrome_console accumulates all errors since the tab loaded. Agents running multi-step flows cannot tell whether a console error is from a previous step or the current one without tracking wall-clock timestamps manually. A chrome_console_clear tool resets the extension-side buffer so subsequent chrome_console or chrome_assert console_clean checks are scoped to the current step — the same reset pattern that test frameworks use between assertions.
 - **Cost**: S
 - **Value**: M
@@ -61,7 +61,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0016 · Add title_matches predicate to chrome_assert (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: SPAs routinely update document.title on navigation without changing the URL path (e.g. LinkedIn messaging threads, WhatsApp contact views, Gmail). chrome_assert url_matches cannot distinguish these transitions. A title_matches predicate (substring or regex, same pattern interface as url_matches) lets agents confirm SPA navigation completed without a separate chrome_javascript call — keeping assertion logic declarative and in one tool call.
 - **Cost**: S
 - **Value**: M
@@ -70,7 +70,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0017 · Add chrome_userscript_list and chrome_userscript_remove for injection lifecycle (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: chrome_userscript injects persistent scripts but there is no way to enumerate what is currently injected or remove a specific script without reloading the extension. In multi-step agent sessions a script injected in step 2 may conflict with a differently-configured script injected in step 5. Without a remove operation agents must reload the extension (losing all state) to clean up. List + remove completes the CRUD lifecycle the bookmark group already models.
 - **Cost**: S
 - **Value**: M
@@ -79,7 +79,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0020 · Extract shadow-host CSS template literal to a separate .css file loaded via ?raw import (perf) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: shadow-host.ts is 3621 LoC but 3425 of those are a single inline CSS template literal (SHADOW_HOST_STYLES, lines 56-3480). The 85 KB string is parsed and re-evaluated every time the module is imported. Moving it to a .css file loaded via `import styles from "./shadow-host.css?raw"` defers parsing to the bundler, enables Vite/WXT CSS minification, and reduces the TS module to ~196 lines of actual logic — making future edits to either CSS or JS far less error-prone.
 - **Cost**: S
 - **Value**: M
