@@ -143,9 +143,15 @@ function rebaseWithAutoResolve(worktreePath, mainRef = 'main') {
 function commitWorktree(worktreePath, message) {
   // Stage everything (implementers leave their changes uncommitted).
   trySh('git add -A', { cwd: worktreePath });
-  // If nothing to commit, this is a no-op item.
   const status = trySh('git status --porcelain', { cwd: worktreePath });
   if (status.ok && status.out.length === 0) {
+    // Working tree is clean. Two possibilities: genuine no-op (branch ==
+    // main) OR a prior cascade attempt already committed and was reverted
+    // off main. Check if the branch has commits ahead of main.
+    const ahead = trySh('git rev-list main..HEAD --count', { cwd: worktreePath });
+    if (ahead.ok && ahead.out !== '0') {
+      return { ok: true, alreadyCommitted: true };
+    }
     return { ok: false, reason: 'no-op (worktree had no changes)' };
   }
   // Use --no-verify to skip lint-staged hooks during the cascade — we run
