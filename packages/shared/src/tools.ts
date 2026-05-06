@@ -108,6 +108,7 @@ export const TOOL_NAMES = {
     PERFORMANCE_ANALYZE_INSIGHT: 'chrome_performance_analyze_insight',
     GIF_RECORDER: 'chrome_gif_recorder',
     DEBUG_DUMP: 'chrome_debug_dump',
+    ASSERT: 'chrome_assert',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -1699,6 +1700,76 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.ASSERT,
+    description:
+      'Run one or more predicates against the page and return a structured pass/fail result. Use after a flow step to declaratively confirm "did the click work? did the page navigate? is the toast visible? was the API call successful?" instead of inferring success from individual tool returns. Returns `{ ok: boolean, results: [{ predicate, ok, detail }] }` — `ok` is the AND of every predicate. Tools fan out to existing primitives (querySelector, console-buffer, performance.getEntriesByType, page eval); no new infrastructure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        predicates: {
+          type: 'array',
+          minItems: 1,
+          description: 'List of assertions to run. All must pass for the overall ok=true.',
+          items: {
+            type: 'object',
+            properties: {
+              kind: {
+                type: 'string',
+                enum: [
+                  'url_matches',
+                  'element_present',
+                  'element_absent',
+                  'console_clean',
+                  'network_succeeded',
+                  'js',
+                ],
+                description: 'Which predicate to run.',
+              },
+              pattern: {
+                type: 'string',
+                description:
+                  'For url_matches and console_clean: substring or /regex/flags pattern. Required for url_matches; optional for console_clean (filters which console errors count).',
+              },
+              type: {
+                type: 'string',
+                enum: ['substring', 'regex'],
+                description: 'For url_matches: how to interpret pattern. Default: regex.',
+              },
+              selector: {
+                type: 'string',
+                description:
+                  'For element_present / element_absent: CSS selector or XPath. Either selector or ref must be provided.',
+              },
+              selectorType: SELECTOR_TYPE_PROP,
+              ref: {
+                type: 'string',
+                description: 'For element_present / element_absent: ref from chrome_read_page.',
+              },
+              sinceMs: {
+                type: 'number',
+                description:
+                  'For console_clean: epoch milliseconds. Only console errors at or after this timestamp count. Default 0 (whole capture buffer).',
+              },
+              urlPattern: {
+                type: 'string',
+                description:
+                  'For network_succeeded: substring or /regex/flags matched against entries from performance.getEntriesByType("resource"). Most-recent matching entry is checked. Note: cross-origin responses without Timing-Allow-Origin report status 0; in that case predicate succeeds on "fetch completed without error".',
+              },
+              expression: {
+                type: 'string',
+                description:
+                  'For js: a JavaScript expression evaluated in the page context. Predicate passes if the expression returns truthy.',
+              },
+            },
+            required: ['kind'],
+          },
+        },
+        ...TAB_TARGETING_NO_BG,
+      },
+      required: ['predicates'],
+    },
+  },
 ];
 
 /**
@@ -1756,6 +1827,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: 'Interaction',
   [TOOL_NAMES.BROWSER.HANDLE_DIALOG]: 'Interaction',
   [TOOL_NAMES.BROWSER.AWAIT_ELEMENT]: 'Interaction',
+  [TOOL_NAMES.BROWSER.ASSERT]: 'Interaction',
 
   [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',

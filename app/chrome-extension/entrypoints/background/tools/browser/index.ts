@@ -38,3 +38,4 @@ export {
 } from './performance';
 export { gifRecorderTool } from './gif-recorder';
 export { debugDumpTool } from './debug-dump';
+export { assertTool } from './assert';
