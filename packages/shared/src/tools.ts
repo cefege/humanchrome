@@ -128,44 +128,59 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
-  // {
-  //   name: TOOL_NAMES.RECORD_REPLAY.FLOW_RUN,
-  //   description:
-  //     'Run a recorded flow by ID with optional variables and run options. Returns a standardized run result.',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       flowId: { type: 'string', description: 'ID of the flow to run' },
-  //       args: {
-  //         type: 'object',
-  //         description: 'Variable values for the flow (flat object of key/value)',
-  //       },
-  //       tabTarget: {
-  //         type: 'string',
-  //         description: "Target tab: 'current' or 'new' (default: current)",
-  //         enum: ['current', 'new'],
-  //       },
-  //       refresh: { type: 'boolean', description: 'Refresh before running (default false)' },
-  //       captureNetwork: {
-  //         type: 'boolean',
-  //         description: 'Capture network snippets for debugging (default false)',
-  //       },
-  //       returnLogs: { type: 'boolean', description: 'Return run logs (default false)' },
-  //       timeoutMs: { type: 'number', description: 'Global timeout in ms (optional)' },
-  //       startUrl: { type: 'string', description: 'Optional start URL to open before running' },
-  //     },
-  //     required: ['flowId'],
-  //   },
-  // },
-  // {
-  //   name: TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED,
-  //   description: 'List published flows available as dynamic tools (for discovery).',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {},
-  //     required: [],
-  //   },
-  // },
+  {
+    name: TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED,
+    description:
+      'List recorded flows that have been published as dynamic MCP tools. Each entry includes id, slug, name, version, declared variables (used for `args`), and metadata. Discovery surface for `record_replay_flow_run` — pair with the dynamic `flow.<slug>` tools the bridge auto-exposes for callable flows.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.RECORD_REPLAY.FLOW_RUN,
+    description:
+      'Run a recorded flow by ID. Recorded flows are step sequences captured via the extension UI (web-editor / record-replay-v3) and replayed deterministically by the runner. Returns a standardized run result with per-step outcomes. Prefer the dynamic `flow.<slug>` tool surface (each published flow gets one) when you know the slug — `record_replay_flow_run` is the explicit fallback when the slug is unknown.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flowId: { type: 'string', description: 'ID of the flow to run.' },
+        args: {
+          type: 'object',
+          description:
+            'Variable values for the flow (flat object of key/value). Variables are declared per-flow at recording time; see record_replay_list_published for the schema of each flow.',
+        },
+        tabTarget: {
+          type: 'string',
+          enum: ['current', 'new'],
+          description: 'Where to run the flow: in the current tab (default) or a new tab.',
+        },
+        refresh: {
+          type: 'boolean',
+          description: 'Refresh the target tab before running (default false).',
+        },
+        captureNetwork: {
+          type: 'boolean',
+          description:
+            'Capture network snippets during the run for debugging (default false). Adds latency.',
+        },
+        returnLogs: {
+          type: 'boolean',
+          description: 'Include per-step log entries in the run result (default false).',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Global timeout in milliseconds for the entire flow run.',
+        },
+        startUrl: {
+          type: 'string',
+          description: 'Optional URL to open before the flow runs.',
+        },
+      },
+      required: ['flowId'],
+    },
+  },
   {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
     description:
@@ -1875,6 +1890,7 @@ export const TOOL_CATEGORY_ORDER = [
   'Performance',
   'Diagnostics',
   'Pacing',
+  'Workflows',
 ] as const;
 
 export type ToolCategory = (typeof TOOL_CATEGORY_ORDER)[number];
@@ -1947,4 +1963,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
 
   [TOOL_NAMES.BROWSER.PACE]: 'Pacing',
+
+  [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
+  [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
 };

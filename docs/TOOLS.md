@@ -625,6 +625,29 @@ Set a per-MCP-client pacing profile. Mutating tool dispatches (anything that cli
 | `minGapMs` | number |  | Optional override: inclusive lower bound on gap between mutating dispatches (ms). Stacks with the profile preset. |
 | `jitterMs` | number |  | Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs. |
 
+## Workflows
+
+### `record_replay_list_published`
+
+List recorded flows that have been published as dynamic MCP tools. Each entry includes id, slug, name, version, declared variables (used for `args`), and metadata. Discovery surface for `record_replay_flow_run` — pair with the dynamic `flow.<slug>` tools the bridge auto-exposes for callable flows.
+
+No parameters.
+
+### `record_replay_flow_run`
+
+Run a recorded flow by ID. Recorded flows are step sequences captured via the extension UI (web-editor / record-replay-v3) and replayed deterministically by the runner. Returns a standardized run result with per-step outcomes. Prefer the dynamic `flow.<slug>` tool surface (each published flow gets one) when you know the slug — `record_replay_flow_run` is the explicit fallback when the slug is unknown.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `flowId` | string | ✓ | ID of the flow to run. |
+| `args` | object |  | Variable values for the flow (flat object of key/value). Variables are declared per-flow at recording time; see record_replay_list_published for the schema of each flow. |
+| `tabTarget` | `current` \| `new` |  | Where to run the flow: in the current tab (default) or a new tab. |
+| `refresh` | boolean |  | Refresh the target tab before running (default false). |
+| `captureNetwork` | boolean |  | Capture network snippets during the run for debugging (default false). Adds latency. |
+| `returnLogs` | boolean |  | Include per-step log entries in the run result (default false). |
+| `timeoutMs` | number |  | Global timeout in milliseconds for the entire flow run. |
+| `startUrl` | string |  | Optional URL to open before the flow runs. |
+
 
 <!-- AUTO-GEN END -->
 
