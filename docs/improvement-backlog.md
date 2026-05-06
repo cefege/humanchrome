@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: ClaudeEngine at 1601 LoC has a single public method `initializeAndRun` that spans roughly lines 62-1292 (~1230 lines). It interleaves SDK loading, env construction, tool-input streaming accumulation, stderr buffering, and HumanChrome bridge setup. Any change to stream parsing risks breaking error classification and vice versa. Splitting into private sub-methods (buildQuery, accumulateToolInput, processAssistantEvent, finalizeRun) would make each concern independently testable and cut the cognitive surface of the hot loop to <150 lines.
 - **Cost**: M
 - **Value**: M
@@ -63,7 +63,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: At 2363 LoC the file bundles four unrelated concerns: model-registry (253 lines of PREDEFINED_MODELS + recommenders), EmbeddingMemoryPool (54 lines), SemanticSimilarityEngineProxy (312 lines, offscreen IPC only), and SemanticSimilarityEngine itself (1570 lines of ONNX + SIMD + tokenization). The offscreen entrypoint only imports SemanticSimilarityEngine, so Proxy is dead weight in that bundle. Splitting lets the proxy be tree-shaken where unused and makes the ONNX inference loop independently navigable.
 - **Cost**: M
 - **Value**: M
@@ -74,7 +74,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0021 · Split packages/shared/src/tools.ts into per-category schema files (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: tools.ts is 1969 LoC with TOOL_SCHEMAS spanning lines 121-1877 (1757 lines, ~45 tool definitions). Every tool addition touches this one file, creating merge conflicts when multiple features land in parallel. Splitting into per-category files (navigation.ts, interaction.ts, media.ts, workflows.ts, etc.) limits each PR to one file, and the category coverage test already enforces completeness — so the test harness works as-is after the split.
 - **Cost**: M
 - **Value**: M
@@ -85,7 +85,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0022 · Type record-replay NodeRuntime step generics to eliminate 60+ as any casts across node files (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: The 10+ node files (click.ts, fill.ts, assert.ts, download-screenshot-attr-event-frame-loop.ts, etc.) all use NodeRuntime<any> and cast step as any before accessing step-specific fields. expandTemplatesDeep<T>(value: T, scope) already preserves the type but callers force-cast to any before calling it, discarding inference. Each file also repeats (located as any)?.ref and (located as any)?.frameId because locateElement returns an untyped shape. Typing NodeRuntime with concrete step interfaces (StepClick, StepFill, etc., already defined in legacy-types.ts) eliminates ~60 casts and catches field mismatches at compile time.
 - **Cost**: M
 - **Value**: M
@@ -96,7 +96,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0023 · Split agent.ts route file into project, session, message, attachment, and streaming sub-routers (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: proposed
+- **Status**: in-progress
 - **Why**: agent.ts at 1264 LoC registers all agent-domain HTTP routes in a single registerAgentRoutes function (~53 Fastify route registrations). Sessions, projects, messages, attachments, and SSE streaming are independent concerns. Any change to SSE stream handling requires navigating past 600 lines of CRUD. Splitting into focused sub-routers (projects.ts, sessions.ts, messages.ts, attachments.ts, streaming.ts) caps each file at ~150-250 LoC and makes each endpoint group independently testable.
 - **Cost**: M
 - **Value**: M
