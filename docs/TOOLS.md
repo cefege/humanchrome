@@ -48,14 +48,16 @@ Navigate to a URL, refresh the current tab, or navigate browser history (back/fo
 
 ### `chrome_navigate_batch`
 
-Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens — does NOT wait for any tab to finish loading.
+Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens unless maxConcurrent is set — in which case it blocks until each batch finishes loading before opening the next.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `urls` | array<string> | ✓ | URLs to open. Each becomes a new tab. |
 | `windowId` | number |  | Target window for the new tabs. If omitted, uses the last-focused window (or creates one). |
 | `background` | boolean |  | Open without stealing focus (default true). Set false to foreground each new tab as it opens. |
-| `perTabDelayMs` | number |  | Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens. |
+| `perTabDelayMs` | number |  | Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens. When maxConcurrent is also set, this delay applies WITHIN each worker (between consecutive opens by the same worker). |
+| `maxConcurrent` | number |  | Cap the number of in-flight tab loads. When omitted (or <= 0), all URLs open in parallel (current behavior). When set to N, opens N tabs and waits for each to finish loading before starting the next — useful on anti-bot platforms (LinkedIn, Instagram) that flag concurrent opens. Each waited tab uses a 30s load timeout; on timeout the tab is still recorded and the worker continues. |
+| `perUrlTimeoutMs` | number |  | Per-URL load timeout in ms when maxConcurrent is set. Default 30000. Ignored when maxConcurrent is not set. |
 
 ### `chrome_wait_for_tab`
 
@@ -138,6 +140,15 @@ Semantic vector search across the content of currently open tabs. Returns matchi
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `query` | string | ✓ | The query to search for related content across open tabs. |
+
+### `chrome_console_clear`
+
+Reset the per-tab console buffer used by `chrome_console` (mode="buffer") and the `console_clean` predicate of `chrome_assert`. Use between steps of a multi-step flow so subsequent console reads are scoped to messages that arrived after the clear — the same reset pattern test frameworks use between assertions. Returns `{ success, tabId, cleared, clearedMessages, clearedExceptions, bufferActive }` where `cleared` is the total number of buffered entries dropped. No-op (cleared:0, bufferActive:false) when buffer capture has not yet started for the tab.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 
 ## Interaction
 

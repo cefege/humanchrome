@@ -49,44 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0014 · Add chrome_console_clear tool to reset the captured console buffer (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-06
-- **Status**: in-progress
-- **Why**: chrome_console accumulates all errors since the tab loaded. Agents running multi-step flows cannot tell whether a console error is from a previous step or the current one without tracking wall-clock timestamps manually. A chrome_console_clear tool resets the extension-side buffer so subsequent chrome_console or chrome_assert console_clean checks are scoped to the current step — the same reset pattern that test frameworks use between assertions.
-- **Cost**: S
-- **Value**: M
-  Implementation: add a clear action to chrome_console (action: read|clear, default read) or a standalone tool. Touch: tools/browser/interaction.ts (or wherever the console buffer lives), TOOL_NAMES, TOOL_SCHEMAS. Returns { cleared: number } indicating how many buffered entries were dropped.
-
-### IMP-0016 · Add title_matches predicate to chrome_assert (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-06
-- **Status**: in-progress
-- **Why**: SPAs routinely update document.title on navigation without changing the URL path (e.g. LinkedIn messaging threads, WhatsApp contact views, Gmail). chrome_assert url_matches cannot distinguish these transitions. A title_matches predicate (substring or regex, same pattern interface as url_matches) lets agents confirm SPA navigation completed without a separate chrome_javascript call — keeping assertion logic declarative and in one tool call.
-- **Cost**: S
-- **Value**: M
-  Schema change only + 3-line handler addition. Add title_matches to the kind enum in TOOL_SCHEMAS ASSERT entry. Handler: chrome.scripting.executeScript returning document.title, match against pattern using existing regex/substring logic already used by url_matches. Touch: tools/browser/assert.ts, TOOL_SCHEMAS. Zero new infrastructure.
-
-### IMP-0017 · Add chrome_userscript_list and chrome_userscript_remove for injection lifecycle (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-06
-- **Status**: in-progress
-- **Why**: chrome_userscript injects persistent scripts but there is no way to enumerate what is currently injected or remove a specific script without reloading the extension. In multi-step agent sessions a script injected in step 2 may conflict with a differently-configured script injected in step 5. Without a remove operation agents must reload the extension (losing all state) to clean up. List + remove completes the CRUD lifecycle the bookmark group already models.
-- **Cost**: S
-- **Value**: M
-  chrome.userScripts.getScripts() returns registered scripts by id. Two new tools: chrome_userscript_list (no params; returns [{id, matches, world}]) and chrome_userscript_remove (param: id, required; calls chrome.userScripts.unregister). Touch: tools/browser/interaction.ts or new userscript-lifecycle.ts, TOOL_NAMES, TOOL_SCHEMAS. The userScripts API is already declared in the manifest (chrome_userscript uses it).
-
-### IMP-0020 · Extract shadow-host CSS template literal to a separate .css file loaded via ?raw import (perf) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: in-progress
-- **Why**: shadow-host.ts is 3621 LoC but 3425 of those are a single inline CSS template literal (SHADOW_HOST_STYLES, lines 56-3480). The 85 KB string is parsed and re-evaluated every time the module is imported. Moving it to a .css file loaded via `import styles from "./shadow-host.css?raw"` defers parsing to the bundler, enables Vite/WXT CSS minification, and reduces the TS module to ~196 lines of actual logic — making future edits to either CSS or JS far less error-prone.
-- **Cost**: S
-- **Value**: M
-- **Files**: `app/chrome-extension/entrypoints/web-editor-v2/ui/shadow-host.ts` (3621 LoC; 3425 lines are CSS), target split: `shadow-host.css` + `shadow-host.ts` (~200 lines)
-- **Sketch**: 1) `git mv` the content of `SHADOW_HOST_STYLES` to `shadow-host.css`. 2) Replace the template literal with `import SHADOW_HOST_STYLES from "./shadow-host.css?raw";`. 3) WXT/Vite already handles `?raw` imports natively — no config change needed.
-- **Risk**: Low. The WXT build pipeline minifies the CSS when building for production, so rendered output will be smaller. The only gotcha is that the current template literal uses `/* css */` for VS Code highlighting — the real file gets syntax highlighting automatically.
-
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -170,6 +132,38 @@ The order of items inside ## Active is sorted by score descending.
   Param: id (required, the flow UUID from list_published). Implementation wraps whatever the extension uses to remove a flow from IndexedDB / chrome.storage — inspect record-replay/nodes/ for the storage layer. Returns { deleted: boolean, id }. Touch: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE, TOOL_SCHEMAS entry, dispatch.ts FLOW_PREFIX path or a dedicated handler, and the bridge must un-register the dynamic flow.<slug> tool if it was auto-exposed.
 
 ## Done
+
+### IMP-0014 · Add chrome_console_clear tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: New standalone `chrome_console_clear` MCP tool. New file `console-clear.ts` (+76), `tools.ts` +15, `index.ts` +1. Returns `{ cleared: number }`. Bridge: 49/49, extension: 647/647, build green.
+- **Commit**: `078d741` on main
+- **Worktree**: `.claude/worktrees/agent-a50f36fc` / `worktree-agent-a50f36fc`
+
+### IMP-0016 · Add title_matches predicate to chrome_assert (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Added `title_matches` to the `kind` enum in `chrome_assert` schema; handler reads `document.title` via `chrome.scripting.executeScript` and matches against substring/regex (same shape as `url_matches`). `assert.ts` +26, `tools.ts` +4/-2. Extension: 647/647, build green.
+- **Commit**: `7655d17` on main
+- **Worktree**: `.claude/worktrees/agent-a6eec630` / `worktree-agent-a6eec630`
+
+### IMP-0017 · Add chrome_userscript_list and chrome_userscript_remove (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: NO-OP — already supported. The existing `chrome_userscript` tool exposes `action: 'list'` and `action: 'remove'` sub-commands covering the same lifecycle the proposal asked for. Implementer agent reviewed the source and confirmed no code change required. Backlog dedup hint: scouts should grep for existing `action:` enums before proposing new tools in the same group.
+- **Commit**: n/a (no code change)
+- **Worktree**: `.claude/worktrees/agent-abc1be79` / `worktree-agent-abc1be79`
+
+### IMP-0020 · Extract shadow-host CSS to standalone file (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Moved ~3.4kLoC of inline CSS from `shadow-host.ts` (3621 → 191 LoC) into a sibling `shadow-host.css` (3423 LoC), imported via `import SHADOW_HOST_STYLES from './shadow-host.css?raw'`. Five `${...}` interpolations inlined to compile-time constants (`#6366f1` accent color, `__mcp_web_editor_v2_overlay__`, `__mcp_web_editor_v2_ui__` host ids). WXT/Vite handles `?raw` natively; build output unchanged. Extension: 647/647.
+- **Commit**: `674aa64` on main
+- **Worktree**: `.claude/worktrees/agent-a2d80ac5` / `worktree-agent-a2d80ac5`
 
 ### IMP-0001 · Fix tab-cursor.integration.test.ts onUpdated mock (bug) · score: 6
 
