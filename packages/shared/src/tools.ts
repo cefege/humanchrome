@@ -110,6 +110,7 @@ export const TOOL_NAMES = {
     DEBUG_DUMP: 'chrome_debug_dump',
     ASSERT: 'chrome_assert',
     WAIT_FOR: 'chrome_wait_for',
+    PACE: 'chrome_pace',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -1828,6 +1829,33 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['kind'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.PACE,
+    description:
+      'Set a per-MCP-client pacing profile. Mutating tool dispatches (anything that clicks/types/navigates/uploads) sleep for a profile-derived gap before firing, so anti-bot platforms (LinkedIn, Instagram, WhatsApp) see human-like rhythm. Reads stay un-throttled. State is per-client and lives in the extension service worker; service-worker restart resets to off. Returns the active profile + computed gap parameters.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        profile: {
+          type: 'string',
+          enum: ['off', 'human', 'careful', 'fast'],
+          description:
+            'Pacing preset. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait.',
+        },
+        minGapMs: {
+          type: 'number',
+          description:
+            'Optional override: inclusive lower bound on gap between mutating dispatches (ms). Stacks with the profile preset.',
+        },
+        jitterMs: {
+          type: 'number',
+          description:
+            'Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs.',
+        },
+      },
+      required: ['profile'],
+    },
+  },
 ];
 
 /**
@@ -1846,6 +1874,7 @@ export const TOOL_CATEGORY_ORDER = [
   'State',
   'Performance',
   'Diagnostics',
+  'Pacing',
 ] as const;
 
 export type ToolCategory = (typeof TOOL_CATEGORY_ORDER)[number];
@@ -1916,4 +1945,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: 'Performance',
 
   [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
+
+  [TOOL_NAMES.BROWSER.PACE]: 'Pacing',
 };

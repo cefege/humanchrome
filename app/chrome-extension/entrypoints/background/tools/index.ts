@@ -7,6 +7,7 @@ import {
   recordClientTab,
   resolveTabIdForClient,
   resolveWindowIdForClient,
+  consumePacingDelay,
 } from '../utils/client-state';
 import { acquireTabLock } from '../utils/tab-lock';
 import { runWithContext } from '../utils/request-context';
@@ -163,6 +164,21 @@ export const handleCallTool = async (
 
   // Mutating tools serialize per-tab; reads and implicit-tab calls pass through.
   const mutates = (tool.constructor as { mutates?: boolean })?.mutates === true;
+
+  // Per-client pacing throttle (set via chrome_pace). Sleep before any
+  // mutating dispatch so anti-bot platforms see human-like rhythm. Reads
+  // skip this gate entirely. The delay is consumed even if the call later
+  // fails — same as a real human's reaction time isn't refunded by a
+  // failed click. State lives in client-state.ts; service-worker restart
+  // resets to off.
+  if (mutates) {
+    const delay = consumePacingDelay(clientId);
+    if (delay > 0) {
+      log.debug('pacing throttle applied', { data: { delayMs: delay } });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
   if (!mutates || typeof tabId !== 'number') return run();
 
   let release: (() => void) | undefined;

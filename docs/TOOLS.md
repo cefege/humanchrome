@@ -613,6 +613,18 @@ Return recent debug-log entries from the extension. Each entry includes a `reque
 | `limit` | number |  | Maximum entries to return. Defaults to 200, max 1000. |
 | `clear` | boolean |  | When true, wipe the buffer instead of returning entries. |
 
+## Pacing
+
+### `chrome_pace`
+
+Set a per-MCP-client pacing profile. Mutating tool dispatches (anything that clicks/types/navigates/uploads) sleep for a profile-derived gap before firing, so anti-bot platforms (LinkedIn, Instagram, WhatsApp) see human-like rhythm. Reads stay un-throttled. State is per-client and lives in the extension service worker; service-worker restart resets to off. Returns the active profile + computed gap parameters.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `profile` | `off` \| `human` \| `careful` \| `fast` | ✓ | Pacing preset. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait. |
+| `minGapMs` | number |  | Optional override: inclusive lower bound on gap between mutating dispatches (ms). Stacks with the profile preset. |
+| `jitterMs` | number |  | Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs. |
+
 
 <!-- AUTO-GEN END -->
 

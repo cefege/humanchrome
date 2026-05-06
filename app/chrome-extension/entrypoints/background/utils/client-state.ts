@@ -21,10 +21,89 @@
  * client preferences are an optimization, not a contract.
  */
 
+export type PacingProfile = 'off' | 'human' | 'careful' | 'fast';
+
+interface PacingState {
+  profile: PacingProfile;
+  /** Inclusive lower bound on gap between mutating dispatches (ms). */
+  minGapMs: number;
+  /** Random extra gap added to minGapMs, in [0, jitterMs] (ms). */
+  jitterMs: number;
+  /** Wall clock of the last dispatch the throttle let through. */
+  lastDispatchAt: number;
+}
+
 interface ClientState {
   lastTabId?: number;
   lastWindowId?: number;
   lastSeenAt: number;
+  pacing?: PacingState;
+}
+
+/**
+ * Profile presets. `off` is current behavior (no throttle). `human` mimics a
+ * person clicking around; `careful` adds a wide jitter band for sites that
+ * detect rhythm (LinkedIn, Instagram); `fast` keeps tab-lock serialization
+ * but adds no extra wait — useful when the agent is exercising read-mostly
+ * surfaces.
+ */
+const PROFILE_DEFAULTS: Record<
+  Exclude<PacingProfile, 'off'>,
+  { minGapMs: number; jitterMs: number }
+> = {
+  human: { minGapMs: 600, jitterMs: 600 },
+  careful: { minGapMs: 1500, jitterMs: 1500 },
+  fast: { minGapMs: 0, jitterMs: 0 },
+};
+
+export function setClientPacing(
+  clientId: string | undefined,
+  profile: PacingProfile,
+  overrides?: { minGapMs?: number; jitterMs?: number },
+): PacingState | undefined {
+  if (!clientId) return undefined;
+  const now = Date.now();
+  const existing = STATE.get(clientId) ?? { lastSeenAt: now };
+  if (profile === 'off') {
+    delete existing.pacing;
+  } else {
+    const defaults = PROFILE_DEFAULTS[profile];
+    existing.pacing = {
+      profile,
+      minGapMs: overrides?.minGapMs ?? defaults.minGapMs,
+      jitterMs: overrides?.jitterMs ?? defaults.jitterMs,
+      lastDispatchAt: 0,
+    };
+  }
+  existing.lastSeenAt = now;
+  STATE.set(clientId, existing);
+  return existing.pacing ? { ...existing.pacing } : undefined;
+}
+
+export function getClientPacing(clientId: string | undefined): PacingState | undefined {
+  if (!clientId) return undefined;
+  return STATE.get(clientId)?.pacing;
+}
+
+/**
+ * Compute and consume the next throttle delay for `clientId`. Returns the
+ * number of ms the caller should sleep before dispatching, and updates
+ * `lastDispatchAt` to (now + delay) so back-to-back calls compound.
+ *
+ * Returns 0 if no pacing profile is set or the gap has already elapsed.
+ */
+export function consumePacingDelay(clientId: string | undefined): number {
+  if (!clientId) return 0;
+  const state = STATE.get(clientId);
+  const pacing = state?.pacing;
+  if (!state || !pacing) return 0;
+  const now = Date.now();
+  const elapsed = now - pacing.lastDispatchAt;
+  const target = pacing.minGapMs + Math.floor(Math.random() * (pacing.jitterMs + 1));
+  const delay = Math.max(0, target - elapsed);
+  pacing.lastDispatchAt = now + delay;
+  state.lastSeenAt = now;
+  return delay;
 }
 
 const STATE = new Map<string, ClientState>();
