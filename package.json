@@ -31,6 +31,7 @@
     "clean:dist": "pnpm -r exec rm -rf dist .turbo",
     "clean:modules": "pnpm -r exec rm -rf node_modules && rm -rf node_modules",
     "clean": "pnpm clean:dist && pnpm clean:modules",
+    "//typecheck": "Two filters: wasm-simd (Rust pkg, no tsconfig) AND humanchrome-monorepo (the workspace root, no tsconfig either — pnpm -r exec includes it).",
     "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' exec tsc --noEmit",
     "prepare": "husky"
   },

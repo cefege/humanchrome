@@ -32,7 +32,7 @@ interface SetCookieParams {
 }
 
 /**
- * chrome_remove_cookie parameters. Mirrors chrome.cookies.Details.
+ * chrome_remove_cookie parameters. Mirrors chrome.cookies.CookieDetails.
  */
 interface RemoveCookieParams {
   url?: string;
