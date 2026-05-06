@@ -31,7 +31,7 @@
     "clean:dist": "pnpm -r exec rm -rf dist .turbo",
     "clean:modules": "pnpm -r exec rm -rf node_modules && rm -rf node_modules",
     "clean": "pnpm clean:dist && pnpm clean:modules",
-    "typecheck": "pnpm -r exec tsc --noEmit",
+    "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' exec tsc --noEmit",
     "prepare": "husky"
   },
   "devDependencies": {

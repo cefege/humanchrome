@@ -183,7 +183,7 @@ class RemoveCookieTool extends BaseBrowserToolExecutor {
       );
     }
 
-    const details: chrome.cookies.Details = { url, name };
+    const details: chrome.cookies.CookieDetails = { url, name };
     if (storeId !== undefined) details.storeId = storeId;
 
     try {

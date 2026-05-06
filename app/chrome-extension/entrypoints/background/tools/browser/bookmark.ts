@@ -604,7 +604,7 @@ class BookmarkUpdateTool extends BaseBrowserToolExecutor {
 
       for (const bookmark of targets) {
         try {
-          const changes: chrome.bookmarks.BookmarkChangesArg = {};
+          const changes: chrome.bookmarks.UpdateChanges = {};
           if (newUrl !== undefined) changes.url = newUrl;
           if (newTitle !== undefined) changes.title = newTitle;
           let next: chrome.bookmarks.BookmarkTreeNode = bookmark;

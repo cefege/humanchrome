@@ -348,7 +348,7 @@ export function initElementMarkerListeners() {
                     await clickTool.execute({
                       ref: ensured.ref,
                       waitForNavigation: false,
-                      timeout: 2000,
+                      timeoutMs: 2000,
                     });
                   } catch {}
                   const r = await keyboardTool.execute({ keys, delay: 0 } as any);

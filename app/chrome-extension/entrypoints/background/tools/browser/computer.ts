@@ -503,7 +503,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
           const domResult = await clickTool.execute({
             ref: params.ref,
             waitForNavigation: false,
-            timeout: TIMEOUTS.DEFAULT_WAIT * 5,
+            timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
             button: params.action === 'right_click' ? 'right' : 'left',
             modifiers: params.modifiers,
           });
@@ -516,7 +516,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
             selectorType: params.selectorType,
             frameId: params.frameId,
             waitForNavigation: false,
-            timeout: TIMEOUTS.DEFAULT_WAIT * 5,
+            timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
             button: params.action === 'right_click' ? 'right' : 'left',
             modifiers: params.modifiers,
           });
@@ -550,7 +550,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
         const domResult = await clickTool.execute({
           coordinates: coord,
           waitForNavigation: false,
-          timeout: TIMEOUTS.DEFAULT_WAIT * 5,
+          timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
           button: params.action === 'right_click' ? 'right' : 'left',
           modifiers: params.modifiers,
         });
@@ -935,7 +935,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
             await clickTool.execute({
               ref: params.ref,
               waitForNavigation: false,
-              timeout: TIMEOUTS.DEFAULT_WAIT * 5,
+              timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
             });
           }
           await CDPHelper.attach(tab.id);
@@ -1041,7 +1041,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
             await clickTool.execute({
               ref: params.ref,
               waitForNavigation: false,
-              timeout: TIMEOUTS.DEFAULT_WAIT * 5,
+              timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
             });
           }
           await CDPHelper.attach(tab.id);
