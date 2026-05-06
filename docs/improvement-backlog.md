@@ -49,15 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0006 · Add maxConcurrent flag to chrome_navigate_batch (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-05
-- **Status**: proposed
-- **Why**: chrome_navigate_batch currently opens all URLs simultaneously. On anti-bot platforms (LinkedIn, Instagram) that behavior triggers rate-limit or shadow-ban heuristics even though perTabDelayMs slows the inter-open delay. A maxConcurrent cap (e.g. 3) lets the tool open only that many tabs, then open the next as each finishes loading — giving agents burst control without having to manually sequence navigate_batch calls.
-- **Cost**: S
-- **Value**: M
-  Schema: add maxConcurrent?: number (default: unlimited to preserve current behavior). Implementation in navigate-batch handler: maintain an in-flight counter; when a tab fires onUpdated status=complete decrement and open next queued URL. Touch: tools/browser/index.ts navigate_batch handler, TOOL_SCHEMAS. The perTabDelayMs field stays as-is for users who want spacing without hard concurrency limits.
-
 ### IMP-0008 · Extract checkDomainShift helper to eliminate 6 copy-pasted hostname-check blocks in computer.ts (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -287,3 +278,11 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-06
 - **Summary**: Added `count` param (default 1, max 100). count===1 keeps the existing single-response code path byte-for-byte (chrome_wait_for response_match continues to work). count>1 uses a pendingByRequestId map + completed[] accumulator; resolves when count reached or on timeout returning whatever was gathered (matched > 0 → success; matched===0 → standard TIMEOUT envelope). returnBody:false works in multi mode; loadingFailed for one request drops only that requestId. Build green; bridge 49/49; extension 641/641.
 - **Commit**: `9309769` on main
+
+### IMP-0006 · Add maxConcurrent flag to chrome_navigate_batch (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-05
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Worker-pool semaphore for navigate_batch. maxConcurrent (omitted/<=0/>=urls.length keeps legacy behavior). Workers claim URLs from a shared cursor, await waitForTabComplete with perUrlTimeoutMs (default 30s) before claiming the next. TIMEOUT/TAB_CLOSED/TAB_NOT_FOUND record the tab + surface in errors[] without aborting. perTabDelayMs applies as intra-worker spacing. Tabs[] preserves input order via index-keyed sparse arrays. Bonus: perUrlTimeoutMs schema knob exposed for slow anti-bot platforms. 6 new tests with vi.useFakeTimers; 647/647 extension; 49/49 bridge.
+- **Commit**: `17b69fe` on main
