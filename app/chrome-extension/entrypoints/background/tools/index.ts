@@ -63,7 +63,7 @@ function extractFromResult(
 }
 
 const extractTabIdFromResult = (result: any) =>
-  extractFromResult(result, [(p) => p?.tabId, (p) => p?.tab?.id]);
+  extractFromResult(result, [(p) => p?.tabId, (p) => p?.tab?.id, (p) => p?.tabs?.[0]?.tabId]);
 
 const extractWindowIdFromResult = (result: any) =>
   extractFromResult(result, [(p) => p?.windowId, (p) => p?.tab?.windowId]);
