@@ -49,21 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0024 · flow.\* dispatch double-wraps args, losing tabTarget/refresh/captureNetwork/returnLogs/timeoutMs (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-06
-- **Status**: proposed
-- **Why**: dispatchTool builds flowArgs = { flowId, args: <entire_mcp_args> }, but FlowRunTool.execute destructures tabTarget, refresh, captureNetwork, returnLogs, timeoutMs from the TOP-LEVEL args object. All five params arrive as undefined; vars gets the whole MCP args object instead of just the user-defined flow variables.
-- **Cost**: S
-- **Value**: M
-- **Repro**: call any flow.\* MCP tool with tabTarget:"new" or timeoutMs:30000 — the flow runner sees tabTarget=undefined, timeoutMs=undefined (defaults kick in), vars contains the entire args map instead of just flow-variable keys.
-- **Fix sketch**: `app/native-server/src/mcp/dispatch.ts` line 134. Change
-  `const flowArgs = { flowId: match.id, args };`
-  to
-  `const { tabTarget, refresh, captureNetwork, returnLogs, timeoutMs, ...vars } = args ?? {};`
-  `const flowArgs = { flowId: match.id, args: vars, tabTarget, refresh, captureNetwork, returnLogs, timeoutMs };`
-- **Notes**: latent bug; flow.\* tools were only just exposed in IMP-0013 (commit 4a63c84) so this has never worked correctly with those params. FlowRunTool at `app/chrome-extension/entrypoints/background/tools/record-replay.ts:9-31` is the receiver.
-
 ### IMP-0005 · Add multi-match count to chrome_intercept_response (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -295,3 +280,11 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-06
 - **Summary**: Same root cause and same fix as IMP-0025 — both bugs were resolved by the single one-line addition to extractTabIdFromResult.
 - **Commit**: `5a46e56` on main
+
+### IMP-0024 · flow.\* dispatch double-wraps args, losing tabTarget/refresh/captureNetwork/returnLogs/timeoutMs (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-06
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Extracted `buildFlowArgs(flowId, mcpArgs)` helper in dispatch.ts that destructures runner options (tabTarget/refresh/captureNetwork/returnLogs/timeoutMs/startUrl) to the top level of the flow envelope and leaves only user-supplied flow variables in `args`. 4 unit tests cover canonical / runner-only / vars-only / undefined cases. Build green; bridge tests 49/49 (was 45 +4 new).
+- **Commit**: `4dc7454` on main
