@@ -10,6 +10,7 @@ import { consoleBuffer } from './console-buffer';
 
 type Predicate =
   | { kind: 'url_matches'; pattern: string; type?: 'substring' | 'regex' }
+  | { kind: 'title_matches'; pattern: string; type?: 'substring' | 'regex' }
   | {
       kind: 'element_present' | 'element_absent';
       selector?: string;
@@ -119,6 +120,17 @@ class AssertTool extends BaseBrowserToolExecutor {
         const url = tab.url ?? '';
         return { predicate: p, ok: match(url), detail: { url } };
       }
+      case 'title_matches': {
+        if (typeof p.pattern !== 'string' || !p.pattern.length) {
+          return { predicate: p, ok: false, detail: { error: 'pattern is required' } };
+        }
+        const match = compileMatcher(p.pattern, p.type);
+        if (!match) {
+          return { predicate: p, ok: false, detail: { error: 'invalid regex pattern' } };
+        }
+        const title = await this.getDocumentTitle(tab.id!);
+        return { predicate: p, ok: match(title), detail: { title } };
+      }
       case 'element_present':
       case 'element_absent': {
         if (!p.selector && !p.ref) {
@@ -187,6 +199,20 @@ class AssertTool extends BaseBrowserToolExecutor {
           detail: { error: `unknown predicate kind: ${(p as { kind: string }).kind}` },
         };
       }
+    }
+  }
+
+  private async getDocumentTitle(tabId: number): Promise<string> {
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: () => document.title,
+      });
+      const title = result?.[0]?.result;
+      return typeof title === 'string' ? title : '';
+    } catch {
+      return '';
     }
   }
 

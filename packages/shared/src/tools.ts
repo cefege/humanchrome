@@ -1764,6 +1764,7 @@ export const TOOL_SCHEMAS: Tool[] = [
                 type: 'string',
                 enum: [
                   'url_matches',
+                  'title_matches',
                   'element_present',
                   'element_absent',
                   'console_clean',
@@ -1775,12 +1776,12 @@ export const TOOL_SCHEMAS: Tool[] = [
               pattern: {
                 type: 'string',
                 description:
-                  'For url_matches and console_clean: substring or /regex/flags pattern. Required for url_matches; optional for console_clean (filters which console errors count).',
+                  'For url_matches, title_matches, and console_clean: substring or /regex/flags pattern. Required for url_matches and title_matches; optional for console_clean (filters which console errors count). title_matches matches against document.title and is the preferred way to confirm SPA navigations that update the title without changing the URL path (e.g. LinkedIn messaging, Gmail, WhatsApp).',
               },
               type: {
                 type: 'string',
                 enum: ['substring', 'regex'],
-                description: 'For url_matches: how to interpret pattern. Default: regex.',
+                description: 'For url_matches and title_matches: how to interpret pattern. Default: regex.',
               },
               selector: {
                 type: 'string',
