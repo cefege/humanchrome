@@ -81,6 +81,9 @@ jobs:
       - name: Build shared (typecheck depends on it)
         run: pnpm build:shared
 
+      - name: Prepare WXT types (typecheck depends on .wxt/tsconfig.json)
+        run: pnpm --filter humanchrome-extension exec wxt prepare
+
       - name: Typecheck
         run: pnpm typecheck
 
