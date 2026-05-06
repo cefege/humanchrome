@@ -47,6 +47,31 @@ export function toErrorEnvelopeText(message: string | undefined): string {
 }
 
 /**
+ * Split MCP args for a `flow.<slug>` call into the shape FlowRunTool expects:
+ *   { flowId, args: <user vars only>, tabTarget, refresh, captureNetwork,
+ *     returnLogs, timeoutMs, startUrl }
+ *
+ * The extension's FlowRunTool destructures runner options at the TOP LEVEL and
+ * treats `args` as the user-supplied flow variable bag. Without this split, the
+ * options arrive as undefined (defaults kick in) and `vars` ends up containing
+ * the runner options too. See IMP-0024.
+ */
+export function buildFlowArgs(flowId: string, mcpArgs: any) {
+  const { tabTarget, refresh, captureNetwork, returnLogs, timeoutMs, startUrl, ...vars } =
+    mcpArgs ?? {};
+  return {
+    flowId,
+    args: vars,
+    tabTarget,
+    refresh,
+    captureNetwork,
+    returnLogs,
+    timeoutMs,
+    startUrl,
+  };
+}
+
+/**
  * Fetch dynamic flow tool schemas from the extension. Used by both the MCP
  * `tools/list` handler and the REST `/api/tools` catalog endpoint.
  */
@@ -131,7 +156,7 @@ export async function dispatchTool(
       const slug = name.slice(FLOW_PREFIX.length);
       const match = items.find((it: any) => it.slug === slug);
       if (!match) throw new Error(`Flow not found for tool ${name}`);
-      const flowArgs = { flowId: match.id, args };
+      const flowArgs = buildFlowArgs(match.id, args);
       const proxyRes = await nativeMessagingHostInstance.sendRequestToExtensionAndWait(
         { name: 'record_replay_flow_run', args: flowArgs },
         NativeMessageType.CALL_TOOL,

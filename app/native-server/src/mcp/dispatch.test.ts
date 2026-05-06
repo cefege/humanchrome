@@ -11,7 +11,7 @@
  */
 import { describe, test, expect } from '@jest/globals';
 import { ToolErrorCode } from 'humanchrome-shared';
-import { toErrorEnvelopeText } from './dispatch';
+import { buildFlowArgs, toErrorEnvelopeText } from './dispatch';
 
 describe('toErrorEnvelopeText', () => {
   test('passes through a pre-serialized envelope unchanged', () => {
@@ -61,5 +61,73 @@ describe('toErrorEnvelopeText', () => {
     const parsed = JSON.parse(out);
     expect(parsed.error.code).toBe(ToolErrorCode.UNKNOWN);
     expect(parsed.error.message).toBe('{"foo":"bar"}');
+  });
+});
+
+describe('buildFlowArgs (IMP-0024 — runner options must flow to the top level)', () => {
+  test('hoists every flow-runner option to the top level and leaves only user vars in args', () => {
+    const out = buildFlowArgs('flow_abc', {
+      // runner options
+      tabTarget: 'new',
+      refresh: true,
+      captureNetwork: true,
+      returnLogs: true,
+      timeoutMs: 30_000,
+      startUrl: 'https://example.com',
+      // user-defined flow variables
+      query: 'hello',
+      max: 5,
+    });
+    expect(out).toEqual({
+      flowId: 'flow_abc',
+      args: { query: 'hello', max: 5 },
+      tabTarget: 'new',
+      refresh: true,
+      captureNetwork: true,
+      returnLogs: true,
+      timeoutMs: 30_000,
+      startUrl: 'https://example.com',
+    });
+  });
+
+  test('returns an empty vars bag when only runner options were supplied', () => {
+    const out = buildFlowArgs('flow_only_opts', { tabTarget: 'current', timeoutMs: 1000 });
+    expect(out.args).toEqual({});
+    expect(out.tabTarget).toBe('current');
+    expect(out.timeoutMs).toBe(1000);
+  });
+
+  test('keeps args identical to user vars when no runner options are supplied', () => {
+    const out = buildFlowArgs('flow_vars_only', { query: 'q', limit: 10 });
+    expect(out.args).toEqual({ query: 'q', limit: 10 });
+    expect(out.tabTarget).toBeUndefined();
+    expect(out.refresh).toBeUndefined();
+    expect(out.captureNetwork).toBeUndefined();
+    expect(out.returnLogs).toBeUndefined();
+    expect(out.timeoutMs).toBeUndefined();
+    expect(out.startUrl).toBeUndefined();
+  });
+
+  test('tolerates undefined / null mcpArgs', () => {
+    expect(buildFlowArgs('f', undefined)).toEqual({
+      flowId: 'f',
+      args: {},
+      tabTarget: undefined,
+      refresh: undefined,
+      captureNetwork: undefined,
+      returnLogs: undefined,
+      timeoutMs: undefined,
+      startUrl: undefined,
+    });
+    expect(buildFlowArgs('f', null)).toEqual({
+      flowId: 'f',
+      args: {},
+      tabTarget: undefined,
+      refresh: undefined,
+      captureNetwork: undefined,
+      returnLogs: undefined,
+      timeoutMs: undefined,
+      startUrl: undefined,
+    });
   });
 });
