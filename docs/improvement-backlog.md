@@ -49,6 +49,21 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0024 · flow.\* dispatch double-wraps args, losing tabTarget/refresh/captureNetwork/returnLogs/timeoutMs (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: dispatchTool builds flowArgs = { flowId, args: <entire_mcp_args> }, but FlowRunTool.execute destructures tabTarget, refresh, captureNetwork, returnLogs, timeoutMs from the TOP-LEVEL args object. All five params arrive as undefined; vars gets the whole MCP args object instead of just the user-defined flow variables.
+- **Cost**: S
+- **Value**: M
+- **Repro**: call any flow.\* MCP tool with tabTarget:"new" or timeoutMs:30000 — the flow runner sees tabTarget=undefined, timeoutMs=undefined (defaults kick in), vars contains the entire args map instead of just flow-variable keys.
+- **Fix sketch**: `app/native-server/src/mcp/dispatch.ts` line 134. Change
+  `const flowArgs = { flowId: match.id, args };`
+  to
+  `const { tabTarget, refresh, captureNetwork, returnLogs, timeoutMs, ...vars } = args ?? {};`
+  `const flowArgs = { flowId: match.id, args: vars, tabTarget, refresh, captureNetwork, returnLogs, timeoutMs };`
+- **Notes**: latent bug; flow.\* tools were only just exposed in IMP-0013 (commit 4a63c84) so this has never worked correctly with those params. FlowRunTool at `app/chrome-extension/entrypoints/background/tools/record-replay.ts:9-31` is the receiver.
+
 ### IMP-0005 · Add multi-match count to chrome_intercept_response (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -78,6 +93,44 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Add `function assertDomainUnchanged(ctx: ScreenshotContext | null, currentHostname: string, action: string): void` near top of file; type `ctx` via the existing `ScreenshotContext` import so the cast disappears; call from each of the 6 case branches.
 - **Risk**: Low — purely mechanical extraction, logic is identical across all 6 sites.
 
+### IMP-0014 · Add chrome_console_clear tool to reset the captured console buffer (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: chrome_console accumulates all errors since the tab loaded. Agents running multi-step flows cannot tell whether a console error is from a previous step or the current one without tracking wall-clock timestamps manually. A chrome_console_clear tool resets the extension-side buffer so subsequent chrome_console or chrome_assert console_clean checks are scoped to the current step — the same reset pattern that test frameworks use between assertions.
+- **Cost**: S
+- **Value**: M
+  Implementation: add a clear action to chrome_console (action: read|clear, default read) or a standalone tool. Touch: tools/browser/interaction.ts (or wherever the console buffer lives), TOOL_NAMES, TOOL_SCHEMAS. Returns { cleared: number } indicating how many buffered entries were dropped.
+
+### IMP-0016 · Add title_matches predicate to chrome_assert (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: SPAs routinely update document.title on navigation without changing the URL path (e.g. LinkedIn messaging threads, WhatsApp contact views, Gmail). chrome_assert url_matches cannot distinguish these transitions. A title_matches predicate (substring or regex, same pattern interface as url_matches) lets agents confirm SPA navigation completed without a separate chrome_javascript call — keeping assertion logic declarative and in one tool call.
+- **Cost**: S
+- **Value**: M
+  Schema change only + 3-line handler addition. Add title_matches to the kind enum in TOOL_SCHEMAS ASSERT entry. Handler: chrome.scripting.executeScript returning document.title, match against pattern using existing regex/substring logic already used by url_matches. Touch: tools/browser/assert.ts, TOOL_SCHEMAS. Zero new infrastructure.
+
+### IMP-0017 · Add chrome_userscript_list and chrome_userscript_remove for injection lifecycle (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: chrome_userscript injects persistent scripts but there is no way to enumerate what is currently injected or remove a specific script without reloading the extension. In multi-step agent sessions a script injected in step 2 may conflict with a differently-configured script injected in step 5. Without a remove operation agents must reload the extension (losing all state) to clean up. List + remove completes the CRUD lifecycle the bookmark group already models.
+- **Cost**: S
+- **Value**: M
+  chrome.userScripts.getScripts() returns registered scripts by id. Two new tools: chrome_userscript_list (no params; returns [{id, matches, world}]) and chrome_userscript_remove (param: id, required; calls chrome.userScripts.unregister). Touch: tools/browser/interaction.ts or new userscript-lifecycle.ts, TOOL_NAMES, TOOL_SCHEMAS. The userScripts API is already declared in the manifest (chrome_userscript uses it).
+
+### IMP-0020 · Extract shadow-host CSS template literal to a separate .css file loaded via ?raw import (perf) · score: 4
+
+- **Proposed by**: optimization-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: shadow-host.ts is 3621 LoC but 3425 of those are a single inline CSS template literal (SHADOW_HOST_STYLES, lines 56-3480). The 85 KB string is parsed and re-evaluated every time the module is imported. Moving it to a .css file loaded via `import styles from "./shadow-host.css?raw"` defers parsing to the bundler, enables Vite/WXT CSS minification, and reduces the TS module to ~196 lines of actual logic — making future edits to either CSS or JS far less error-prone.
+- **Cost**: S
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/web-editor-v2/ui/shadow-host.ts` (3621 LoC; 3425 lines are CSS), target split: `shadow-host.css` + `shadow-host.ts` (~200 lines)
+- **Sketch**: 1) `git mv` the content of `SHADOW_HOST_STYLES` to `shadow-host.css`. 2) Replace the template literal with `import SHADOW_HOST_STYLES from "./shadow-host.css?raw";`. 3) WXT/Vite already handles `?raw` imports natively — no config change needed.
+- **Risk**: Low. The WXT build pipeline minifies the CSS when building for production, so rendered output will be smaller. The only gotcha is that the current template literal uses `/* css */` for VS Code highlighting — the real file gets syntax highlighting automatically.
+
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -89,6 +142,50 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Extract at minimum: `private async loadSdk()`, `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
 - **Risk**: Medium — the event loop is stateful (pendingToolInputs map, assistantBuffer); extraction must preserve the shared-state references. No behavior change.
 
+### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: At 2363 LoC the file bundles four unrelated concerns: model-registry (253 lines of PREDEFINED_MODELS + recommenders), EmbeddingMemoryPool (54 lines), SemanticSimilarityEngineProxy (312 lines, offscreen IPC only), and SemanticSimilarityEngine itself (1570 lines of ONNX + SIMD + tokenization). The offscreen entrypoint only imports SemanticSimilarityEngine, so Proxy is dead weight in that bundle. Splitting lets the proxy be tree-shaken where unused and makes the ONNX inference loop independently navigable.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/utils/semantic-similarity-engine.ts` (2363 LoC), `app/chrome-extension/entrypoints/offscreen/main.ts` (imports Engine only)
+- **Sketch**: Extract to `utils/semantic-similarity/model-registry.ts` (PREDEFINED_MODELS, recommenders, size helpers), `utils/semantic-similarity/memory-pool.ts` (EmbeddingMemoryPool class), `utils/semantic-similarity/proxy.ts` (SemanticSimilarityEngineProxy), `utils/semantic-similarity/engine.ts` (SemanticSimilarityEngine). Re-export all from `utils/semantic-similarity-engine.ts` as a barrel so import paths stay valid.
+- **Risk**: Low — purely mechanical split; WXT auto-import resolves from the barrel. The only risk is circular imports between engine and memory-pool, which are avoided by pool not importing engine.
+
+### IMP-0021 · Split packages/shared/src/tools.ts into per-category schema files (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: tools.ts is 1969 LoC with TOOL_SCHEMAS spanning lines 121-1877 (1757 lines, ~45 tool definitions). Every tool addition touches this one file, creating merge conflicts when multiple features land in parallel. Splitting into per-category files (navigation.ts, interaction.ts, media.ts, workflows.ts, etc.) limits each PR to one file, and the category coverage test already enforces completeness — so the test harness works as-is after the split.
+- **Cost**: M
+- **Value**: M
+- **Files**: `packages/shared/src/tools.ts` (1969 LoC) — 1757 lines are schema objects, 120 lines are shared fragments (TAB_TARGETING, SELECTOR_PROP etc.), 92 lines are TOOL_CATEGORIES
+- **Sketch**: Create `packages/shared/src/tool-schemas/` directory. Move shared fragments to `fragments.ts`. Create one file per TOOL_CATEGORY_ORDER entry (navigation.ts, tabs.ts, interaction.ts, page.ts, media.ts, network.ts, cookies.ts, workflows.ts, pacing.ts). Re-export all arrays from `tools.ts` as `export const TOOL_SCHEMAS = [...navigation, ...tabs, ...]`. TOOL_NAMES and TOOL_CATEGORIES stay in `tools.ts`.
+- **Risk**: Medium — any consumer that imports from `humanchrome-shared` and does `import { TOOL_SCHEMAS }` keeps working; internal cross-file fragment imports must not create circular deps. Run `pnpm -w build` + coverage test as acceptance gate.
+
+### IMP-0022 · Type record-replay NodeRuntime step generics to eliminate 60+ as any casts across node files (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: The 10+ node files (click.ts, fill.ts, assert.ts, download-screenshot-attr-event-frame-loop.ts, etc.) all use NodeRuntime<any> and cast step as any before accessing step-specific fields. expandTemplatesDeep<T>(value: T, scope) already preserves the type but callers force-cast to any before calling it, discarding inference. Each file also repeats (located as any)?.ref and (located as any)?.frameId because locateElement returns an untyped shape. Typing NodeRuntime with concrete step interfaces (StepClick, StepFill, etc., already defined in legacy-types.ts) eliminates ~60 casts and catches field mismatches at compile time.
+- **Cost**: M
+- **Value**: M
+- **Files**: nodes/click.ts (23 casts), nodes/fill.ts (21), nodes/assert.ts (16), nodes/download-screenshot-attr-event-frame-loop.ts (31), nodes/scroll.ts (4), nodes/navigate.ts (3), nodes/wait.ts (16) — total ~60 in node files
+- **Sketch**: 1) Declare locateElement return type as interface LocatedElement { ref?: string; frameId?: number; resolvedBy?: string; cssSelector?: string }. 2) Change NodeRuntime<any> to NodeRuntime<StepClick> etc. using existing legacy-types. 3) Pass typed step to expandTemplatesDeep<StepClick> — the generic already supports this. Casts disappear file by file.
+- **Risk**: Medium — some step fields (saveAs, filenameContains) are not yet in current interfaces and need extending. Compile errors guide the work; no runtime change.
+
+### IMP-0023 · Split agent.ts route file into project, session, message, attachment, and streaming sub-routers (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: agent.ts at 1264 LoC registers all agent-domain HTTP routes in a single registerAgentRoutes function (~53 Fastify route registrations). Sessions, projects, messages, attachments, and SSE streaming are independent concerns. Any change to SSE stream handling requires navigating past 600 lines of CRUD. Splitting into focused sub-routers (projects.ts, sessions.ts, messages.ts, attachments.ts, streaming.ts) caps each file at ~150-250 LoC and makes each endpoint group independently testable.
+- **Cost**: M
+- **Value**: M
+- **Files**: (1264 LoC, ~53 route registrations)
+- **Sketch**: Create directory. Extract: (CRUD + directory open), (CRUD + engine listing), (CRUD by project/session), (stats + cleanup), (SSE act/cancel — the hot path). Top-level becomes ~30-line orchestrator that calls each sub-router. AgentRoutesOptions interface stays in agent.ts or moves to a shared types file.
+- **Risk**: Low — Fastify plugin registration is additive; splitting does not change route paths or method semantics. Import paths in the server entrypoint only change for agent.ts itself.
+
 ### IMP-0007 · Add chrome_download_list and chrome_download_cancel tools (feat) · score: 2
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -97,6 +194,24 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: S
 - **Value**: S
   Two new tools: chrome_download_list (wraps chrome.downloads.search; params: state=in_progress|complete|interrupted|all, filenameContains?, limit?) and chrome_download_cancel (param: downloadId, required). Touch: tools/browser/download.ts (existing file already handles chrome.downloads), TOOL_NAMES, TOOL_SCHEMAS. Keep chrome_handle_download untouched.
+
+### IMP-0015 · Add chrome_pace_get tool to read the current pacing profile (feat) · score: 2
+
+- **Proposed by**: feature-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: chrome_pace sets the per-client throttle profile (off|human|careful|fast) but there is no getter. An agent that wants to temporarily escalate pace (e.g. switch to fast for a bulk read phase) and then restore the previous value must hard-code the original setting instead of reading it back — fragile if another agent on a different client changed it. chrome_pace_get completes the read/write pair and enables safe save-and-restore patterns.
+- **Cost**: S
+- **Value**: S
+  Simplest implementation: new tool with no required parameters; reads client-state pacing entry for the calling client. Returns { profile: string, mutatingDelayMs: number }. Touch: tools/browser/pace.ts (or dispatch handler), TOOL_NAMES, TOOL_SCHEMAS. Zero new infrastructure — client-state already stores the profile.
+
+### IMP-0018 · Add record_replay_flow_delete tool to complete recording lifecycle (feat) · score: 2
+
+- **Proposed by**: feature-scout · 2026-05-06
+- **Status**: proposed
+- **Why**: record_replay_list_published and record_replay_flow_run exist, but agents cannot delete a flow once it is published. During iterative recording sessions (capture, test, refine) stale versions accumulate under the same slug family, cluttering the dynamic flow.<slug> MCP tool surface and forcing the user to open the extension UI to clean up. A delete tool closes the lifecycle gap the same way bookmark_delete rounds out the bookmark group.
+- **Cost**: S
+- **Value**: S
+  Param: id (required, the flow UUID from list_published). Implementation wraps whatever the extension uses to remove a flow from IndexedDB / chrome.storage — inspect record-replay/nodes/ for the storage layer. Returns { deleted: boolean, id }. Touch: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE, TOOL_SCHEMAS entry, dispatch.ts FLOW_PREFIX path or a dedicated handler, and the bridge must un-register the dynamic flow.<slug> tool if it was auto-exposed.
 
 ## Done
 
@@ -164,3 +279,19 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-06
 - **Summary**: Phase 4a only — uncommented the record_replay_flow_run + record_replay_list_published schemas in TOOL_SCHEMAS; added new "Workflows" category to TOOL_CATEGORY_ORDER + map both tools to it. Tightened descriptions to point users at the dynamic flow.<slug> auto-exposed surface (preferred) vs the explicit ID-based fallback. The handlers + dispatch.ts FLOW_PREFIX path were already complete; only the schemas were commented out. Phase 4b (verify recording UX end-to-end) and 4c (docs/RECORD_REPLAY.md walkthrough) deferred until manual verification of the recording flow. ci-local.sh green; 45 tools across 11 categories.
 - **Commit**: `4a63c84` on main
+
+### IMP-0025 · chrome_navigate with newWindow:true never pins the opened tab to the client (bug) · score: 7
+
+- **Proposed by**: bug-scout · 2026-05-06
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Added `(p) => p?.tabs?.[0]?.tabId` as a third path in extractTabIdFromResult. Purely additive — only fires on the array-shaped response that newWindow:true and navigate_batch return. Single-tab paths still take priority. Build green; extension vitest 641/641.
+- **Commit**: `5a46e56` on main
+
+### IMP-0026 · chrome_navigate_batch never pins the opened tabs to the client (bug) · score: 7
+
+- **Proposed by**: bug-scout · 2026-05-06
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Same root cause and same fix as IMP-0025 — both bugs were resolved by the single one-line addition to extractTabIdFromResult.
+- **Commit**: `5a46e56` on main
