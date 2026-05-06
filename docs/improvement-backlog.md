@@ -49,6 +49,33 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0010 · Add chrome_assert with composite predicates (url/element/console/network/js) (feat) · score: 6
+
+- **Proposed by**: user-direction · 2026-05-06
+- **Status**: proposed
+- **Why**: Today the agent has to infer flow success — did the click work? did the page navigate? did the toast appear? — and gets it wrong. A single chrome_assert tool that takes N predicates and returns {ok, results:[]} expresses success declaratively and dramatically cuts false-success claims on broken flows.
+- **Cost**: S
+- **Value**: L
+- **Predicates**: url_matches | element_present | element_absent | console_clean | network_succeeded | js\n- **Returns**: { ok: boolean, results: [{ predicate, ok, detail }] }\n- **Reuses**: querySelector for element, console-buffer for clean check, network-capture buffer for network match, chrome_javascript path for js predicate\n- **Files**: new tools/browser/assert.ts, schema entry, TOOL_NAMES, TOOL_CATEGORIES (Interaction)\n- **Cost**: ~150 LoC handler + schema.
+
+### IMP-0011 · Add chrome_wait_for unifying element/network_idle/response_match/js waits (feat) · score: 5
+
+- **Proposed by**: user-direction · 2026-05-06
+- **Status**: proposed
+- **Why**: chrome_await_element covers DOM presence. The other 80% of waits — network-idle, specific XHR completion, custom JS predicate — agents currently fake with chrome_javascript spin-polling. A unified chrome_wait_for with a kind discriminator replaces that pattern with a single primitive.
+- **Cost**: M
+- **Value**: L
+- **Kinds**: element (present/absent), network_idle (quietMs), response_match (urlPattern, no body), js (expression repeatedly evaluated)\n- **Schema**: discriminated union on kind\n- **Implementation**: new wait-helper.js actions for network_idle (PerformanceObserver) + js (eval loop); response_match reuses chrome_intercept_response CDP wiring without returning the body\n- **chrome_await_element stays** — its description is updated to point at chrome_wait_for as the new preferred entry\n- **Files**: tools/browser/wait-for.ts, schema entry, wait-helper.js extension, TOOL_NAMES, TOOL_CATEGORIES (Interaction)\n- **Cost**: ~250 LoC.
+
+### IMP-0012 · Add chrome_pace for bridge-side throttling of mutating tool dispatches (feat) · score: 5
+
+- **Proposed by**: user-direction · 2026-05-06
+- **Status**: proposed
+- **Why**: LinkedIn / Instagram / WhatsApp shadow-ban on burst patterns. Today every agent reinvents its own throttle. A bridge-side per-client pacing profile gates mutating dispatches without changing handler code, exactly where the dispatch layer can serialize them.
+- **Cost**: M
+- **Value**: L
+- **Tool**: chrome_pace({ profile: off|human|careful|fast, minGapMs?, jitterMs? }) — per-client setter\n- **Profiles**: human=600-1200ms+jitter, careful=1500-3000ms, fast=tab-lock-only, off=current\n- **Where it gates**: dispatch.ts:dispatchTool — if tool.mutates and client has a profile, sleep before forwarding\n- **Storage**: in-memory Map<clientId, {profile, lastDispatchAt}>; no persistence\n- **Reads stay un-throttled** (the BaseBrowserToolExecutor.mutates flag is the gate)\n- **Files**: tools/browser/pace.ts, schema, dispatch.ts throttle, TOOL_CATEGORIES (Diagnostics or new Pacing category)\n- **Cost**: 80 LoC handler + 30 LoC throttle in dispatchTool.
+
 ### IMP-0005 · Add multi-match count to chrome_intercept_response (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -77,6 +104,15 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1428 LoC)
 - **Sketch**: Add `function assertDomainUnchanged(ctx: ScreenshotContext | null, currentHostname: string, action: string): void` near top of file; type `ctx` via the existing `ScreenshotContext` import so the cast disappears; call from each of the 6 case branches.
 - **Risk**: Low — purely mechanical extraction, logic is identical across all 6 sites.
+
+### IMP-0013 · Expose record-replay flows as MCP tools (uncomment record*replay*\* + verify recording UX) (feat) · score: 4
+
+- **Proposed by**: user-direction · 2026-05-06
+- **Status**: proposed
+- **Why**: The bridge already has dynamic flow.\* tool dispatch in dispatch.ts (FLOW_PREFIX path) and listDynamicFlowTools — but the record_replay_flow_run + record_replay_list_published schemas in tools.ts are commented out, and the recording UX in entrypoints/web-editor-v2/ + record-replay-v3/ has not been verified end-to-end. Killer feature — user demonstrates a flow once, agent invokes it as a single MCP tool with parameters — sits 80 percent built and not shipping.
+- **Cost**: L
+- **Value**: L
+- **Phase 4a**: uncomment the two record*replay*_ schemas in TOOL_SCHEMAS; verify they list and dispatch correctly via existing flow._ infrastructure\n- **Phase 4b**: read record-replay-v3 + web-editor-v2 to confirm record + publish + parameterize works end-to-end; fix what is broken\n- **Phase 4c**: docs/RECORD_REPLAY.md walkthrough\n- **Exploratory**: 30 min reading first to size the actual gap before estimating final scope\n- **Files**: packages/shared/src/tools.ts schema uncomment, possibly entrypoints/background/record-replay-v3/\* fixes, new doc\n- **Cost**: depends on phase 4b findings.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
