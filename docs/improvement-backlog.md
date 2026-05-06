@@ -49,17 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0008 · Extract checkDomainShift helper to eliminate 6 copy-pasted hostname-check blocks in computer.ts (refactor) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-05
-- **Status**: proposed
-- **Why**: The pattern `(ctx as any)?.hostname` + security-error throw is copy-pasted verbatim 6 times across computer.ts (lines 436, 538, 679, 763, 878, 1213). Each copy carries its own `as any` cast. A single `assertDomainUnchanged(ctx, currentHostname, actionName)` helper eliminates ~36 duplicated lines, removes all 6 casts, and ensures the check is impossible to update inconsistently.
-- **Cost**: S
-- **Value**: M
-- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1428 LoC)
-- **Sketch**: Add `function assertDomainUnchanged(ctx: ScreenshotContext | null, currentHostname: string, action: string): void` near top of file; type `ctx` via the existing `ScreenshotContext` import so the cast disappears; call from each of the 6 case branches.
-- **Risk**: Low — purely mechanical extraction, logic is identical across all 6 sites.
-
 ### IMP-0014 · Add chrome_console_clear tool to reset the captured console buffer (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-06
@@ -286,3 +275,11 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-06
 - **Summary**: Worker-pool semaphore for navigate_batch. maxConcurrent (omitted/<=0/>=urls.length keeps legacy behavior). Workers claim URLs from a shared cursor, await waitForTabComplete with perUrlTimeoutMs (default 30s) before claiming the next. TIMEOUT/TAB_CLOSED/TAB_NOT_FOUND record the tab + surface in errors[] without aborting. perTabDelayMs applies as intra-worker spacing. Tabs[] preserves input order via index-keyed sparse arrays. Bonus: perUrlTimeoutMs schema knob exposed for slow anti-bot platforms. 6 new tests with vi.useFakeTimers; 647/647 extension; 49/49 bridge.
 - **Commit**: `17b69fe` on main
+
+### IMP-0008 · Extract checkDomainShift helper to eliminate 6 copy-pasted hostname-check blocks in computer.ts (refactor) · score: 4
+
+- **Proposed by**: optimization-scout · 2026-05-05
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Two top-level helpers in computer.ts (`getHostnameFromUrl`, `checkDomainShift`) replace the 6 inline `(ctx as any)?.hostname` + throw blocks. ctx typed as `ScreenshotContext | undefined` (no `as any`). Behavior preserved: per-site predicate gates kept inline (they varied); literal vs dynamic action labels preserved; zoom site's distinct trailing message ("Capture a new screenshot first.") preserved via a `trailing: 'first'` option. Net -36 LoC, all 6 casts gone. Build green; extension vitest 647/647.
+- **Commit**: `4810f70` on main
