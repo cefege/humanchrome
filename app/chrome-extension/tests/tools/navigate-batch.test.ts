@@ -145,7 +145,7 @@ describe('NavigateBatchTool', () => {
 
     const result = await promise;
     expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content[0].text as string);
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
 
     expect(payload.tabs).toHaveLength(3);
     expect(payload.count).toBe(3);
@@ -177,7 +177,7 @@ describe('NavigateBatchTool', () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     const result = await promise;
-    const payload = JSON.parse(result.content[0].text as string);
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
 
     expect(result.isError).toBe(false);
     expect(payload.tabs).toHaveLength(6);
@@ -232,7 +232,7 @@ describe('NavigateBatchTool', () => {
     await vi.advanceTimersByTimeAsync(2_000);
 
     const result = await promise;
-    const payload = JSON.parse(result.content[0].text as string);
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
 
     expect(result.isError).toBe(false);
     // Tab is still recorded — caller can clean it up.
