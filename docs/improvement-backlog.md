@@ -49,15 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0005 · Add multi-match count to chrome_intercept_response (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-05
-- **Status**: proposed
-- **Why**: chrome_intercept_response detaches after the first matching response, forcing agents to re-call it for each subsequent API response in paginated SPA flows (LinkedIn inbox pages, WhatsApp message history loads). Adding an optional count parameter (default 1) lets the tool accumulate N matches before detaching and returning them as an array — cutting round-trips from N to 1 for known-count pagination.
-- **Cost**: S
-- **Value**: M
-  Schema change: add count: number (default 1) and returns responses: InterceptedResponse[]. Implementation: keep the existing resolve-on-first path when count===1 (zero behavior change), otherwise push to an accumulator and resolve when accumulator.length === count or timeout. Touch: tools/browser/intercept-response.ts and TOOL_SCHEMAS entry.
-
 ### IMP-0006 · Add maxConcurrent flag to chrome_navigate_batch (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -288,3 +279,11 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-06
 - **Summary**: Extracted `buildFlowArgs(flowId, mcpArgs)` helper in dispatch.ts that destructures runner options (tabTarget/refresh/captureNetwork/returnLogs/timeoutMs/startUrl) to the top level of the flow envelope and leaves only user-supplied flow variables in `args`. 4 unit tests cover canonical / runner-only / vars-only / undefined cases. Build green; bridge tests 49/49 (was 45 +4 new).
 - **Commit**: `4dc7454` on main
+
+### IMP-0005 · Add multi-match count to chrome_intercept_response (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-05
+- **Status**: done
+- **Completed**: 2026-05-06
+- **Summary**: Added `count` param (default 1, max 100). count===1 keeps the existing single-response code path byte-for-byte (chrome_wait_for response_match continues to work). count>1 uses a pendingByRequestId map + completed[] accumulator; resolves when count reached or on timeout returning whatever was gathered (matched > 0 → success; matched===0 → standard TIMEOUT envelope). returnBody:false works in multi mode; loadingFailed for one request drops only that requestId. Build green; bridge 49/49; extension 641/641.
+- **Commit**: `9309769` on main
