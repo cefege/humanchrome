@@ -268,6 +268,26 @@ Run one or more predicates against the page and return a structured pass/fail re
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 
+### `chrome_wait_for`
+
+Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, or an arbitrary JS expression to return truthy. Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `kind` | `element` \| `network_idle` \| `response_match` \| `js` | ✓ | Which wait condition to use. Required. |
+| `timeoutMs` | number |  | Wall-clock budget. Default 15000, max 120000. On timeout the tool returns a TIMEOUT error envelope. |
+| `selector` | string |  | For kind="element": CSS selector or XPath. Either selector or ref must be provided. |
+| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `ref` | string |  | For kind="element": ref from chrome_read_page. |
+| `state` | `present` \| `absent` |  | For kind="element": "present" (default) or "absent". |
+| `quietMs` | number |  | For kind="network_idle": consider the network idle once this many ms have elapsed without a new resource entry. Default 500. |
+| `urlPattern` | string |  | For kind="response_match": substring or /regex/flags matched against the response URL. Reuses chrome_intercept_response's CDP wiring with returnBody=false (signal-only). Required for response_match. |
+| `method` | string |  | For kind="response_match": optional HTTP method filter (GET/POST/etc). |
+| `expression` | string |  | For kind="js": JavaScript expression evaluated in the page context. Re-evaluated on every DOM mutation plus a 250ms safety poll. Resolves on first truthy return. |
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `frameId` | number |  | Target frame ID for iframe support. |
+
 ## Scripting
 
 ### `chrome_userscript`

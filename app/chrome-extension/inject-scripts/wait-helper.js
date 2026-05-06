@@ -315,6 +315,128 @@
     });
   }
 
+  // Resolve when no fetch / XHR / resource-timing entry has fired for `quietMs`.
+  // Uses PerformanceObserver to avoid hooking fetch/XHR explicitly. The first
+  // resource entry resets the quiet window; if `quietMs` elapses without a
+  // new entry, we resolve as idle. Edge case: a page that has been quiet
+  // since load triggers an immediate-idle resolution after `quietMs` from start.
+  function waitForNetworkIdle({ quietMs, timeout }) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      let resolved = false;
+      let lastActivity = Date.now();
+      let observer = null;
+
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        try {
+          observer && observer.disconnect();
+        } catch {}
+        clearTimeout(idleTimer);
+        clearTimeout(deadline);
+        resolve(result);
+      };
+
+      const reschedule = () => {
+        clearTimeout(idleTimer);
+        const remaining = Math.max(0, lastActivity + quietMs - Date.now());
+        idleTimer = setTimeout(
+          () =>
+            done({
+              success: true,
+              quietForMs: Date.now() - lastActivity,
+              tookMs: Date.now() - start,
+            }),
+          remaining,
+        );
+      };
+
+      try {
+        observer = new PerformanceObserver(() => {
+          lastActivity = Date.now();
+          reschedule();
+        });
+        observer.observe({ type: 'resource', buffered: true });
+      } catch {
+        // PerformanceObserver unavailable — fall back to a single timer
+      }
+
+      let idleTimer = setTimeout(() => {}, 0);
+      reschedule();
+      const deadline = setTimeout(
+        () =>
+          done({
+            success: false,
+            reason: 'timeout',
+            quietForMs: Date.now() - lastActivity,
+            tookMs: Date.now() - start,
+          }),
+        Math.max(0, timeout),
+      );
+    });
+  }
+
+  // Repeatedly evaluate `expression` until it returns truthy or `timeout` ms
+  // elapses. Re-eval triggers: (a) any DOM mutation via MutationObserver,
+  // (b) a 250ms safety poll for non-DOM state changes (e.g. window globals
+  // updated by setTimeout). Eval errors count as falsy and don't abort.
+  function waitForJs({ expression, timeout }) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      let resolved = false;
+
+      let evalFn;
+      try {
+        evalFn = new Function(`return (${expression});`);
+      } catch (err) {
+        resolve({
+          success: false,
+          reason: 'compile-error',
+          error: String((err && err.message) || err),
+          tookMs: Date.now() - start,
+        });
+        return;
+      }
+
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        try {
+          obs && obs.disconnect();
+        } catch {}
+        clearInterval(poller);
+        clearTimeout(timer);
+        resolve(result);
+      };
+
+      const check = () => {
+        try {
+          if (evalFn()) done({ success: true, tookMs: Date.now() - start });
+        } catch {
+          // eval threw — treat as falsy and keep waiting
+        }
+      };
+
+      const obs = new MutationObserver(check);
+      try {
+        obs.observe(document.documentElement || document.body, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
+      } catch {}
+
+      check();
+      const poller = setInterval(check, 250);
+      const timer = setTimeout(
+        () => done({ success: false, reason: 'timeout', tookMs: Date.now() - start }),
+        Math.max(0, timeout),
+      );
+    });
+  }
+
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     try {
       if (request && request.action === 'wait_helper_ping') {
@@ -357,6 +479,22 @@
           return true;
         }
         waitForSelector({ selector, visible, timeout }).then((res) => sendResponse(res));
+        return true; // async
+      }
+      if (request && request.action === 'waitForNetworkIdle') {
+        const quietMs = Math.max(0, Number(request.quietMs || 500));
+        const timeout = Math.max(0, Number(request.timeout || 15000));
+        waitForNetworkIdle({ quietMs, timeout }).then((res) => sendResponse(res));
+        return true; // async
+      }
+      if (request && request.action === 'waitForJs') {
+        const expression = typeof request.expression === 'string' ? request.expression.trim() : '';
+        const timeout = Math.max(0, Number(request.timeout || 15000));
+        if (!expression) {
+          sendResponse({ success: false, error: 'expression is required' });
+          return true;
+        }
+        waitForJs({ expression, timeout }).then((res) => sendResponse(res));
         return true; // async
       }
     } catch (e) {

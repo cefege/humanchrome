@@ -151,6 +151,8 @@ export const TOOL_MESSAGE_TYPES = {
   // Wait helper
   WAIT_FOR_TEXT: 'waitForText',
   WAIT_FOR_ELEMENT: 'waitForElement',
+  WAIT_FOR_NETWORK_IDLE: 'waitForNetworkIdle',
+  WAIT_FOR_JS: 'waitForJs',
 
   // Semantic similarity engine
   SIMILARITY_ENGINE_INIT: 'similarityEngineInit',

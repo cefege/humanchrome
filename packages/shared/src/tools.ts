@@ -109,6 +109,7 @@ export const TOOL_NAMES = {
     GIF_RECORDER: 'chrome_gif_recorder',
     DEBUG_DUMP: 'chrome_debug_dump',
     ASSERT: 'chrome_assert',
+    WAIT_FOR: 'chrome_wait_for',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -1770,6 +1771,63 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['predicates'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.WAIT_FOR,
+    description:
+      'Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, or an arbitrary JS expression to return truthy. Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['element', 'network_idle', 'response_match', 'js'],
+          description: 'Which wait condition to use. Required.',
+        },
+        timeoutMs: {
+          type: 'number',
+          description:
+            'Wall-clock budget. Default 15000, max 120000. On timeout the tool returns a TIMEOUT error envelope.',
+        },
+        selector: {
+          type: 'string',
+          description:
+            'For kind="element": CSS selector or XPath. Either selector or ref must be provided.',
+        },
+        selectorType: SELECTOR_TYPE_PROP,
+        ref: {
+          type: 'string',
+          description: 'For kind="element": ref from chrome_read_page.',
+        },
+        state: {
+          type: 'string',
+          enum: ['present', 'absent'],
+          description: 'For kind="element": "present" (default) or "absent".',
+        },
+        quietMs: {
+          type: 'number',
+          description:
+            'For kind="network_idle": consider the network idle once this many ms have elapsed without a new resource entry. Default 500.',
+        },
+        urlPattern: {
+          type: 'string',
+          description:
+            'For kind="response_match": substring or /regex/flags matched against the response URL. Reuses chrome_intercept_response\'s CDP wiring with returnBody=false (signal-only). Required for response_match.',
+        },
+        method: {
+          type: 'string',
+          description: 'For kind="response_match": optional HTTP method filter (GET/POST/etc).',
+        },
+        expression: {
+          type: 'string',
+          description:
+            'For kind="js": JavaScript expression evaluated in the page context. Re-evaluated on every DOM mutation plus a 250ms safety poll. Resolves on first truthy return.',
+        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: FRAME_ID_PROP,
+      },
+      required: ['kind'],
+    },
+  },
 ];
 
 /**
@@ -1828,6 +1886,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.HANDLE_DIALOG]: 'Interaction',
   [TOOL_NAMES.BROWSER.AWAIT_ELEMENT]: 'Interaction',
   [TOOL_NAMES.BROWSER.ASSERT]: 'Interaction',
+  [TOOL_NAMES.BROWSER.WAIT_FOR]: 'Interaction',
 
   [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',
