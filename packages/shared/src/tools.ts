@@ -534,7 +534,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NAVIGATE_BATCH,
     description:
-      "Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens — does NOT wait for any tab to finish loading.",
+      "Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens unless maxConcurrent is set — in which case it blocks until each batch finishes loading before opening the next.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -556,7 +556,17 @@ export const TOOL_SCHEMAS: Tool[] = [
         perTabDelayMs: {
           type: 'number',
           description:
-            'Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens.',
+            'Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens. When maxConcurrent is also set, this delay applies WITHIN each worker (between consecutive opens by the same worker).',
+        },
+        maxConcurrent: {
+          type: 'number',
+          description:
+            'Cap the number of in-flight tab loads. When omitted (or <= 0), all URLs open in parallel (current behavior). When set to N, opens N tabs and waits for each to finish loading before starting the next — useful on anti-bot platforms (LinkedIn, Instagram) that flag concurrent opens. Each waited tab uses a 30s load timeout; on timeout the tab is still recorded and the worker continues.',
+        },
+        perUrlTimeoutMs: {
+          type: 'number',
+          description:
+            'Per-URL load timeout in ms when maxConcurrent is set. Default 30000. Ignored when maxConcurrent is not set.',
         },
       },
       required: ['urls'],
