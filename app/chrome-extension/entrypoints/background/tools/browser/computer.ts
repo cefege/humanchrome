@@ -6,7 +6,11 @@ import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { clickTool, fillTool } from './interaction';
 import { keyboardTool } from './keyboard';
 import { screenshotTool } from './screenshot';
-import { screenshotContextManager, scaleCoordinates } from '@/utils/screenshot-context';
+import {
+  screenshotContextManager,
+  scaleCoordinates,
+  type ScreenshotContext,
+} from '@/utils/screenshot-context';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import {
   captureFrameOnAction,
@@ -75,6 +79,43 @@ interface ComputerParams {
   tabId?: number; // target existing tab id
   windowId?: number;
   background?: boolean; // avoid focusing/activating
+}
+
+// Extract the hostname component of a URL, returning '' for unparseable input.
+function getHostnameFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+// Verify the screenshot context's hostname still matches the tab's current
+// hostname. If the domain changed since the last screenshot, returns a
+// `ToolResult` error response that the caller should early-return; otherwise
+// returns `null`.
+//
+// The default trailing message ("Capture a new screenshot or use ref/selector.")
+// matches the coordinate-driven actions; pass `trailing: 'first'` to emit
+// "Capture a new screenshot first." for actions that have no ref-based fallback
+// (e.g. zoom).
+function checkDomainShift(
+  ctx: ScreenshotContext | undefined,
+  tabUrl: string | undefined,
+  action: string,
+  trailing: 'or-ref' | 'first' = 'or-ref',
+): ToolResult | null {
+  const contextHostname = ctx?.hostname;
+  if (!contextHostname) return null;
+  const currentHostname = getHostnameFromUrl(tabUrl || '');
+  if (contextHostname === currentHostname) return null;
+  const tail =
+    trailing === 'first'
+      ? 'Capture a new screenshot first.'
+      : 'Capture a new screenshot or use ref/selector.';
+  return createErrorResponse(
+    `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during ${action}. ${tail}`,
+  );
 }
 
 // Minimal CDP helper encapsulated here to avoid scattering CDP code
@@ -421,26 +462,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           return createErrorResponse(
             'Provide ref or selector or coordinates for hover, or failed to resolve target',
           );
-        {
-          const stale = ((): any => {
-            if (!params.coordinates) return null;
-            const getHostname = (url: string): string => {
-              try {
-                return new URL(url).hostname;
-              } catch {
-                return '';
-              }
-            };
-            const currentHostname = getHostname(tab.url || '');
-            const ctx = screenshotContextManager.getContext(tab.id!);
-            const contextHostname = (ctx as any)?.hostname as string | undefined;
-            if (contextHostname && contextHostname !== currentHostname) {
-              return createErrorResponse(
-                `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during hover. Capture a new screenshot or use ref/selector.`,
-              );
-            }
-            return null;
-          })();
+        if (params.coordinates) {
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            'hover',
+          );
           if (stale) return stale;
         }
 
@@ -525,24 +552,11 @@ class ComputerTool extends BaseBrowserToolExecutor {
         if (!params.coordinates)
           return createErrorResponse('Provide ref, selector, or coordinates for click action');
         {
-          const stale = ((): any => {
-            const getHostname = (url: string): string => {
-              try {
-                return new URL(url).hostname;
-              } catch {
-                return '';
-              }
-            };
-            const currentHostname = getHostname(tab.url || '');
-            const ctx = screenshotContextManager.getContext(tab.id!);
-            const contextHostname = (ctx as any)?.hostname as string | undefined;
-            if (contextHostname && contextHostname !== currentHostname) {
-              return createErrorResponse(
-                `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during ${params.action}. Capture a new screenshot or use ref/selector.`,
-              );
-            }
-            return null;
-          })();
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            params.action,
+          );
           if (stale) return stale;
         }
         const coord = project(params.coordinates)!;
@@ -664,26 +678,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           }
         }
         if (!coord) return createErrorResponse('Failed to resolve coordinates from ref/selector');
-        {
-          const stale = ((): any => {
-            if (!params.coordinates) return null;
-            const getHostname = (url: string): string => {
-              try {
-                return new URL(url).hostname;
-              } catch {
-                return '';
-              }
-            };
-            const currentHostname = getHostname(tab.url || '');
-            const ctx = screenshotContextManager.getContext(tab.id!);
-            const contextHostname = (ctx as any)?.hostname as string | undefined;
-            if (contextHostname && contextHostname !== currentHostname) {
-              return createErrorResponse(
-                `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during ${params.action}. Capture a new screenshot or use ref/selector.`,
-              );
-            }
-            return null;
-          })();
+        if (params.coordinates) {
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            params.action,
+          );
           if (stale) return stale;
         }
         try {
@@ -748,26 +748,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           ? project(params.startCoordinates)!
           : (undefined as any);
         let end = params.coordinates ? project(params.coordinates)! : (undefined as any);
-        {
-          const stale = ((): any => {
-            if (!params.startCoordinates && !params.coordinates) return null;
-            const getHostname = (url: string): string => {
-              try {
-                return new URL(url).hostname;
-              } catch {
-                return '';
-              }
-            };
-            const currentHostname = getHostname(tab.url || '');
-            const ctx = screenshotContextManager.getContext(tab.id!);
-            const contextHostname = (ctx as any)?.hostname as string | undefined;
-            if (contextHostname && contextHostname !== currentHostname) {
-              return createErrorResponse(
-                `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during left_click_drag. Capture a new screenshot or use ref/selector.`,
-              );
-            }
-            return null;
-          })();
+        if (params.startCoordinates || params.coordinates) {
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            'left_click_drag',
+          );
           if (stale) return stale;
         }
         if (params.startRef || params.ref) {
@@ -863,26 +849,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           }
         }
         if (!coord) return createErrorResponse('Failed to resolve scroll coordinates');
-        {
-          const stale = ((): any => {
-            if (!params.coordinates) return null;
-            const getHostname = (url: string): string => {
-              try {
-                return new URL(url).hostname;
-              } catch {
-                return '';
-              }
-            };
-            const currentHostname = getHostname(tab.url || '');
-            const ctx = screenshotContextManager.getContext(tab.id!);
-            const contextHostname = (ctx as any)?.hostname as string | undefined;
-            if (contextHostname && contextHostname !== currentHostname) {
-              return createErrorResponse(
-                `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during scroll. Capture a new screenshot or use ref/selector.`,
-              );
-            }
-            return null;
-          })();
+        if (params.coordinates) {
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            'scroll',
+          );
           if (stale) return stale;
         }
         const direction = params.scrollDirection || 'down';
@@ -1202,21 +1174,13 @@ class ComputerTool extends BaseBrowserToolExecutor {
 
         // Security check: verify domain hasn't changed since last screenshot
         {
-          const getHostname = (url: string): string => {
-            try {
-              return new URL(url).hostname;
-            } catch {
-              return '';
-            }
-          };
-          const ctx = screenshotContextManager.getContext(tab.id!);
-          const contextHostname = (ctx as any)?.hostname as string | undefined;
-          const currentHostname = getHostname(tab.url || '');
-          if (contextHostname && contextHostname !== currentHostname) {
-            return createErrorResponse(
-              `Security check failed: Domain changed since last screenshot (from ${contextHostname} to ${currentHostname}) during zoom. Capture a new screenshot first.`,
-            );
-          }
+          const stale = checkDomainShift(
+            screenshotContextManager.getContext(tab.id!),
+            tab.url,
+            'zoom',
+            'first',
+          );
+          if (stale) return stale;
         }
 
         try {
