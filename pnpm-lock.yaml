@@ -109,8 +109,8 @@ importers:
         specifier: ^1.0.2
         version: 1.0.3(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(yaml@2.8.4))(vue@3.5.33(typescript@5.9.3))(wxt@0.20.25(@types/node@22.19.17)(eslint@9.39.4(jiti@2.6.1))(jiti@2.6.1)(rollup@4.60.2)(yaml@2.8.4))
       dotenv:
-        specifier: ^16.5.0
-        version: 16.6.1
+        specifier: ^17.4.2
+        version: 17.4.2
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
