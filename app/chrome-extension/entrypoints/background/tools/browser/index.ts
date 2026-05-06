@@ -25,6 +25,7 @@ export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
 export { injectScriptTool, sendCommandToInjectScriptTool } from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';
+export { consoleClearTool } from './console-clear';
 export { fileUploadTool } from './file-upload';
 export { readPageTool } from './read-page';
 export { computerTool } from './computer';

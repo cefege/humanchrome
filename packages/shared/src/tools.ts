@@ -97,6 +97,7 @@ export const TOOL_NAMES = {
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
     JAVASCRIPT: 'chrome_javascript',
     CONSOLE: 'chrome_console',
+    CONSOLE_CLEAR: 'chrome_console_clear',
     FILE_UPLOAD: 'chrome_upload_file',
     READ_PAGE: 'chrome_read_page',
     COMPUTER: 'chrome_computer',
@@ -1439,6 +1440,19 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.CONSOLE_CLEAR,
+    description:
+      'Reset the per-tab console buffer used by `chrome_console` (mode="buffer") and the `console_clean` predicate of `chrome_assert`. Use between steps of a multi-step flow so subsequent console reads are scoped to messages that arrived after the clear — the same reset pattern test frameworks use between assertions. Returns `{ success, tabId, cleared, clearedMessages, clearedExceptions, bufferActive }` where `cleared` is the total number of buffered entries dropped. No-op (cleared:0, bufferActive:false) when buffer capture has not yet started for the tab.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: TAB_ID_PROP,
+        windowId: WINDOW_ID_PROP,
+      },
+      required: [],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.FILE_UPLOAD,
     description:
       'Upload files to web forms with file input elements using Chrome DevTools Protocol',
@@ -1937,6 +1951,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // "Reading" if/when its schema lands.
   [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: 'Reading',
+  [TOOL_NAMES.BROWSER.CONSOLE_CLEAR]: 'Reading',
 
   [TOOL_NAMES.BROWSER.CLICK]: 'Interaction',
   [TOOL_NAMES.BROWSER.FILL]: 'Interaction',
