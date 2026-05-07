@@ -553,26 +553,14 @@ function readJsonFile(
 
 type FetchFn = typeof globalThis.fetch;
 
-function resolveFetch(): FetchFn | null {
-  if (typeof globalThis.fetch === 'function') {
-    return globalThis.fetch.bind(globalThis) as FetchFn;
-  }
-  try {
-    const mod = require('node-fetch');
-    return (mod.default ?? mod) as FetchFn;
-  } catch {
-    return null;
-  }
-}
-
 async function checkConnectivity(
   url: string,
   timeoutMs: number,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const fetchFn = resolveFetch();
-  if (!fetchFn) {
-    return { ok: false, error: 'fetch is not available (requires Node.js >=18 or node-fetch)' };
+  if (typeof globalThis.fetch !== 'function') {
+    return { ok: false, error: 'fetch is not available (requires Node.js >=18)' };
   }
+  const fetchFn = globalThis.fetch.bind(globalThis) as FetchFn;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
