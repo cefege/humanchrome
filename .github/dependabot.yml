@@ -1,5 +1,8 @@
 version: 2
 updates:
+  # Policy: dependabot proposes only minor + patch bumps automatically.
+  # Major bumps are deliberate human decisions — opened ad-hoc, not weekly —
+  # so we ignore semver-major across every npm ecosystem below.
   - package-ecosystem: npm
     directory: "/"
     schedule:
@@ -11,6 +14,9 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/app/native-server"
@@ -28,6 +34,9 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/app/chrome-extension"
@@ -46,9 +55,7 @@ updates:
           - patch
           - minor
     ignore:
-      - dependency-name: "@types/chrome"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "zod"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
@@ -63,7 +70,7 @@ updates:
           - patch
           - minor
     ignore:
-      - dependency-name: "zod"
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
