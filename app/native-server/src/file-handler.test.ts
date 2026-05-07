@@ -6,9 +6,10 @@
  *  - Path-traversal guard on `readBase64File`: only files inside the bridge
  *    temp directory may be read, and oversize files are rejected.
  *
- * All network calls are mocked — `node-fetch` and `dns/promises#lookup` are
- * stubbed at the module boundary so the suite never hits the real internet
- * or DNS resolver. Each test resets the mocks via `jest.clearAllMocks()`.
+ * All network calls are mocked — global `fetch` and `dns/promises#lookup`
+ * are stubbed at the module boundary so the suite never hits the real
+ * internet or DNS resolver. Each test resets the mocks via
+ * `jest.clearAllMocks()`.
  */
 import { describe, test, expect, beforeEach, beforeAll, afterAll, jest } from '@jest/globals';
 import * as fs from 'fs';
@@ -16,20 +17,20 @@ import * as os from 'os';
 import * as path from 'path';
 
 // --------------------------------------------------------------------------
-// Mock node-fetch (default export is a function). When the SSRF check passes
-// in `downloadFile`, we hand back a tiny in-memory response so the rest of
-// the pipeline doesn't try to use real network.
+// Stub global fetch. file-handler now uses Node 20+'s built-in fetch
+// (no node-fetch dependency). When the SSRF check passes in `downloadFile`,
+// we hand back a tiny in-memory Response so the pipeline doesn't try to
+// use real network.
 // --------------------------------------------------------------------------
-jest.mock('node-fetch', () => {
-  const fn = jest.fn(async () => ({
-    status: 200,
-    statusText: 'OK',
-    ok: true,
-    headers: { get: (_k: string) => null },
-    buffer: async () => Buffer.from('hello-world'),
-  }));
-  return { __esModule: true, default: fn };
+const buildOkResponse = () => ({
+  status: 200,
+  statusText: 'OK',
+  ok: true,
+  headers: { get: (_k: string) => null },
+  arrayBuffer: async () => new TextEncoder().encode('hello-world').buffer,
 });
+const fetchMock: jest.Mock = jest.fn(async () => buildOkResponse());
+(globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 
 // --------------------------------------------------------------------------
 // Mock dns/promises#lookup. By default we resolve hostnames to a public IP
@@ -40,13 +41,10 @@ jest.mock('dns/promises', () => ({
   lookup: jest.fn(async (_host: string, _opts?: unknown) => [{ address: '8.8.8.8', family: 4 }]),
 }));
 
-// Pull in mocks after declaration so we can drive their behaviour per test.
-const fetchMock: jest.Mock = require('node-fetch').default;
+// Pull in dns mock so individual tests can drive its behaviour.
 const dnsMock: { lookup: jest.Mock } = require('dns/promises');
 
-// Import the class AFTER the mocks are registered so its `import fetch from
-// 'node-fetch'` resolves to our stub. We import the named export rather than
-// the default singleton so each test gets its own temp dir state.
+// Import the class AFTER the global fetch stub is installed.
 import { FileHandler } from './file-handler';
 
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
@@ -83,13 +81,7 @@ beforeEach(() => {
   // override this when they want to exercise rebinding-style scenarios.
   dnsMock.lookup.mockImplementation(async () => [{ address: '8.8.8.8', family: 4 }]);
   // Reset fetch mock to a benign 200 OK with a small body.
-  fetchMock.mockImplementation(async () => ({
-    status: 200,
-    statusText: 'OK',
-    ok: true,
-    headers: { get: (_k: string) => null },
-    buffer: async () => Buffer.from('hello-world'),
-  }));
+  fetchMock.mockImplementation(async () => buildOkResponse());
 });
 
 // ===========================================================================

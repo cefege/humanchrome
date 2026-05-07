@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import * as net from 'net';
 import { lookup as dnsLookup } from 'dns/promises';
-import fetch from 'node-fetch';
 import { FileOperationPayloadSchema } from 'humanchrome-shared';
 import { withContext } from './util/logger';
 
@@ -169,7 +168,7 @@ export class FileHandler {
       const finalFileName = fileName || this.generateFileName(fileUrl);
       const filePath = path.join(this.tempDir, finalFileName);
 
-      const buffer = await response.buffer();
+      const buffer = Buffer.from(await response.arrayBuffer());
       if (buffer.length > MAX_DOWNLOAD_BYTES) {
         throw new Error(`File too large after download: ${buffer.length} bytes`);
       }
