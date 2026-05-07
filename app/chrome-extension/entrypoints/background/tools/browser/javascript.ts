@@ -269,13 +269,20 @@ async function executeViaCdp(
 
     const response = await withTimeout(
       cdpSessionManager.withSession(tabId, CDP_SESSION_KEY, async () => {
-        return (await cdpSessionManager.sendCommand(tabId, 'Runtime.evaluate', {
-          expression,
-          returnByValue: true,
-          awaitPromise: true,
-          // CDP-side timeout (ms); paired with outer withTimeout for belt-and-suspenders
-          timeout: options.timeoutMs,
-        })) as CDPEvaluateResult;
+        return (await cdpSessionManager.sendCommand(
+          tabId,
+          'Runtime.evaluate',
+          {
+            expression,
+            returnByValue: true,
+            awaitPromise: true,
+            // CDP-side timeout (ms); paired with outer withTimeout for belt-and-suspenders
+            timeout: options.timeoutMs,
+          },
+          // Tell the session manager the same budget — its own default timeout
+          // (10s) is too tight for user code with awaitPromise:true.
+          options.timeoutMs + 1000,
+        )) as CDPEvaluateResult;
       }),
       // Outer timeout adds slack so CDP has time to surface its own timeout response
       options.timeoutMs + 1000,
