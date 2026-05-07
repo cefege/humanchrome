@@ -48,6 +48,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Unit tests (shared + bridge + extension)
+        run: pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test
+
       - name: Bridge smoke tests
         working-directory: app/native-server
         run: node smoke-test.mjs

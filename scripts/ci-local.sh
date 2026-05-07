@@ -76,6 +76,9 @@ if wait "$LINT_PID"; then echo "  ✓ pnpm lint"; else echo "  ✗ pnpm lint"; F
 if wait "$TC_PID"; then echo "  ✓ pnpm typecheck"; else echo "  ✗ pnpm typecheck"; FAILURES+=("pnpm typecheck"); cat "$TC_LOG"; fi
 rm -f "$LINT_LOG" "$TC_LOG"
 
+step "build job: unit tests (shared + bridge + extension)"
+run "pnpm -r test" pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test
+
 step "build job: bridge smoke"
 run_in app/native-server "bridge smoke" node smoke-test.mjs
 
