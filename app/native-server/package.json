@@ -18,7 +18,7 @@
   },
   "scripts": {
     "dev": "nodemon --watch src --ext ts,js,json --ignore dist/ --exec \"npm run build && npm run register:dev\"",
-    "build": "ts-node src/scripts/build.ts",
+    "build": "ts-node --transpile-only src/scripts/build.ts",
     "postbuild": "node src/scripts/sync-installed.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
