@@ -53,6 +53,7 @@ export default defineConfig({
       'offscreen',
       'storage',
       'alarms',
+      'pageCapture',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',
     ],

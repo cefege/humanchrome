@@ -698,6 +698,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success.',
         },
+        raw: {
+          type: 'boolean',
+          description:
+            'When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original).',
+        },
       },
       required: [],
     },

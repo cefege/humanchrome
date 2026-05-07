@@ -2700,12 +2700,60 @@ if (window.__WEB_FETCHER_HELPER_INITIALIZED__) {
           rawHtml = document.documentElement.outerHTML;
         }
 
-        const cleanedHtml = cleanHtmlContent(rawHtml);
+        // Raw mode (default true) preserves scripts, styles, SVGs — page opens as-is
+        const useRaw = request.raw !== false;
+        const finalHtml = useRaw ? rawHtml : cleanHtmlContent(rawHtml);
+
+        // Extract resource manifest if requested
+        let resources = undefined;
+        if (request.extractResources) {
+          resources = {
+            images: [...document.querySelectorAll('img[src]')].map((el) => ({
+              src: el.src,
+              alt: el.alt || '',
+              width: el.naturalWidth || el.width || 0,
+              height: el.naturalHeight || el.height || 0,
+            })),
+            stylesheets: [...document.querySelectorAll('link[rel="stylesheet"]')].map((el) => ({
+              href: el.href,
+            })),
+            scripts: [...document.querySelectorAll('script[src]')].map((el) => ({
+              src: el.src,
+              async: el.async,
+              defer: el.defer,
+            })),
+            fonts: [
+              ...document.querySelectorAll(
+                'link[rel="preload"][as="font"], link[rel="preconnect"]',
+              ),
+            ].map((el) => ({
+              href: el.href,
+              type: el.getAttribute('as') || 'preconnect',
+            })),
+            icons: [
+              ...document.querySelectorAll(
+                'link[rel="icon"], link[rel="apple-touch-icon"], link[rel="shortcut icon"]',
+              ),
+            ].map((el) => ({
+              href: el.href,
+              rel: el.rel,
+              sizes: el.getAttribute('sizes') || '',
+            })),
+            meta: {
+              title: document.title,
+              description: document.querySelector('meta[name="description"]')?.content || '',
+              ogImage: document.querySelector('meta[property="og:image"]')?.content || '',
+              canonical: document.querySelector('link[rel="canonical"]')?.href || '',
+              favicon: document.querySelector('link[rel="icon"]')?.href || '',
+            },
+          };
+        }
 
         sendResponse({
           success: true,
-          htmlContent: cleanedHtml,
+          htmlContent: finalHtml,
           selector: request.selector,
+          resources: resources,
         });
       } catch (error) {
         sendResponse({
