@@ -388,7 +388,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         timeoutMs: {
           type: 'number',
           description:
-            'For action=wait with text: timeout in milliseconds (default 10000, max 120000)',
+            'Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000).',
         },
         duration: {
           type: 'number',

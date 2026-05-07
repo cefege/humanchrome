@@ -74,6 +74,25 @@ class CDPSessionManager {
     return raw instanceof Error ? raw : new Error(rawMsg || `Debugger attach failed for tab ${tabId}`);
   }
 
+  /**
+   * Error for `sendCommand` timeouts. If we have evidence DevTools is
+   * involved (Chrome already detached us with `replaced_with_devtools`),
+   * surface that. Otherwise treat the timeout as a slow-page signal and
+   * tell the caller (LLM) it can retry with a higher `timeoutMs` — the
+   * default 10s is conservative; legitimate work on heavy pages can
+   * exceed it.
+   */
+  private timeoutErrorFor(tabId: number, method: string, timeoutMs: number): Error {
+    if (this.lastDetachReason.get(tabId) === 'replaced_with_devtools') {
+      return this.devtoolsErrorFor(tabId);
+    }
+    return new Error(
+      `CDP command "${method}" on tab ${tabId} did not return within ${timeoutMs}ms. ` +
+        `If the page is legitimately slow, retry with a higher timeoutMs (max 120000). ` +
+        `If this keeps happening, DevTools may be attached — close it and retry.`,
+    );
+  }
+
   async attach(tabId: number, owner: OwnerTag = 'unknown'): Promise<void> {
     const state = this.getState(tabId);
     if (state && state.attachedByUs) {
@@ -187,9 +206,7 @@ class CDPSessionManager {
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        reject(this.devtoolsErrorFor(tabId, new Error(
-          `CDP command "${method}" on tab ${tabId} did not return within ${timeoutMs}ms`,
-        )));
+        reject(this.timeoutErrorFor(tabId, method, timeoutMs));
       }, timeoutMs);
     });
 
