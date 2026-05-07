@@ -294,7 +294,7 @@ jobs:
           node /tmp/extension-smoke.mjs
 
       - name: Upload chrome-mv3 zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-mv3-${{ github.sha }}
           path: ${{ steps.locate-zip.outputs.zip_path }}
