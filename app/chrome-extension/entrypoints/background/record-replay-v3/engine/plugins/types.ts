@@ -8,7 +8,7 @@ import type { NodePolicy } from '../../domain/policy';
 import type { FlowV3, NodeV3 } from '../../domain/flow';
 import type { TriggerKind } from '../../domain/triggers';
 
-export type Schema<T> = z.ZodType<T, z.ZodTypeDef, unknown>;
+export type Schema<T> = z.ZodType<T>;
 
 export interface NodeExecutionContext {
   runId: RunId;

@@ -287,7 +287,7 @@ export function adaptV2ActionHandlerToV3NodeDefinition<T extends ExecutableActio
 
   return {
     kind: handler.type,
-    schema: z.record(z.any()) as unknown as NodeDefinition<T, JsonObject>['schema'],
+    schema: z.record(z.string(), z.any()) as unknown as NodeDefinition<T, JsonObject>['schema'],
     execute: async (ctx: NodeExecutionContext, node): Promise<NodeExecutionResult> => {
       const beforeVars = ctx.vars;
 
