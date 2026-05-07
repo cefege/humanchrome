@@ -49,17 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0036 · triggerEvent and setAttribute step types missing from STEP_TYPE_TO_ACTION_TYPE in adapter.ts (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: triggerEventHandler and setAttributeHandler are implemented in actions/handlers/dom.ts and registered in ALL_HANDLERS, but both action types are commented out of STEP_TYPE_TO_ACTION_TYPE in adapter.ts. In actions-only execution mode (strict=true), any recorded flow step of type triggerEvent or setAttribute throws an unhandled error instead of executing. The comment says TODO: Add when handlers are implemented — but the handlers ARE implemented.
-- **Cost**: S
-- **Value**: M
-- **Repro**: Create a Scheduler with executionMode: "actions". Run a flow that contains a triggerEvent step. Expected: step executes. Actual: ActionsStepExecutor throws "Unsupported step type for ActionRegistry: triggerEvent".
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/record-replay/actions/adapter.ts` lines 71-74 — uncomment `triggerEvent: "triggerEvent"` and `setAttribute: "setAttribute"` in `STEP_TYPE_TO_ACTION_TYPE`. loopElements/executeFlow remain commented (no handler exists for them yet).
-- **Notes**: The existing adapter-policy contract test mocks the registry so it does not cover this gap. Default execution mode is legacy so this only triggers when explicitly using actions mode.
-
 ### IMP-0038 · chrome_assert title_matches silently returns ok:false with empty title on chrome:// pages and restricted frames (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-07
@@ -267,6 +256,12 @@ The order of items inside ## Active is sorted by score descending.
   Add optional shortcut param to chrome_keyboard schema (enum of common action names). At dispatch time in keyboard.ts, a lookup table maps shortcut names to platform-correct key arrays (macOS: Meta+C for copy; Windows/Linux: Ctrl+C). If both shortcut and key are provided, shortcut takes precedence. The existing key array path remains fully supported — this is purely additive. Touch: tools/browser/keyboard.ts (add lookup table + shortcut branch), TOOL_SCHEMAS chrome_keyboard properties. No new tool needed, no new infrastructure.
 
 ## Done
+
+### IMP-0036 · triggerEvent and setAttribute step types missing from STEP_TYPE_TO_ACTION_TYPE in adapter.ts (bug) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-07
+- **Summary**: `STEP_TYPE_TO_ACTION_TYPE` in `app/chrome-extension/entrypoints/background/record-replay/actions/adapter.ts` now maps `triggerEvent` and `setAttribute` step types through to their already-registered handlers. New 145-line `adapter-handler-parity.contract.test.ts` (4 tests) asserts bidirectional parity between `STEP_TYPE_TO_ACTION_TYPE` and `ALL_HANDLERS`, plus an explicit IMP-0036 regression check and IMP-0040 placeholder guard. Extension: 651/651, build green. PR #58.
 
 ### IMP-0037 · registerWithElevatedPermissions ignores --browser and --detect flags when --system or root (bug) · score: 7
 
