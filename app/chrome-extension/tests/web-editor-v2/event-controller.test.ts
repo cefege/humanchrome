@@ -29,8 +29,11 @@ function isOverlayElement(node: unknown): boolean {
 }
 
 /**
- * Create a minimal mock PointerEvent for testing.
- * jsdom doesn't support PointerEvent, so we create a MouseEvent and extend it.
+ * Create a minimal PointerEvent for testing. jsdom 29+ ships PointerEvent;
+ * earlier versions do not, so we fall back to a MouseEvent + pointerId shim
+ * for compatibility, but the controller's `event instanceof PointerEvent`
+ * check needs a real PointerEvent on jsdom 29 to take the primary-pointer
+ * fast-path.
  */
 function createPointerEvent(
   type: string,
@@ -41,27 +44,41 @@ function createPointerEvent(
     pointerId?: number;
     target?: EventTarget | null;
   } = {},
-): MouseEvent & { pointerId: number } {
-  const event = new MouseEvent(type, {
+): PointerEvent {
+  const PointerEventCtor =
+    typeof PointerEvent !== 'undefined'
+      ? PointerEvent
+      : (MouseEvent as unknown as typeof PointerEvent);
+  const event = new PointerEventCtor(type, {
     bubbles: true,
     cancelable: true,
     clientX: options.clientX ?? 0,
     clientY: options.clientY ?? 0,
     button: options.button ?? 0,
+    pointerId: options.pointerId ?? 1,
+    pointerType: 'mouse',
+    isPrimary: true,
   });
 
-  // Add pointerId property (jsdom doesn't have PointerEvent)
-  Object.defineProperty(event, 'pointerId', {
-    value: options.pointerId ?? 1,
-    writable: false,
-  });
-
-  // Mock composedPath to return target path
-  if (options.target) {
-    vi.spyOn(event, 'composedPath').mockReturnValue([options.target as EventTarget]);
+  // pointerId may not stick on the MouseEvent fallback path — define it
+  // explicitly so the controller can read it.
+  if (!('pointerId' in event)) {
+    Object.defineProperty(event, 'pointerId', {
+      value: options.pointerId ?? 1,
+      writable: false,
+    });
   }
 
-  return event as MouseEvent & { pointerId: number };
+  // Mock composedPath to return target path. Use defineProperty so it sticks
+  // across event dispatch.
+  if (options.target) {
+    Object.defineProperty(event, 'composedPath', {
+      value: () => [options.target as EventTarget],
+      configurable: true,
+    });
+  }
+
+  return event;
 }
 
 // =============================================================================
@@ -111,7 +128,10 @@ describe('event-controller: selecting mode click behavior', () => {
     const options: EventControllerOptions = {
       isOverlayElement,
       getSelectedElement: () => selected,
-      findTargetForSelect: () => child,
+      // Mirror SelectionEngine behaviour: when clicking inside the current
+      // selection's subtree, the engine returns the same selection so the
+      // controller takes the drag-prep path instead of reselecting.
+      findTargetForSelect: () => selected,
       onHover: vi.fn(),
       onSelect,
       onDeselect: vi.fn(),
@@ -121,11 +141,16 @@ describe('event-controller: selecting mode click behavior', () => {
     controller = createEventController(options);
     controller.setMode('selecting');
 
-    // Simulate pointerdown within selected element
+    // Simulate pointerdown within selected element. composedPath includes
+    // selected so isEventWithinElement(event, selected) returns true.
     const event = createPointerEvent('pointerdown', {
       clientX: 20,
       clientY: 20,
       target: child,
+    });
+    Object.defineProperty(event, 'composedPath', {
+      value: () => [child, selected, document.body, document],
+      configurable: true,
     });
 
     document.dispatchEvent(event);
@@ -165,19 +190,21 @@ describe('event-controller: selecting mode click behavior', () => {
     controller = createEventController(options);
     controller.setMode('selecting');
 
-    // Simulate mousedown outside selected element (on "other")
-    // Use mousedown since jsdom doesn't support PointerEvent
-    const event = new MouseEvent('mousedown', {
-      bubbles: true,
-      cancelable: true,
+    // Simulate pointerdown outside selected element (on "other"). jsdom 29
+    // supports PointerEvent, so the controller now listens to pointerdown
+    // instead of mousedown — match it.
+    const event = createPointerEvent('pointerdown', {
       clientX: 250, // Outside selected (0-100), inside other (200-300)
       clientY: 50,
-      button: 0,
     });
 
     // Mock composedPath to return a path that does NOT include "selected"
-    // This simulates clicking outside the selection
-    vi.spyOn(event, 'composedPath').mockReturnValue([other, document.body, document]);
+    // This simulates clicking outside the selection. Use defineProperty so it
+    // sticks across dispatch.
+    Object.defineProperty(event, 'composedPath', {
+      value: () => [other, document.body, document],
+      configurable: true,
+    });
 
     document.dispatchEvent(event);
 
