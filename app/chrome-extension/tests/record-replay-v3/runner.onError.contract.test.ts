@@ -52,13 +52,11 @@ function createTestNodeDefinition(
 ): NodeDefinition<'test', TestNodeConfig> {
   return {
     kind: 'test',
-    schema: z
-      .object({
-        action: z.enum(['succeed', 'fail', 'flaky']),
-        failTimes: z.number().int().min(0).optional(),
-        errorCode: z.string().optional(),
-      })
-      .passthrough(),
+    schema: z.looseObject({
+      action: z.enum(['succeed', 'fail', 'flaky']),
+      failTimes: z.number().int().min(0).optional(),
+      errorCode: z.string().optional(),
+    }),
     execute: async (ctx, node): Promise<NodeExecutionResult> => {
       const prev = callsByNodeId.get(ctx.nodeId) ?? 0;
       const cur = prev + 1;

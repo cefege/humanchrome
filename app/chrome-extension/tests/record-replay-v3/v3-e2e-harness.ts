@@ -192,13 +192,11 @@ function sleep(ms: number): Promise<void> {
 function createTestNodeDefinition(): NodeDefinition<'test', TestNodeConfig> {
   return {
     kind: 'test',
-    schema: z
-      .object({
-        action: z.enum(['succeed', 'fail']),
-        outputs: z.record(z.any()).optional(),
-        delayMs: z.number().optional(),
-      })
-      .passthrough() as z.ZodType<TestNodeConfig>,
+    schema: z.looseObject({
+      action: z.enum(['succeed', 'fail']),
+      outputs: z.record(z.string(), z.any()).optional(),
+      delayMs: z.number().optional(),
+    }) as z.ZodType<TestNodeConfig>,
     execute: async (_ctx, node): Promise<NodeExecutionResult> => {
       const cfg = node.config as unknown as TestNodeConfig;
 

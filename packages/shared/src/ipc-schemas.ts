@@ -3,7 +3,7 @@
  *
  * These Zod schemas are intentionally permissive: they reject obvious garbage
  * (missing `type`, wrong primitive types, etc.) while allowing forward-
- * compatible extensions via `.passthrough()`. They are additive — existing
+ * compatible extensions via `z.looseObject()`. They are additive — existing
  * TypeScript interfaces in `types.ts` remain the source of truth for static
  * types; these schemas only run at the wire boundary.
  *
@@ -33,7 +33,7 @@ export const JsonValueSchema: z.ZodType<JsonLike> = z.lazy(() =>
     z.boolean(),
     z.null(),
     z.array(JsonValueSchema),
-    z.record(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
   ]),
 );
 
@@ -45,21 +45,19 @@ export const JsonValueSchema: z.ZodType<JsonLike> = z.lazy(() =>
  * Schema for the inner `payload` of a `file_operation` message.
  * Mirrors the field set consumed by `FileHandler.handleFileRequest`.
  *
- * `.passthrough()` so future actions can add fields without breaking
+ * `z.looseObject` so future actions can add fields without breaking
  * existing builds — we only block obviously-bad shapes (e.g. non-string
  * `action`, missing object).
  */
-export const FileOperationPayloadSchema = z
-  .object({
-    action: z.enum(['prepareFile', 'readBase64File', 'cleanupFile', 'analyzeTrace']),
-    fileUrl: z.string().optional(),
-    base64Data: z.string().optional(),
-    fileName: z.string().optional(),
-    filePath: z.string().optional(),
-    traceFilePath: z.string().optional(),
-    insightName: z.string().optional(),
-  })
-  .passthrough();
+export const FileOperationPayloadSchema = z.looseObject({
+  action: z.enum(['prepareFile', 'readBase64File', 'cleanupFile', 'analyzeTrace']),
+  fileUrl: z.string().optional(),
+  base64Data: z.string().optional(),
+  fileName: z.string().optional(),
+  filePath: z.string().optional(),
+  traceFilePath: z.string().optional(),
+  insightName: z.string().optional(),
+});
 
 export type FileOperationPayload = z.infer<typeof FileOperationPayloadSchema>;
 
@@ -72,19 +70,17 @@ export type FileOperationPayload = z.infer<typeof FileOperationPayloadSchema>;
  * `type` (directive from extension) or `responseToRequestId` (response to a
  * request the host previously sent).
  *
- * `.passthrough()` keeps unknown keys so a slightly-newer extension build can
+ * `z.looseObject` keeps unknown keys so a slightly-newer extension build can
  * include extra metadata without us rejecting the whole frame.
  */
-const NativeMessageBaseSchema = z
-  .object({
-    type: z.string().optional(),
-    requestId: z.string().optional(),
-    responseToRequestId: z.string().optional(),
-    clientId: z.string().optional(),
-    payload: z.unknown().optional(),
-    error: z.unknown().optional(),
-  })
-  .passthrough();
+const NativeMessageBaseSchema = z.looseObject({
+  type: z.string().optional(),
+  requestId: z.string().optional(),
+  responseToRequestId: z.string().optional(),
+  clientId: z.string().optional(),
+  payload: z.unknown().optional(),
+  error: z.unknown().optional(),
+});
 
 /**
  * `start_server` — extension asks the host to bring up the local Fastify
@@ -93,7 +89,7 @@ const NativeMessageBaseSchema = z
  */
 export const StartServerMessageSchema = NativeMessageBaseSchema.extend({
   type: z.literal(NativeMessageType.START),
-  payload: z.object({ port: z.number().int().positive().optional() }).passthrough().optional(),
+  payload: z.looseObject({ port: z.number().int().positive().optional() }).optional(),
 });
 
 /**
@@ -166,15 +162,13 @@ export type NativeMessageInput = z.infer<typeof NativeMessageSchema>;
 /**
  * `args` is intentionally `unknown` here — per-tool validation already lives
  * in each tool's `inputSchema`, so doing it twice would only add maintenance
- * cost. `.strict()` rejects extra top-level keys (defends against e.g.
+ * cost. `z.strictObject` rejects extra top-level keys (defends against e.g.
  * a caller stuffing `clientId` into the body when they should use the
  * `X-Client-Id` header).
  */
-export const ToolCallBodySchema = z
-  .object({
-    args: z.unknown(),
-  })
-  .strict();
+export const ToolCallBodySchema = z.strictObject({
+  args: z.unknown().optional(),
+});
 
 export type ToolCallBodyInput = z.infer<typeof ToolCallBodySchema>;
 
@@ -182,5 +176,5 @@ export type ToolCallBodyInput = z.infer<typeof ToolCallBodySchema>;
  * Generic tool args record. Most tools accept a flat object of JSON values;
  * the per-tool `inputSchema` does the real validation.
  */
-export const ToolCallArgsSchema = z.record(JsonValueSchema);
+export const ToolCallArgsSchema = z.record(z.string(), JsonValueSchema);
 export type ToolCallArgs = z.infer<typeof ToolCallArgsSchema>;
