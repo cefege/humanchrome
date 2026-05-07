@@ -120,7 +120,7 @@ The response shape matches MCP's `CallToolResult`: `content` is an array of item
 
 ## Use it with MCP
 
-For Claude Desktop, Cursor, Cherry Studio, Continue, or any other MCP-aware client.
+For Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio, or any other MCP-aware client.
 
 ### Streamable HTTP (recommended)
 
@@ -146,6 +146,21 @@ For Claude Desktop, Cursor, Cherry Studio, Continue, or any other MCP-aware clie
   }
 }
 ```
+
+### Where to put the config
+
+Drop one of the JSON blocks above into your client's MCP config file:
+
+| Client                | Config path                                                                                                                          | Format |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| **Claude Code** (CLI) | `claude mcp add humanchrome --transport http http://127.0.0.1:12306/mcp` (or edit `~/.claude.json` directly)                         | JSON   |
+| **Claude Desktop**    | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json` <br> Windows: `%APPDATA%\Claude\claude_desktop_config.json` | JSON   |
+| **Cursor**            | Project-scoped: `.cursor/mcp.json` <br> Global: `~/.cursor/mcp.json`                                                                 | JSON   |
+| **Codex CLI**         | `~/.codex/config.toml` (use the TOML equivalent — `[mcp_servers.humanchrome]` table)                                                 | TOML   |
+| **Continue**          | `~/.continue/config.yaml` (use the YAML `mcpServers:` mapping)                                                                       | YAML   |
+| **Cherry Studio**     | Settings → MCP Servers → Add (paste the JSON block)                                                                                  | UI     |
+
+After saving, restart the client. You should see `humanchrome` and its tools in the client's MCP tool list.
 
 Multiple clients can connect at once. Each gets its own MCP session, and each session keeps its own preferred-tab state, so two AI clients don't fight over which tab is "current".
 
