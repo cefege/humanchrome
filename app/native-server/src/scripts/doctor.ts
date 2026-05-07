@@ -743,7 +743,7 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
     !process.env.HUMANCHROME_NODE_PATH;
 
   // Determine node check status: error if not found or version too old, warn if path issue
-  let nodeStatus: DoctorStatus = 'ok';
+  let nodeStatus: DoctorStatus;
   let nodeMessage: string;
   let nodeFix: string[] | undefined;
 
@@ -939,8 +939,8 @@ export async function collectDoctorReport(options: DoctorOptions): Promise<Docto
         });
       }
 
-      let status: DoctorStatus = 'error';
-      let message = 'Registry entry not found';
+      let status: DoctorStatus;
+      let message: string;
       if (!anyValue) {
         status = 'error';
         message = 'Registry entry not found';

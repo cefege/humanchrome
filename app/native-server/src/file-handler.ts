@@ -183,7 +183,7 @@ export class FileHandler {
         size: buffer.length,
       };
     } catch (error) {
-      throw new Error(`Failed to download file from URL: ${error}`);
+      throw new Error(`Failed to download file from URL: ${error}`, { cause: error });
     }
   }
 
@@ -212,7 +212,7 @@ export class FileHandler {
         size: buffer.length,
       };
     } catch (error) {
-      throw new Error(`Failed to save base64 file: ${error}`);
+      throw new Error(`Failed to save base64 file: ${error}`, { cause: error });
     }
   }
 
@@ -244,7 +244,7 @@ export class FileHandler {
         size: stats.size,
       };
     } catch (error) {
-      throw new Error(`Failed to verify file: ${error}`);
+      throw new Error(`Failed to verify file: ${error}`, { cause: error });
     }
   }
 

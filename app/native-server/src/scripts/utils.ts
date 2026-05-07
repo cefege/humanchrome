@@ -373,7 +373,7 @@ export async function tryRegisterUserLevelHost(targetBrowsers?: BrowserType[]): 
               throw new Error('Registry verification failed');
             }
           } catch (error: any) {
-            throw new Error(`Registry error: ${error.message}`);
+            throw new Error(`Registry error: ${error.message}`, { cause: error });
           }
         }
 

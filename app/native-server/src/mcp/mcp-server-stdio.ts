@@ -32,7 +32,9 @@ const loadConfig = () => {
       { err: error instanceof Error ? error.message : String(error) },
       'failed to load stdio-config.json',
     );
-    throw new Error('Configuration file stdio-config.json not found or invalid');
+    throw new Error('Configuration file stdio-config.json not found or invalid', {
+      cause: error,
+    });
   }
 };
 

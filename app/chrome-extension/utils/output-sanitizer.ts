@@ -52,10 +52,13 @@ const RAW_OUTPUT_STORAGE_KEY = 'rawOutput';
 // chrome.storage.local to opt back into the conservative redaction posture.
 let rawOutputCache: boolean | null = true;
 
-declare const globalThis: { __MCP_RAW_OUTPUT__?: boolean } & Record<string, unknown>;
+type GlobalThisWithRawOutput = typeof globalThis & { __MCP_RAW_OUTPUT__?: boolean };
 
 export function isRawOutputEnabled(): boolean {
-  if (typeof globalThis !== 'undefined' && globalThis.__MCP_RAW_OUTPUT__ === false) {
+  if (
+    typeof globalThis !== 'undefined' &&
+    (globalThis as GlobalThisWithRawOutput).__MCP_RAW_OUTPUT__ === false
+  ) {
     return false;
   }
   return rawOutputCache !== false;

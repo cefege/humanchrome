@@ -298,7 +298,7 @@ function collectWrapperLogs(
   }
 
   const prefixes = ['native_host_wrapper_', 'native_host_stderr_'];
-  let entries: fs.Dirent[] = [];
+  let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(logDir, { withFileTypes: true });
   } catch (e) {
