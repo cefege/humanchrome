@@ -106,6 +106,7 @@ export class ClaudeEngine implements AgentEngine {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
         `ClaudeEngine: Failed to load Claude Agent SDK. Please install @anthropic-ai/claude-agent-sdk. Error: ${message}`,
+        { cause: error },
       );
     }
 
@@ -1272,7 +1273,7 @@ export class ClaudeEngine implements AgentEngine {
 
       // Classify errors for better UX
       const errorMessage = this.classifyError(enhancedMessage, stderrBuffer);
-      throw new Error(`ClaudeEngine: ${errorMessage}`);
+      throw new Error(`ClaudeEngine: ${errorMessage}`, { cause: error });
     } finally {
       // Always cleanup temp files, even on error
       await cleanupTempFiles();

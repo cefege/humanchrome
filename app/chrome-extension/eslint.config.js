@@ -1,9 +1,13 @@
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import pluginVue from 'eslint-plugin-vue';
 import { defineConfig } from 'eslint/config';
 import prettierConfig from 'eslint-config-prettier';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig([
   // Global ignores - these apply to all configurations
@@ -35,6 +39,9 @@ export default defineConfig([
   {
     files: ['**/*.{js,mjs,cjs,ts,vue}'],
     languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: __dirname,
+      },
       globals: {
         ...globals.browser,
         chrome: 'readonly',
@@ -56,6 +63,11 @@ export default defineConfig([
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
       'no-empty': 'off',
+      // ESLint 10 enabled these as `error` by default. Both surface
+      // ~50 stylistic violations across the codebase; flip back to `off`
+      // for the v10 bump and clean up surgically as a follow-up.
+      'no-useless-assignment': 'off',
+      'preserve-caught-error': 'off',
     },
   },
   pluginVue.configs['flat/essential'],
