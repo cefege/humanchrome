@@ -181,4 +181,22 @@ describe('cdp-session-manager: sendCommand timeout', () => {
     const result = await mgr.sendCommand(21, 'Page.getLayoutMetrics', {}, 5000);
     expect(result).toEqual({ ok: true });
   });
+
+  it('non-DevTools timeout error tells the LLM to retry with a higher timeoutMs', async () => {
+    vi.useFakeTimers();
+    const mgr = await loadManager();
+    await mgr.attach(33, 'computer');
+    chromeMock.debugger.sendCommand.mockImplementation(() => new Promise(() => {}));
+
+    const sendPromise = mgr.sendCommand(33, 'Input.dispatchMouseEvent', {}, 50);
+    sendPromise.catch(() => {});
+    await vi.advanceTimersByTimeAsync(75);
+
+    // No DevTools evidence (no replaced_with_devtools detach reason): the
+    // error should NOT name DevTools as the cause and SHOULD instruct the
+    // caller to retry with a higher timeoutMs. This is the surface the LLM
+    // reads to decide its next move.
+    await expect(sendPromise).rejects.toThrow(/retry with a higher timeoutMs/i);
+    await expect(sendPromise).rejects.not.toThrow(/^DevTools appears to be attached/);
+  });
 });

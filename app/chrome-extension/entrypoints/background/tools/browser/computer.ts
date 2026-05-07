@@ -79,6 +79,10 @@ interface ComputerParams {
   tabId?: number; // target existing tab id
   windowId?: number;
   background?: boolean; // avoid focusing/activating
+  // Caps the per-CDP-command timeout for this invocation; for action='wait'
+  // with text it also caps the wait deadline. Default 10000ms (CDP) or
+  // 10000ms (wait); clamped to [1000, 120000].
+  timeoutMs?: number;
 }
 
 // Extract the hostname component of a URL, returning '' for unparseable input.
@@ -118,8 +122,39 @@ function checkDomainShift(
   );
 }
 
-// Minimal CDP helper encapsulated here to avoid scattering CDP code
+// Minimal CDP helper encapsulated here to avoid scattering CDP code.
+//
+// `timeoutMs` flows down to `cdpSessionManager.sendCommand` via a per-tab
+// map. `chrome_computer.execute()` calls `withTimeout(tabId, params.timeoutMs,
+// async () => { ... })` to scope the override; nested invocations restore
+// the previous value on exit. Keyed by tabId so concurrent invocations on
+// different tabs don't clobber each other (within the same tab the JS lock
+// already serialises chrome_computer calls).
 class CDPHelper {
+  private static timeoutByTab = new Map<number, number>();
+
+  static async withTimeout<T>(
+    tabId: number,
+    timeoutMs: number | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.timeoutByTab.get(tabId);
+    if (timeoutMs !== undefined) {
+      this.timeoutByTab.set(tabId, timeoutMs);
+    } else {
+      this.timeoutByTab.delete(tabId);
+    }
+    try {
+      return await fn();
+    } finally {
+      if (previous !== undefined) {
+        this.timeoutByTab.set(tabId, previous);
+      } else {
+        this.timeoutByTab.delete(tabId);
+      }
+    }
+  }
+
   static async attach(tabId: number): Promise<void> {
     await cdpSessionManager.attach(tabId, 'computer');
   }
@@ -129,7 +164,7 @@ class CDPHelper {
   }
 
   static async send(tabId: number, method: string, params?: object): Promise<any> {
-    return await cdpSessionManager.sendCommand(tabId, method, params);
+    return await cdpSessionManager.sendCommand(tabId, method, params, this.timeoutByTab.get(tabId));
   }
 
   static async dispatchMouseEvent(tabId: number, opts: any) {
@@ -274,8 +309,19 @@ class ComputerTool extends BaseBrowserToolExecutor {
       if (!tab.id)
         return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
 
+      // Optional per-call CDP timeout. The default in cdpSessionManager
+      // (10s) is conservative; legitimate work on heavy pages can exceed
+      // it, and the timeout error message tells the LLM it can retry with
+      // a higher value. Clamp to [1000, 120000] to keep the surface sane.
+      let cdpTimeoutMs: number | undefined;
+      if (typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs)) {
+        cdpTimeoutMs = Math.max(1000, Math.min(params.timeoutMs, 120000));
+      }
+
       // Execute the action and capture frame on success
-      const result = await this.executeAction(params, tab);
+      const result = tab.id
+        ? await CDPHelper.withTimeout(tab.id, cdpTimeoutMs, () => this.executeAction(params, tab))
+        : await this.executeAction(params, tab);
 
       // Trigger auto-capture on successful actions (except screenshot which is read-only)
       if (!result.isError && params.action !== 'screenshot' && params.action !== 'wait') {
