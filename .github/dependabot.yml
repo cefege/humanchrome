@@ -57,6 +57,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # @types/chrome lives in 0.x-land where DefinitelyTyped reorgs ship
+      # as semver-minor (0.0.x → 0.1.y) but are functionally breaking.
+      # Ignore all bumps; pin manually when the chrome.* type rework is scheduled.
+      - dependency-name: "@types/chrome"
 
   - package-ecosystem: npm
     directory: "/packages/shared"
