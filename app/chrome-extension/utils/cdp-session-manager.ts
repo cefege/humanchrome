@@ -10,8 +10,41 @@ interface TabSessionState {
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
 
+// Per-CDP-command timeout. Chrome doesn't surface DevTools-attached state
+// reliably via getTargets(), so a hung sendCommand is the canonical
+// "DevTools is fighting us" symptom. 10s matches the per-tab JS lock
+// timeout — keeping them aligned avoids confusing dual-timeout reports.
+const CDP_SEND_TIMEOUT_MS = 10_000;
+
+// Chrome's onDetach reason strings for the cases we care about.
+// `target_closed` fires when the tab itself closes; `replaced_with_devtools`
+// fires when the user opens DevTools on a tab the extension was driving.
+type DetachReason = 'target_closed' | 'canceled_by_user' | 'replaced_with_devtools' | string;
+
 class CDPSessionManager {
   private sessions = new Map<number, TabSessionState>();
+  // Last reason Chrome detached us from a tab; used to give a precise error
+  // message on the next attach (e.g., "DevTools is open on this tab").
+  private lastDetachReason = new Map<number, DetachReason>();
+  private detachListenerInstalled = false;
+
+  constructor() {
+    this.installDetachListener();
+  }
+
+  private installDetachListener() {
+    if (this.detachListenerInstalled) return;
+    if (typeof chrome === 'undefined' || !chrome.debugger?.onDetach?.addListener) return;
+    chrome.debugger.onDetach.addListener((source, reason) => {
+      const tabId = source.tabId;
+      if (typeof tabId !== 'number') return;
+      // Chrome forcibly detached us. Drop our cached state so the next
+      // attach attempt is a clean reattach (or fails clearly).
+      this.sessions.delete(tabId);
+      this.lastDetachReason.set(tabId, reason as DetachReason);
+    });
+    this.detachListenerInstalled = true;
+  }
 
   private getState(tabId: number): TabSessionState | undefined {
     return this.sessions.get(tabId);
@@ -21,12 +54,40 @@ class CDPSessionManager {
     this.sessions.set(tabId, state);
   }
 
+  /**
+   * Translate raw Chrome attach errors and onDetach reasons into a
+   * user-actionable message that names DevTools explicitly when that's
+   * what's blocking us — instead of leaving callers to puzzle out
+   * "Another debugger is already attached" in their logs.
+   */
+  private devtoolsErrorFor(tabId: number, raw?: unknown): Error {
+    const lastReason = this.lastDetachReason.get(tabId);
+    const rawMsg = raw instanceof Error ? raw.message : raw ? String(raw) : '';
+    const looksLikeDevtools =
+      lastReason === 'replaced_with_devtools' ||
+      /already attached|another (debugger|client)/i.test(rawMsg);
+    if (looksLikeDevtools) {
+      return new Error(
+        `DevTools appears to be attached to tab ${tabId}. Close the DevTools panel on that tab and retry.`,
+      );
+    }
+    return raw instanceof Error ? raw : new Error(rawMsg || `Debugger attach failed for tab ${tabId}`);
+  }
+
   async attach(tabId: number, owner: OwnerTag = 'unknown'): Promise<void> {
     const state = this.getState(tabId);
     if (state && state.attachedByUs) {
       state.refCount += 1;
       state.owners.add(owner);
       return;
+    }
+
+    // If the previous session was forcibly detached because DevTools
+    // opened, fail fast with a precise message instead of attempting an
+    // attach that will hang or throw an opaque error.
+    const lastReason = this.lastDetachReason.get(tabId);
+    if (lastReason === 'replaced_with_devtools') {
+      throw this.devtoolsErrorFor(tabId);
     }
 
     // Check existing attachments
@@ -44,12 +105,21 @@ class CDPSessionManager {
       }
       // Another client (DevTools/other extension) is attached
       throw new Error(
-        `Debugger is already attached to tab ${tabId} by another client (e.g., DevTools/extension)`,
+        `DevTools appears to be attached to tab ${tabId}. Close the DevTools panel on that tab and retry.`,
       );
     }
 
-    // Attach freshly
-    await chrome.debugger.attach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
+    // Attach freshly. Chrome itself will throw "Another debugger is
+    // already attached" when DevTools owns the tab — normalise that into
+    // the same DevTools-specific error users see from the early checks.
+    try {
+      await chrome.debugger.attach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
+    } catch (e) {
+      throw this.devtoolsErrorFor(tabId, e);
+    }
+    // Successful fresh attach: clear any stale detach reason from a prior
+    // DevTools session that has since been closed.
+    this.lastDetachReason.delete(tabId);
     this.setState(tabId, { refCount: 1, owners: new Set([owner]), attachedByUs: true });
   }
 
@@ -91,18 +161,48 @@ class CDPSessionManager {
   }
 
   /**
-   * Send a CDP command. Requires that this manager has attached to the tab.
-   * If not attached by us, will attempt a one-shot attach around the call.
+   * Send a CDP command with a hard timeout. If the call hangs past the
+   * timeout (the canonical "DevTools is silently competing for the
+   * protocol session" symptom), throw a precise error and clear cached
+   * state so the next call re-checks the tab from scratch.
    */
-  async sendCommand<T = any>(tabId: number, method: string, params?: object): Promise<T> {
+  async sendCommand<T = any>(
+    tabId: number,
+    method: string,
+    params?: object,
+    timeoutMs: number = CDP_SEND_TIMEOUT_MS,
+  ): Promise<T> {
     const state = this.getState(tabId);
-    if (state && state.attachedByUs) {
-      return (await chrome.debugger.sendCommand({ tabId }, method, params)) as T;
-    }
-    // Fallback: temporary session
-    return await this.withSession<T>(tabId, `send:${method}`, async () => {
-      return (await chrome.debugger.sendCommand({ tabId }, method, params)) as T;
+    const attached = !!state && state.attachedByUs;
+
+    const send = async (): Promise<T> => {
+      if (attached) {
+        return (await chrome.debugger.sendCommand({ tabId }, method, params)) as T;
+      }
+      return await this.withSession<T>(tabId, `send:${method}`, async () => {
+        return (await chrome.debugger.sendCommand({ tabId }, method, params)) as T;
+      });
+    };
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(this.devtoolsErrorFor(tabId, new Error(
+          `CDP command "${method}" on tab ${tabId} did not return within ${timeoutMs}ms`,
+        )));
+      }, timeoutMs);
     });
+
+    try {
+      return await Promise.race([send(), timeoutPromise]);
+    } catch (e) {
+      // The timeout path almost always means DevTools is fighting us.
+      // Drop cached state so the next attempt sees a clean slate.
+      this.sessions.delete(tabId);
+      throw e;
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    }
   }
 }
 
