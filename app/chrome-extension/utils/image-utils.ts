@@ -8,6 +8,17 @@
  * @returns Created ImageBitmap object
  */
 export async function createImageBitmapFromUrl(dataUrl: string): Promise<ImageBitmap> {
+  if (dataUrl.startsWith('data:')) {
+    const [header, data] = dataUrl.split(',');
+    const binaryString = header.includes('base64') ? atob(data) : decodeURIComponent(data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const mime = header.match(/:(.*?);/)?.[1] || 'image/png';
+    const blob = new Blob([bytes], { type: mime });
+    return await createImageBitmap(blob);
+  }
   const response = await fetch(dataUrl);
   const blob = await response.blob();
   return await createImageBitmap(blob);

@@ -10,6 +10,7 @@ import {
   compressImage,
 } from '../../../../utils/image-utils';
 import { screenshotContextManager } from '@/utils/screenshot-context';
+import { sendNativeRequest } from '@/entrypoints/background/native-host';
 
 // Screenshot-specific constants
 const SCREENSHOT_CONSTANTS = {
@@ -304,37 +305,36 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
       }
 
       if (savePng === true) {
-        // Save PNG file to downloads
-        this.logInfo('Saving PNG...');
+        // Save PNG file via native bridge (no Chrome download dialog)
+        this.logInfo('Saving PNG via native bridge...');
         try {
-          // Generate filename
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const filename = `${name.replace(/[^a-z0-9_-]/gi, '_') || 'screenshot'}_${timestamp}.png`;
 
-          // Use Chrome's download API to save the file
-          const downloadId = await chrome.downloads.download({
-            url: finalImageDataUrl,
-            filename: filename,
-            saveAs: false,
-          });
+          // Strip data URL prefix to get raw base64
+          const base64Data = finalImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
 
-          results.downloadId = downloadId;
-          results.filename = filename;
-          results.fileSaved = true;
+          const resp = await sendNativeRequest<any>(
+            'file_operation',
+            { action: 'prepareFile', base64Data, fileName: filename },
+            30_000,
+          );
 
-          // Try to get the full file path
-          try {
-            // Wait a moment to ensure download info is updated
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            // Search for download item to get full path
-            const [downloadItem] = await chrome.downloads.search({ id: downloadId });
-            if (downloadItem && downloadItem.filename) {
-              // Add full path to response
-              results.fullPath = downloadItem.filename;
-            }
-          } catch (pathError) {
-            console.warn('Could not get full file path:', pathError);
+          if (resp && resp.success && resp.filePath) {
+            results.filename = filename;
+            results.fullPath = resp.filePath;
+            results.fileSaved = true;
+          } else {
+            // Fallback to Chrome downloads API
+            this.logInfo('Bridge save failed, falling back to Chrome downloads...');
+            const downloadId = await chrome.downloads.download({
+              url: finalImageDataUrl,
+              filename: filename,
+              saveAs: false,
+            });
+            results.downloadId = downloadId;
+            results.filename = filename;
+            results.fileSaved = true;
           }
         } catch (error) {
           console.error('Error saving PNG file:', error);
