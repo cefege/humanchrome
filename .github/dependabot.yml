@@ -45,6 +45,11 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      - dependency-name: "@types/chrome"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: "/packages/shared"
@@ -57,6 +62,9 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
