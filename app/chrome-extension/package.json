@@ -55,7 +55,7 @@
     "unplugin-vue-components": "^0.28.0",
     "vite-plugin-static-copy": "^4.1.0",
     "vitest": "^2.1.8",
-    "vue-tsc": "^2.2.8",
+    "vue-tsc": "^3.2.8",
     "wxt": "^0.20.0"
   }
 }
