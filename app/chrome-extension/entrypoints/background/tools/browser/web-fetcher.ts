@@ -2,6 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
+import { sendNativeRequest } from '@/entrypoints/background/native-host';
 
 interface WebFetcherToolParams {
   htmlContent?: boolean; // get the visible HTML content of the current page. default: false
@@ -11,6 +12,7 @@ interface WebFetcherToolParams {
   tabId?: number; // target existing tab id
   background?: boolean; // do not activate/focus
   windowId?: number; // target window id to pick active tab or create tab
+  savePath?: string; // absolute file path to save content to instead of returning in response
 }
 
 class WebFetcherTool extends BaseBrowserToolExecutor {
@@ -146,6 +148,47 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
       }
 
       // Interactive elements feature has been removed
+
+      // If savePath is provided, save content to disk via native bridge instead of returning inline
+      if (args.savePath) {
+        const contentToSave = result.htmlContent || result.textContent || '';
+        if (!contentToSave) {
+          return createErrorResponse('No content to save — enable htmlContent or textContent');
+        }
+
+        try {
+          const resp = await sendNativeRequest<any>(
+            'file_operation',
+            { action: 'saveToPath', destPath: args.savePath, textData: contentToSave },
+            60_000,
+          );
+
+          if (resp && resp.success) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    saved: true,
+                    filePath: resp.filePath,
+                    size: resp.size,
+                    url: tab.url,
+                    title: tab.title,
+                  }),
+                },
+              ],
+              isError: false,
+            };
+          } else {
+            return createErrorResponse(`Failed to save file: ${resp?.error || 'unknown error'}`);
+          }
+        } catch (error) {
+          return createErrorResponse(
+            `Error saving to path: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
 
       return {
         content: [

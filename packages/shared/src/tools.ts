@@ -693,6 +693,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'CSS selector to get content from a specific element. If provided, only content from this element will be returned',
         },
+        savePath: {
+          type: 'string',
+          description:
+            'Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success.',
+        },
       },
       required: [],
     },
@@ -1781,7 +1786,8 @@ export const TOOL_SCHEMAS: Tool[] = [
               type: {
                 type: 'string',
                 enum: ['substring', 'regex'],
-                description: 'For url_matches and title_matches: how to interpret pattern. Default: regex.',
+                description:
+                  'For url_matches and title_matches: how to interpret pattern. Default: regex.',
               },
               selector: {
                 type: 'string',

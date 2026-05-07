@@ -50,11 +50,13 @@ export const JsonValueSchema: z.ZodType<JsonLike> = z.lazy(() =>
  * `action`, missing object).
  */
 export const FileOperationPayloadSchema = z.looseObject({
-  action: z.enum(['prepareFile', 'readBase64File', 'cleanupFile', 'analyzeTrace']),
+  action: z.enum(['prepareFile', 'readBase64File', 'cleanupFile', 'analyzeTrace', 'saveToPath']),
   fileUrl: z.string().optional(),
   base64Data: z.string().optional(),
   fileName: z.string().optional(),
   filePath: z.string().optional(),
+  destPath: z.string().optional(), // absolute destination path for saveToPath action
+  textData: z.string().optional(), // raw text/HTML content for saveToPath action
   traceFilePath: z.string().optional(),
   insightName: z.string().optional(),
 });

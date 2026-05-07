@@ -93,8 +93,17 @@ export class FileHandler {
         error: `Invalid file_operation payload: ${parsed.error.issues[0]?.message ?? 'schema validation failed'}`,
       };
     }
-    const { action, fileUrl, base64Data, fileName, filePath, traceFilePath, insightName } =
-      parsed.data;
+    const {
+      action,
+      fileUrl,
+      base64Data,
+      fileName,
+      filePath,
+      destPath,
+      textData,
+      traceFilePath,
+      insightName,
+    } = parsed.data;
 
     try {
       switch (action) {
@@ -116,6 +125,11 @@ export class FileHandler {
         case 'cleanupFile':
           if (!filePath) return { success: false, error: 'filePath is required' };
           return await this.cleanupFile(filePath);
+
+        case 'saveToPath': {
+          if (!destPath) return { success: false, error: 'destPath is required for saveToPath' };
+          return await this.saveToPath(destPath, textData, base64Data);
+        }
 
         case 'analyzeTrace': {
           const targetPath = traceFilePath || filePath;
@@ -212,6 +226,43 @@ export class FileHandler {
       };
     } catch (error) {
       throw new Error(`Failed to save base64 file: ${error}`, { cause: error });
+    }
+  }
+
+  /**
+   * Save content directly to an absolute file path.
+   * Accepts either textData (UTF-8 string) or base64Data (binary).
+   * Creates parent directories if they don't exist.
+   */
+  private async saveToPath(destPath: string, textData?: string, base64Data?: string): Promise<any> {
+    try {
+      // Ensure parent directory exists
+      const dir = path.dirname(destPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      let size: number;
+      if (textData) {
+        fs.writeFileSync(destPath, textData, 'utf-8');
+        size = Buffer.byteLength(textData, 'utf-8');
+      } else if (base64Data) {
+        const base64Content = base64Data.replace(/^data:.*?;base64,/, '');
+        const buffer = Buffer.from(base64Content, 'base64');
+        fs.writeFileSync(destPath, buffer);
+        size = buffer.length;
+      } else {
+        return { success: false, error: 'Either textData or base64Data is required' };
+      }
+
+      log.info(`Saved ${size} bytes to ${destPath}`);
+      return {
+        success: true,
+        filePath: destPath,
+        size,
+      };
+    } catch (error) {
+      throw new Error(`Failed to save to path: ${error}`, { cause: error });
     }
   }
 

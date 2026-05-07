@@ -140,15 +140,15 @@ export default defineConfig({
         targets: [
           {
             src: 'inject-scripts/*.js',
-            dest: 'inject-scripts',
+            dest: '.',
           },
           {
             src: ['workers/*'],
-            dest: 'workers',
+            dest: '.',
           },
           {
-            src: '_locales/**/*',
-            dest: '_locales',
+            src: '_locales/*/messages.json',
+            dest: '.',
           },
         ],
         // Use writeBundle so outDir exists for dev and prod
