@@ -49,17 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0038 · chrome_assert title_matches silently returns ok:false with empty title on chrome:// pages and restricted frames (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: The title_matches predicate in AssertTool calls getDocumentTitle(), which uses chrome.scripting.executeScript with world:MAIN. executeScript fails on chrome:// pages and restricted cross-origin frames — but the failure is caught silently and returns empty string. The predicate evaluates ok:false with detail:{title:""} and no error indicator, so callers cannot distinguish a genuine title mismatch from a scripting failure. By contrast, url_matches reads tab.url from the Chrome Tabs API, which works on all pages including chrome://.
-- **Cost**: S
-- **Value**: M
-- **Repro**: `chrome_assert` with `predicates:[{kind:"title_matches",pattern:"New Tab"}]` on a `chrome://newtab` tab. Expected: `ok:true` (Chrome New Tab title is "New Tab"). Actual: `ok:false`, `detail:{title:""}` — scripting blocked.
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/assert.ts` `getDocumentTitle()` — use `tab.title ?? ""` as the primary value (available from the chrome.tabs API without scripting). The `executeScript` path can remain as a fallback for tabs where tab.title may be stale (single-page apps that update document.title via JS without navigation), but the restricted-page case must use the Tabs API value.
-- **Notes**: The `AssertTool.evaluate` already receives the `tab` object (line 110), so `tab.title` is available without any additional IPC.
-
 ### IMP-0040 · record_replay_flow_run MCP tool silently does nothing for flows containing loopElements or executeFlow steps (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-07
@@ -256,6 +245,13 @@ The order of items inside ## Active is sorted by score descending.
   Add optional shortcut param to chrome_keyboard schema (enum of common action names). At dispatch time in keyboard.ts, a lookup table maps shortcut names to platform-correct key arrays (macOS: Meta+C for copy; Windows/Linux: Ctrl+C). If both shortcut and key are provided, shortcut takes precedence. The existing key array path remains fully supported — this is purely additive. Touch: tools/browser/keyboard.ts (add lookup table + shortcut branch), TOOL_SCHEMAS chrome_keyboard properties. No new tool needed, no new infrastructure.
 
 ## Done
+
+### IMP-0038 · chrome_assert title_matches silently returns ok:false with empty title on chrome:// pages and restricted frames (bug) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-07
+- **Summary**: `AssertTool.evaluate`'s `title_matches` predicate now reads `tab.title` directly from the `chrome.tabs.Tab` it already holds, dropping the `chrome.scripting.executeScript` indirection that silently failed on `chrome://` pages and restricted frames. The unused `getDocumentTitle()` helper was removed. New `tests/tools/browser/assert.test.ts` adds 4 tests covering the chrome:// path, mismatch regression guard, regex pattern, and undefined-title fallback. Extension: 664/664, build green.
+- **Worktree**: `/Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-ad568dc0257e1c882` · branch `worktree-agent-ad568dc0257e1c882`
 
 ### IMP-0036 · triggerEvent and setAttribute step types missing from STEP_TYPE_TO_ACTION_TYPE in adapter.ts (bug) · score: 6
 
