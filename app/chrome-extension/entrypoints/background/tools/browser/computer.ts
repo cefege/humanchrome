@@ -832,8 +832,6 @@ class ComputerTool extends BaseBrowserToolExecutor {
         }
       }
       case 'scroll': {
-        if (!params.coordinates && !params.ref)
-          return createErrorResponse('Provide ref or coordinates for scroll');
         let coord = params.coordinates ? project(params.coordinates)! : (undefined as any);
         if (params.ref) {
           try {
@@ -846,6 +844,26 @@ class ComputerTool extends BaseBrowserToolExecutor {
               coord = project({ x: resolved.center.x, y: resolved.center.y })!;
           } catch {
             // ignore
+          }
+        }
+        // No ref/coordinates: scroll the page itself by dispatching the wheel
+        // at the viewport center. CDP's mouseWheel routes the event to
+        // whatever element is at that point; on a typical page that scrolls
+        // the document the same way a user spinning the wheel would.
+        if (!coord) {
+          try {
+            await CDPHelper.attach(tab.id);
+            const metrics: any = await CDPHelper.send(tab.id, 'Page.getLayoutMetrics', {});
+            const viewport = metrics?.layoutViewport ||
+              metrics?.visualViewport || { clientWidth: 800, clientHeight: 600 };
+            const vw = Math.round(Number(viewport.clientWidth || 800));
+            const vh = Math.round(Number(viewport.clientHeight || 600));
+            coord = { x: Math.floor(vw / 2), y: Math.floor(vh / 2) };
+          } catch {
+            // CDP may already be attached or the metrics call may fail on
+            // restricted pages — fall back to a safe default that almost any
+            // viewport contains.
+            coord = { x: 400, y: 400 };
           }
         }
         if (!coord) return createErrorResponse('Failed to resolve scroll coordinates');
