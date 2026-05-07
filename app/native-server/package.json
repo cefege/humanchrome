@@ -1,6 +1,6 @@
 {
   "name": "humanchrome-bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Native-messaging host that connects HumanChrome to AI clients over MCP or plain HTTP.",
   "homepage": "https://github.com/cefege/humanchrome",
   "repository": {
