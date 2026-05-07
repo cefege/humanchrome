@@ -14,7 +14,9 @@
 import { describe, test, expect } from '@jest/globals';
 import * as os from 'os';
 import * as path from 'path';
-import { tccProtectedRootContaining } from './utils';
+import { getSystemManifestPath, tccProtectedRootContaining } from './utils';
+import { BrowserType } from './browser-config';
+import { HOST_NAME } from './constant';
 
 const home = os.homedir();
 const isDarwin = os.platform() === 'darwin';
@@ -79,5 +81,72 @@ describe('tccProtectedRootContaining', () => {
     // a future regression where someone replaces it with startsWith().
     const sibling = path.join(home, 'Documents-archive', 'run.sh');
     expect(tccProtectedRootContaining(sibling)).toBeUndefined();
+  });
+});
+
+/**
+ * Regression test for IMP-0037: `registerWithElevatedPermissions` previously
+ * called `getSystemManifestPath()` with no args, which always returned Chrome's
+ * system path on every platform. A `sudo humanchrome-bridge register --browser
+ * chromium --system` thus wrote Chrome's manifest path even when targeting
+ * Chromium. The function now accepts a `BrowserType` and routes to the
+ * matching system path; verify here that Chromium and Chrome resolve to
+ * different, browser-specific paths and that the Chrome default is preserved.
+ */
+describe('getSystemManifestPath', () => {
+  const platform = os.platform();
+
+  test('Chrome and Chromium resolve to different system paths', () => {
+    const chromePath = getSystemManifestPath(BrowserType.CHROME);
+    const chromiumPath = getSystemManifestPath(BrowserType.CHROMIUM);
+    expect(chromePath).not.toBe(chromiumPath);
+    expect(chromePath.endsWith(`${HOST_NAME}.json`)).toBe(true);
+    expect(chromiumPath.endsWith(`${HOST_NAME}.json`)).toBe(true);
+  });
+
+  test('default (no arg) preserves historic Chrome behaviour', () => {
+    expect(getSystemManifestPath()).toBe(getSystemManifestPath(BrowserType.CHROME));
+  });
+
+  test('returns the platform-correct Chromium path', () => {
+    const chromiumPath = getSystemManifestPath(BrowserType.CHROMIUM);
+    if (platform === 'darwin') {
+      expect(chromiumPath).toBe(
+        path.join(
+          '/Library',
+          'Application Support',
+          'Chromium',
+          'NativeMessagingHosts',
+          `${HOST_NAME}.json`,
+        ),
+      );
+    } else if (platform === 'win32') {
+      const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+      expect(chromiumPath).toBe(
+        path.join(programFiles, 'Chromium', 'NativeMessagingHosts', `${HOST_NAME}.json`),
+      );
+    } else {
+      expect(chromiumPath).toBe(
+        path.join('/etc', 'chromium', 'native-messaging-hosts', `${HOST_NAME}.json`),
+      );
+    }
+  });
+
+  test('returns the platform-correct Chrome path', () => {
+    const chromePath = getSystemManifestPath(BrowserType.CHROME);
+    if (platform === 'darwin') {
+      expect(chromePath).toBe(
+        path.join('/Library', 'Google', 'Chrome', 'NativeMessagingHosts', `${HOST_NAME}.json`),
+      );
+    } else if (platform === 'win32') {
+      const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+      expect(chromePath).toBe(
+        path.join(programFiles, 'Google', 'Chrome', 'NativeMessagingHosts', `${HOST_NAME}.json`),
+      );
+    } else {
+      expect(chromePath).toBe(
+        path.join('/etc', 'opt', 'chrome', 'native-messaging-hosts', `${HOST_NAME}.json`),
+      );
+    }
   });
 });

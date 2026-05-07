@@ -85,25 +85,16 @@ export function getUserManifestPath(): string {
 }
 
 /**
- * Get system-level manifest file path
+ * Get system-level manifest file path for a given browser.
+ *
+ * Defaults to Chrome when no browser is specified — historic behaviour
+ * preserved for any external caller. Internal callers should pass the
+ * targeted `BrowserType` so Chromium-only or multi-browser deployments end
+ * up writing to the right system path (e.g. `/Library/Application
+ * Support/Chromium/NativeMessagingHosts/` on macOS, not Chrome's path).
  */
-export function getSystemManifestPath(): string {
-  if (os.platform() === 'win32') {
-    // Windows: %ProgramFiles%\Google\Chrome\NativeMessagingHosts\
-    return path.join(
-      process.env.ProgramFiles || 'C:\\Program Files',
-      'Google',
-      'Chrome',
-      'NativeMessagingHosts',
-      `${HOST_NAME}.json`,
-    );
-  } else if (os.platform() === 'darwin') {
-    // macOS: /Library/Google/Chrome/NativeMessagingHosts/
-    return path.join('/Library', 'Google', 'Chrome', 'NativeMessagingHosts', `${HOST_NAME}.json`);
-  } else {
-    // Linux: /etc/opt/chrome/native-messaging-hosts/
-    return path.join('/etc', 'opt', 'chrome', 'native-messaging-hosts', `${HOST_NAME}.json`);
-  }
+export function getSystemManifestPath(browser: BrowserType = BrowserType.CHROME): string {
+  return getBrowserConfig(browser).systemManifestPath;
 }
 
 /**
@@ -420,15 +411,35 @@ if (process.platform === 'win32') {
   }
 }
 
-export async function registerWithElevatedPermissions(): Promise<void> {
+/**
+ * Register a system-level Native Messaging manifest for one or more browsers.
+ *
+ * When `targetBrowsers` is omitted, falls back to detected browsers (or
+ * Chrome+Chromium if none detected) — mirroring `tryRegisterUserLevelHost`
+ * so a `--system` invocation routes the manifest to the correct browser
+ * (e.g. Chromium's `/Library/Application Support/Chromium/...` path on
+ * macOS, not Chrome's). Previously this function ignored `--browser` /
+ * `--detect` and always wrote Chrome's system path on every platform.
+ */
+export async function registerWithElevatedPermissions(
+  targetBrowsers?: BrowserType[],
+): Promise<void> {
   try {
     console.log(colorText('Attempting to register system-level manifest...', 'blue'));
 
     await ensureExecutionPermissions();
 
-    const manifest = await createManifestContent();
+    const browsersToRegister = targetBrowsers || detectInstalledBrowsers();
+    if (browsersToRegister.length === 0) {
+      browsersToRegister.push(BrowserType.CHROME, BrowserType.CHROMIUM);
+      console.log(
+        colorText('No browsers detected, registering for Chrome and Chromium by default', 'yellow'),
+      );
+    } else {
+      console.log(colorText(`Target browsers: ${browsersToRegister.join(', ')}`, 'blue'));
+    }
 
-    const manifestPath = getSystemManifestPath();
+    const manifest = await createManifestContent();
 
     const tempManifestPath = path.join(os.tmpdir(), `${HOST_NAME}.json`);
     await writeFile(tempManifestPath, JSON.stringify(manifest, null, 2));
@@ -437,12 +448,50 @@ export async function registerWithElevatedPermissions(): Promise<void> {
     const hasAdminRights = process.platform === 'win32' ? isAdmin() : false;
     const hasElevatedPermissions = isRoot || hasAdminRights;
 
-    const command =
-      os.platform() === 'win32'
-        ? `if not exist "${path.dirname(manifestPath)}" mkdir "${path.dirname(manifestPath)}" && copy "${tempManifestPath}" "${manifestPath}"`
-        : `mkdir -p "${path.dirname(manifestPath)}" && cp "${tempManifestPath}" "${manifestPath}" && chmod 644 "${manifestPath}"`;
+    if (!hasElevatedPermissions) {
+      console.log(
+        colorText('⚠️ Administrator privileges required for system-level installation', 'yellow'),
+      );
+      console.log(
+        colorText(
+          'Please run one of the following commands with administrator privileges:',
+          'blue',
+        ),
+      );
 
-    if (hasElevatedPermissions) {
+      // Show a sample command for the first targeted browser so the user can
+      // copy-paste a working invocation rather than the Chrome-only default.
+      const sampleConfig = getBrowserConfig(browsersToRegister[0]);
+      const sampleManifestPath = sampleConfig.systemManifestPath;
+      const sampleCommand =
+        os.platform() === 'win32'
+          ? `if not exist "${path.dirname(sampleManifestPath)}" mkdir "${path.dirname(sampleManifestPath)}" && copy "${tempManifestPath}" "${sampleManifestPath}"`
+          : `mkdir -p "${path.dirname(sampleManifestPath)}" && cp "${tempManifestPath}" "${sampleManifestPath}" && chmod 644 "${sampleManifestPath}"`;
+
+      if (os.platform() === 'win32') {
+        console.log(colorText('  1. Open Command Prompt as Administrator and run:', 'blue'));
+        console.log(colorText(`     ${sampleCommand}`, 'cyan'));
+      } else {
+        console.log(colorText('  1. Run with sudo:', 'blue'));
+        console.log(colorText(`     sudo ${sampleCommand}`, 'cyan'));
+      }
+
+      console.log(
+        colorText('  2. Or run the registration command with elevated privileges:', 'blue'),
+      );
+      console.log(colorText(`     sudo ${COMMAND_NAME} register --system`, 'cyan'));
+
+      throw new Error('Administrator privileges required for system-level installation');
+    }
+
+    let successCount = 0;
+    const results: { browser: string; success: boolean; error?: string }[] = [];
+
+    for (const browserType of browsersToRegister) {
+      const config = getBrowserConfig(browserType);
+      console.log(colorText(`\nRegistering for ${config.displayName} (system)...`, 'blue'));
+      const manifestPath = config.systemManifestPath;
+
       try {
         if (!fs.existsSync(path.dirname(manifestPath))) {
           fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
@@ -454,84 +503,48 @@ export async function registerWithElevatedPermissions(): Promise<void> {
           fs.chmodSync(manifestPath, '644');
         }
 
-        console.log(colorText('System-level manifest registration successful!', 'green'));
-      } catch (error: any) {
-        console.error(
-          colorText(`System-level manifest installation failed: ${error.message}`, 'red'),
-        );
-        throw error;
-      }
-    } else {
-      console.log(
-        colorText('⚠️ Administrator privileges required for system-level installation', 'yellow'),
-      );
-      console.log(
-        colorText(
-          'Please run one of the following commands with administrator privileges:',
-          'blue',
-        ),
-      );
+        console.log(colorText(`✓ Manifest written to ${manifestPath}`, 'green'));
 
-      if (os.platform() === 'win32') {
-        console.log(colorText('  1. Open Command Prompt as Administrator and run:', 'blue'));
-        console.log(colorText(`     ${command}`, 'cyan'));
-      } else {
-        console.log(colorText('  1. Run with sudo:', 'blue'));
-        console.log(colorText(`     sudo ${command}`, 'cyan'));
-      }
+        if (os.platform() === 'win32' && config.systemRegistryKey) {
+          const registryKey = config.systemRegistryKey;
+          // The reg command handles Windows path escaping; no manual doubling needed.
+          const regCommand = `reg add "${registryKey}" /ve /t REG_SZ /d "${manifestPath}" /f`;
 
-      console.log(
-        colorText('  2. Or run the registration command with elevated privileges:', 'blue'),
-      );
-      console.log(colorText(`     sudo ${COMMAND_NAME} register --system`, 'cyan'));
+          console.log(colorText(`Creating system registry entry: ${registryKey}`, 'blue'));
 
-      throw new Error('Administrator privileges required for system-level installation');
-    }
-
-    // Windows: also set the system-level registry entry
-    if (os.platform() === 'win32') {
-      const registryKey = `HKLM\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`;
-      // The reg command handles Windows path escaping; no manual doubling needed.
-      const regCommand = `reg add "${registryKey}" /ve /t REG_SZ /d "${manifestPath}" /f`;
-
-      console.log(colorText(`Creating system registry entry: ${registryKey}`, 'blue'));
-      console.log(colorText(`Manifest path: ${manifestPath}`, 'blue'));
-
-      if (hasElevatedPermissions) {
-        try {
           execSync(regCommand, { stdio: 'pipe' });
 
           if (verifyWindowsRegistryEntry(registryKey, manifestPath)) {
-            console.log(colorText('Windows registry entry created successfully!', 'green'));
+            console.log(
+              colorText(`✓ Windows registry entry created for ${config.displayName}`, 'green'),
+            );
           } else {
-            console.log(colorText('⚠️ Registry entry created but verification failed', 'yellow'));
+            throw new Error('Registry verification failed');
           }
-        } catch (error: any) {
-          console.error(
-            colorText(`Windows registry entry creation failed: ${error.message}`, 'red'),
-          );
-          console.error(colorText(`Command: ${regCommand}`, 'red'));
-          throw error;
         }
-      } else {
-        console.log(
-          colorText(
-            '⚠️ Administrator privileges required for Windows registry modification',
-            'yellow',
-          ),
-        );
-        console.log(colorText('Please run the following command as Administrator:', 'blue'));
-        console.log(colorText(`  ${regCommand}`, 'cyan'));
-        console.log(colorText('Or run the registration command with elevated privileges:', 'blue'));
-        console.log(
-          colorText(
-            `  Run Command Prompt as Administrator and execute: ${COMMAND_NAME} register --system`,
-            'cyan',
-          ),
-        );
 
-        throw new Error('Administrator privileges required for Windows registry modification');
+        successCount++;
+        results.push({ browser: config.displayName, success: true });
+        console.log(colorText(`✓ Successfully registered ${config.displayName}`, 'green'));
+      } catch (error: any) {
+        results.push({ browser: config.displayName, success: false, error: error.message });
+        console.log(
+          colorText(`✗ Failed to register ${config.displayName}: ${error.message}`, 'red'),
+        );
       }
+    }
+
+    console.log(colorText('\n===== System-Level Registration Summary =====', 'blue'));
+    for (const result of results) {
+      if (result.success) {
+        console.log(colorText(`✓ ${result.browser}: Success`, 'green'));
+      } else {
+        console.log(colorText(`✗ ${result.browser}: Failed - ${result.error}`, 'red'));
+      }
+    }
+
+    if (successCount === 0) {
+      throw new Error('System-level registration failed for all targeted browsers');
     }
   } catch (error: any) {
     console.error(colorText(`Registration failed: ${error.message}`, 'red'));
