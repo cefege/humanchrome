@@ -34,7 +34,9 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "lint": "npx eslint 'src/**/*.{js,ts}'",
     "lint:fix": "npx eslint 'src/**/*.{js,ts}' --fix",
-    "format": "prettier --write 'src/**/*.{js,ts,json}'"
+    "format": "prettier --write 'src/**/*.{js,ts,json}'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "files": [
     "dist"
@@ -42,7 +44,8 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@typescript-eslint/parser": "^8.59.2",
-    "tsup": "^8.4.0"
+    "tsup": "^8.4.0",
+    "vitest": "^2.1.8"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
