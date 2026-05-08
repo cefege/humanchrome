@@ -234,7 +234,7 @@ describe('screenshot — bridge save fallback (PR #64 behaviour)', () => {
     expect(parsed.saveWarning).toMatch(/disk full/);
   });
 
-  it('reports both failures when bridge AND chrome.downloads both fail', async () => {
+  it('flips top-level isError when bridge AND chrome.downloads both fail', async () => {
     const downloadFail = vi.fn(async () => {
       throw new Error('downloads policy denied');
     });
@@ -247,10 +247,25 @@ describe('screenshot — bridge save fallback (PR #64 behaviour)', () => {
     const { screenshotTool } = await loadTool();
     const res = await screenshotTool.execute({ name: 's', tabId: 7 } as any);
 
+    expect(res.isError).toBe(true);
     const parsed = JSON.parse((res.content[0] as any).text);
+    expect(parsed.error?.message).toMatch(/Bridge: host gone/);
+    expect(parsed.error?.message).toMatch(/chrome\.downloads: downloads policy denied/);
+  });
+
+  it('does NOT flip isError when savePng=false even if no file was saved', async () => {
+    installChrome();
+    stubs.cdpSendCommand
+      .mockResolvedValueOnce({ layoutViewport: { clientWidth: 1280, clientHeight: 800 } })
+      .mockResolvedValueOnce({ data: 'fake' });
+
+    const { screenshotTool } = await loadTool();
+    const res = await screenshotTool.execute({ name: 's', tabId: 7, savePng: false } as any);
+
+    expect(res.isError).toBe(false);
+    const parsed = JSON.parse((res.content[0] as any).text);
+    expect(parsed.success).toBe(true);
     expect(parsed.fileSaved).toBe(false);
-    expect(parsed.saveError).toMatch(/Bridge: host gone/);
-    expect(parsed.saveError).toMatch(/chrome\.downloads: downloads policy denied/);
   });
 });
 
