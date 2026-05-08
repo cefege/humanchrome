@@ -19,6 +19,7 @@ import {
 } from './sse-client';
 import { normalizeApplyBatchPayload, normalizeApplyPayload, normalizeString } from './normalizers';
 import { buildAgentPrompt, buildAgentPromptBatch } from './prompt-builder';
+import { registerPropsAgentEarlyInjection } from './early-injection';
 
 const CONTEXT_MENU_ID = 'web_editor_toggle';
 const COMMAND_KEY = 'toggle_web_editor';
@@ -161,101 +162,6 @@ async function sendPropsAgentCleanup(tabId: number): Promise<void> {
     // Best-effort cleanup; ignore failures if tab is gone or injection blocked
     console.warn('[WebEditorV2] Failed to send props agent cleanup:', error);
   }
-}
-
-// =============================================================================
-// Phase 7.1.6: Early Injection for Props Agent
-// =============================================================================
-
-/**
- * Content script ID prefix for early injection (document_start).
- * Registered scripts persist across sessions and survive browser restarts.
- */
-const PROPS_AGENT_EARLY_INJECTION_ID_PREFIX = 'mcp_we_props_early';
-
-/**
- * Result of early injection registration
- */
-interface EarlyInjectionResult {
-  id: string;
-  host: string;
-  matches: string[];
-  alreadyRegistered: boolean;
-}
-
-/**
- * Sanitize a string for use in content script ID
- * Only allows alphanumeric, underscore, and hyphen
- */
-function sanitizeContentScriptId(input: string): string {
-  const cleaned = String(input ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return cleaned.slice(0, 80) || 'site';
-}
-
-/**
- * Build match patterns from tab URL for early injection.
- * Returns patterns for the specific host only (not all URLs).
- */
-function buildEarlyInjectionPatterns(tabUrl: string): { host: string; matches: string[] } {
-  let url: URL;
-  try {
-    url = new URL(tabUrl);
-  } catch {
-    throw new Error('Invalid tab URL');
-  }
-
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`Early injection only supports http/https pages (got ${url.protocol})`);
-  }
-
-  const host = url.hostname.trim();
-  if (!host) {
-    throw new Error('Unable to derive host from tab URL');
-  }
-
-  // Match all paths on this host for both http and https
-  return { host, matches: [`*://${host}/*`] };
-}
-
-/**
- * Register props agent for early injection (document_start, MAIN world).
- * This allows capturing React DevTools hook before React initializes.
- *
- * The registration is per-host and persists across sessions.
- */
-async function registerPropsAgentEarlyInjection(tabUrl: string): Promise<EarlyInjectionResult> {
-  const { host, matches } = buildEarlyInjectionPatterns(tabUrl);
-  const id = `${PROPS_AGENT_EARLY_INJECTION_ID_PREFIX}_${sanitizeContentScriptId(host)}`;
-
-  // Check if already registered (idempotent)
-  let alreadyRegistered = false;
-  try {
-    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
-    alreadyRegistered = existing.some((s) => s.id === id);
-  } catch {
-    // API might not support getRegisteredContentScripts in all contexts
-    alreadyRegistered = false;
-  }
-
-  if (!alreadyRegistered) {
-    await chrome.scripting.registerContentScripts([
-      {
-        id,
-        js: [PROPS_AGENT_SCRIPT_PATH],
-        matches,
-        runAt: 'document_start',
-        world: 'MAIN',
-        allFrames: false,
-        persistAcrossSessions: true,
-      },
-    ]);
-    console.log(`[WebEditorV2] Registered early injection for ${host}`);
-  }
-
-  return { id, host, matches, alreadyRegistered };
 }
 
 async function toggleEditorInTab(tabId: number): Promise<{ active?: boolean }> {
