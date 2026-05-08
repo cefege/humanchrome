@@ -15,6 +15,7 @@ import { StorageBackedEventsBus, type EventsBus } from './engine/transport/event
 import { DEFAULT_QUEUE_CONFIG, type RunQueueItem } from './engine/queue/queue';
 import { createLeaseManager, generateOwnerId, type LeaseManager } from './engine/queue/leasing';
 import { createRunScheduler, type RunExecutor, type RunScheduler } from './engine/queue/scheduler';
+import { safeRemoveTabs } from '@/utils/last-tab-guard';
 import { recoverFromCrash } from './engine/recovery/recovery-coordinator';
 
 import { RpcServer } from './engine/transport/rpc-server';
@@ -102,7 +103,7 @@ async function createEphemeralTab(logger: Logger): Promise<number> {
 
 async function safeRemoveTab(tabId: number, logger: Logger): Promise<void> {
   try {
-    await chrome.tabs.remove(tabId);
+    await safeRemoveTabs(tabId);
   } catch (e) {
     logger.debug(`[RR-V3] Failed to close tab ${tabId}:`, e);
   }

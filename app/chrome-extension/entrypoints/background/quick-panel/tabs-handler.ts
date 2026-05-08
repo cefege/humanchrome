@@ -19,6 +19,7 @@ import {
   type QuickPanelTabsQueryMessage,
   type QuickPanelTabsQueryResponse,
 } from '@/common/message-types';
+import { safeRemoveTabs } from '@/utils/last-tab-guard';
 
 // ============================================================
 // Constants
@@ -178,7 +179,7 @@ async function handleCloseTab(
       return { success: false, error: 'Invalid tabId' };
     }
 
-    await chrome.tabs.remove(tabId);
+    await safeRemoveTabs(tabId);
 
     return { success: true };
   } catch (err) {

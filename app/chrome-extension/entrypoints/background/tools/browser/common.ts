@@ -3,6 +3,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolError, ToolErrorCode } from 'humanchrome-shared';
 import { captureFrameOnAction, isAutoCaptureActive } from './gif-recorder';
 import { DEFAULT_WAIT_FOR_TAB_TIMEOUT_MS, waitForTabComplete } from '../../utils/wait-for-tab';
+import { safeRemoveTabs } from '@/utils/last-tab-guard';
 
 // Default window dimensions
 const DEFAULT_WINDOW_WIDTH = 1280;
@@ -754,7 +755,7 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
           return createErrorResponse('Found tabs but could not get their IDs');
         }
 
-        await chrome.tabs.remove(tabIdsToClose);
+        await safeRemoveTabs(tabIdsToClose);
 
         return {
           content: [
@@ -809,7 +810,7 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
           };
         }
 
-        await chrome.tabs.remove(validTabIds);
+        await safeRemoveTabs(validTabIds);
 
         return {
           content: [
@@ -836,7 +837,7 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       }
 
-      await chrome.tabs.remove(activeTab.id);
+      await safeRemoveTabs(activeTab.id);
 
       return {
         content: [
