@@ -83,21 +83,35 @@ const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'ima
 // ============================================================
 
 /**
- * Convert MIME type to file extension.
+ * Canonical MIME ↔ extension table for attachment images. Saved with the
+ * service because uploads are validated against `ALLOWED_MIME_TYPES`
+ * here; the routes layer reuses both directions when serving files
+ * back to the client (Content-Type guess from filename) so the pairings
+ * stay in one place.
  */
-function mimeTypeToExt(mimeType: string): string {
-  switch (mimeType) {
-    case 'image/png':
-      return 'png';
-    case 'image/jpeg':
-      return 'jpg';
-    case 'image/gif':
-      return 'gif';
-    case 'image/webp':
-      return 'webp';
-    default:
-      return 'bin';
+const MIME_EXT_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['image/png', 'png'],
+  ['image/jpeg', 'jpg'],
+  ['image/jpeg', 'jpeg'],
+  ['image/gif', 'gif'],
+  ['image/webp', 'webp'],
+];
+
+/** Convert MIME type to file extension (canonical extension when multiple). */
+export function mimeTypeToExt(mimeType: string): string {
+  for (const [m, e] of MIME_EXT_PAIRS) {
+    if (m === mimeType) return e;
   }
+  return 'bin';
+}
+
+/** Convert file extension to MIME type, or undefined when unknown. */
+export function extToMimeType(ext: string): string | undefined {
+  const lower = ext.toLowerCase();
+  for (const [m, e] of MIME_EXT_PAIRS) {
+    if (e === lower) return m;
+  }
+  return undefined;
 }
 
 /**

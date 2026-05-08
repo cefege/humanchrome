@@ -38,6 +38,8 @@ const V2_SCRIPT_PATH = 'web-editor-v2.js';
 /** Script path for Phase 7 props agent (MAIN world). */
 const PROPS_AGENT_SCRIPT_PATH = 'inject-scripts/props-agent.js';
 
+const LOG_PREFIX = USE_WEB_EDITOR_V2 ? '[WebEditorV2]' : '[WebEditor]';
+
 /**
  * Get the appropriate action constants based on which editor version is
  * active. v1 and v2 use different action names to avoid conflicts (e.g.,
@@ -81,7 +83,6 @@ export async function ensureContextMenu(): Promise<void> {
  */
 async function ensureEditorInjected(tabId: number): Promise<void> {
   const scriptPath = USE_WEB_EDITOR_V2 ? V2_SCRIPT_PATH : V1_SCRIPT_PATH;
-  const logPrefix = USE_WEB_EDITOR_V2 ? '[WebEditorV2]' : '[WebEditor]';
   const actions = getActions();
 
   // Try to ping existing instance using version-specific action
@@ -107,9 +108,9 @@ async function ensureEditorInjected(tabId: number): Promise<void> {
       files: [scriptPath],
       world: 'ISOLATED',
     });
-    console.log(`${logPrefix} Script injected successfully`);
+    console.log(`${LOG_PREFIX} Script injected successfully`);
   } catch (error) {
-    console.warn(`${logPrefix} Failed to inject editor script:`, error);
+    console.warn(`${LOG_PREFIX} Failed to inject editor script:`, error);
   }
 }
 
@@ -169,7 +170,6 @@ async function sendPropsAgentCleanup(tabId: number): Promise<void> {
  */
 export async function toggleEditorInTab(tabId: number): Promise<{ active?: boolean }> {
   await ensureEditorInjected(tabId);
-  const logPrefix = USE_WEB_EDITOR_V2 ? '[WebEditorV2]' : '[WebEditor]';
   const actions = getActions();
 
   try {
@@ -180,16 +180,19 @@ export async function toggleEditorInTab(tabId: number): Promise<{ active?: boole
     );
     const active = typeof resp?.active === 'boolean' ? resp.active : undefined;
 
-    // Phase 7: Inject props agent on start; cleanup on stop
     if (active === true) {
       await ensurePropsAgentInjected(tabId);
-    } else if (active === false) {
+    } else {
+      // Both `false` (explicit off) and `undefined` (malformed response):
+      // ensure no orphan props agent stays in MAIN world. Cleanup is a
+      // best-effort CustomEvent dispatch — safe to send when nothing's
+      // attached.
       await sendPropsAgentCleanup(tabId);
     }
 
     return { active };
   } catch (error) {
-    console.warn(`${logPrefix} Failed to toggle editor in tab:`, error);
+    console.warn(`${LOG_PREFIX} Failed to toggle editor in tab:`, error);
     return {};
   }
 }
