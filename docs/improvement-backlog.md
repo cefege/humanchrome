@@ -49,15 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (~1.2 MB) (perf) · score: 6
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: background.js is 2.16 MB because Rolldown collapsed the dynamic import(@huggingface/transformers) at semantic-similarity-engine.ts:23 into an inlined Promise.resolve. Root cause: the SW statically imports cleanupModelCache (entrypoints/background/index.ts:7) and hasAnyModelCache (entrypoints/background/semantic-similarity.ts:5) from the same file that hosts the engine, so Rolldown drags the whole module — including transformers (~700 KB) and onnxruntime-web (~500 KB) — into the SW chunk. The offscreen entrypoint already owns the engine instance correctly; the SW just needs to not co-import status helpers from the heavy module.
-- **Cost**: S
-- **Value**: L
-  **Fix sketch**: extract `hasAnyModelCache` and `cleanupModelCache` into a tiny `utils/model-cache-status.ts` that touches only IndexedDB — no transformers/onnxruntime/SIMDMathEngine reach. Re-point `entrypoints/background/index.ts:7` and `entrypoints/background/semantic-similarity.ts:5` to the new file. Verify by checking `.output/chrome-mv3/background.js` size and grepping for `transformers.js/${l}` UA marker (currently present, should disappear). Expected: SW shrinks from 2.16 MB to ~1 MB.
-
 ### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-07
@@ -175,15 +166,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
   **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
-
-### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: tools/browser/vector-search.ts:9 static-imports ContentIndexer from utils/content-indexer.ts (586 LoC), which transitively pulls utils/vector-database.ts (1557 LoC) and the hnswlib-wasm-static loader stub. The chrome_vector_search tool runs only when explicitly invoked; today the entire indexing/search engine is parsed on every SW cold-start. Estimated ~50–80 KB off the SW chunk plus removing a wasm pre-init cost from boot.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
 
 ### IMP-0058 · Cache listDynamicFlowTools with invalidation so tools/list and flow.\* calls stop doing a fresh extension round-trip every time (perf) · score: 4
 
@@ -390,6 +372,20 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (perf) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Extracted `cleanupModelCache` and `hasAnyModelCache` to a new `app/chrome-extension/utils/model-cache-status.ts` (40 lines, IndexedDB only — no transformers/onnxruntime/SIMDMathEngine reach). Repointed the SW imports at `entrypoints/background/index.ts` and `entrypoints/background/semantic-similarity.ts`. Kept a back-compat re-export from `semantic-similarity-engine.ts` so popup imports still work. Load-bearing prerequisite for IMP-0057's actual win.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-abf1cc03caa7065e5 · branch worktree-agent-abf1cc03caa7065e5
+
+### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Lazy-loaded `ContentIndexer` in `tools/browser/vector-search.ts` via memoized `getIndexer()` async helper that does `await import('@/utils/content-indexer')` on first use. Plus the load-bearing flip of `defineBackground` to `{ type: 'module', main: ... }` so WXT compiles the SW as ESM (Chrome 91+ supports module SWs natively) — without this, IIFE bundling silently inlines every `await import(...)`. Combined with IMP-0055, **background.js dropped from 2168 KB to 612 KB (−72%)**; total dist 6.95 MB → 6.16 MB. Bridge 69/69, extension 694/694, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-abf1cc03caa7065e5 · branch worktree-agent-abf1cc03caa7065e5
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
