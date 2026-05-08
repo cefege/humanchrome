@@ -11,6 +11,7 @@
 import { failed, invalid, ok, tryResolveString } from '../registry';
 import type { ActionHandler, DownloadInfo, DownloadState, VariableStore } from '../types';
 import { waitForTabComplete } from '../../../utils/wait-for-tab';
+import { safeRemoveTabs } from '@/utils/last-tab-guard';
 
 /** Default timeout for tab operations */
 const DEFAULT_TAB_TIMEOUT_MS = 10000;
@@ -250,7 +251,7 @@ export const closeTabHandler: ActionHandler<'closeTab'> = {
         return failed('TAB_NOT_FOUND', 'No tabs to close');
       }
 
-      await chrome.tabs.remove(tabIds);
+      await safeRemoveTabs(tabIds);
       return { status: 'success' };
     } catch (e) {
       return failed(
