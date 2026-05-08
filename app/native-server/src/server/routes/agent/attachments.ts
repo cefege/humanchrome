@@ -14,7 +14,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { HTTP_STATUS, ERROR_MESSAGES } from '../../../constant';
-import { attachmentService } from '../../../agent/attachment-service';
+import { attachmentService, extToMimeType } from '../../../agent/attachment-service';
 import { listProjects } from '../../../agent/project-service';
 import type {
   AttachmentStatsResponse,
@@ -29,22 +29,25 @@ export function registerAttachmentRoutes(fastify: FastifyInstance): void {
    */
   fastify.get('/agent/attachments/stats', async (_request, reply) => {
     try {
-      const stats = await attachmentService.getAttachmentStats();
+      const [stats, projects] = await Promise.all([
+        attachmentService.getAttachmentStats(),
+        listProjects(),
+      ]);
 
-      // Enrich with project names from database
-      const projects = await listProjects();
       const projectMap = new Map(projects.map((p) => [p.id, p.name]));
       const dbProjectIds = new Set(projects.map((p) => p.id));
 
-      const enrichedProjects = stats.projects.map((p) => ({
-        ...p,
-        projectName: projectMap.get(p.projectId),
-        existsInDb: dbProjectIds.has(p.projectId),
-      }));
-
-      const orphanProjectIds = stats.projects
-        .filter((p) => !dbProjectIds.has(p.projectId))
-        .map((p) => p.projectId);
+      const enrichedProjects: AttachmentStatsResponse['projects'] = [];
+      const orphanProjectIds: string[] = [];
+      for (const p of stats.projects) {
+        const existsInDb = dbProjectIds.has(p.projectId);
+        enrichedProjects.push({
+          ...p,
+          projectName: projectMap.get(p.projectId),
+          existsInDb,
+        });
+        if (!existsInDb) orphanProjectIds.push(p.projectId);
+      }
 
       const response: AttachmentStatsResponse = {
         success: true,
@@ -77,27 +80,10 @@ export function registerAttachmentRoutes(fastify: FastifyInstance): void {
       const { projectId, filename } = request.params;
 
       try {
-        // Validate and get file
         const buffer = await attachmentService.readAttachment(projectId, filename);
 
-        // Determine content type from filename extension
-        const ext = filename.split('.').pop()?.toLowerCase();
-        let contentType = 'application/octet-stream';
-        switch (ext) {
-          case 'png':
-            contentType = 'image/png';
-            break;
-          case 'jpg':
-          case 'jpeg':
-            contentType = 'image/jpeg';
-            break;
-          case 'gif':
-            contentType = 'image/gif';
-            break;
-          case 'webp':
-            contentType = 'image/webp';
-            break;
-        }
+        const ext = filename.split('.').pop() ?? '';
+        const contentType = extToMimeType(ext) ?? 'application/octet-stream';
 
         reply
           .header('Content-Type', contentType)

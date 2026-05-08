@@ -43,6 +43,14 @@ function cleanupExpiredStatuses(): void {
   }
 }
 
+// Run periodic TTL pruning regardless of cache size. Without this, a
+// quiescent cache holds stale entries past TTL until something triggers
+// a new write — easily forever in a low-traffic session.
+const STATUS_CACHE_PRUNE_INTERVAL = 60 * 1000; // 1 minute
+if (typeof setInterval === 'function') {
+  setInterval(cleanupExpiredStatuses, STATUS_CACHE_PRUNE_INTERVAL);
+}
+
 export function setExecutionStatus(
   requestId: string,
   status: string,
@@ -55,10 +63,6 @@ export function setExecutionStatus(
     updatedAt: Date.now(),
     result,
   });
-  // Periodic cleanup
-  if (executionStatusCache.size > 100) {
-    cleanupExpiredStatuses();
-  }
 }
 
 export function getExecutionStatus(requestId: string): ExecutionStatusEntry | undefined {
@@ -168,7 +172,14 @@ export async function subscribeToSessionStatus(
       setExecutionStatus(requestId, 'running', 'Agent processing (connection lost)...');
     }
   } finally {
-    sseConnections.delete(sessionId);
+    // Only clear the entry if it's still ours. A subsequent
+    // subscribeToSessionStatus call for the same session will have
+    // installed a new controller; deleting unconditionally here would
+    // orphan that fresh connection's tracking.
+    const current = sseConnections.get(sessionId);
+    if (current?.abort === abortController) {
+      sseConnections.delete(sessionId);
+    }
   }
 }
 
