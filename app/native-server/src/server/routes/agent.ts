@@ -13,14 +13,7 @@ import { HTTP_STATUS, ERROR_MESSAGES } from '../../constant';
 import { AgentStreamManager } from '../../agent/stream-manager';
 import { AgentChatService } from '../../agent/chat-service';
 import type { AgentActRequest, AgentActResponse, RealtimeEvent } from '../../agent/types';
-import type { CreateOrUpdateProjectInput } from '../../agent/project-types';
-import {
-  createProjectDirectory,
-  deleteProject,
-  listProjects,
-  upsertProject,
-  validateRootPath,
-} from '../../agent/project-service';
+import { listProjects } from '../../agent/project-service';
 import {
   createMessage as createStoredMessage,
   deleteMessagesByProjectId,
@@ -42,8 +35,7 @@ import {
   type UpdateSessionInput,
 } from '../../agent/session-service';
 import { getProject } from '../../agent/project-service';
-import { getDefaultWorkspaceDir, getDefaultProjectRoot } from '../../agent/storage';
-import { openDirectoryPicker } from '../../agent/directory-picker';
+import { registerProjectRoutes } from './agent/projects';
 import type { EngineName } from '../../agent/engines/types';
 import { attachmentService } from '../../agent/attachment-service';
 import { openProjectDirectory, openFileInVSCode } from '../../agent/open-project';
@@ -107,149 +99,9 @@ export function registerAgentRoutes(fastify: FastifyInstance, options: AgentRout
   });
 
   // ============================================================
-  // Project Routes
+  // Project Routes (delegated to ./agent/projects)
   // ============================================================
-
-  fastify.get('/agent/projects', async (_request, reply) => {
-    try {
-      const projects = await listProjects();
-      reply.status(HTTP_STATUS.OK).send({ projects });
-    } catch (error) {
-      if (!reply.sent) {
-        reply
-          .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-          .send({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
-      }
-    }
-  });
-
-  fastify.post(
-    '/agent/projects',
-    async (request: FastifyRequest<{ Body: CreateOrUpdateProjectInput }>, reply: FastifyReply) => {
-      try {
-        const body = request.body;
-        if (!body || !body.name || !body.rootPath) {
-          reply
-            .status(HTTP_STATUS.BAD_REQUEST)
-            .send({ error: 'name and rootPath are required to create a project' });
-          return;
-        }
-        const project = await upsertProject(body);
-        reply.status(HTTP_STATUS.OK).send({ project });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        reply
-          .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-          .send({ error: message || ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
-      }
-    },
-  );
-
-  fastify.delete(
-    '/agent/projects/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const { id } = request.params;
-      if (!id) {
-        reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: 'project id is required' });
-        return;
-      }
-      try {
-        await deleteProject(id);
-        reply.status(HTTP_STATUS.NO_CONTENT).send();
-      } catch (error) {
-        if (!reply.sent) {
-          reply
-            .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-            .send({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
-        }
-      }
-    },
-  );
-
-  // Path validation API
-  fastify.post(
-    '/agent/projects/validate-path',
-    async (request: FastifyRequest<{ Body: { rootPath: string } }>, reply: FastifyReply) => {
-      const { rootPath } = request.body || {};
-      if (!rootPath || typeof rootPath !== 'string') {
-        return reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: 'rootPath is required' });
-      }
-      try {
-        const result = await validateRootPath(rootPath);
-        return reply.send(result);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({ error: message });
-      }
-    },
-  );
-
-  // Create directory API
-  fastify.post(
-    '/agent/projects/create-directory',
-    async (request: FastifyRequest<{ Body: { absolutePath: string } }>, reply: FastifyReply) => {
-      const { absolutePath } = request.body || {};
-      if (!absolutePath || typeof absolutePath !== 'string') {
-        return reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: 'absolutePath is required' });
-      }
-      try {
-        await createProjectDirectory(absolutePath);
-        return reply.send({ success: true, path: absolutePath });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: message });
-      }
-    },
-  );
-
-  // Get default workspace directory
-  fastify.get('/agent/projects/default-workspace', async (_request, reply) => {
-    try {
-      const workspaceDir = getDefaultWorkspaceDir();
-      return reply.send({ success: true, path: workspaceDir });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({ error: message });
-    }
-  });
-
-  // Get default project root for a given project name
-  fastify.post(
-    '/agent/projects/default-root',
-    async (request: FastifyRequest<{ Body: { projectName: string } }>, reply: FastifyReply) => {
-      const { projectName } = request.body || {};
-      if (!projectName || typeof projectName !== 'string') {
-        return reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: 'projectName is required' });
-      }
-      try {
-        const rootPath = getDefaultProjectRoot(projectName);
-        return reply.send({ success: true, path: rootPath });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({ error: message });
-      }
-    },
-  );
-
-  // Open directory picker dialog
-  fastify.post('/agent/projects/pick-directory', async (_request, reply) => {
-    try {
-      const result = await openDirectoryPicker('Select Project Directory');
-      if (result.success && result.path) {
-        return reply.send({ success: true, path: result.path });
-      } else if (result.cancelled) {
-        return reply.send({ success: false, cancelled: true });
-      } else {
-        return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
-          success: false,
-          error: result.error || 'Failed to open directory picker',
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({ error: message });
-    }
-  });
+  registerProjectRoutes(fastify);
 
   // ============================================================
   // Session Routes
