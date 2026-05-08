@@ -71,10 +71,19 @@ interface ComputerParams {
   modifiers?: Modifiers; // for click actions
   region?: ZoomRegion; // for zoom action
   duration?: number; // seconds for wait
-  // For fill
+  // For fill / fill_form
   selector?: string;
   selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
-  value?: string;
+  // Accept string | number | boolean to match FillToolParams; the schema
+  // exposes the union so the LLM can pass the right shape per element.
+  value?: string | number | boolean;
+  elements?: Array<{ ref: string; value: string | number | boolean }>;
+  // For resize_page (Emulation.setDeviceMetricsOverride dimensions).
+  width?: number;
+  height?: number;
+  // For action=wait with text — whether the helper should wait for the
+  // text to appear (true, default) or disappear (false).
+  appear?: boolean;
   frameId?: number; // Target frame for selector/ref resolution
   tabId?: number; // target existing tab id
   windowId?: number;
@@ -396,10 +405,14 @@ class ComputerTool extends BaseBrowserToolExecutor {
 
     switch (params.action) {
       case 'resize_page': {
-        const width = Number((params as any).coordinates?.x || (params as any).text);
-        const height = Number((params as any).coordinates?.y || (params as any).value);
-        const w = Number((params as any).width ?? width);
-        const h = Number((params as any).height ?? height);
+        // Accept dimensions either via dedicated width/height (preferred)
+        // or as a fallback through text/value/coordinates so older callers
+        // that piggybacked these slots before width/height existed still
+        // work.
+        const widthFallback = Number(params.coordinates?.x ?? params.text);
+        const heightFallback = Number(params.coordinates?.y ?? params.value);
+        const w = Number(params.width ?? widthFallback);
+        const h = Number(params.height ?? heightFallback);
         if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
           return createErrorResponse('Provide width and height for resize_page (positive numbers)');
         }
@@ -687,7 +700,9 @@ class ComputerTool extends BaseBrowserToolExecutor {
           return createErrorResponse(
             'Provide ref, selector, or coordinates for double/triple click',
           );
-        let coord = params.coordinates ? project(params.coordinates)! : (undefined as any);
+        let coord: Coordinates | undefined = params.coordinates
+          ? project(params.coordinates)
+          : undefined;
         // If ref is provided, resolve center via accessibility helper
         if (params.ref) {
           try {
@@ -790,10 +805,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           return createErrorResponse('Provide startRef or startCoordinates for drag');
         if (!params.coordinates && !params.ref)
           return createErrorResponse('Provide ref or end coordinates for drag');
-        let start = params.startCoordinates
-          ? project(params.startCoordinates)!
-          : (undefined as any);
-        let end = params.coordinates ? project(params.coordinates)! : (undefined as any);
+        let start: Coordinates | undefined = params.startCoordinates
+          ? project(params.startCoordinates)
+          : undefined;
+        let end: Coordinates | undefined = params.coordinates
+          ? project(params.coordinates)
+          : undefined;
         if (params.startCoordinates || params.coordinates) {
           const stale = checkDomainShift(
             screenshotContextManager.getContext(tab.id!),
@@ -878,7 +895,9 @@ class ComputerTool extends BaseBrowserToolExecutor {
         }
       }
       case 'scroll': {
-        let coord = params.coordinates ? project(params.coordinates)! : (undefined as any);
+        let coord: Coordinates | undefined = params.coordinates
+          ? project(params.coordinates)
+          : undefined;
         if (params.ref) {
           try {
             await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
@@ -1006,20 +1025,23 @@ class ComputerTool extends BaseBrowserToolExecutor {
         if (!params.ref && !params.selector) {
           return createErrorResponse('Provide ref or selector and a value for fill');
         }
+        if (params.value === undefined) {
+          return createErrorResponse('Provide a value for fill');
+        }
         // Reuse existing fill tool to leverage robust DOM event behavior
         const res = await fillTool.execute({
-          selector: params.selector as any,
-          selectorType: params.selectorType as any,
-          ref: params.ref as any,
-          value: params.value as any,
-        } as any);
+          selector: params.selector,
+          selectorType: params.selectorType,
+          ref: params.ref,
+          value: params.value,
+          tabId: params.tabId,
+          windowId: params.windowId,
+          frameId: params.frameId,
+        });
         return res;
       }
       case 'fill_form': {
-        const elements = (params as any).elements as Array<{
-          ref: string;
-          value: string | number | boolean;
-        }>;
+        const elements = params.elements;
         if (!Array.isArray(elements) || elements.length === 0) {
           return createErrorResponse('elements must be a non-empty array for fill_form');
         }
@@ -1031,9 +1053,12 @@ class ComputerTool extends BaseBrowserToolExecutor {
           }
           try {
             const r = await fillTool.execute({
-              ref: item.ref as any,
-              value: item.value as any,
-            } as any);
+              ref: item.ref,
+              value: item.value,
+              tabId: params.tabId,
+              windowId: params.windowId,
+              frameId: params.frameId,
+            });
             const ok = !r.isError;
             results.push({ ref: item.ref, ok, error: ok ? undefined : 'failed' });
           } catch (e) {
@@ -1108,8 +1133,8 @@ class ComputerTool extends BaseBrowserToolExecutor {
         }
       }
       case 'wait': {
-        const hasTextCondition =
-          typeof (params as any).text === 'string' && (params as any).text.trim().length > 0;
+        const waitText = typeof params.text === 'string' ? params.text : '';
+        const hasTextCondition = waitText.trim().length > 0;
         if (hasTextCondition) {
           try {
             // Conditional wait for text appearance/disappearance using content script
@@ -1120,21 +1145,18 @@ class ComputerTool extends BaseBrowserToolExecutor {
               'ISOLATED',
               true,
             );
-            const appear = (params as any).appear !== false; // default to true
-            const timeoutMs = Math.max(
-              0,
-              Math.min(((params as any).timeoutMs as number) || 10000, 120000),
-            );
+            const appear = params.appear !== false; // default to true
+            const timeoutMs = Math.max(0, Math.min(params.timeoutMs ?? 10000, 120000));
             const resp = await this.sendMessageToTab(tab.id, {
               action: TOOL_MESSAGE_TYPES.WAIT_FOR_TEXT,
-              text: (params as any).text,
+              text: waitText,
               appear,
               timeout: timeoutMs,
             });
             if (!resp || resp.success !== true) {
               return createErrorResponse(
                 resp && resp.reason === 'timeout'
-                  ? `wait_for timed out after ${timeoutMs}ms for text: ${(params as any).text}`
+                  ? `wait_for timed out after ${timeoutMs}ms for text: ${waitText}`
                   : `wait_for failed: ${resp && resp.error ? resp.error : 'unknown error'}`,
               );
             }
@@ -1146,7 +1168,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
                     success: true,
                     action: 'wait_for',
                     appear,
-                    text: (params as any).text,
+                    text: waitText,
                     matched: resp.matched || null,
                     tookMs: resp.tookMs,
                   }),
@@ -1160,7 +1182,7 @@ class ComputerTool extends BaseBrowserToolExecutor {
             );
           }
         } else {
-          const seconds = Math.max(0, Math.min((params as any).duration || 0, 30));
+          const seconds = Math.max(0, Math.min(params.duration ?? 0, 30));
           if (!seconds)
             return createErrorResponse('Duration parameter is required and must be > 0');
           await new Promise((r) => setTimeout(r, seconds * 1000));
