@@ -305,15 +305,16 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
       }
 
       if (savePng === true) {
-        // Save PNG file via native bridge (no Chrome download dialog)
+        // Save PNG file via native bridge (no Chrome download dialog).
+        // On bridge failure, fall back to chrome.downloads — but record both
+        // outcomes so a partially-failed save isn't reported as success.
         this.logInfo('Saving PNG via native bridge...');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `${name.replace(/[^a-z0-9_-]/gi, '_') || 'screenshot'}_${timestamp}.png`;
+        const base64Data = finalImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
+
+        let bridgeError: string | undefined;
         try {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const filename = `${name.replace(/[^a-z0-9_-]/gi, '_') || 'screenshot'}_${timestamp}.png`;
-
-          // Strip data URL prefix to get raw base64
-          const base64Data = finalImageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-
           const resp = await sendNativeRequest<any>(
             'file_operation',
             { action: 'prepareFile', base64Data, fileName: filename },
@@ -325,20 +326,42 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
             results.fullPath = resp.filePath;
             results.fileSaved = true;
           } else {
-            // Fallback to Chrome downloads API
-            this.logInfo('Bridge save failed, falling back to Chrome downloads...');
+            // Bridge replied but with success=false — capture the reason so
+            // it isn't silently dropped on the fallback path.
+            bridgeError =
+              (resp && (resp.error || resp.message)) ||
+              'Bridge returned success=false without an error message';
+          }
+        } catch (error) {
+          // Native messaging itself failed (timeout, host not registered,
+          // etc.). Capture and try the fallback.
+          bridgeError = error instanceof Error ? error.message : String(error);
+        }
+
+        if (!results.fileSaved && bridgeError) {
+          this.logInfo(`Bridge save failed (${bridgeError}); falling back to chrome.downloads`);
+          try {
             const downloadId = await chrome.downloads.download({
               url: finalImageDataUrl,
-              filename: filename,
+              filename,
               saveAs: false,
             });
             results.downloadId = downloadId;
             results.filename = filename;
             results.fileSaved = true;
+            // Surface the upstream bridge error even on success so the caller
+            // can see they hit the fallback path.
+            results.saveWarning = `Saved via chrome.downloads after bridge failure: ${bridgeError}`;
+          } catch (fallbackError) {
+            const fallbackMsg =
+              fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+            console.error('Bridge save AND chrome.downloads fallback both failed:', {
+              bridgeError,
+              fallbackMsg,
+            });
+            results.saveError = `Bridge: ${bridgeError}; chrome.downloads: ${fallbackMsg}`;
+            results.fileSaved = false;
           }
-        } catch (error) {
-          console.error('Error saving PNG file:', error);
-          results.saveError = String(error instanceof Error ? error.message : error);
         }
       }
     } catch (error) {
