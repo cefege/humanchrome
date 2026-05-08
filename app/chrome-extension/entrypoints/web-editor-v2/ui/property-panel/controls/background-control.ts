@@ -14,6 +14,7 @@ import type { DesignTokensService } from '../../../core/design-tokens';
 import { createColorField, type ColorField } from './color-field';
 import { createGradientControl } from './gradient-control';
 import type { DesignControl } from '../types';
+import { isFieldFocused, readComputedValue, readInlineValue } from './css-helpers';
 
 // =============================================================================
 // Constants
@@ -47,33 +48,6 @@ type FieldState = TextFieldState | ColorFieldState;
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
 
 function inferBackgroundType(bgImage: string): BackgroundType {
   const trimmed = bgImage.trim().toLowerCase();

@@ -15,6 +15,7 @@ import type { StyleTransactionHandle, TransactionManager } from '../../../core/t
 import { wireNumberStepping } from './number-stepping';
 import type { DesignControl } from '../types';
 import { createSliderInput, type SliderInput } from '../components/slider-input';
+import { isFieldFocused, readComputedValue, readInlineValue } from './css-helpers';
 
 // =============================================================================
 // Constants
@@ -49,16 +50,6 @@ type FieldState = OpacityFieldState | SelectFieldState;
 // Helpers
 // =============================================================================
 
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
 function normalizeOpacity(raw: string): string {
   return raw.trim();
 }
@@ -89,23 +80,6 @@ function parseOpacityNumber(raw: string): number | null {
   const value = Number(normalized);
   if (!Number.isFinite(value)) return null;
   return value;
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
 }
 
 // =============================================================================

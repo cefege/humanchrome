@@ -21,7 +21,14 @@ import { createColorField, type ColorField } from './color-field';
 import { createGradientControl } from './gradient-control';
 import { createInputContainer, type InputContainer } from '../components/input-container';
 import { createIconButtonGroup, type IconButtonGroup } from '../components/icon-button-group';
-import { combineLengthValue, formatLengthForDisplay, hasExplicitUnit } from './css-helpers';
+import {
+  combineLengthValue,
+  formatLengthForDisplay,
+  hasExplicitUnit,
+  isFieldFocused,
+  readComputedValue,
+  readInlineValue,
+} from './css-helpers';
 import { wireNumberStepping } from './number-stepping';
 import type { DesignControl } from '../types';
 
@@ -245,16 +252,6 @@ function isVerticalAlignValue(value: string): value is VerticalAlignValue {
 // Helpers
 // =============================================================================
 
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Normalize line-height value.
  * Keeps unitless numbers as-is (e.g., "1.5" stays "1.5", not "1.5px")
@@ -265,23 +262,6 @@ function normalizeLineHeight(raw: string): string {
   if (!trimmed) return '';
   // Keep unitless numbers as-is for line-height
   return trimmed;
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
 }
 
 /**

@@ -13,7 +13,13 @@ import type { StyleTransactionHandle, TransactionManager } from '../../../core/t
 import type { DesignControl } from '../types';
 import { createInputContainer, type InputContainer } from '../components/input-container';
 import { createIconButtonGroup, type IconButtonGroup } from '../components/icon-button-group';
-import { combineLengthValue, formatLengthForDisplay } from './css-helpers';
+import {
+  combineLengthValue,
+  formatLengthForDisplay,
+  isFieldFocused,
+  readComputedValue,
+  readInlineValue,
+} from './css-helpers';
 import { wireNumberStepping } from './number-stepping';
 
 // =============================================================================
@@ -536,36 +542,6 @@ function createFlipYIcon(): SVGElement {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) {
-      return rootNode.activeElement === el;
-    }
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    if (!style || typeof style.getPropertyValue !== 'function') return '';
-    return style.getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
 
 function normalizeZIndex(raw: string): string {
   const trimmed = raw.trim();
