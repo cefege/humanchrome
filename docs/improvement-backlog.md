@@ -49,28 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0040 · record_replay_flow_run MCP tool silently does nothing for flows containing loopElements or executeFlow steps (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: loopElements and executeFlow step types have legacy NodeRuntime implementations (loopElementsNode in download-screenshot-attr-event-frame-loop.ts, executeFlowNode in execute-flow.ts) that are registered in the legacy node index. However, neither type has an entry in STEP_TYPE_TO_ACTION_TYPE nor an ActionHandler in the actions registry. The default execution mode is legacy so the legacy fallback path runs — but the legacy loopElementsNode and executeFlowNode use the old ExecCtx API that is never wired up in the V3 scheduler (which only calls createExecutor). A published flow containing either step type will stall or skip silently when run via record_replay_flow_run.
-- **Cost**: S
-- **Value**: M
-- **Repro**: Publish a flow that contains a loopElements step. Call `record_replay_flow_run` with its ID. Expected: loop iterates over matched elements. Actual: step is skipped silently (legacy fallback returns empty result) or the runner fails with an unexpected error.
-- **Fix sketch**: Verify whether `executeFlowNode` and `loopElementsNode` are reachable from the V3 scheduler path by tracing `createExecutor(legacy)` → `LegacyStepExecutor` → `legacyExecuteStep` → nodes/index.ts NODE_MAP. If NODE_MAP includes these types, behavior may be correct; if not, add them or implement ActionHandlers.
-- **Notes**: Latent. The TODO in `actions/handlers/index.ts:62` and `adapter.ts:73-74` calls these out explicitly as unimplemented.
-
-### IMP-0039 · jsdom@29 bump introduces --localstorage-file warning spam in bridge test suite (regression) (bug) · score: 5
-
-- **Proposed by**: bug-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: After the jsdom 26→29 bump in commit 47fb363, every run of pnpm --filter humanchrome-bridge test emits 5 Node.js warnings: Warning: --localstorage-file was provided without a valid path. One warning per Jest worker. These warnings appear before the test output and cannot be suppressed without understanding their source. They indicate a jsdom 29 behavior change in how it validates storage-file options passed via the test runner configuration.
-- **Cost**: S
-- **Value**: S
-- **Repro**: `cd /Users/mike/Documents/Code/humanchrome && pnpm --filter humanchrome-bridge test 2>&1 | grep localstorage`. Expected: no output. Actual: 5 lines of Warning: --localstorage-file was provided without a valid path.
-- **Fix sketch**: Identify which jest runner argument triggers the flag (likely a testEnvironmentOptions or jest-environment-jsdom option that changed semantics in jsdom 29). Possible fix: add `testEnvironmentOptions: { storage: "none" }` or equivalent to `/Users/mike/Documents/Code/humanchrome/app/native-server/jest.config.js` if the jsdom environment is being used implicitly; or set `testEnvironment: "node"` explicitly on affected suites. The jest.config.js already specifies `testEnvironment: "node"`, suggesting the warning comes from a transitive jest-worker init.
-- **Notes**: Regression introduced by #55 (jsdom 26→29). Tests all pass; this is noise but obscures real warnings.
-
 ### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-07
@@ -110,6 +88,75 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: (1557 LoC, 158 console.log calls)
 - **Sketch**: Replace the 158 console.log with a single debug-flag guard (const DEBUG = false) at the top of the file; calls become if (DEBUG) console.log(...). Change setDebugLogs(true) to setDebugLogs(false). Keep console.error for real errors.
 - **Risk**: Low. No behavior change. Loss of verbose tracing for future debugging mitigated by the DEBUG flag being a one-line change to re-enable.
+
+### IMP-0041 · Add chrome_list_injected_scripts tool to enumerate active injections per tab (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: chrome_inject_script and chrome_send_command_to_inject_script cover write and message, but agents have no read path. Before injecting a monitoring bridge or mutation observer, an agent must blindly inject again (risking duplicates) or reload the tab. chrome_list_injected_scripts returns the existing injectedTabs Map as [{tabId, scriptId, sourceUrl, injectedAt}], enabling idempotent inject-once patterns and safe pre-flight checks.
+- **Cost**: S
+- **Value**: M
+  Touch: tools/browser/inject-script.ts (expose injectedTabs read path), TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS, TOOL_SCHEMAS entry, TOOL_CATEGORIES (same category as INJECT_SCRIPT). No new infrastructure — reads the Map already maintained by the existing inject handler. Zero new permissions.
+
+### IMP-0044 · Add chrome_list_frames tool to enumerate iframes and their frameIds in a tab (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: chrome_click_element, chrome_fill_or_select, and chrome_await_element all accept a frameId param for iframe-targeted operations, but there is no MCP tool to discover frame IDs. Agents currently inject JS to walk window.frames — which is cross-origin-blocked for sandboxed iframes and returns unstable numeric indexes. chrome.webNavigation.getAllFrames returns stable frameId values per origin, indexed independently of the DOM tree.
+- **Cost**: S
+- **Value**: M
+  New tool chrome_list_frames. Params: tabId? (standard tab targeting). Returns [{frameId, url, parentFrameId, name}]. Implementation: chrome.webNavigation.getAllFrames({tabId}) in the extension background. Audit whether webNavigation is already declared in wxt.config.ts permissions — if not, add it and note the Web Store review trigger. Touch: new tools/browser/list-frames.ts, TOOL_NAMES.BROWSER.LIST_FRAMES, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category alongside READ_PAGE).
+
+### IMP-0047 · Add chrome_storage tool to read, write, and clear web app localStorage and sessionStorage (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: Agents automating web apps (login flows, onboarding tests, state-seeding) must currently inject raw JS to read or clear localStorage and sessionStorage. A dedicated tool reduces prompt complexity, avoids quoting/escaping hazards in chrome_javascript payloads, and is more discoverable than a JS snippet. Particularly useful for clearing auth state between test runs or pre-seeding feature flags without opening DevTools.
+- **Cost**: S
+- **Value**: M
+  New tool chrome_storage. Params: action: get|set|remove|clear|keys (required), scope: local|session (default: local), key? (required for get/set/remove), value? (required for set), tabId?/windowId?/frameId?. Implementation: chrome.scripting.executeScript MAIN-world shim that reads/writes window.localStorage or window.sessionStorage. Returns {value} for get, {keys: string[]} for keys, {cleared: number} for clear. IndexedDB access deferred to a follow-up. Touch: new tools/browser/storage.ts, TOOL_NAMES.BROWSER.STORAGE, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category).
+
+### IMP-0048 · chrome_performance_start_trace returns isError:false when a trace is already running (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: When a trace session already exists for the active tab, PerformanceStartTraceTool returns { content: [{ text: "Error: a performance trace is already running." }], isError: false }. Agents that branch on isError proceed as if the second start succeeded and never recover the in-progress trace.
+- **Cost**: S
+- **Value**: S
+- **Repro**: Call `chrome_performance_start_trace` twice on the same tab without stopping in between. Expected: second call returns isError:true. Actual: returns isError:false with an "Error:" string embedded in the text body.
+- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` line 164 — replace the early `return { content: [...], isError: false }` with `return createErrorResponse("A performance trace is already recording for this tab.", ToolErrorCode.UNKNOWN)`.
+- **Notes**: Latent. Same isError:false-for-errors pattern also appears at line 263 (stop with no session) and line 362 (analyze with no trace), but those are more debatable as idempotent no-ops.
+
+### IMP-0050 · Add chrome_close_tabs_matching tool for bulk tab cleanup after navigate_batch fan-out (feat) · score: 4
+
+- **Proposed by**: feature-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: chrome_navigate_batch opens many tabs in parallel, but cleanup requires iterating chrome_get_windows_and_tabs and calling chrome_close_tab once per tab — O(N) round trips for a common workflow. A single bulk-close tool with URL/title/age filters covers the post-scrape cleanup pattern in one call and keeps the window tidy for the next agent interaction.
+- **Cost**: S
+- **Value**: M
+  New tool chrome_close_tabs_matching. Params: urlMatches? (substring or /regex/ string), titleMatches? (substring or /regex/ string), olderThanMs? (close tabs opened more than N ms ago), exceptTabIds? (number[], always preserve these), windowId? (default: preferred client window, honoring single-window preference). Returns {closed: number, tabIds: number[]}. Implementation: chrome.tabs.query filtered in the background, then chrome.tabs.remove(matchingIds). Never closes the last tab in the window (consistent with IMP-0062 last-tab guard commit). Touch: new tools/browser/close-tabs-matching.ts, TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Tabs category alongside CLOSE_TAB).
+
+### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: When LAST_RESULTS has no entry for the active tab, PerformanceAnalyzeInsightTool returns { content: [{ text: "No recorded traces found..." }], isError: false }. Agents that branch on isError treat the pre-condition failure as a successful (empty) analysis and do not retry the start/stop sequence.
+- **Cost**: S
+- **Value**: S
+- **Repro**: Call `chrome_performance_analyze_insight` on a tab that has never had a trace. Expected: isError:true. Actual: isError:false, success:undefined, text says "No recorded traces found".
+- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` lines 361–371 — replace the early return with `return createErrorResponse("No recorded trace for this tab. Call chrome_performance_start_trace then chrome_performance_stop_trace first.", ToolErrorCode.UNKNOWN)`.
+- **Notes**: Latent. Same root cause as IMP-0048 — the performance tool family uses plain text error strings with isError:false rather than createErrorResponse.
+
+### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
+
+- **Proposed by**: optimization-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: After IMP-0008 (domain-shift helper) and IMP-0035 (params typing), the dominant bulk in computer.ts is a 16-case switch inside executeAction spanning lines 392-1348 (~956 LoC). Representative case sizes: left_click_drag 93 LoC, zoom 98 LoC, screenshot 147 LoC. Adding a new action or fixing a case requires navigating past all 15 others. CDPHelper (lines 142-310) is already a self-contained class that could be elevated to a sibling module without any refactor risk.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
+- **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
+- **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
@@ -199,6 +246,50 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: 1) Audit the existing ComputerActionParams union type; add missing optional fields (text, duration, appear, timeoutMs, elements array) to the appropriate action member. 2) In each action branch, use a type assertion or in-narrowing ("text" in params) to get a typed view. 3) The multi-element fill loop at lines 955-972 can use a local interface ElementInput { ref?: string; value: string }. No new types needed beyond extending what already exists.
 - **Risk**: Medium. The params union may need new fields that could conflict with future action additions. Compile errors are safe; no runtime change.
 
+### IMP-0043 · Split editor.ts (web-editor-v2 core) into edit-session, broadcast, transaction-apply, and lifecycle modules (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: Single createWebEditorV2() factory bundles 7 concerns across 1566 LoC: text edit-session state machine (lines 174-310), hover/select handling (312-432), debounced broadcast (433-595), transaction-apply pipeline (596-1011), revert/clearSelection (1012-1045), 365-line start() boot (1046-1411), and stop() (1412-1538). The hot apply pipeline sits behind hundreds of lines of unrelated UI plumbing. Splitting exposes each concern for independent testing and reduces cognitive surface of the apply path to ~310 LoC.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/web-editor-v2/core/editor.ts` (1566 LoC, 33 functions, 13 console calls)
+- **Sketch**: Extract `core/edit-session.ts` (~140 LoC), `core/broadcast.ts` (~160 LoC: broadcastTxChanged/broadcastSelectionChanged/broadcastEditorCleared), `core/transaction-apply.ts` (~310 LoC: applyLatestTransaction/applyAllTransactions/revertElement/attemptRollbackOnFailure/checkApplyingTxStatus), `core/editor-lifecycle.ts` (~365 LoC of start() body). editor.ts becomes a ~250-LoC orchestrator wiring modules to shared state.
+- **Risk**: Medium — shared closure state (state, editSession, txChangedBroadcastTimer, lastBroadcastedSelectionKey) must be threaded as parameters or a shared context object. No behavior change.
+
+### IMP-0046 · Split cssom-styles-collector.ts into specificity-parser, inheritance, shorthand-expander, cascade, and sheet-inspector modules (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: 1552-LoC file has 6 pre-labeled banner sections (Specificity, Inheritance, Shorthand, Cascade, CSSOM Inspection, Collection) plus 4 large data tables: INHERITED_PROPERTIES (~120 entries), SHORTHAND_TO_LONGHANDS (~135 entries), LEGACY_PSEUDO_ELEMENTS, and a selector tokenizer (lines 363-507). Each section is self-contained. Splitting makes the specificity parser independently testable without booting the cascade engine and reduces the impact surface of CSS panel changes.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/web-editor-v2/core/cssom-styles-collector.ts` (1552 LoC, 33 functions)
+- **Sketch**: Split into `cssom/specificity-parser.ts` (~340 LoC: tokenizer + computeSelectorSpecificity + helpers), `cssom/inheritance.ts` (~125 LoC: INHERITED_PROPERTIES + isInheritableProperty), `cssom/shorthand.ts` (~145 LoC: SHORTHAND_TO_LONGHANDS + expandToLonghands + normalizePropertyName), `cssom/cascade.ts` (~50 LoC: compareCascade/compareSourceOrder/computeOverrides), `cssom/sheet-inspector.ts` (~160 LoC: isSheetApplicable/describeStyleSheet/evalMediaRule/evalSupportsRule/safeReadCssRules). Top-level file keeps public types and createRuleIndexForRoot orchestrator (~600 LoC).
+- **Risk**: Low — sections are self-contained by design and their labeled boundaries match function call graphs.
+
+### IMP-0049 · Split codex.ts initializeAndRun into focused sub-methods (mirrors IMP-0009 pattern for claude.ts) (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: codex.ts initializeAndRun spans lines 48-680 (~632 LoC), mirroring the IMP-0009 problem in claude.ts. It blends Codex CLI spawn, env construction, JSON-line event parsing, todo-list synthesis, apply-patch summarization, attachment temp-file creation, and stderr buffering in one method. Divergence from the claude.ts refactor creates parallel maintenance pressure: every change to shared message shape must be replicated in both engines without structural parity to guide the developer.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/native-server/src/agent/engines/codex.ts` (965 LoC; initializeAndRun lines 48-680 ~632 LoC)
+- **Sketch**: Extract `private async setupCodexProcess(options)` (env + args + spawn, ~80 LoC), `private async processCodexEventStream(child, ctx, runLog)` (for-await loop, ~350 LoC), `private emitTodoListUpdate(record, phase, ctx)` (uses extractTodoListItems + normalizeTodoListItems + buildTodoListContent, ~80 LoC). initializeAndRun becomes ~80-line orchestrator. Apply same sub-method pattern as IMP-0009 so both engines are structurally parallel.
+- **Risk**: Low-Medium — stateful event loop with shared accumulators (stderr buffer, pending lines) must preserve closure references. No runtime change.
+
+### IMP-0052 · Split rpc-server.ts into request-router plus per-domain handler modules (queue, flow, trigger, run-control) (refactor) · score: 3
+
+- **Proposed by**: optimization-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: Single RpcServer class has 30+ private async handle\* methods registered through one handleRequest dispatch (line 238). Concerns are clearly separable: queue management, flow CRUD + normalizeFlowSpec (140 LoC validator), trigger CRUD + normalizeTriggerSpec (155 LoC), and run controls. The transport file conflates wire-protocol lifecycle with domain validation logic, making it hard to change flow normalization without navigating past trigger and queue code.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/background/record-replay-v3/engine/transport/rpc-server.ts` (1063 LoC)
+- **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
+- **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
+
 ### IMP-0007 · Add chrome_download_list and chrome_download_cancel tools (feat) · score: 2
 
 - **Proposed by**: feature-scout · 2026-05-05
@@ -244,7 +335,44 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: S
   Add optional shortcut param to chrome_keyboard schema (enum of common action names). At dispatch time in keyboard.ts, a lookup table maps shortcut names to platform-correct key arrays (macOS: Meta+C for copy; Windows/Linux: Ctrl+C). If both shortcut and key are provided, shortcut takes precedence. The existing key array path remains fully supported — this is purely additive. Touch: tools/browser/keyboard.ts (add lookup table + shortcut branch), TOOL_SCHEMAS chrome_keyboard properties. No new tool needed, no new infrastructure.
 
+### IMP-0053 · Add status action to chrome_network_capture for non-destructive buffer inspection (feat) · score: 2
+
+- **Proposed by**: feature-scout · 2026-05-08
+- **Status**: proposed
+- **Why**: chrome_network_capture action=stop returns all entries and tears down the listener. An agent that wants to check whether a capture is already running, or how many entries have accumulated before deciding whether to flush (IMP-0028), must call stop and lose the listener. A status action is a pure read of the existing in-memory listener and buffer state, enabling safe pre-flight checks without side effects.
+- **Cost**: S
+- **Value**: S
+  Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
+
 ## Done
+
+### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added an early-return guard in `screenshot.ts` that returns `createErrorResponse(saveError, ToolErrorCode.UNKNOWN)` when `savePng !== false` and neither the native bridge save nor the `chrome.downloads` fallback succeeded — top-level `isError` now reflects the failure instead of staying `false`. +9 src lines, +29/-4 in `screenshot.test.ts` (1 strengthened failure-path test, 1 new `savePng:false` boundary test). Extension: 694/694, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-a0e8378f034578161 · branch worktree-agent-a0e8378f034578161
+
+### IMP-0040 · record_replay_flow_run MCP tool silently does nothing for flows containing loopElements or executeFlow steps (bug) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: No code change needed — investigation showed both `executeFlowNode` and `loopElementsNode` are reachable via `LegacyStepExecutor` → `legacyExecuteStep` → `nodes/index.ts` registry. In hybrid mode the absence from `STEP_TYPE_TO_ACTION_TYPE` triggers the `attempt.supported === false` fallback that lands on the same legacy nodes. New `legacy-node-coverage.contract.test.ts` (62 lines, 3 tests) asserts the registry routes correctly via the legacy nodes' own validate() error messages, with a negative-control test on a fake type to prove the assertion is meaningful. Extension: 694/694, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-a0e8378f034578161 · branch worktree-agent-a0e8378f034578161
+
+### IMP-0045 · flow.\* MCP schema silently overwrites user-defined flow variables named tabTarget, refresh, captureNetwork, returnLogs, or timeoutMs (bug) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Exported `FLOW_RUNNER_RESERVED_KEYS` in `dispatch.ts`. `listDynamicFlowTools` now skips user vars whose key collides with a runner-option key and emits a pino `warn` so the lost var is observable. +35 src lines; new `dispatch.flow-tools.test.ts` (158 lines, 4 tests covering single-key collision, required-array guard, all-five-keys collision, and a no-collision baseline). Bridge: 68/68, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-a0e8378f034578161 · branch worktree-agent-a0e8378f034578161
+
+### IMP-0039 · jsdom@29 bump introduces --localstorage-file warning spam in bridge test suite (regression) (bug) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Root cause was Node 25's built-in webstorage warning emitted from `node:internal/webstorage` when `jest-util`'s teardown reflects on `globalThis.localStorage` — not jsdom 29 as the backlog hypothesized. New `jest.setup-warnings.js` (57 lines, wired via `setupFiles`) patches `process.stderr.write` to drop chunks matching `/--localstorage-file/` plus the trailing `(Use \`node --trace-warnings ...)`line, with a belt-and-suspenders patch on`process.emitWarning`. Verified: stderr `localstorage` line count went 7 → 0. Bridge: 68/68, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-a0e8378f034578161 · branch worktree-agent-a0e8378f034578161
 
 ### IMP-0038 · chrome_assert title_matches silently returns ok:false with empty title on chrome:// pages and restricted frames (bug) · score: 6
 
