@@ -48,6 +48,21 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     const { background = true } = args;
     const windowId = args.windowId;
 
+    // Precondition: a non-MHTML savePath needs *something* to write. If the
+    // caller explicitly disabled both extraction modes, fail loud here
+    // rather than waste a tab round-trip and an IPC call only to discover
+    // there's nothing to save.
+    if (
+      args.savePath &&
+      !args.savePath.endsWith('.mhtml') &&
+      args.htmlContent === false &&
+      args.textContent === false
+    ) {
+      return createErrorResponse(
+        'savePath given but both htmlContent and textContent are disabled — nothing to save. Enable one, or use savePath ending in .mhtml for a Chrome-bundled snapshot.',
+      );
+    }
+
     try {
       // ── Resolve tab ──────────────────────────────────────────────────
       let tab;
