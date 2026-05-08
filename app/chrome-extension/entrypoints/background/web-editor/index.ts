@@ -11,6 +11,12 @@ import {
   type WebEditorCancelExecutionResponse,
 } from '@/common/web-editor-types';
 import { openAgentChatSidepanel } from '../utils/sidepanel';
+import {
+  cancelSseConnectionForRequest,
+  getExecutionStatus,
+  setExecutionStatus,
+  subscribeToSessionStatus,
+} from './sse-client';
 
 const CONTEXT_MENU_ID = 'web_editor_toggle';
 const COMMAND_KEY = 'toggle_web_editor';
@@ -25,178 +31,6 @@ const WEB_EDITOR_EXCLUDED_KEYS_SESSION_KEY_PREFIX = 'web-editor-v2-excluded-keys
 
 /** Storage key for AgentChat selected session ID */
 const STORAGE_KEY_SELECTED_SESSION = 'agent-selected-session-id';
-
-// In-memory execution status cache (per requestId)
-interface ExecutionStatusEntry {
-  status: string;
-  message?: string;
-  updatedAt: number;
-  result?: { success: boolean; summary?: string; error?: string };
-}
-const executionStatusCache = new Map<string, ExecutionStatusEntry>();
-const STATUS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function cleanupExpiredStatuses(): void {
-  const now = Date.now();
-  for (const [key, entry] of executionStatusCache) {
-    if (now - entry.updatedAt > STATUS_CACHE_TTL) {
-      executionStatusCache.delete(key);
-    }
-  }
-}
-
-function setExecutionStatus(
-  requestId: string,
-  status: string,
-  message?: string,
-  result?: ExecutionStatusEntry['result'],
-): void {
-  executionStatusCache.set(requestId, {
-    status,
-    message,
-    updatedAt: Date.now(),
-    result,
-  });
-  // Periodic cleanup
-  if (executionStatusCache.size > 100) {
-    cleanupExpiredStatuses();
-  }
-}
-
-function getExecutionStatus(requestId: string): ExecutionStatusEntry | undefined {
-  return executionStatusCache.get(requestId);
-}
-
-// SSE connections for status updates (per sessionId)
-const sseConnections = new Map<string, { abort: AbortController; lastRequestId: string }>();
-
-/**
- * Start SSE subscription for a session to receive status updates
- */
-async function subscribeToSessionStatus(
-  sessionId: string,
-  requestId: string,
-  port: number,
-): Promise<void> {
-  // Close existing connection for this session if any
-  const existing = sseConnections.get(sessionId);
-  if (existing) {
-    existing.abort.abort();
-    sseConnections.delete(sessionId);
-  }
-
-  const abortController = new AbortController();
-  sseConnections.set(sessionId, { abort: abortController, lastRequestId: requestId });
-
-  // Set initial status
-  setExecutionStatus(requestId, 'starting', 'Connecting to Agent...');
-
-  const sseUrl = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/stream`;
-
-  try {
-    const response = await fetch(sseUrl, {
-      method: 'GET',
-      headers: { Accept: 'text/event-stream' },
-      signal: abortController.signal,
-    });
-
-    if (!response.ok || !response.body) {
-      setExecutionStatus(requestId, 'running', 'Agent processing...');
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    setExecutionStatus(requestId, 'running', 'Agent processing...');
-
-    // Read SSE stream
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (line.startsWith('data:')) {
-          try {
-            const data = JSON.parse(line.slice(5).trim());
-            handleSseEvent(requestId, data);
-          } catch {
-            // Ignore parse errors
-          }
-        }
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      // Intentionally aborted, not an error
-      return;
-    }
-    // Connection error - mark as unknown but not failed (Agent may still be running)
-    const cached = getExecutionStatus(requestId);
-    if (cached && !['completed', 'failed', 'cancelled'].includes(cached.status)) {
-      setExecutionStatus(requestId, 'running', 'Agent processing (connection lost)...');
-    }
-  } finally {
-    sseConnections.delete(sessionId);
-  }
-}
-
-/**
- * Handle SSE event from Agent stream
- */
-function handleSseEvent(requestId: string, event: unknown): void {
-  if (!event || typeof event !== 'object') return;
-  const e = event as Record<string, unknown>;
-  const type = e.type;
-  const data = e.data as Record<string, unknown> | undefined;
-
-  // Check if this event is for our request
-  const eventRequestId = data?.requestId as string | undefined;
-  if (eventRequestId && eventRequestId !== requestId) return;
-
-  if (type === 'status' && data) {
-    const status = data.status as string;
-    const message = data.message as string | undefined;
-
-    // Map Agent status to our status
-    // - 'ready' -> 'running' (ready is a running sub-state)
-    // - 'error' -> 'failed' (normalize server 'error' to UI 'failed')
-    let mappedStatus = status;
-    if (status === 'ready') mappedStatus = 'running';
-    if (status === 'error') mappedStatus = 'failed';
-
-    setExecutionStatus(requestId, mappedStatus, message);
-  } else if (type === 'message' && data) {
-    // Update status to show we're receiving messages
-    const cached = getExecutionStatus(requestId);
-    if (cached && cached.status === 'starting') {
-      setExecutionStatus(requestId, 'running', 'Agent is working...');
-    }
-
-    // Check for completion indicators in message content
-    const role = data.role as string | undefined;
-    const isFinal = data.isFinal as boolean | undefined;
-    if (role === 'assistant' && isFinal) {
-      const content = data.content as string | undefined;
-      setExecutionStatus(requestId, 'completed', 'Completed', {
-        success: true,
-        summary: content?.slice(0, 200),
-      });
-    }
-  } else if (type === 'error') {
-    const errorMsg = (e.error as string) || 'Unknown error';
-    setExecutionStatus(requestId, 'failed', errorMsg, {
-      success: false,
-      error: errorMsg,
-    });
-  }
-}
 
 /**
  * Web Editor version configuration
@@ -1608,12 +1442,10 @@ export function initWebEditorListeners(): void {
             // Update local execution status cache
             setExecutionStatus(requestId, 'cancelled', 'Execution cancelled by user');
 
-            // Abort SSE connection for this session
-            const sseConnection = sseConnections.get(sessionId);
-            if (sseConnection && sseConnection.lastRequestId === requestId) {
-              sseConnection.abort.abort();
-              sseConnections.delete(sessionId);
-            }
+            // Abort SSE connection for this session (only if it's still
+            // tied to the request being cancelled — newer requests on the
+            // same session must not be torn down by a stale cancel).
+            cancelSseConnectionForRequest(sessionId, requestId);
 
             sendResponse({ success: true } as WebEditorCancelExecutionResponse);
           } catch (error) {
