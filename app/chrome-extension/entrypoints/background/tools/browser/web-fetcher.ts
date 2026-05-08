@@ -4,6 +4,26 @@ import { TOOL_NAMES } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { sendNativeRequest } from '@/entrypoints/background/native-host';
 
+/**
+ * Convert a Blob to its raw base64 representation (without the
+ * `data:...;base64,` prefix). Uses FileReader → readAsDataURL so the encoding
+ * happens natively and handles arbitrary sizes. Replaces a previous
+ * `String.fromCharCode` byte loop that quadratically grew a string and could
+ * blow the stack / run out of memory on multi-hundred-MB MHTML captures.
+ */
+async function blobToBase64(blob: Blob): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const commaIdx = result.indexOf(',');
+      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 interface WebFetcherToolParams {
   htmlContent?: boolean;
   textContent?: boolean;
@@ -172,13 +192,7 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
         'chrome.pageCapture.saveAsMHTML returned no blob — page may be unsupported (chrome://, devtools://) or capture was cancelled.',
       );
     }
-    const arrayBuffer = await mhtmlBlob.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const base64Data = btoa(binary);
+    const base64Data = await blobToBase64(mhtmlBlob);
 
     const resp = await sendNativeRequest<any>(
       'file_operation',
