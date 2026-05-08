@@ -49,6 +49,15 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (~1.2 MB) (perf) · score: 6
+
+- **Proposed by**: audit-bundle · 2026-05-08
+- **Status**: proposed
+- **Why**: background.js is 2.16 MB because Rolldown collapsed the dynamic import(@huggingface/transformers) at semantic-similarity-engine.ts:23 into an inlined Promise.resolve. Root cause: the SW statically imports cleanupModelCache (entrypoints/background/index.ts:7) and hasAnyModelCache (entrypoints/background/semantic-similarity.ts:5) from the same file that hosts the engine, so Rolldown drags the whole module — including transformers (~700 KB) and onnxruntime-web (~500 KB) — into the SW chunk. The offscreen entrypoint already owns the engine instance correctly; the SW just needs to not co-import status helpers from the heavy module.
+- **Cost**: S
+- **Value**: L
+  **Fix sketch**: extract `hasAnyModelCache` and `cleanupModelCache` into a tiny `utils/model-cache-status.ts` that touches only IndexedDB — no transformers/onnxruntime/SIMDMathEngine reach. Re-point `entrypoints/background/index.ts:7` and `entrypoints/background/semantic-similarity.ts:5` to the new file. Verify by checking `.output/chrome-mv3/background.js` size and grepping for `transformers.js/${l}` UA marker (currently present, should disappear). Expected: SW shrinks from 2.16 MB to ~1 MB.
+
 ### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-07
@@ -157,6 +166,42 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
 - **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
+
+### IMP-0056 · Lazy-load tool handlers in tools/index.ts so heavy ones (gif-recorder, performance, network-capture-debugger, computer, read-page) do not instantiate at SW boot (perf) · score: 4
+
+- **Proposed by**: audit-bundle · 2026-05-08
+- **Status**: proposed
+- **Why**: tools/index.ts:3 does import \* as browserTools from ./browser, which through tools/browser/index.ts star-exports every tool file and constructs export const xxxTool = new XxxTool() at module-eval time. All 40+ tools — including gif-recorder, gif-enhanced-renderer, performance traces, network-capture-debugger, computer, vector-search, read-page, userscript — are instantiated on every service-worker cold-start, even when the user never calls them. Estimated ~80–120 KB of bundled code plus per-instance allocations on every browser wake.
+- **Cost**: M
+- **Value**: M
+  **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
+
+### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
+
+- **Proposed by**: audit-bundle · 2026-05-08
+- **Status**: proposed
+- **Why**: tools/browser/vector-search.ts:9 static-imports ContentIndexer from utils/content-indexer.ts (586 LoC), which transitively pulls utils/vector-database.ts (1557 LoC) and the hnswlib-wasm-static loader stub. The chrome_vector_search tool runs only when explicitly invoked; today the entire indexing/search engine is parsed on every SW cold-start. Estimated ~50–80 KB off the SW chunk plus removing a wasm pre-init cost from boot.
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
+
+### IMP-0058 · Cache listDynamicFlowTools with invalidation so tools/list and flow.\* calls stop doing a fresh extension round-trip every time (perf) · score: 4
+
+- **Proposed by**: audit-bundle · 2026-05-08
+- **Status**: proposed
+- **Why**: app/native-server/src/mcp/dispatch.ts:78 listDynamicFlowTools() does a full native-messaging round-trip (rr_list_published_flows, 20s timeout) on every MCP tools/list request — and every MCP client reconnect re-issues that. Worse, dispatch.ts:150 (the flow.\* call path) does the SAME round-trip again to look up the slug, doubling the per-flow-call latency. There is zero caching today. The shape of published flows changes only when flow_publish/flow_unpublish runs, which is a publishable event.
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: add a module-scope cache in dispatch.ts holding the last fetched tools+items+timestamp. listDynamicFlowTools returns the cached tools if fresh; otherwise refetches and stores. dispatchTool for a flow.\* call reuses the cached items to look up the slug. Invalidation: add a native message kind flows_changed (or piggyback on an existing event) that the extension publishes after every flow_publish/flow_unpublish; the bridge clears the cache on receipt. TTL fallback (e.g. 60s) for safety. Acceptance: a tools/list immediately followed by flow.<slug> shows only one rr_list_published_flows in extension logs.
+
+### IMP-0059 · Make logger.persist delta-based or opt-in so chrome.storage.local stops re-serializing the whole 5 MB log ring every 250 ms during tool streams (perf) · score: 4
+
+- **Proposed by**: audit-bundle · 2026-05-08
+- **Status**: proposed
+- **Why**: utils/logger.ts:184 schedulePersist debounces a chrome.storage.local.set of the ENTIRE log buffer at 250 ms. Each tool call emits ~3 logEvents (start/done + child line) and each goes through redact() (recursive object walk depth 6) before being appended to the ring. During a hot tool stream this means: 4 redact-walks/sec, plus a 250 ms-debounced JSON.stringify of up to 5 MB of buffered logs (trimToByteBudget at logger.ts:142,154 also stringifies inside the byte-budget check). This is the dominant steady-state SW CPU cost during automation runs — completely separate from the actual tool work.
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: three options, pick whichever matches usage. (a) Gate persistence behind a flag set by the chrome_debug_dump tool — the only consumer that actually needs the persisted buffer — and clear it on next dump. (b) Raise the debounce from 250 ms to 5 s; trade a small loss on SW-restart for 20x less serialization. (c) Append-only delta persist: track lastPersistedIndex, only write entries since that index. (a) is simplest if the buffer is rarely needed; (b) is safest. Acceptance: profile a 60s tool-call stream and confirm chrome.storage.local writes drop from ~240 to <20.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
