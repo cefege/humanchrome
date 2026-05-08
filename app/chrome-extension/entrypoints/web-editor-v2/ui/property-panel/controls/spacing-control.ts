@@ -21,7 +21,12 @@ import { Disposer } from '../../../utils/disposables';
 import type { StyleTransactionHandle, TransactionManager } from '../../../core/transaction-manager';
 import type { DesignControl } from '../types';
 import { createInputContainer, type InputContainer } from '../components/input-container';
-import { combineLengthValue, formatLengthForDisplay } from './css-helpers';
+import {
+  combineLengthValue,
+  formatLengthForDisplay,
+  readComputedValue,
+  readInlineValue,
+} from './css-helpers';
 import { wireNumberStepping } from './number-stepping';
 
 // =============================================================================
@@ -87,24 +92,6 @@ function isInputFocused(input: HTMLInputElement): boolean {
     return document.activeElement === input;
   } catch {
     return false;
-  }
-}
-
-function readInlineValue(element: Element, property: SpacingProperty): string {
-  try {
-    const style = (element as HTMLElement).style;
-    if (!style || typeof style.getPropertyValue !== 'function') return '';
-    return style.getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: SpacingProperty): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
   }
 }
 

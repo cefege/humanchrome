@@ -20,7 +20,13 @@ import { createIconButtonGroup, type IconButtonGroup } from '../components/icon-
 import { createInputContainer, type InputContainer } from '../components/input-container';
 import { createColorField, type ColorField } from './color-field';
 import { createGradientControl } from './gradient-control';
-import { combineLengthValue, formatLengthForDisplay } from './css-helpers';
+import {
+  combineLengthValue,
+  formatLengthForDisplay,
+  isFieldFocused,
+  readComputedValue,
+  readInlineValue,
+} from './css-helpers';
 import { wireNumberStepping } from './number-stepping';
 import type { DesignControl } from '../types';
 
@@ -103,33 +109,6 @@ type FieldState = TextFieldState | SelectFieldState | ColorFieldState | BorderRa
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
 
 /**
  * Infer border color type from border-image-source value.

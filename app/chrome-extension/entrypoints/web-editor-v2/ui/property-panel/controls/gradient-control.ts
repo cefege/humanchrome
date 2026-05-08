@@ -19,6 +19,13 @@ import type { DesignTokensService } from '../../../core/design-tokens';
 import { createColorField, type ColorField } from './color-field';
 import { wireNumberStepping } from './number-stepping';
 import type { DesignControl } from '../types';
+import {
+  isFieldFocused,
+  readComputedValue,
+  readInlineValue,
+  splitTopLevel,
+  tokenizeTopLevel,
+} from './css-helpers';
 
 // =============================================================================
 // Constants
@@ -375,33 +382,6 @@ function interpolateRgba(a: RgbaColor, b: RgbaColor, t: number): RgbaColor {
   };
 }
 
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
-
 function isNoneValue(value: string): boolean {
   const trimmed = value.trim();
   return !trimmed || trimmed.toLowerCase() === 'none';
@@ -498,122 +478,10 @@ function clampPercent(value: number): number {
 /**
  * Split a CSS value by a separator, respecting parentheses and quotes
  */
-function splitTopLevel(value: string, separator: string): string[] {
-  const results: string[] = [];
-  let depth = 0;
-  let quote: "'" | '"' | null = null;
-  let escape = false;
-  let start = 0;
-
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i]!;
-
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (ch === '\\') {
-      escape = true;
-      continue;
-    }
-
-    if (quote) {
-      if (ch === quote) quote = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-
-    if (ch === '(') {
-      depth++;
-      continue;
-    }
-
-    if (ch === ')') {
-      depth = Math.max(0, depth - 1);
-      continue;
-    }
-
-    if (depth === 0 && ch === separator) {
-      results.push(value.slice(start, i));
-      start = i + 1;
-    }
-  }
-
-  results.push(value.slice(start));
-  return results;
-}
 
 /**
  * Tokenize a CSS value by whitespace, respecting parentheses and quotes
  */
-function tokenizeTopLevel(value: string): string[] {
-  const tokens: string[] = [];
-  let depth = 0;
-  let quote: "'" | '"' | null = null;
-  let escape = false;
-  let buffer = '';
-
-  const flush = () => {
-    const t = buffer.trim();
-    if (t) tokens.push(t);
-    buffer = '';
-  };
-
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i]!;
-
-    if (escape) {
-      buffer += ch;
-      escape = false;
-      continue;
-    }
-
-    if (ch === '\\') {
-      buffer += ch;
-      escape = true;
-      continue;
-    }
-
-    if (quote) {
-      buffer += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      buffer += ch;
-      quote = ch;
-      continue;
-    }
-
-    if (ch === '(') {
-      depth++;
-      buffer += ch;
-      continue;
-    }
-
-    if (ch === ')') {
-      depth = Math.max(0, depth - 1);
-      buffer += ch;
-      continue;
-    }
-
-    if (depth === 0 && /\s/.test(ch)) {
-      flush();
-      continue;
-    }
-
-    buffer += ch;
-  }
-
-  flush();
-  return tokens;
-}
 
 function parseColorStop(raw: string): ParsedStop | null {
   const trimmed = raw.trim();

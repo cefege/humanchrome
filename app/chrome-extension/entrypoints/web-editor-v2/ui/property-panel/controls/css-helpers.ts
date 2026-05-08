@@ -232,3 +232,180 @@ export function combineLengthValue(inputValue: string, suffix: string | null): s
   // Fallback: return as-is (might be invalid, but let browser handle it)
   return trimmed;
 }
+
+// =============================================================================
+// DOM/Style Reading Helpers
+// =============================================================================
+
+/**
+ * Whether `el` is the focused element. Handles ShadowRoot focus correctly:
+ * `document.activeElement` returns the shadow host, not the focused element
+ * inside the shadow tree, so we have to consult the root node first.
+ */
+export function isFieldFocused(el: HTMLElement): boolean {
+  try {
+    const rootNode = el.getRootNode();
+    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
+    return document.activeElement === el;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read an inline-style property (`element.style.<property>`) and return it
+ * trimmed, or '' on any failure. Inline styles take precedence over computed
+ * values for control authoring — they preserve the user's literal input
+ * (e.g., "10px" stays "10px" rather than becoming "10px" computed).
+ */
+export function readInlineValue(element: Element, property: string): string {
+  try {
+    const style = (element as HTMLElement).style;
+    return style?.getPropertyValue?.(property)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Read a computed-style property and return it trimmed, or '' on any
+ * failure. Use this as a fallback when the inline style is empty so the
+ * control still shows a sensible default (browser-resolved value).
+ */
+export function readComputedValue(element: Element, property: string): string {
+  try {
+    return window.getComputedStyle(element).getPropertyValue(property).trim();
+  } catch {
+    return '';
+  }
+}
+
+// =============================================================================
+// CSS Value Tokenization
+// =============================================================================
+
+/**
+ * Split a CSS value by a separator, respecting parentheses and quotes.
+ * Used for splitting comma-separated lists like
+ * `linear-gradient(red, blue), url("a, b")` without breaking inside the
+ * gradient or quoted URL.
+ */
+export function splitTopLevel(value: string, separator: string): string[] {
+  const results: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let escape = false;
+  let start = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]!;
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '(') {
+      depth++;
+      continue;
+    }
+
+    if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+
+    if (depth === 0 && ch === separator) {
+      results.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+
+  results.push(value.slice(start));
+  return results;
+}
+
+/**
+ * Tokenize a CSS value by whitespace, respecting parentheses and quotes.
+ * Used for splitting space-separated values like
+ * `0 0 5px rgba(0, 0, 0, 0.3) inset` into individual tokens without
+ * breaking the rgba() argument list.
+ */
+export function tokenizeTopLevel(value: string): string[] {
+  const tokens: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let escape = false;
+  let buffer = '';
+
+  const flush = () => {
+    const t = buffer.trim();
+    if (t) tokens.push(t);
+    buffer = '';
+  };
+
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]!;
+
+    if (escape) {
+      buffer += ch;
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      buffer += ch;
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      buffer += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      buffer += ch;
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '(') {
+      depth++;
+      buffer += ch;
+      continue;
+    }
+
+    if (ch === ')') {
+      depth = Math.max(0, depth - 1);
+      buffer += ch;
+      continue;
+    }
+
+    if (depth === 0 && /\s/.test(ch)) {
+      flush();
+      continue;
+    }
+
+    buffer += ch;
+  }
+
+  flush();
+  return tokens;
+}

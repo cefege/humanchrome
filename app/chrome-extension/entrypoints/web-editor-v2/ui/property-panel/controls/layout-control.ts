@@ -19,7 +19,13 @@ import type {
 import type { DesignControl } from '../types';
 import { createIconButtonGroup, type IconButtonGroup } from '../components/icon-button-group';
 import { createInputContainer, type InputContainer } from '../components/input-container';
-import { combineLengthValue, formatLengthForDisplay } from './css-helpers';
+import {
+  combineLengthValue,
+  formatLengthForDisplay,
+  isFieldFocused,
+  readComputedValue,
+  readInlineValue,
+} from './css-helpers';
 import { wireNumberStepping } from './number-stepping';
 
 // =============================================================================
@@ -117,33 +123,6 @@ type FieldState =
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function isFieldFocused(el: HTMLElement): boolean {
-  try {
-    const rootNode = el.getRootNode();
-    if (rootNode instanceof ShadowRoot) return rootNode.activeElement === el;
-    return document.activeElement === el;
-  } catch {
-    return false;
-  }
-}
-
-function readInlineValue(element: Element, property: string): string {
-  try {
-    const style = (element as HTMLElement).style;
-    return style?.getPropertyValue?.(property)?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function readComputedValue(element: Element, property: string): string {
-  try {
-    return window.getComputedStyle(element).getPropertyValue(property).trim();
-  } catch {
-    return '';
-  }
-}
 
 function isDisplayValue(value: string): value is DisplayValue {
   return (DISPLAY_VALUES as readonly string[]).includes(value);
