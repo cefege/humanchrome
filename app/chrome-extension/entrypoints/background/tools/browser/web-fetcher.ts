@@ -167,6 +167,11 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
    */
   private async saveAsMhtml(tab: chrome.tabs.Tab, savePath: string): Promise<ToolResult> {
     const mhtmlBlob = await chrome.pageCapture.saveAsMHTML({ tabId: tab.id! });
+    if (!mhtmlBlob) {
+      return createErrorResponse(
+        'chrome.pageCapture.saveAsMHTML returned no blob — page may be unsupported (chrome://, devtools://) or capture was cancelled.',
+      );
+    }
     const arrayBuffer = await mhtmlBlob.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     let binary = '';

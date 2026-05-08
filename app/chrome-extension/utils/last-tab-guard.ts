@@ -113,8 +113,13 @@ export async function safeRemoveTabs(tabIds: number | number[]): Promise<void> {
     }
   }
 
-  // Now remove the originals. Chrome accepts a single id or an array.
-  await chrome.tabs.remove(Array.isArray(tabIds) ? ids : ids[0]!);
+  // Now remove the originals. Chrome's overloads split single-id and array
+  // forms, so dispatch explicitly to keep TS happy.
+  if (Array.isArray(tabIds)) {
+    await chrome.tabs.remove(ids);
+  } else {
+    await chrome.tabs.remove(ids[0]!);
+  }
 }
 
 /**
