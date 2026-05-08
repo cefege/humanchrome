@@ -227,3 +227,117 @@ describe('FileHandler.readBase64File — path-traversal & size guards', () => {
     }
   });
 });
+
+// ===========================================================================
+// saveToPath — text + base64 + boundary checks
+// ===========================================================================
+
+describe('FileHandler.saveToPath — write content to a user-specified path', () => {
+  test('writes textData to destPath and reports byte size', async () => {
+    const dest = path.join(tempDir, `regression-savetopath-text-${Date.now()}.html`);
+    const html = '<html><body>hi</body></html>';
+    try {
+      const res = await handler.handleFileRequest({
+        action: 'saveToPath',
+        destPath: dest,
+        textData: html,
+      });
+      expect(res.success).toBe(true);
+      expect(res.filePath).toBe(dest);
+      expect(res.size).toBe(Buffer.byteLength(html, 'utf-8'));
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(html);
+    } finally {
+      try {
+        fs.unlinkSync(dest);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  test('writes base64Data (decoded to bytes) to destPath', async () => {
+    const dest = path.join(tempDir, `regression-savetopath-bin-${Date.now()}.png`);
+    const raw = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // PNG header
+    try {
+      const res = await handler.handleFileRequest({
+        action: 'saveToPath',
+        destPath: dest,
+        base64Data: raw.toString('base64'),
+      });
+      expect(res.success).toBe(true);
+      expect(res.size).toBe(raw.length);
+      const onDisk = fs.readFileSync(dest);
+      expect(onDisk.equals(raw)).toBe(true);
+    } finally {
+      try {
+        fs.unlinkSync(dest);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  test('strips a `data:...;base64,` prefix from base64Data before decoding', async () => {
+    const dest = path.join(tempDir, `regression-savetopath-dataurl-${Date.now()}.bin`);
+    const raw = Buffer.from('hello');
+    const dataUrl = `data:application/octet-stream;base64,${raw.toString('base64')}`;
+    try {
+      const res = await handler.handleFileRequest({
+        action: 'saveToPath',
+        destPath: dest,
+        base64Data: dataUrl,
+      });
+      expect(res.success).toBe(true);
+      const onDisk = fs.readFileSync(dest);
+      expect(onDisk.equals(raw)).toBe(true);
+    } finally {
+      try {
+        fs.unlinkSync(dest);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  test('rejects when destPath is missing', async () => {
+    const res = await handler.handleFileRequest({
+      action: 'saveToPath',
+      textData: 'oops',
+    });
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/destPath is required/i);
+  });
+
+  test('rejects when both textData and base64Data are absent', async () => {
+    const dest = path.join(tempDir, `regression-savetopath-empty-${Date.now()}.txt`);
+    const res = await handler.handleFileRequest({
+      action: 'saveToPath',
+      destPath: dest,
+    });
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/textData or base64Data is required/i);
+    // No file should have been created.
+    expect(fs.existsSync(dest)).toBe(false);
+  });
+
+  test('creates missing parent directories when needed', async () => {
+    const subdir = path.join(tempDir, `regression-savetopath-subdir-${Date.now()}`);
+    const dest = path.join(subdir, 'nested', 'page.html');
+    const html = '<p>nested</p>';
+    try {
+      const res = await handler.handleFileRequest({
+        action: 'saveToPath',
+        destPath: dest,
+        textData: html,
+      });
+      expect(res.success).toBe(true);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(html);
+    } finally {
+      try {
+        fs.rmSync(subdir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  });
+});
