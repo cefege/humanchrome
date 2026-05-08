@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Sample Article</title>
+    <meta name="description" content="A short example article for capture tests" />
+    <script>
+      document.title = 'Sample Article (JS-mutated)';
+    </script>
+    <style>
+      nav,
+      footer {
+        background: #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <a href="/about">About</a>
+      <a href="/contact">Contact</a>
+    </nav>
+
+    <header class="site-header">
+      <h1>Sample Article</h1>
+      <p class="byline">By Test Author</p>
+    </header>
+
+    <article>
+      <h2>Introduction</h2>
+      <p
+        >This paragraph should survive cleaning. It contains the main body of the article and
+        Readability should pick it up as the primary content.</p
+      >
+      <p
+        >A second paragraph reinforces the article boundaries. Readability's heuristics rely on
+        having multiple paragraphs of substantive text to identify the content region.</p
+      >
+
+      <h2>A subsection</h2>
+      <p
+        >More content. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+        tempor incididunt ut labore et dolore magna aliqua.</p
+      >
+
+      <ul>
+        <li>List item one</li>
+        <li>List item two</li>
+      </ul>
+    </article>
+
+    <aside class="sidebar">
+      <h3>Related</h3>
+      <ul>
+        <li><a href="/related-1">Related 1</a></li>
+        <li><a href="/related-2">Related 2</a></li>
+      </ul>
+    </aside>
+
+    <footer>
+      <p>Footer text — should NOT appear in extracted body text.</p>
+    </footer>
+  </body>
+</html>
