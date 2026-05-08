@@ -16,6 +16,21 @@ const FLOW_PREFIX = 'flow.';
 const TOOL_CALL_TIMEOUT_MS = 120_000;
 const FLOW_LIST_TIMEOUT_MS = 20_000;
 
+// Top-level keys `buildFlowArgs` strips into runner options. Mirror of the
+// destructure on line ~80 — keep in sync. A user var with one of these names
+// is dropped at schema-build time so the call-time strip doesn't silently
+// reroute the value into the runner option.
+export const FLOW_RUNNER_RESERVED_KEYS: ReadonlySet<string> = new Set([
+  'tabTarget',
+  'refresh',
+  'captureNetwork',
+  'returnLogs',
+  'timeoutMs',
+  'startUrl',
+]);
+
+const flowToolsLog = withContext({ component: 'flow-tools' });
+
 /**
  * Make sure every error reaching the LLM is the same parseable JSON envelope:
  *   {"error":{"code":"...","message":"...","details":{...}}}
@@ -95,6 +110,13 @@ export async function listDynamicFlowTools(): Promise<Tool[]> {
       const properties: Record<string, any> = {};
       const required: string[] = [];
       for (const v of item.variables || []) {
+        if (FLOW_RUNNER_RESERVED_KEYS.has(v.key)) {
+          flowToolsLog.warn(
+            { flowSlug: item.slug, varKey: v.key },
+            'flow variable shadows a runner-option key; the runner option wins, var is hidden from the schema',
+          );
+          continue;
+        }
         const desc = v.label || v.key;
         const typ = (v.type || 'string').toLowerCase();
         const prop: any = { description: desc };

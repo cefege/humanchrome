@@ -390,6 +390,12 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
 
     this.logInfo('Screenshot completed!');
 
+    // The save error is already in `results.saveError`, but agents branch on
+    // top-level isError — surface the failure there too, not just in the body.
+    if (savePng !== false && !results.fileSaved) {
+      return createErrorResponse(results.saveError ?? 'Failed to save screenshot');
+    }
+
     return {
       content: [
         {
