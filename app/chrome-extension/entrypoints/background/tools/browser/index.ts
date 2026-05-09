@@ -15,6 +15,7 @@ export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-cap
 export { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 export { keyboardTool } from './keyboard';
 export { historyTool } from './history';
+export { historyDeleteTool } from './history-delete';
 export {
   bookmarkSearchTool,
   bookmarkAddTool,

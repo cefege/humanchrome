@@ -42,64 +42,71 @@ interface HistoryResult {
   query?: string;
 }
 
+/**
+ * Parse a date string into milliseconds since epoch.
+ * Returns null if the date string is invalid.
+ * Supports:
+ *  - ISO date strings (e.g., "2023-10-31", "2023-10-31T14:30:00.000Z")
+ *  - Relative times: "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"
+ *  - Special keywords: "now", "today", "yesterday"
+ *
+ * Exported so sibling history tools (e.g. `chrome_history_delete`) parse times
+ * with identical semantics — keeps the user-facing date grammar in one place.
+ */
+export function parseHistoryDateString(dateStr: string | undefined | null): number | null {
+  if (!dateStr) {
+    // If an empty or null string is passed, it might mean "no specific date",
+    // depending on how you want to treat it. Returning null is safer.
+    return null;
+  }
+
+  const now = new Date();
+  const lowerDateStr = dateStr.toLowerCase().trim();
+
+  if (lowerDateStr === 'now') return now.getTime();
+  if (lowerDateStr === 'today') return startOfToday().getTime();
+  if (lowerDateStr === 'yesterday') return startOfYesterday().getTime();
+
+  const relativeMatch = lowerDateStr.match(
+    /^(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago$/,
+  );
+  if (relativeMatch) {
+    const amount = parseInt(relativeMatch[1], 10);
+    const unit = relativeMatch[2];
+    let resultDate: Date;
+    if (unit.startsWith('day')) resultDate = subDays(now, amount);
+    else if (unit.startsWith('week')) resultDate = subWeeks(now, amount);
+    else if (unit.startsWith('month')) resultDate = subMonths(now, amount);
+    else if (unit.startsWith('year')) resultDate = subYears(now, amount);
+    else return null; // Should not happen with the regex
+    return resultDate.getTime();
+  }
+
+  // Try parsing as ISO or other common date string formats
+  // Native Date constructor can be unreliable for non-standard formats.
+  // date-fns' parseISO is good for ISO 8601.
+  // For other formats, date-fns' parse function is more flexible.
+  let parsedDate = parseISO(dateStr); // Handles "2023-10-31" or "2023-10-31T10:00:00"
+  if (isValid(parsedDate)) {
+    return parsedDate.getTime();
+  }
+
+  // Fallback to new Date() for other potential formats, but with caution
+  parsedDate = new Date(dateStr);
+  if (isValid(parsedDate) && dateStr.includes(parsedDate.getFullYear().toString())) {
+    return parsedDate.getTime();
+  }
+
+  console.warn(`Could not parse date string: ${dateStr}`);
+  return null;
+}
+
 class HistoryTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.HISTORY;
   private static readonly ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-  /**
-   * Parse a date string into milliseconds since epoch.
-   * Returns null if the date string is invalid.
-   * Supports:
-   *  - ISO date strings (e.g., "2023-10-31", "2023-10-31T14:30:00.000Z")
-   *  - Relative times: "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"
-   *  - Special keywords: "now", "today", "yesterday"
-   */
   private parseDateString(dateStr: string | undefined | null): number | null {
-    if (!dateStr) {
-      // If an empty or null string is passed, it might mean "no specific date",
-      // depending on how you want to treat it. Returning null is safer.
-      return null;
-    }
-
-    const now = new Date();
-    const lowerDateStr = dateStr.toLowerCase().trim();
-
-    if (lowerDateStr === 'now') return now.getTime();
-    if (lowerDateStr === 'today') return startOfToday().getTime();
-    if (lowerDateStr === 'yesterday') return startOfYesterday().getTime();
-
-    const relativeMatch = lowerDateStr.match(
-      /^(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago$/,
-    );
-    if (relativeMatch) {
-      const amount = parseInt(relativeMatch[1], 10);
-      const unit = relativeMatch[2];
-      let resultDate: Date;
-      if (unit.startsWith('day')) resultDate = subDays(now, amount);
-      else if (unit.startsWith('week')) resultDate = subWeeks(now, amount);
-      else if (unit.startsWith('month')) resultDate = subMonths(now, amount);
-      else if (unit.startsWith('year')) resultDate = subYears(now, amount);
-      else return null; // Should not happen with the regex
-      return resultDate.getTime();
-    }
-
-    // Try parsing as ISO or other common date string formats
-    // Native Date constructor can be unreliable for non-standard formats.
-    // date-fns' parseISO is good for ISO 8601.
-    // For other formats, date-fns' parse function is more flexible.
-    let parsedDate = parseISO(dateStr); // Handles "2023-10-31" or "2023-10-31T10:00:00"
-    if (isValid(parsedDate)) {
-      return parsedDate.getTime();
-    }
-
-    // Fallback to new Date() for other potential formats, but with caution
-    parsedDate = new Date(dateStr);
-    if (isValid(parsedDate) && dateStr.includes(parsedDate.getFullYear().toString())) {
-      return parsedDate.getTime();
-    }
-
-    console.warn(`Could not parse date string: ${dateStr}`);
-    return null;
+    return parseHistoryDateString(dateStr);
   }
 
   /**

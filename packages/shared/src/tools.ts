@@ -86,6 +86,7 @@ export const TOOL_NAMES = {
     KEYBOARD: 'chrome_keyboard',
     AWAIT_ELEMENT: 'chrome_await_element',
     HISTORY: 'chrome_history',
+    HISTORY_DELETE: 'chrome_history_delete',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
     BOOKMARK_ADD: 'chrome_bookmark_add',
     BOOKMARK_UPDATE: 'chrome_bookmark_update',
@@ -870,6 +871,37 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description:
             "When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.HISTORY_DELETE,
+    description:
+      "Delete entries from Chrome browsing history. Provide exactly ONE selector: `url` for a single URL (chrome.history.deleteUrl), `startTime`/`endTime` for a time range (chrome.history.deleteRange), or `all: true` to wipe everything (chrome.history.deleteAll). Time params accept the same date grammar as `chrome_history`. The `all` flag must be strictly `true` — `false` is rejected to prevent accidental wipes from a serializer dropping the value. Returns `{ scope, deleted }`; `deleted` is `1` for `url` and `-1` (unknown count) for `range`/`all` since Chrome's deletion APIs do not return a count.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'Exact URL to remove from history. Mutually exclusive with `startTime`/`endTime` and `all`.',
+        },
+        startTime: {
+          type: 'string',
+          description:
+            'Start of the deletion range (inclusive). Same date grammar as chrome_history: ISO format (e.g., "2023-10-01"), relative ("1 day ago", "2 weeks ago"), or "now"/"today"/"yesterday". Defaults to epoch 0 if omitted while `endTime` is set.',
+        },
+        endTime: {
+          type: 'string',
+          description:
+            'End of the deletion range (inclusive). Same date grammar as chrome_history. Defaults to "now" if omitted while `startTime` is set.',
+        },
+        all: {
+          type: 'boolean',
+          description:
+            'Set to strictly `true` to delete the entire browsing history via chrome.history.deleteAll. Any other value (including `false`) is rejected.',
         },
       },
       required: [],
@@ -1990,6 +2022,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.CONSOLE]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY]: 'State',
+  [TOOL_NAMES.BROWSER.HISTORY_DELETE]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_SEARCH]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_ADD]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_UPDATE]: 'State',
