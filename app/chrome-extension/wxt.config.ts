@@ -58,6 +58,7 @@ export default defineConfig({
       'notifications',
       'power',
       'sessions',
+      'idle',
       'declarativeNetRequestWithHostAccess',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',

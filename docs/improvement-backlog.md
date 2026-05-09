@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0079 · Add chrome_idle tool — query user idle state (feat) · score: 3
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Long-running flows that may take a screenshot of the desktop or steal focus should defer when the user is actively using the machine. chrome.idle.queryState returns `active | idle | locked` based on a configurable threshold; pairing it with the pacing throttle gives "back off when the user is at the keyboard" for free.
-- **Cost**: S
-- **Value**: S
-  **Fix sketch**: Add `idle` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/idle.ts`. Single-action tool (no enum needed) — params `{ detectionIntervalSec? }` (default 60, range [15, 14400] per Chrome). Calls `chrome.idle.queryState(detectionIntervalSec)`. Returns `{ state: 'active'|'idle'|'locked', detectionIntervalSec }`. Error mapping: INVALID_ARGS if the interval is out of range. New TOOL_NAMES.BROWSER.IDLE, TOOL_CATEGORIES['System']. 6-8 tests covering each return state and the bounds check.
-
 ### IMP-0080 · Add chrome_alarms tool — schedule one-shot or repeating callbacks (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -357,6 +348,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0079 · Add chrome_idle tool — query user idle state (feat) · score: 3
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_idle` MCP tool wrapping `chrome.idle.queryState`. Single tool, no action enum. Params: `{ detectionIntervalSec? }` (default 60, range [15, 14400] per Chrome). Returns `{ state: 'active' | 'idle' | 'locked', detectionIntervalSec }`. Pair with the pacing throttle to back off intrusive operations while the user is at the keyboard, or skip a screenshot when the system is locked. Added `idle` to manifest permissions. Error classification: missing `chrome.idle` API → UNKNOWN, out-of-range interval → INVALID_ARGS naming the offending field. `mutates = false`. Wired through the eager dispatcher. New tests at `tests/tools/browser/idle.test.ts` (8 cases). Extension: 1010/1010 (was 1002 + 8 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0079-idle
 
 ### IMP-0078 · Add chrome_web_vitals tool — Core Web Vitals via PerformanceObserver (feat) · score: 5
 
