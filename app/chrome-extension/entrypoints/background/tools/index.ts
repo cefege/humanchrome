@@ -34,6 +34,7 @@ import { runWithContext } from '../utils/request-context';
 // =============================================================================
 
 import { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './browser/common';
+import { closeTabsMatchingTool } from './browser/close-tabs-matching';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -46,7 +47,8 @@ import {
   networkCaptureStopTool,
 } from './browser/network-capture-web-request';
 import { keyboardTool } from './browser/keyboard';
-import { historyTool } from './browser/history';
+import { historyTool, historyDeleteTool } from './browser/history';
+import { listFramesTool } from './browser/list-frames';
 import {
   bookmarkSearchTool,
   bookmarkAddTool,
@@ -54,12 +56,17 @@ import {
   bookmarkDeleteTool,
 } from './browser/bookmark';
 import { getCookiesTool, setCookieTool, removeCookieTool } from './browser/cookies';
-import { injectScriptTool, sendCommandToInjectScriptTool } from './browser/inject-script';
+import {
+  injectScriptTool,
+  listInjectedScriptsTool,
+  sendCommandToInjectScriptTool,
+} from './browser/inject-script';
 import { consoleTool } from './browser/console';
 import { consoleClearTool } from './browser/console-clear';
 import { fileUploadTool } from './browser/file-upload';
 import { handleDialogTool } from './browser/dialog';
 import { handleDownloadTool } from './browser/download';
+import { storageTool } from './browser/storage';
 import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
@@ -80,6 +87,7 @@ const eagerTools: ToolInstance[] = [
   navigateTool,
   navigateBatchTool,
   closeTabsTool,
+  closeTabsMatchingTool,
   switchTabTool,
   waitForTabTool,
   windowTool,
@@ -94,6 +102,8 @@ const eagerTools: ToolInstance[] = [
   networkCaptureStopTool,
   keyboardTool,
   historyTool,
+  historyDeleteTool,
+  listFramesTool,
   bookmarkSearchTool,
   bookmarkAddTool,
   bookmarkUpdateTool,
@@ -102,12 +112,14 @@ const eagerTools: ToolInstance[] = [
   setCookieTool,
   removeCookieTool,
   injectScriptTool,
+  listInjectedScriptsTool,
   sendCommandToInjectScriptTool,
   consoleTool,
   consoleClearTool,
   fileUploadTool,
   handleDialogTool,
   handleDownloadTool,
+  storageTool,
   debugDumpTool,
   assertTool,
   waitForTool,
