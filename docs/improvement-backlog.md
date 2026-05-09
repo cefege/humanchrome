@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0081 · Add chrome_clear_browsing_data tool — wipe cookies/cache/history per origin (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Sanitizing browser state between agent sessions today requires walking each store individually (chrome_remove_cookie, etc.). chrome.browsingData.remove does it in one call with origin-scoped `originTypes` filtering — perfect for "reset this site before the next test run".
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: Add `browsingData` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/clear-browsing-data.ts`. Single tool, no action enum. Params: `{ since?: number, origins?: string[], dataTypes: string[] }` where `dataTypes` is a string array filtered against the dataTypeSet keys (cookies, localStorage, indexedDB, cache, history, downloads, formData, passwords, serviceWorkers, webSQL). Default `since: 0` (all time). Wraps `chrome.browsingData.remove({ since, origins }, dataTypeSet)`. Returns `{ ok, removed: dataTypes, since, origins }`. Validation: dataTypes is required and must contain at least one valid key; reject any unknown keys with INVALID_ARGS naming the offender. New TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA, TOOL_CATEGORIES['State']. 10-14 tests covering each branch including the unknown-key rejection.
-
 ### IMP-0082 · Add chrome_proxy tool — set/clear proxy configuration (feat) · score: 3
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -339,6 +330,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0081 · Add chrome_clear_browsing_data tool — wipe browsing-data stores (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_clear_browsing_data` MCP tool wrapping `chrome.browsingData.remove` so agents can sanitize state between sessions in one call. Single tool, no action enum. Required: `dataTypes` (non-empty array of `cookies`, `localStorage`, `indexedDB`, `cache`, `cacheStorage`, `history`, `downloads`, `formData`, `passwords`, `serviceWorkers`, `webSQL`, `fileSystems`, `pluginData`, `appcache`). Optional: `since` (epoch ms; default 0 = all time), `origins` (origin-scoped filter). Validation rejects empty/missing dataTypes with INVALID_ARGS and unknown keys with INVALID_ARGS naming the offender. Returns `{ ok, removed: dataTypes, since, origins }`. Added `browsingData` to manifest permissions. Wired through the eager dispatcher. New tests at `tests/tools/browser/clear-browsing-data.test.ts` (12 cases) including the unknown-key rejection and full-dataTypes round-trip. Extension: 1036/1036 (was 1024 + 12 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0081-clear-browsing-data
 
 ### IMP-0080 · Add chrome_alarms tool — schedule one-shot or repeating callbacks (feat) · score: 4
 

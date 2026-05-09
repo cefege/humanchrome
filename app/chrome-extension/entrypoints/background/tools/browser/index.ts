@@ -18,6 +18,7 @@ export { windowManageTool } from './window-manage';
 export { webVitalsTool } from './web-vitals';
 export { idleTool } from './idle';
 export { alarmsTool } from './alarms';
+export { clearBrowsingDataTool } from './clear-browsing-data';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';
