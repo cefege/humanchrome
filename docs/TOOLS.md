@@ -132,6 +132,8 @@ Fetch content from a web page
 | `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent will be ignored (default: false) |
 | `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true) |
 | `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned |
+| `savePath` | string |  | Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success. |
+| `raw` | boolean |  | When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original). |
 
 ### `chrome_search_tabs_content`
 
@@ -181,7 +183,7 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `width` | number |  | For action=resize_page: viewport width |
 | `height` | number |  | For action=resize_page: viewport height |
 | `appear` | boolean |  | For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false) |
-| `timeoutMs` | number |  | For action=wait with text: timeout in milliseconds (default 10000, max 120000) |
+| `timeoutMs` | number |  | Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000). |
 | `duration` | number |  | Seconds to wait for action=wait (max 30s) |
 
 ### `chrome_click_element`
@@ -458,6 +460,20 @@ Use "stop" to end recording and save the GIF.
 | `enhancedRendering` | object |  | Auto-capture mode only: Configure visual overlays for recorded actions (click indicators, drag paths, labels). Pass `true` to enable all defaults. |
 
 ## State
+
+### `chrome_storage`
+
+Read, write, and clear a tab's `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don't need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `get` \| `set` \| `remove` \| `clear` \| `keys` | ✓ | Operation to perform on the storage area. |
+| `scope` | `local` \| `session` |  | Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`. |
+| `key` | string |  | Storage key. Required for `get`, `set`, and `remove`. |
+| `value` | string |  | Value to store. Required for `set`. Strings only — wrap structured data in JSON.stringify before passing. |
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores. |
 
 ### `chrome_history`
 

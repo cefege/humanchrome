@@ -116,15 +116,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   New tool chrome_list_frames. Params: tabId? (standard tab targeting). Returns [{frameId, url, parentFrameId, name}]. Implementation: chrome.webNavigation.getAllFrames({tabId}) in the extension background. Audit whether webNavigation is already declared in wxt.config.ts permissions — if not, add it and note the Web Store review trigger. Touch: new tools/browser/list-frames.ts, TOOL_NAMES.BROWSER.LIST_FRAMES, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category alongside READ_PAGE).
 
-### IMP-0047 · Add chrome_storage tool to read, write, and clear web app localStorage and sessionStorage (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: Agents automating web apps (login flows, onboarding tests, state-seeding) must currently inject raw JS to read or clear localStorage and sessionStorage. A dedicated tool reduces prompt complexity, avoids quoting/escaping hazards in chrome_javascript payloads, and is more discoverable than a JS snippet. Particularly useful for clearing auth state between test runs or pre-seeding feature flags without opening DevTools.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_storage. Params: action: get|set|remove|clear|keys (required), scope: local|session (default: local), key? (required for get/set/remove), value? (required for set), tabId?/windowId?/frameId?. Implementation: chrome.scripting.executeScript MAIN-world shim that reads/writes window.localStorage or window.sessionStorage. Returns {value} for get, {keys: string[]} for keys, {cleared: number} for clear. IndexedDB access deferred to a follow-up. Touch: new tools/browser/storage.ts, TOOL_NAMES.BROWSER.STORAGE, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category).
-
 ### IMP-0048 · chrome_performance_start_trace returns isError:false when a trace is already running (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0047 · Add chrome_storage tool for localStorage / sessionStorage (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_storage` MCP tool wraps a MAIN-world `chrome.scripting.executeScript` shim that reads/writes a tab's `window.localStorage` or `window.sessionStorage` so prompts no longer need to embed JS into `chrome_javascript`. Five actions: `get` → `{value, exists}`; `set` (string only — wrap structured data via JSON.stringify) → `{stored:true}`; `remove` → `{removed:boolean}`; `clear` → `{cleared:count}`; `keys` → `{keys:string[]}`. `scope` defaults to `local`. `tabId` / `windowId` / `frameId` route the call (frameId is forwarded as `target.frameIds`). The shim returns a discriminated union — Safari-private-mode-style `QuotaExceededError`, sandboxed iframe blocks, etc. surface as a structured error rather than throwing across the bridge. Distinct error classification: tab-gone-mid-call → `TAB_CLOSED`, frame mismatch → `INVALID_ARGS`, missing active tab → `TAB_NOT_FOUND`. IndexedDB intentionally out of scope; cookies handled by `chrome_get_cookies` / `chrome_set_cookie` / `chrome_remove_cookie`. New `tests/tools/browser/storage.test.ts` (21 tests) drives the real shim against a `FakeStorage` that implements the `Storage` interface, exercising all 5 actions, scope routing, frame routing, every validation guard, and error classification. Extension: 715/715, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0047-chrome-storage
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
