@@ -49,6 +49,150 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+<!-- ===== Ralph Loop queue: IMP-0074..IMP-0084 (added 2026-05-09) ============
+The eleven entries below are the autonomous-loop work queue. The loop ships
+them one at a time, in order, each as a separate PR. Conflict-avoidance rules
+the loop must follow:
+
+  1. `git checkout main; git pull --ff-only origin main` at the start of every
+     iteration. No exceptions.
+  2. Touch `packages/shared/src/tools.ts` only by appending: new TOOL_NAMES at
+     the end of the BROWSER object, new TOOL_SCHEMAS at the end of the array,
+     new TOOL_CATEGORIES at the end of its map.
+  3. Touch `app/chrome-extension/entrypoints/background/tools/index.ts` only by
+     appending an import + a push into `eagerTools`.
+  4. Touch `app/chrome-extension/entrypoints/background/tools/browser/index.ts`
+     only by appending an export.
+  5. One IMP-NNNN per PR. No multi-feature batches.
+
+Per-iteration playbook:
+  1. Pull main, branch `feat/imp-NNNN-<slug>`.
+  2. Create the new tool file under
+     app/chrome-extension/entrypoints/background/tools/browser/<slug>.ts.
+     Class extends BaseBrowserToolExecutor. Action enum if multi-action.
+     Error mapping: TAB_CLOSED for /no tab with id/i, INVALID_ARGS for arg
+     validation, UNKNOWN otherwise.
+  3. Append TOOL_NAMES + TOOL_SCHEMAS + TOOL_CATEGORIES entries.
+  4. Append barrel export and dispatcher import + eagerTools push.
+  5. Add manifest permission(s) to wxt.config.ts if the entry calls for them.
+  6. Write tests/tools/browser/<slug>.test.ts — 8-15 cases: arg validation,
+     happy path per action, error classifications, missing-permission path.
+  7. `cd packages/shared && npm run build` then `cd app/chrome-extension &&
+     npx tsc --noEmit -p .` then `npx vitest run --reporter=dot`.
+  8. `cd app/native-server && npm test`.
+  9. Move the IMP-NNNN entry from `## Active` to `## Done` with a one-paragraph
+     summary that covers what shipped, the action surface, error classification,
+     test count, and the manifest delta.
+ 10. `git add -A; git commit; git push -u; gh pr create; gh run watch;
+     gh pr merge --squash --delete-branch`.
+
+Stop conditions: queue empty, two consecutive failures with the same root
+cause, or user invokes /ralph-loop:cancel-ralph.
+
+Safety net: if an iteration hits an irrecoverable failure, abort without
+opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
+IMP entry. Move to next iteration on the next tick.
+=========================================================================== -->
+
+### IMP-0074 · Add chrome_focus tool — focus an element programmatically (feat) · score: 5
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Several tools (chrome_keyboard, chrome_paste once it lands, chrome_fill_or_select on some sites) require the target element to have focus before keyboard input lands correctly. Today there is no first-class way to focus an element by selector or ref — agents have to dispatch a synthetic click and hope it lands. A dedicated focus tool removes the guesswork and works on form elements that don't accept clicks (offscreen inputs, contenteditable spans, etc.).
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/focus.ts`. Class `FocusTool extends BaseBrowserToolExecutor`. Params: `{ tabId?, windowId?, selector?, ref?, frameId? }`. Validation: exactly one of `selector` or `ref` is required; if `ref` is provided, resolve via the existing read-page ref registry (look at how `chrome_click_element` resolves refs and reuse the helper, do not reinvent). Implementation: use `chrome.scripting.executeScript({ target: { tabId, frameIds }, world: 'MAIN', func: focusShim, args: [...] })`. The shim does `el.focus({ preventScroll: false })`, returns `{ ok, focused: document.activeElement === el }`. Error mapping: `TAB_CLOSED` for /no tab with id/i, `INVALID_ARGS` for missing selector/ref, `UNKNOWN` for everything else. New TOOL_NAMES.BROWSER.FOCUS = 'chrome_focus', TOOL_CATEGORIES['Interaction']. 8-12 tests covering argument validation, happy path with selector, happy path with ref, the focused:false branch (element exists but cannot accept focus), TAB_CLOSED classification, and missing-element error. Append to eagerTools.
+
+### IMP-0075 · Add chrome_paste tool — focus + Ctrl+V into an element (feat) · score: 5
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: chrome_clipboard sets clipboard contents but agents still have to chain a focus + a synthetic Ctrl+V to actually paste into a field — three tool calls for one logical operation, with the focus often slipping between calls. A single chrome_paste tool that focuses, optionally writes the clipboard, then dispatches a synthetic ClipboardEvent OR a keyboard Ctrl+V is the missing glue. Most agent flows that say "fill the address line" actually want this.
+- **Cost**: S
+- **Value**: L
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/paste.ts`. Params: `{ tabId?, windowId?, selector?, ref?, frameId?, text? }`. If `text` is supplied, write it to the clipboard first via the existing offscreen `clipboard.write` message (re-use `clipboardTool` internals — extract a small `writeClipboardFromBackground(text)` helper if needed; do not duplicate the offscreen plumbing). Then `chrome.scripting.executeScript` MAIN-world to focus the element AND dispatch a synthetic `ClipboardEvent('paste', { clipboardData: dt })` with `dt.setData('text/plain', text)` so pages that listen for paste events receive the text reliably (works on contenteditable + textarea + input). For pages that ignore the synthetic event, also call `document.execCommand('insertText', false, text)` as a fallback inside the same shim. Returns `{ ok, mode: 'event' | 'execCommand' | 'both', focused, pasted }`. Error mapping standard. New TOOL_NAMES.BROWSER.PASTE = 'chrome_paste', TOOL_CATEGORIES['Interaction']. 10-14 tests including the no-text branch (use whatever's already on the clipboard), the focus-failed branch, the page-ignored-the-event branch, TAB_CLOSED.
+
+### IMP-0076 · Add chrome_select_text tool — select text by range or substring inside an element (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Agents that want to copy a substring from a page have no good way today. chrome_javascript works but requires hand-rolled selection code per shape (text node vs input value). chrome_read_page returns the text but the agent then has to map it back to a selection range, which is fragile. A select-text tool that takes a selector + (substring | start/end) and ends with a real DOM Selection or input.setSelectionRange() is the missing primitive — pair it with chrome_clipboard read for "extract this field" flows.
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/select-text.ts`. Params: `{ tabId?, windowId?, selector?, ref?, frameId?, substring?, start?, end? }`. Validation: exactly one of (substring, [start AND end]) is required. MAIN-world shim resolves the element and branches on its type — `<input>` / `<textarea>` use `el.setSelectionRange(start, end)`, contenteditable / regular elements walk the text nodes building a Range with the matched substring or computed offsets and apply via `window.getSelection().removeAllRanges(); ...addRange(range)`. Returns `{ ok, mode: 'input-range' | 'dom-range', start, end, selected }` (the actually-selected text, for assertion). Error mapping standard, plus a specific INVALID_ARGS for "substring not found" with an excerpt of the element's text for debugging. New TOOL_NAMES.BROWSER.SELECT_TEXT, TOOL_CATEGORIES['Interaction']. 12-15 tests covering input ranges, contenteditable substring, regular div substring, substring-not-found, both modes' edge cases.
+
+### IMP-0077 · Add chrome_window tool — create / focus / update windows (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: We have rich tab tools but no first-class window control beyond the read-only chrome_get_windows_and_tabs. Agents that need to spawn an isolated window (incognito, popup, kiosk) for a session, or just bring a window to front before a screenshot, have to fall back to chrome_javascript with `window.open()` (no incognito control, no positioning) or to chrome_computer's full-screen mode (heavy).
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/window-manage.ts` (note: distinct from the existing window.ts which is for tab-window scoping helpers). Class extends BaseBrowserToolExecutor. Action enum: `create | focus | update | close`. `create` accepts `{ url?, type?: 'normal'|'popup'|'panel', incognito?, focused?, state?: 'normal'|'minimized'|'maximized'|'fullscreen', left?, top?, width?, height? }` and wraps `chrome.windows.create`. `focus` takes `{ windowId }` and calls `chrome.windows.update(windowId, { focused: true })`. `update` is a generic chrome.windows.update wrapper for state/size/position. `close` calls chrome.windows.remove. Returns the resulting Window object serialized via a `serializeWindow()` helper (id, type, state, focused, incognito, top/left/width/height, tabs.length). Error mapping: "No window with id" → INVALID_ARGS with a `windowId` field. New TOOL_NAMES.BROWSER.WINDOW_MANAGE = 'chrome_window', TOOL_CATEGORIES['Browser management']. 12-16 tests.
+
+### IMP-0078 · Add chrome_web_vitals tool — Core Web Vitals via PerformanceObserver (feat) · score: 5
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: chrome*performance*\* records full DevTools traces — heavy, tied to a recording window, and the analyze step explicitly punts on CWV. For 95% of "is this page fast?" questions agents actually want the standard six numbers (LCP, CLS, INP, FCP, TTFB, FID), measurable live and cheap. PerformanceObserver in MAIN world returns those without any trace overhead.
+- **Cost**: S
+- **Value**: L
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/web-vitals.ts`. Action enum: `start | snapshot | stop`. Inject a MAIN-world script via chrome.scripting.executeScript that builds a per-tab observer storing values on `window.__hcWebVitals`, observing `largest-contentful-paint` (take the most recent), `layout-shift` (sum non-input-emitted shifts → CLS), `event` with `durationThreshold:40` (max → INP), `paint` (filter for `first-contentful-paint` → FCP), `first-input` (one-shot → FID), and `navigation` (responseStart - startTime → TTFB). `start` action installs the observer (idempotent — guard with the `__hcWebVitals` global). Optional `reload: true` reloads the page so cold-start metrics get captured. `snapshot` reads `window.__hcWebVitals` without removing the observer; `stop` reads then disconnects + clears the global. Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs }` with `null` for any metric not yet observed. New TOOL_NAMES.BROWSER.WEB_VITALS, TOOL_CATEGORIES['Performance']. 10-14 tests using `chrome.scripting.executeScript` mocks that return canned vital values.
+
+### IMP-0079 · Add chrome_idle tool — query user idle state (feat) · score: 3
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Long-running flows that may take a screenshot of the desktop or steal focus should defer when the user is actively using the machine. chrome.idle.queryState returns `active | idle | locked` based on a configurable threshold; pairing it with the pacing throttle gives "back off when the user is at the keyboard" for free.
+- **Cost**: S
+- **Value**: S
+  **Fix sketch**: Add `idle` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/idle.ts`. Single-action tool (no enum needed) — params `{ detectionIntervalSec? }` (default 60, range [15, 14400] per Chrome). Calls `chrome.idle.queryState(detectionIntervalSec)`. Returns `{ state: 'active'|'idle'|'locked', detectionIntervalSec }`. Error mapping: INVALID_ARGS if the interval is out of range. New TOOL_NAMES.BROWSER.IDLE, TOOL_CATEGORIES['System']. 6-8 tests covering each return state and the bounds check.
+
+### IMP-0080 · Add chrome_alarms tool — schedule one-shot or repeating callbacks (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: The `alarms` permission is already in the manifest (used internally elsewhere) but there's no tool surface for agents to schedule "fire chrome_navigate to <url> in 5 minutes" or "ping me every 30 seconds while this is rendering". Useful for refresh-watching, polling external state, or coordinating multi-stage flows that span minutes.
+- **Cost**: M
+- **Value**: M
+  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/alarms.ts`. Action enum: `create | clear | clear_all | get | get_all`. `create` takes `{ name, delayInMinutes?, periodInMinutes?, when? }` and calls `chrome.alarms.create`. The fired alarm needs to do something useful — wire `chrome.alarms.onAlarm.addListener` once at module load to broadcast `{ type: 'alarm_fired', name, scheduledTime }` over `chrome.runtime.sendMessage` so a flow polling for it can react (same shape as chrome_context_menu's onClicked broadcast). Other actions are direct wrappers. Error mapping standard. New TOOL_NAMES.BROWSER.ALARMS, TOOL_CATEGORIES['System']. 12-15 tests including the listener-installed-once invariant.
+
+### IMP-0081 · Add chrome_clear_browsing_data tool — wipe cookies/cache/history per origin (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Sanitizing browser state between agent sessions today requires walking each store individually (chrome_remove_cookie, etc.). chrome.browsingData.remove does it in one call with origin-scoped `originTypes` filtering — perfect for "reset this site before the next test run".
+- **Cost**: S
+- **Value**: M
+  **Fix sketch**: Add `browsingData` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/clear-browsing-data.ts`. Single tool, no action enum. Params: `{ since?: number, origins?: string[], dataTypes: string[] }` where `dataTypes` is a string array filtered against the dataTypeSet keys (cookies, localStorage, indexedDB, cache, history, downloads, formData, passwords, serviceWorkers, webSQL). Default `since: 0` (all time). Wraps `chrome.browsingData.remove({ since, origins }, dataTypeSet)`. Returns `{ ok, removed: dataTypes, since, origins }`. Validation: dataTypes is required and must contain at least one valid key; reject any unknown keys with INVALID_ARGS naming the offender. New TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA, TOOL_CATEGORIES['State']. 10-14 tests covering each branch including the unknown-key rejection.
+
+### IMP-0082 · Add chrome_proxy tool — set/clear proxy configuration (feat) · score: 3
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Big for scraping, regional testing, and anonymity flows. chrome.proxy.settings lets the extension switch proxy config at runtime via a fixed_servers / pac_script / direct / system value. No tool surface exists today.
+- **Cost**: M
+- **Value**: M
+  **Fix sketch**: Add `proxy` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/proxy.ts`. Action enum: `set | clear | get`. `set` takes one of `{ mode: 'direct' }`, `{ mode: 'system' }`, `{ mode: 'fixed_servers', singleProxy: { scheme, host, port }, bypassList? }`, or `{ mode: 'pac_script', pacUrl }`. Wraps `chrome.proxy.settings.set({ value: <PCS>, scope: 'regular' })`. `clear` → `chrome.proxy.settings.clear({ scope: 'regular' })`. `get` returns the current value. Error mapping standard. New TOOL_NAMES.BROWSER.PROXY, TOOL_CATEGORIES['Network']. 10-12 tests covering each mode + clear + get round-trip.
+
+### IMP-0083 · Add chrome_identity tool — OAuth via getAuthToken (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Agents that need to call Google APIs (Gmail, Calendar, Drive, GSC) currently have to bounce through an interactive browser-based OAuth flow each run. chrome.identity.getAuthToken handles consent + caching + refresh natively if the extension declares an `oauth2.client_id`.
+- **Cost**: M
+- **Value**: M
+  **Fix sketch**: Add `identity` to wxt.config.ts permissions. Add an `oauth2: { client_id: process.env.HUMANCHROME_OAUTH_CLIENT_ID || '__SET_HUMANCHROME_OAUTH_CLIENT_ID__', scopes: [] }` block to the manifest — when the placeholder is present and `getAuthToken` is called, surface a clear error message instructing the user to set the env var (do not silently 401). New file `app/chrome-extension/entrypoints/background/tools/browser/identity.ts`. Action enum: `get_token | remove_token | get_profile`. `get_token` accepts `{ scopes: string[], interactive?: boolean }` and calls `chrome.identity.getAuthToken({ scopes, interactive: !!interactive })`, returns `{ token }`. `remove_token` accepts `{ token }` (calls `chrome.identity.removeCachedAuthToken({ token })`). `get_profile` calls `chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })` and returns `{ email, id }`. Error mapping: any rejection containing 'OAuth2 not granted' or 'oauth2.client_id' → INVALID_ARGS with the placeholder-not-set message. 12-14 tests including the placeholder-detection path. Document the env-var requirement in the IMP-0083 done summary.
+
+### IMP-0084 · Add chrome_drag_drop tool — synthesize mousedown/move/up + DnD events (feat) · score: 4
+
+- **Proposed by**: ralph-loop-queue · 2026-05-09
+- **Status**: proposed
+- **Why**: Drag-and-drop is the last big gap in the interaction surface. Trello cards, kanban boards, file-upload zones, sortable lists — agents either fall back to chrome_computer (heavy, screen-coords) or give up. A first-class drag/drop tool that takes from + to refs/selectors and synthesizes the full event sequence covers most use cases.
+- **Cost**: M
+- **Value**: L
+  **Fix sketch**: Ship LAST in the queue so the simpler tools have validated the iteration shape. New file `app/chrome-extension/entrypoints/background/tools/browser/drag-drop.ts`. Single tool (no enum). Params: `{ tabId?, windowId?, fromSelector? | fromRef?, toSelector? | toRef?, frameId?, steps?: number }` (default `steps: 5`). MAIN-world shim resolves both elements, computes their bounding-rect centers, then dispatches the full sequence on the FROM element: `pointerdown` → N intermediate `pointermove`+`dragover` events along a linear interpolation between the two centers (one per step) → `dragenter` on the TO element → final `drop` on TO → `dragend` on FROM → `pointerup`. Each event includes a fresh `DataTransfer` initialized via `new DataTransfer()` (in MAIN world this works in Chrome 118+). Returns `{ ok, fromBox, toBox, steps }`. Error mapping standard, plus `INVALID_ARGS` if either element is not visible (offsetParent === null AND not body) so the agent gets a clear signal instead of silently no-op'ing. New TOOL_NAMES.BROWSER.DRAG_DROP, TOOL_CATEGORIES['Interaction']. 10-14 tests covering basic drop, multi-step move, missing-element, hidden-element rejection.
+
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-08
