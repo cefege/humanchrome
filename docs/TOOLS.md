@@ -327,11 +327,12 @@ Request the user to manually select one or more elements on the current page. Us
 
 ### `chrome_keyboard`
 
-Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape), key combinations (Ctrl+C, Ctrl+V), and text input. Can target a specific element or send to the focused element.
+Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape), key combinations (Ctrl+C, Ctrl+V), text input, and a high-level `shortcut` enum (copy/paste/undo/redo/save/select_all/find/cut/refresh/back/forward/new_tab/close_tab) that maps to the platform-correct chord at dispatch time (Meta on macOS, Ctrl elsewhere). Can target a specific element or send to the focused element.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `keys` | string | ✓ | Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World". |
+| `keys` | string |  | Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World". Optional when `shortcut` is supplied; when both are present, `shortcut` wins. |
+| `shortcut` | `copy` \| `paste` \| `cut` \| `undo` \| `redo` \| `save` \| `select_all` \| `find` \| `refresh` \| `back` \| `forward` \| `new_tab` \| `close_tab` |  | High-level named shortcut. Resolves at dispatch time to the platform-correct key chord (e.g. `copy` → "Meta+c" on macOS, "Ctrl+c" elsewhere). Use this instead of `keys` to avoid hard-coding Ctrl-vs-Meta in prompts. |
 | `selector` | string |  | CSS selector or XPath for the element. |
 | `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
 | `delay` | number |  | Delay between keystrokes in milliseconds (default: 50). |
@@ -435,21 +436,6 @@ Select text inside an element. For `<input>` / `<textarea>`, calls `setSelection
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 | `frameId` | number |  | Optional frame. Defaults to the main frame. |
-
-### `chrome_drag_drop`
-
-Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + Pointer-Event chain. Single tool (no action enum). The MAIN-world shim resolves both targets (selector or ref), computes their bounding-rect centers, then dispatches `pointerdown` → `mousedown` → `dragstart` on FROM, N intermediate `pointermove` + `dragover` events along a linear interpolation, then `dragenter` → `dragover` → `drop` on TO and `dragend` on FROM and `pointerup` / `mouseup` on TO. Returns `{ steps, fromBox, toBox }`. Hidden / not-visible / not-found targets surface as INVALID_ARGS so callers can branch without re-raising. Useful for Trello cards, kanban boards, file-upload drop zones, sortable lists.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `fromSelector` | string |  | CSS selector for the drag source. Mutually exclusive with `fromRef`. |
-| `fromRef` | string |  | Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`. |
-| `toSelector` | string |  | CSS selector for the drop target. Mutually exclusive with `toRef`. |
-| `toRef` | string |  | Element ref for the drop target. Mutually exclusive with `toSelector`. |
-| `steps` | number |  | Number of intermediate pointermove + dragover events between the two centers. Clamped to [1, 50]. Default 5. |
-| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
-| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
-| `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. |
 
 ## Scripting
 

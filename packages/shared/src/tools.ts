@@ -1560,14 +1560,34 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.KEYBOARD,
     description:
-      'Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape), key combinations (Ctrl+C, Ctrl+V), and text input. Can target a specific element or send to the focused element.',
+      'Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape), key combinations (Ctrl+C, Ctrl+V), text input, and a high-level `shortcut` enum (copy/paste/undo/redo/save/select_all/find/cut/refresh/back/forward/new_tab/close_tab) that maps to the platform-correct chord at dispatch time (Meta on macOS, Ctrl elsewhere). Can target a specific element or send to the focused element.',
     inputSchema: {
       type: 'object',
       properties: {
         keys: {
           type: 'string',
           description:
-            'Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World".',
+            'Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World". Optional when `shortcut` is supplied; when both are present, `shortcut` wins.',
+        },
+        shortcut: {
+          type: 'string',
+          enum: [
+            'copy',
+            'paste',
+            'cut',
+            'undo',
+            'redo',
+            'save',
+            'select_all',
+            'find',
+            'refresh',
+            'back',
+            'forward',
+            'new_tab',
+            'close_tab',
+          ],
+          description:
+            'High-level named shortcut. Resolves at dispatch time to the platform-correct key chord (e.g. `copy` → "Meta+c" on macOS, "Ctrl+c" elsewhere). Use this instead of `keys` to avoid hard-coding Ctrl-vs-Meta in prompts.',
         },
         selector: SELECTOR_PROP,
         selectorType: SELECTOR_TYPE_PROP,
@@ -1578,7 +1598,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         ...TAB_TARGETING_NO_BG,
         frameId: FRAME_ID_PROP,
       },
-      required: ['keys'],
+      required: [],
     },
   },
   {

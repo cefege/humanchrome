@@ -8,14 +8,81 @@ import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 
+export type KeyboardShortcut =
+  | 'copy'
+  | 'paste'
+  | 'cut'
+  | 'undo'
+  | 'redo'
+  | 'save'
+  | 'select_all'
+  | 'find'
+  | 'refresh'
+  | 'back'
+  | 'forward'
+  | 'new_tab'
+  | 'close_tab';
+
 interface KeyboardToolParams {
-  keys: string; // Required: string representing keys or key combinations to simulate (e.g., "Enter", "Ctrl+C")
+  keys?: string; // Optional when `shortcut` is provided. String representing keys or key combinations (e.g., "Enter", "Ctrl+C").
+  shortcut?: KeyboardShortcut; // High-level named shortcut, resolved to the platform-correct chord. Wins over `keys` if both supplied.
   selector?: string; // Optional: CSS selector or XPath for target element to send keyboard events to
   selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
   delay?: number; // Optional: delay between keystrokes in milliseconds
   tabId?: number; // target existing tab id
   windowId?: number; // when no tabId, pick active tab from this window
   frameId?: number; // target frame id for iframe support
+}
+
+/**
+ * Map a high-level shortcut name to the platform-correct key chord.
+ * The chord uses the `Ctrl` / `Meta` token names that the in-page
+ * keyboard-helper script already understands. Pure function so it
+ * can be unit-tested without spawning a real chrome.runtime call.
+ */
+export function resolveShortcutKeys(shortcut: KeyboardShortcut, isMac: boolean): string {
+  const mod = isMac ? 'Meta' : 'Ctrl';
+  switch (shortcut) {
+    case 'copy':
+      return `${mod}+c`;
+    case 'paste':
+      return `${mod}+v`;
+    case 'cut':
+      return `${mod}+x`;
+    case 'undo':
+      return `${mod}+z`;
+    case 'redo':
+      // macOS convention is Cmd+Shift+Z; Windows/Linux is Ctrl+Y.
+      return isMac ? 'Meta+Shift+z' : 'Ctrl+y';
+    case 'save':
+      return `${mod}+s`;
+    case 'select_all':
+      return `${mod}+a`;
+    case 'find':
+      return `${mod}+f`;
+    case 'refresh':
+      return `${mod}+r`;
+    case 'back':
+      // Browser-history back: Alt+Left on Win/Linux, Cmd+Left on macOS.
+      return isMac ? 'Meta+ArrowLeft' : 'Alt+ArrowLeft';
+    case 'forward':
+      return isMac ? 'Meta+ArrowRight' : 'Alt+ArrowRight';
+    case 'new_tab':
+      return `${mod}+t`;
+    case 'close_tab':
+      return `${mod}+w`;
+  }
+}
+
+async function isMacPlatform(): Promise<boolean> {
+  try {
+    const info = await chrome.runtime.getPlatformInfo();
+    return info.os === 'mac';
+  } catch {
+    // Fallback: if the API is unavailable, assume non-mac so the chord
+    // is the more portable Ctrl-prefixed variant.
+    return false;
+  }
 }
 
 /**
@@ -29,15 +96,24 @@ class KeyboardTool extends BaseBrowserToolExecutor {
    * Execute keyboard operation
    */
   async execute(args: KeyboardToolParams): Promise<ToolResult> {
-    const { keys, selector, selectorType = 'css', delay = TIMEOUTS.KEYBOARD_DELAY } = args;
+    const { selector, selectorType = 'css', delay = TIMEOUTS.KEYBOARD_DELAY, shortcut } = args;
 
     console.log(`Starting keyboard operation with options:`, args);
 
+    // Resolve the final `keys` string. `shortcut` wins when both are present
+    // — callers reaching for a named shortcut don't want a stale `keys` arg
+    // silently overriding it.
+    let keys: string | undefined = args.keys;
+    if (shortcut) {
+      const isMac = await isMacPlatform();
+      keys = resolveShortcutKeys(shortcut, isMac);
+    }
+
     if (!keys) {
       return createErrorResponse(
-        ERROR_MESSAGES.INVALID_PARAMETERS + ': Keys parameter must be provided',
+        ERROR_MESSAGES.INVALID_PARAMETERS + ': One of `keys` or `shortcut` must be provided',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'keys' },
+        { arg: 'keys|shortcut' },
       );
     }
 
