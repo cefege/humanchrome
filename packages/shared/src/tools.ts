@@ -132,6 +132,7 @@ export const TOOL_NAMES = {
     PASTE: 'chrome_paste',
     SELECT_TEXT: 'chrome_select_text',
     WINDOW_MANAGE: 'chrome_window',
+    WEB_VITALS: 'chrome_web_vitals',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2653,6 +2654,35 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.WEB_VITALS,
+    description:
+      'Live Core Web Vitals collector via `PerformanceObserver` in the page MAIN world. Different shape from chrome_performance_* (those record full DevTools traces — heavyweight, post-hoc). This is "what does the user actually feel?" measurement, available live and cheap. Actions: `start` (idempotently install per-tab observers on `window.__hcWebVitals`; `reload: true` reloads the tab first so cold-start LCP/FCP/TTFB get captured), `snapshot` (read current values without disturbing the observer), `stop` (read final values + disconnect observers + clear the global). Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs }` with `null` for any metric not yet observed and `installed` reflecting the observer state. No new permissions needed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['start', 'snapshot', 'stop'],
+          description: 'Operation to perform.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Window scope for active-tab lookup when `tabId` is omitted.',
+        },
+        reload: {
+          type: 'boolean',
+          description:
+            'For `start` only. Reload the tab before installing the observer so cold-start LCP / FCP / TTFB are captured. Default false.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2768,6 +2798,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.PASTE]: 'Interaction',
   [TOOL_NAMES.BROWSER.SELECT_TEXT]: 'Interaction',
   [TOOL_NAMES.BROWSER.WINDOW_MANAGE]: 'Browser management',
+  [TOOL_NAMES.BROWSER.WEB_VITALS]: 'Performance',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
