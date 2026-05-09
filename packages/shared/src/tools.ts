@@ -139,6 +139,8 @@ export const TOOL_NAMES = {
     PROXY: 'chrome_proxy',
     IDENTITY: 'chrome_identity',
     DRAG_DROP: 'chrome_drag_drop',
+    DOWNLOAD_LIST: 'chrome_download_list',
+    DOWNLOAD_CANCEL: 'chrome_download_cancel',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2908,6 +2910,48 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.DOWNLOAD_LIST,
+    description:
+      'Enumerate downloads via `chrome.downloads.search`. Use to check whether a previous download is still running, find the id of an in-progress download for `chrome_download_cancel`, or list completed downloads with their saved paths. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. Pre-existing downloads matching the filter are returned even if they were started outside the agent session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        state: {
+          type: 'string',
+          enum: ['in_progress', 'complete', 'interrupted', 'all'],
+          description: 'Filter by download state. `all` skips the state filter. Default: `all`.',
+        },
+        filenameContains: {
+          type: 'string',
+          description:
+            'Case-insensitive substring filter on the saved filename (post-`/`-split basename). Empty string matches all.',
+        },
+        limit: {
+          type: 'number',
+          description:
+            'Cap on returned items. Clamped to [1, 100]. Default 25. The full result set is fetched from Chrome and truncated client-side; Chrome itself returns up to ~1000 entries.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL,
+    description:
+      'Cancel an in-progress download by id via `chrome.downloads.cancel`. Already-completed or already-cancelled downloads are a no-op (Chrome silently succeeds). Returns `{cancelled: true, downloadId, postState}` where `postState` is the download state immediately after the cancel attempt (typically `interrupted` for active cancels, the prior terminal state for already-finished ones).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        downloadId: {
+          type: 'number',
+          description:
+            'The download id from `chrome_download_list` or `chrome.downloads.onCreated`.',
+        },
+      },
+      required: ['downloadId'],
+    },
+  },
 ];
 
 /**
@@ -3030,6 +3074,8 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.PROXY]: 'Network',
   [TOOL_NAMES.BROWSER.IDENTITY]: 'System',
   [TOOL_NAMES.BROWSER.DRAG_DROP]: 'Interaction',
+  [TOOL_NAMES.BROWSER.DOWNLOAD_LIST]: 'Files',
+  [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

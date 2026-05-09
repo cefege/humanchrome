@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
 interface HandleDownloadParams {
   filenameContains?: string;
@@ -138,3 +138,103 @@ async function waitForDownload(opts: {
 }
 
 export const handleDownloadTool = new HandleDownloadTool();
+
+export interface DownloadListParams {
+  state?: chrome.downloads.DownloadQuery['state'] | 'all';
+  filenameContains?: string;
+  limit?: number;
+}
+
+class DownloadListTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.DOWNLOAD_LIST;
+
+  async execute(args: DownloadListParams = {}): Promise<ToolResult> {
+    if (!chrome.downloads?.search) {
+      return createErrorResponse(
+        'chrome.downloads.search is unavailable. The "downloads" permission is required.',
+        ToolErrorCode.UNKNOWN,
+      );
+    }
+
+    const state = args.state ?? 'all';
+    const needle = (args.filenameContains ?? '').toLowerCase();
+    const limit = Math.max(1, Math.min(typeof args.limit === 'number' ? args.limit : 25, 100));
+
+    try {
+      const query: chrome.downloads.DownloadQuery = {};
+      if (state !== 'all') query.state = state;
+      const results = await chrome.downloads.search(query);
+      // Filter on the basename only — full path is OS-dependent and tends to
+      // false-positive against the user's home dir.
+      const filtered = needle
+        ? results.filter((d) => basename(d.filename).toLowerCase().includes(needle))
+        : results;
+      const items = filtered.slice(0, limit).map((d) => ({
+        id: d.id,
+        url: d.url,
+        filename: d.filename,
+        state: d.state,
+        totalBytes: d.totalBytes,
+        bytesReceived: d.bytesReceived,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        mime: d.mime,
+        error: d.error,
+      }));
+      return jsonOk({ count: items.length, items });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return createErrorResponse(`chrome_download_list failed: ${msg}`, ToolErrorCode.UNKNOWN);
+    }
+  }
+}
+
+export interface DownloadCancelParams {
+  downloadId?: number;
+}
+
+class DownloadCancelTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL;
+  static readonly mutates = true;
+
+  async execute(args: DownloadCancelParams = {}): Promise<ToolResult> {
+    if (typeof args.downloadId !== 'number') {
+      return createErrorResponse('`downloadId` (number) is required.', ToolErrorCode.INVALID_ARGS, {
+        arg: 'downloadId',
+      });
+    }
+    if (!chrome.downloads?.cancel) {
+      return createErrorResponse(
+        'chrome.downloads.cancel is unavailable. The "downloads" permission is required.',
+        ToolErrorCode.UNKNOWN,
+      );
+    }
+    const downloadId = args.downloadId;
+    try {
+      await chrome.downloads.cancel(downloadId);
+      // Best-effort post-state read so callers can distinguish a real cancel
+      // from a no-op against an already-finished download.
+      const postState = await chrome.downloads
+        .search({ id: downloadId })
+        .then((after) => after?.[0]?.state ?? 'unknown')
+        .catch(() => 'unknown' as const);
+      return jsonOk({ cancelled: true, downloadId, postState });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return createErrorResponse(`chrome_download_cancel failed: ${msg}`, ToolErrorCode.UNKNOWN, {
+        downloadId,
+      });
+    }
+  }
+}
+
+function basename(path: string | undefined): string {
+  return (path ?? '').split(/[/\\]/).pop() ?? '';
+}
+
+function jsonOk(body: Record<string, unknown>): ToolResult {
+  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
+}
+
+export const downloadListTool = new DownloadListTool();
+export const downloadCancelTool = new DownloadCancelTool();
