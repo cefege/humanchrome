@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0076 · Add chrome_select_text tool — select text by range or substring inside an element (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Agents that want to copy a substring from a page have no good way today. chrome_javascript works but requires hand-rolled selection code per shape (text node vs input value). chrome_read_page returns the text but the agent then has to map it back to a selection range, which is fragile. A select-text tool that takes a selector + (substring | start/end) and ends with a real DOM Selection or input.setSelectionRange() is the missing primitive — pair it with chrome_clipboard read for "extract this field" flows.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/select-text.ts`. Params: `{ tabId?, windowId?, selector?, ref?, frameId?, substring?, start?, end? }`. Validation: exactly one of (substring, [start AND end]) is required. MAIN-world shim resolves the element and branches on its type — `<input>` / `<textarea>` use `el.setSelectionRange(start, end)`, contenteditable / regular elements walk the text nodes building a Range with the matched substring or computed offsets and apply via `window.getSelection().removeAllRanges(); ...addRange(range)`. Returns `{ ok, mode: 'input-range' | 'dom-range', start, end, selected }` (the actually-selected text, for assertion). Error mapping standard, plus a specific INVALID_ARGS for "substring not found" with an excerpt of the element's text for debugging. New TOOL_NAMES.BROWSER.SELECT_TEXT, TOOL_CATEGORIES['Interaction']. 12-15 tests covering input ranges, contenteditable substring, regular div substring, substring-not-found, both modes' edge cases.
-
 ### IMP-0077 · Add chrome_window tool — create / focus / update windows (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -384,6 +375,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0076 · Add chrome_select_text tool — select text by range or substring (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_select_text` MCP tool that takes `{ selector | ref }` plus either a `substring` or `start`+`end` character offsets, and ends with a real DOM Selection or `input.setSelectionRange()`. The ISOLATED-world shim resolves the element (input/textarea → `setSelectionRange`; everything else → walk text nodes via `TreeWalker(SHOW_TEXT)`, build a `Range`, apply via `window.getSelection().addRange`). Returns `{ start, end, selected, mode: 'input-range' | 'dom-range', tagName, resolution }`. Error mapping: TAB_CLOSED for `/no tab with id/i`, INVALID_ARGS for missing/conflicting `selector|ref` and `substring|start+end`, plus a specific INVALID_ARGS classification for "substring not found" so callers can branch without re-raising; UNKNOWN otherwise. Wired through the eager dispatcher; no new manifest permissions. New tests at `tests/tools/browser/select-text.test.ts` (16 cases). Extension: 975/975 (was 959 + 16 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0076-select-text
 
 ### IMP-0075 · Add chrome_paste tool — focus + paste into an element (feat) · score: 5
 

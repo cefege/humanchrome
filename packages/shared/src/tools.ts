@@ -130,6 +130,7 @@ export const TOOL_NAMES = {
     CONTEXT_MENU: 'chrome_context_menu',
     FOCUS: 'chrome_focus',
     PASTE: 'chrome_paste',
+    SELECT_TEXT: 'chrome_select_text',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2560,6 +2561,51 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.SELECT_TEXT,
+    description:
+      'Select text inside an element. For `<input>` / `<textarea>`, calls `setSelectionRange(start, end)`. For everything else, walks text nodes to map character offsets into a `Range` and applies via `window.getSelection().addRange(range)`. Two ways to specify what to select: pass a `substring` (first occurrence inside the element\'s value/textContent wins) OR pass `start` AND `end` character indexes. Returns `{ start, end, selected, mode: "input-range" | "dom-range" }`. Pair with chrome_clipboard or chrome_paste for "copy this exact field" flows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector for the target. Mutually exclusive with `ref`.',
+        },
+        ref: {
+          type: 'string',
+          description:
+            'Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`.',
+        },
+        substring: {
+          type: 'string',
+          description:
+            'Substring to find and select (first occurrence). Mutually exclusive with `start`+`end`.',
+        },
+        start: {
+          type: 'number',
+          description: 'Character offset where the selection starts. Required if `end` is set.',
+        },
+        end: {
+          type: 'number',
+          description: 'Character offset where the selection ends. Required if `start` is set.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Target window for active-tab lookup when `tabId` is omitted.',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Optional frame. Defaults to the main frame.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -2673,6 +2719,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CONTEXT_MENU]: 'System',
   [TOOL_NAMES.BROWSER.FOCUS]: 'Interaction',
   [TOOL_NAMES.BROWSER.PASTE]: 'Interaction',
+  [TOOL_NAMES.BROWSER.SELECT_TEXT]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
