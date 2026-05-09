@@ -129,6 +129,7 @@ export const TOOL_NAMES = {
     KEEP_AWAKE: 'chrome_keep_awake',
     CONTEXT_MENU: 'chrome_context_menu',
     FOCUS: 'chrome_focus',
+    PASTE: 'chrome_paste',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2522,6 +2523,43 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.PASTE,
+    description:
+      'Focus an element (by `selector` or `ref`) and paste text into it. If `text` is supplied, the tool seeds the system clipboard via the offscreen document first, then dispatches BOTH a synthetic `ClipboardEvent("paste")` carrying a `text/plain` DataTransfer (so pages with paste-event handlers like rich editors see it) AND a `document.execCommand("insertText", false, text)` (so plain inputs / textareas that don\'t handle paste events still receive the value). Returns `{ focused, pasted, mode: "event" | "execCommand" | "both" }` so callers can detect whether the page accepted the paste. Without `text`, the page sees whatever is currently on the clipboard. Saves the chain of `chrome_clipboard write → chrome_focus → chrome_keyboard ctrl+v` agents otherwise have to glue together.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector for the target. Mutually exclusive with `ref`.',
+        },
+        ref: {
+          type: 'string',
+          description:
+            'Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`.',
+        },
+        text: {
+          type: 'string',
+          description:
+            'Optional text to seed the clipboard with before pasting. When omitted, whatever is currently on the OS clipboard is used.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Target window for active-tab lookup when `tabId` is omitted.',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Optional frame to scope the paste to. Defaults to the main frame.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -2634,6 +2672,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.KEEP_AWAKE]: 'System',
   [TOOL_NAMES.BROWSER.CONTEXT_MENU]: 'System',
   [TOOL_NAMES.BROWSER.FOCUS]: 'Interaction',
+  [TOOL_NAMES.BROWSER.PASTE]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
