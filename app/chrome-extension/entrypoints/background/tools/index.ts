@@ -48,6 +48,7 @@ import { keepAwakeTool } from './browser/keep-awake';
 import { contextMenuTool } from './browser/context-menu';
 import { focusTool } from './browser/focus';
 import { pasteTool } from './browser/paste';
+import { selectTextTool } from './browser/select-text';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -115,6 +116,7 @@ const eagerTools: ToolInstance[] = [
   contextMenuTool,
   focusTool,
   pasteTool,
+  selectTextTool,
   waitForTabTool,
   windowTool,
   webFetcherTool,
