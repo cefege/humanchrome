@@ -136,15 +136,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` line 164 — replace the early `return { content: [...], isError: false }` with `return createErrorResponse("A performance trace is already recording for this tab.", ToolErrorCode.UNKNOWN)`.
 - **Notes**: Latent. Same isError:false-for-errors pattern also appears at line 263 (stop with no session) and line 362 (analyze with no trace), but those are more debatable as idempotent no-ops.
 
-### IMP-0050 · Add chrome_close_tabs_matching tool for bulk tab cleanup after navigate_batch fan-out (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_navigate_batch opens many tabs in parallel, but cleanup requires iterating chrome_get_windows_and_tabs and calling chrome_close_tab once per tab — O(N) round trips for a common workflow. A single bulk-close tool with URL/title/age filters covers the post-scrape cleanup pattern in one call and keeps the window tidy for the next agent interaction.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_close_tabs_matching. Params: urlMatches? (substring or /regex/ string), titleMatches? (substring or /regex/ string), olderThanMs? (close tabs opened more than N ms ago), exceptTabIds? (number[], always preserve these), windowId? (default: preferred client window, honoring single-window preference). Returns {closed: number, tabIds: number[]}. Implementation: chrome.tabs.query filtered in the background, then chrome.tabs.remove(matchingIds). Never closes the last tab in the window (consistent with IMP-0062 last-tab guard commit). Touch: new tools/browser/close-tabs-matching.ts, TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Tabs category alongside CLOSE_TAB).
-
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0050 · Add chrome_close_tabs_matching tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_close_tabs_matching` MCP tool for bulk post-`chrome_navigate_batch` cleanup. Filters: `urlMatches` (case-insensitive substring or `/regex/flags`), `titleMatches` (same matching rules), `olderThanMs` (matches tabs whose recorded creation timestamp is older than N ms — tabs without a recorded creation time are NOT matched, documented). Filters AND together. `exceptTabIds` always preserves the listed tabs. `windowId` scopes the search. `dryRun: true` returns matches without closing — useful pre-flight. Refuses calls with no filter set (no implicit close-everything). Honors the IMP-0062 last-tab guard via `safeRemoveTabs`, so closing every tab in a window opens a placeholder first. Bad regex falls back to substring match against the **inner** pattern (slashes stripped) — better matches user intent than literally searching for `/pattern/`. Returns `{ ok, closed, scanned, matched, tabIds }`. New `utils/tab-creation-tracker.ts` (~40 LoC) listens to `chrome.tabs.onCreated` / `onRemoved` so `olderThanMs` has a creation timestamp to compare against; wired in the background entrypoint via `initTabCreationTracker()` next to `initLastTabGuardListeners()`. New `tests/tools/browser/close-tabs-matching.test.ts` (14 tests): empty-filter rejection, blank-string rejection, substring URL match, AND-combined url+title, regex form, malformed-regex fallback to inner-pattern substring, olderThanMs cutoff, untracked-tab non-match, exceptTabIds preservation, windowId scoping, dryRun no-mutation, empty-match no-call, query rejection, safeRemoveTabs rejection. The `safeRemoveTabs` helper is mocked at the module level so tests assert it was invoked with the right ids without spinning up the real placeholder dance. Extension: 708/708, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0050-close-tabs-matching
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

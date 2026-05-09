@@ -69,6 +69,7 @@ export const TOOL_NAMES = {
     WAIT_FOR_TAB: 'chrome_wait_for_tab',
     SCREENSHOT: 'chrome_screenshot',
     CLOSE_TAB: 'chrome_close_tab',
+    CLOSE_TABS_MATCHING: 'chrome_close_tabs_matching',
     SWITCH_TAB: 'chrome_switch_tab',
     WEB_FETCHER: 'chrome_get_web_content',
     CLICK: 'chrome_click_element',
@@ -643,6 +644,48 @@ export const TOOL_SCHEMAS: Tool[] = [
         url: {
           type: 'string',
           description: 'Close tabs matching this URL. Can be used instead of tabIds.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING,
+    description:
+      'Bulk close tabs matching one or more filters. Designed for post-`chrome_navigate_batch` cleanup so an agent does not have to round-trip through `chrome_get_windows_and_tabs` plus N × `chrome_close_tab`. At least one of `urlMatches`, `titleMatches`, or `olderThanMs` must be provided — calling without filters is rejected to prevent accidental "close everything" calls. URL/title matching accepts a plain substring (case-insensitive) or `/regex/flags` form. `windowId` scopes the search to one window (defaults to all windows). `exceptTabIds` always preserves the listed tabs. The last-tab-in-window guard from IMP-0062 (`safeRemoveTabs`) is honored — closing all tabs in a window opens a placeholder so the window does not disappear. Returns `{ closed, tabIds, scanned, matched }`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urlMatches: {
+          type: 'string',
+          description:
+            'URL filter. Plain text → case-insensitive substring match against `tab.url`. Wrap in `/.../flags` (e.g. `/voyager\\/api/i`) for regex match. Combined with other filters via AND.',
+        },
+        titleMatches: {
+          type: 'string',
+          description:
+            'Title filter. Same matching rules as `urlMatches` but applied against `tab.title`. Combined with other filters via AND.',
+        },
+        olderThanMs: {
+          type: 'number',
+          description:
+            "Close tabs whose creation time was more than N milliseconds ago. The check uses Chrome's wall-clock view of when the tab was created (via the existing tab-tracking record). Tabs with unknown creation time are NOT matched by this filter alone.",
+        },
+        exceptTabIds: {
+          type: 'array',
+          items: { type: 'number' },
+          description:
+            'Tab IDs to always preserve, even if they would otherwise match the filters.',
+        },
+        windowId: {
+          type: 'number',
+          description:
+            'Optional window scope. When provided, only tabs in this window are considered. Default: every window the extension can see.',
+        },
+        dryRun: {
+          type: 'boolean',
+          description:
+            'When true, returns the matched tab IDs without actually closing them. Useful as a pre-flight check before destructive bulk close.',
         },
       },
       required: [],
@@ -1954,6 +1997,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.NAVIGATE_BATCH]: 'Browser management',
   [TOOL_NAMES.BROWSER.WAIT_FOR_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING]: 'Browser management',
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',

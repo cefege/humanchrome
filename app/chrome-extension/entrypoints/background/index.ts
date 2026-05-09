@@ -12,6 +12,7 @@ import { initQuickPanelAgentHandler } from './quick-panel/agent-handler';
 import { initQuickPanelCommands } from './quick-panel/commands';
 import { initQuickPanelTabsHandler } from './quick-panel/tabs-handler';
 import { initLastTabGuardListeners } from '@/utils/last-tab-guard';
+import { initTabCreationTracker } from './utils/tab-creation-tracker';
 
 // Record-Replay V3 (feature flag)
 import { bootstrapV3 } from './record-replay-v3/bootstrap';
@@ -43,6 +44,7 @@ export default defineBackground(() => {
   initStorageManagerListener();
   // Last-tab guard: keep windows alive when tools close the last tab
   initLastTabGuardListeners();
+  initTabCreationTracker();
   // Record & Replay V1/V2 listeners
   initRecordReplayListeners();
 
