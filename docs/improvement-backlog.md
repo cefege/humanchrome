@@ -194,15 +194,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   **Fix sketch**: add a module-scope cache in dispatch.ts holding the last fetched tools+items+timestamp. listDynamicFlowTools returns the cached tools if fresh; otherwise refetches and stores. dispatchTool for a flow.\* call reuses the cached items to look up the slug. Invalidation: add a native message kind flows_changed (or piggyback on an existing event) that the extension publishes after every flow_publish/flow_unpublish; the bridge clears the cache on receipt. TTL fallback (e.g. 60s) for safety. Acceptance: a tools/list immediately followed by flow.<slug> shows only one rr_list_published_flows in extension logs.
 
-### IMP-0059 · Make logger.persist delta-based or opt-in so chrome.storage.local stops re-serializing the whole 5 MB log ring every 250 ms during tool streams (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: utils/logger.ts:184 schedulePersist debounces a chrome.storage.local.set of the ENTIRE log buffer at 250 ms. Each tool call emits ~3 logEvents (start/done + child line) and each goes through redact() (recursive object walk depth 6) before being appended to the ring. During a hot tool stream this means: 4 redact-walks/sec, plus a 250 ms-debounced JSON.stringify of up to 5 MB of buffered logs (trimToByteBudget at logger.ts:142,154 also stringifies inside the byte-budget check). This is the dominant steady-state SW CPU cost during automation runs — completely separate from the actual tool work.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: three options, pick whichever matches usage. (a) Gate persistence behind a flag set by the chrome_debug_dump tool — the only consumer that actually needs the persisted buffer — and clear it on next dump. (b) Raise the debounce from 250 ms to 5 s; trade a small loss on SW-restart for 20x less serialization. (c) Append-only delta persist: track lastPersistedIndex, only write entries since that index. (a) is simplest if the buffer is rarely needed; (b) is safest. Acceptance: profile a 60s tool-call stream and confirm chrome.storage.local writes drop from ~240 to <20.
-
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0059 · Make logger persistence opt-in (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Combined fix-sketch options (a) and (b). Added a `persistEnabled` flag to `app/chrome-extension/utils/logger.ts` (default **off**), persisted under `humanchrome:logPersistEnabled` so the choice survives SW restart. When off, `schedulePersist` short-circuits before queuing the 5 MB chrome.storage.local.set — eliminating the dominant steady-state SW CPU cost during automation runs (was ~240 writes/min, now zero). When on, the debounce was bumped from 250 ms to 5 s so a hot stream coalesces into ~12 writes/min instead of 240. Toggle via the new exported `setPersistEnabled(boolean)` / `getPersistEnabled()` or via `chrome_debug_dump({ persist: true|false })` (new arg, response always echoes `persistEnabled`). on→off drops the persisted blob so the next SW boot starts clean; off→on schedules a debounced flush so the in-memory backlog gets persisted. Buffer-restore on SW restart is gated on the flag too — old persisted blobs from a previous "on" session are not resurrected after the user turns persistence off. New `tests/utils/logger-persist-opt-in.test.ts` (7 tests, uses `vi.resetModules()` per test for clean module-scoped state and a fake `chrome.storage.local` whose set/remove/get are spied): default-off zero-write hot stream, in-memory dumpLog still works with persistence off, on→off drops blob and prevents further writes, off→on schedules a flush, 50-event burst within 5 s coalesces into ONE write, SW-restart-with-persistence-off does not resurrect old logs, SW-restart-with-persistence-on does. `chrome_debug_dump` schema gained the `persist` arg; `docs/TOOLS.md` regenerated. Extension: 701/701, typecheck clean. Bridge `tool-categories-coverage` 3/3.
+- **Branch**: perf/imp-0059-logger-persist
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

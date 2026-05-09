@@ -132,6 +132,8 @@ Fetch content from a web page
 | `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent will be ignored (default: false) |
 | `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true) |
 | `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned |
+| `savePath` | string |  | Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success. |
+| `raw` | boolean |  | When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original). |
 
 ### `chrome_search_tabs_content`
 
@@ -181,7 +183,7 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `width` | number |  | For action=resize_page: viewport width |
 | `height` | number |  | For action=resize_page: viewport height |
 | `appear` | boolean |  | For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false) |
-| `timeoutMs` | number |  | For action=wait with text: timeout in milliseconds (default 10000, max 120000) |
+| `timeoutMs` | number |  | Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000). |
 | `duration` | number |  | Seconds to wait for action=wait (max 30s) |
 
 ### `chrome_click_element`
@@ -624,6 +626,7 @@ Return recent debug-log entries from the extension. Each entry includes a `reque
 | `sinceMs` | number |  | Absolute epoch milliseconds — only return entries newer than this. |
 | `limit` | number |  | Maximum entries to return. Defaults to 200, max 1000. |
 | `clear` | boolean |  | When true, wipe the buffer instead of returning entries. |
+| `persist` | boolean |  | Toggle whether log entries are written through to chrome.storage.local across SW restarts. Off by default (steady-state SW CPU optimization, IMP-0059) — `true` enables persistence so future logs survive a service-worker restart, `false` disables it and clears the persisted blob, omitted leaves the current state unchanged. The response always includes `persistEnabled` so callers can check the current state. |
 
 ## Pacing
 

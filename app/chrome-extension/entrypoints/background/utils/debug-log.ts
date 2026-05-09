@@ -18,4 +18,6 @@ export {
   getBufferSize,
   setLogLevel,
   getLogLevel,
+  setPersistEnabled,
+  getPersistEnabled,
 } from '@/utils/logger';

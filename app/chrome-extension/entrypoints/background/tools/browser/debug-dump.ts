@@ -7,6 +7,8 @@ import {
   getBufferSize,
   DEBUG_LOG_LEVELS,
   type DebugLogLevel,
+  setPersistEnabled,
+  getPersistEnabled,
 } from '../../utils/debug-log';
 
 interface DebugDumpArgs {
@@ -22,6 +24,15 @@ interface DebugDumpArgs {
   /** When true, return chronological order (oldest first). Default newest first. */
   chronological?: boolean;
   clear?: boolean;
+  /**
+   * Toggle whether log entries persist to chrome.storage.local across
+   * SW restarts (IMP-0059). Off by default to avoid the steady-state
+   * SW-CPU cost during automation runs. `true` enables persistence
+   * before the dump (so subsequent runs survive SW restart); `false`
+   * disables it and clears the persisted blob; omitted leaves the
+   * current state unchanged.
+   */
+  persist?: boolean;
 }
 
 class DebugDumpTool extends BaseBrowserToolExecutor {
@@ -34,10 +45,24 @@ class DebugDumpTool extends BaseBrowserToolExecutor {
         ToolErrorCode.INVALID_ARGS,
       );
     }
+    if (typeof args.persist === 'boolean') {
+      await setPersistEnabled(args.persist);
+    }
+
     if (args.clear === true) {
       await clearLog();
       return {
-        content: [{ type: 'text', text: JSON.stringify({ ok: true, cleared: true, entries: [] }) }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ok: true,
+              cleared: true,
+              entries: [],
+              persistEnabled: getPersistEnabled(),
+            }),
+          },
+        ],
         isError: false,
       };
     }
@@ -66,6 +91,7 @@ class DebugDumpTool extends BaseBrowserToolExecutor {
             bufferSize: getBufferSize(),
             offset: args.offset ?? 0,
             limit: args.limit ?? 200,
+            persistEnabled: getPersistEnabled(),
           }),
         },
       ],
