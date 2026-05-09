@@ -35,6 +35,12 @@ import { OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 
 import { ModelCacheManager } from './model-cache-manager';
 
+// Re-export the lightweight cache-status helpers from their new home so
+// existing import sites (popup, etc.) keep working. The background service
+// worker should import directly from `./model-cache-status` to avoid pulling
+// the heavy transformers/onnxruntime graph through this module. See IMP-0055.
+export { cleanupModelCache, hasAnyModelCache } from './model-cache-status';
+
 /**
  * Get cached model data, prioritizing cache reads and handling redirected URLs.
  * @param {string} modelUrl Stable, permanent URL of the model
@@ -111,18 +117,8 @@ export async function getCacheStats(): Promise<{
   }
 }
 
-/**
- * Manually trigger cache cleanup
- */
-export async function cleanupModelCache(): Promise<void> {
-  try {
-    const cacheManager = ModelCacheManager.getInstance();
-    await cacheManager.manualCleanup();
-  } catch (error) {
-    console.error('Failed to cleanup cache:', error);
-    throw error;
-  }
-}
+// `cleanupModelCache` lives in `./model-cache-status` and is re-exported above
+// for back-compat. See IMP-0055.
 
 /**
  * Check if the default model is cached and available
@@ -153,19 +149,8 @@ export async function isDefaultModelCached(): Promise<boolean> {
   }
 }
 
-/**
- * Check if any model cache exists (for conditional initialization)
- * @returns Promise<boolean> True if any valid model cache exists
- */
-export async function hasAnyModelCache(): Promise<boolean> {
-  try {
-    const cacheManager = ModelCacheManager.getInstance();
-    return await cacheManager.hasAnyValidCache();
-  } catch (error) {
-    console.error('Error checking for any model cache:', error);
-    return false;
-  }
-}
+// `hasAnyModelCache` lives in `./model-cache-status` and is re-exported above
+// for back-compat. See IMP-0055.
 
 // Predefined model configurations - 2025 curated recommended models, using quantized versions to reduce file size
 export const PREDEFINED_MODELS = {
