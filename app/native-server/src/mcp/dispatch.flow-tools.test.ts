@@ -12,11 +12,18 @@ jest.mock('../native-messaging-host', () => ({
   },
 }));
 
+import {
+  listDynamicFlowTools,
+  FLOW_RUNNER_RESERVED_KEYS,
+  invalidateFlowToolsCache,
+} from './dispatch';
+
 beforeEach(() => {
   sendRequestToExtensionAndWait.mockReset();
+  // The flow-tools cache is module-scoped and shared across tests; wipe
+  // it so each case sees a fresh fetch routed through its own mock.
+  invalidateFlowToolsCache();
 });
-
-import { listDynamicFlowTools, FLOW_RUNNER_RESERVED_KEYS } from './dispatch';
 
 // Keys advertised in the schema (injected by listDynamicFlowTools after the
 // user-var loop). `startUrl` is reserved at call time but NOT advertised.
