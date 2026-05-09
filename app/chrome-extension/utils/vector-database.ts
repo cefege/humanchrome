@@ -7,6 +7,15 @@
 import { loadHnswlib } from 'hnswlib-wasm-static';
 import type { TextChunk } from './text-chunker';
 
+// Verbose tracing was previously emitted unconditionally on every embedding
+// lookup and addPoint call (~89 console.log sites in this file). When DEBUG
+// is false the call sites become a single conditional check and bundlers can
+// dead-code-eliminate the no-op `dlog`. Real warnings/errors stay through
+// console.warn / console.error. Flip DEBUG to true to bring the trace back
+// for one-off diagnostics; do not ship with it on.
+const DEBUG = false;
+const dlog: (...args: unknown[]) => void = DEBUG ? (...args) => dlog(...args) : () => {};
+
 export interface VectorDocument {
   id: string;
   tabId: number;
@@ -130,7 +139,7 @@ class IndexedDBHelper {
       await new Promise<void>((resolve, reject) => {
         const request = store.clear();
         request.onsuccess = () => {
-          console.log('IndexedDBHelper: All data cleared from IndexedDB');
+          dlog('IndexedDBHelper: All data cleared from IndexedDB');
           resolve();
         };
         request.onerror = () => reject(request.error);
@@ -177,10 +186,10 @@ async function initializeGlobalHnswlib(): Promise<any> {
 
   globalHnswlibInitPromise = (async () => {
     try {
-      console.log('VectorDatabase: Initializing global hnswlib-wasm instance...');
+      dlog('VectorDatabase: Initializing global hnswlib-wasm instance...');
       globalHnswlib = await loadHnswlib();
       globalHnswlibInitialized = true;
-      console.log('VectorDatabase: Global hnswlib-wasm instance initialized successfully');
+      dlog('VectorDatabase: Global hnswlib-wasm instance initialized successfully');
       return globalHnswlib;
     } catch (error) {
       console.error('VectorDatabase: Failed to initialize global hnswlib-wasm:', error);
@@ -217,7 +226,7 @@ export class VectorDatabase {
       ...config,
     };
 
-    console.log('VectorDatabase: Initialized with config:', {
+    dlog('VectorDatabase: Initialized with config:', {
       dimension: this.config.dimension,
       efSearch: this.config.efSearch,
       M: this.config.M,
@@ -244,11 +253,13 @@ export class VectorDatabase {
 
   private async _doInitialize(): Promise<void> {
     try {
-      console.log('VectorDatabase: Initializing...');
+      dlog('VectorDatabase: Initializing...');
 
       const hnswlib = await initializeGlobalHnswlib();
 
-      hnswlib.EmscriptenFileSystemManager.setDebugLogs(true);
+      // Pre-IMP-0032 this was hard-coded on, flooding the SW console
+      // with WASM FS noise on every embedding lookup. Mirror our DEBUG flag.
+      hnswlib.EmscriptenFileSystemManager.setDebugLogs(DEBUG);
 
       this.index = new hnswlib.HierarchicalNSW(
         'cosine',
@@ -263,7 +274,7 @@ export class VectorDatabase {
       );
 
       if (indexExists) {
-        console.log('VectorDatabase: Loading existing index...');
+        dlog('VectorDatabase: Loading existing index...');
         try {
           await this.index.readIndex(this.config.indexFileName, this.config.maxElements);
           this.index.setEfSearch(this.config.efSearch);
@@ -273,7 +284,7 @@ export class VectorDatabase {
           if (this.documents.size > 0) {
             const maxLabel = Math.max(...Array.from(this.documents.keys()));
             this.nextLabel = maxLabel + 1;
-            console.log(
+            dlog(
               `VectorDatabase: Loaded existing index with ${this.documents.size} documents, next label: ${this.nextLabel}`,
             );
           } else {
@@ -286,7 +297,7 @@ export class VectorDatabase {
             } else {
               this.nextLabel = 0;
             }
-            console.log(
+            dlog(
               `VectorDatabase: No document mappings found, starting with next label: ${this.nextLabel}`,
             );
           }
@@ -306,7 +317,7 @@ export class VectorDatabase {
           this.nextLabel = 0;
         }
       } else {
-        console.log('VectorDatabase: Creating new index...');
+        dlog('VectorDatabase: Creating new index...');
         this.index.initIndex(
           this.config.maxElements,
           this.config.M,
@@ -318,7 +329,7 @@ export class VectorDatabase {
       }
 
       this.isInitialized = true;
-      console.log('VectorDatabase: Initialization completed successfully');
+      dlog('VectorDatabase: Initialization completed successfully');
     } catch (error) {
       console.error('VectorDatabase: Initialization failed:', error);
       this.isInitialized = false;
@@ -390,13 +401,13 @@ export class VectorDatabase {
       // Use current nextLabel as label
       const label = this.nextLabel++;
 
-      console.log(
+      dlog(
         `VectorDatabase: Adding document with label ${label}, embedding dimension: ${embedding.length}`,
       );
 
       // Add vector to index
       // According to hnswlib-wasm-static emscripten binding requirements, need to create VectorFloat type
-      console.log(`VectorDatabase: 🔧 DEBUGGING - About to call addPoint with:`, {
+      dlog(`VectorDatabase: 🔧 DEBUGGING - About to call addPoint with:`, {
         embeddingType: typeof cleanEmbedding,
         isFloat32Array: cleanEmbedding instanceof Float32Array,
         length: cleanEmbedding.length,
@@ -410,7 +421,7 @@ export class VectorDatabase {
       try {
         // Check if VectorFloat constructor exists
         if (globalHnswlib && globalHnswlib.VectorFloat) {
-          console.log('VectorDatabase: Using VectorFloat constructor');
+          dlog('VectorDatabase: Using VectorFloat constructor');
           vectorToAdd = new globalHnswlib.VectorFloat();
           // Add elements to VectorFloat one by one
           for (let i = 0; i < cleanEmbedding.length; i++) {
@@ -418,7 +429,7 @@ export class VectorDatabase {
           }
         } else {
           // Method 2: Use plain JS array (fallback)
-          console.log('VectorDatabase: Using plain JS array as fallback');
+          dlog('VectorDatabase: Using plain JS array as fallback');
           vectorToAdd = Array.from(cleanEmbedding);
         }
 
@@ -437,17 +448,17 @@ export class VectorDatabase {
 
         // Method 3: Try passing Float32Array directly
         try {
-          console.log('VectorDatabase: Trying Float32Array directly');
+          dlog('VectorDatabase: Trying Float32Array directly');
           this.index.addPoint(cleanEmbedding, label, false);
         } catch (float32Error) {
           console.error('VectorDatabase: Float32Array approach failed:', float32Error);
 
           // Method 4: Last resort - use spread operator
-          console.log('VectorDatabase: Trying spread operator as last resort');
+          dlog('VectorDatabase: Trying spread operator as last resort');
           this.index.addPoint([...cleanEmbedding], label, false);
         }
       }
-      console.log(`VectorDatabase: ✅ Successfully added document with label ${label}`);
+      dlog(`VectorDatabase: ✅ Successfully added document with label ${label}`);
 
       // Store document mapping
       this.documents.set(label, document);
@@ -467,7 +478,7 @@ export class VectorDatabase {
         await this.checkAndPerformAutoCleanup();
       }
 
-      console.log(`VectorDatabase: Successfully added document ${documentId} with label ${label}`);
+      dlog(`VectorDatabase: Successfully added document ${documentId} with label ${label}`);
       return label;
     } catch (error) {
       console.error('VectorDatabase: Failed to add document:', error);
@@ -505,18 +516,18 @@ export class VectorDatabase {
         }
       }
 
-      console.log(
+      dlog(
         `VectorDatabase: Searching with query embedding dimension: ${queryEmbedding.length}, topK: ${topK}`,
       );
 
       // Check if index is empty
       const currentCount = this.index.getCurrentCount();
       if (currentCount === 0) {
-        console.log('VectorDatabase: Index is empty, returning no results');
+        dlog('VectorDatabase: Index is empty, returning no results');
         return [];
       }
 
-      console.log(`VectorDatabase: Index contains ${currentCount} vectors`);
+      dlog(`VectorDatabase: Index contains ${currentCount} vectors`);
 
       // Check if document mapping and index are synchronized
       const mappingCount = this.documents.size;
@@ -532,9 +543,7 @@ export class VectorDatabase {
           );
           return [];
         }
-        console.log(
-          `VectorDatabase: Successfully reloaded ${this.documents.size} document mappings`,
-        );
+        dlog(`VectorDatabase: Successfully reloaded ${this.documents.size} document mappings`);
       }
 
       // Process query vector according to hnswlib-wasm-static emscripten binding requirements
@@ -544,7 +553,7 @@ export class VectorDatabase {
       try {
         // Method 1: Try using VectorFloat constructor (if available)
         if (globalHnswlib && globalHnswlib.VectorFloat) {
-          console.log('VectorDatabase: Using VectorFloat for search query');
+          dlog('VectorDatabase: Using VectorFloat for search query');
           queryVector = new globalHnswlib.VectorFloat();
           // Add elements to VectorFloat one by one
           for (let i = 0; i < queryEmbedding.length; i++) {
@@ -558,7 +567,7 @@ export class VectorDatabase {
           }
         } else {
           // Method 2: Use plain JS array (fallback)
-          console.log('VectorDatabase: Using plain JS array for search query');
+          dlog('VectorDatabase: Using plain JS array for search query');
           const queryArray = Array.from(queryEmbedding);
           searchResult = this.index.searchKnn(queryArray, topK, undefined);
         }
@@ -570,36 +579,36 @@ export class VectorDatabase {
 
         // Method 3: Try passing Float32Array directly
         try {
-          console.log('VectorDatabase: Trying Float32Array directly for search');
+          dlog('VectorDatabase: Trying Float32Array directly for search');
           searchResult = this.index.searchKnn(queryEmbedding, topK, undefined);
         } catch (float32Error) {
           console.error('VectorDatabase: Float32Array search failed:', float32Error);
 
           // Method 4: Last resort - use spread operator
-          console.log('VectorDatabase: Trying spread operator for search as last resort');
+          dlog('VectorDatabase: Trying spread operator for search as last resort');
           searchResult = this.index.searchKnn([...queryEmbedding], topK, undefined);
         }
       }
 
       const results: SearchResult[] = [];
 
-      console.log(`VectorDatabase: Processing ${searchResult.neighbors.length} search neighbors`);
-      console.log(`VectorDatabase: Available documents in mapping: ${this.documents.size}`);
-      console.log(`VectorDatabase: Index current count: ${this.index.getCurrentCount()}`);
+      dlog(`VectorDatabase: Processing ${searchResult.neighbors.length} search neighbors`);
+      dlog(`VectorDatabase: Available documents in mapping: ${this.documents.size}`);
+      dlog(`VectorDatabase: Index current count: ${this.index.getCurrentCount()}`);
 
       for (let i = 0; i < searchResult.neighbors.length; i++) {
         const label = searchResult.neighbors[i];
         const distance = searchResult.distances[i];
         const similarity = 1 - distance; // Convert cosine distance to similarity
 
-        console.log(
+        dlog(
           `VectorDatabase: Processing neighbor ${i}: label=${label}, distance=${distance}, similarity=${similarity}`,
         );
 
         // Find corresponding document by label
         const document = this.findDocumentByLabel(label);
         if (document) {
-          console.log(`VectorDatabase: Found document for label ${label}: ${document.id}`);
+          dlog(`VectorDatabase: Found document for label ${label}: ${document.id}`);
           results.push({
             document,
             similarity,
@@ -627,7 +636,7 @@ export class VectorDatabase {
         }
       }
 
-      console.log(
+      dlog(
         `VectorDatabase: Found ${results.length} search results out of ${searchResult.neighbors.length} neighbors`,
       );
 
@@ -687,7 +696,7 @@ export class VectorDatabase {
       // Save changes
       await this.saveDocumentMappings();
 
-      console.log(`VectorDatabase: Removed ${documentLabels.size} documents for tab ${tabId}`);
+      dlog(`VectorDatabase: Removed ${documentLabels.size} documents for tab ${tabId}`);
     } catch (error) {
       console.error('VectorDatabase: Failed to remove tab documents:', error);
       throw error;
@@ -727,7 +736,7 @@ export class VectorDatabase {
       const indexStructureSize = this.calculateIndexStructureSize();
       totalSize += indexStructureSize;
 
-      console.log(
+      dlog(
         `VectorDatabase: Storage size breakdown - Documents: ${documentsSize}, Vectors: ${vectorsSize}, Index: ${indexStructureSize}, Total: ${totalSize} bytes`,
       );
     } catch (error) {
@@ -819,7 +828,7 @@ export class VectorDatabase {
    * Clear entire database
    */
   public async clear(): Promise<void> {
-    console.log('VectorDatabase: Starting complete database clear...');
+    dlog('VectorDatabase: Starting complete database clear...');
 
     try {
       // Clear in-memory data structures
@@ -830,7 +839,7 @@ export class VectorDatabase {
       // Clear HNSW index file (in hnswlib-index database)
       if (this.isInitialized && this.index) {
         try {
-          console.log('VectorDatabase: Clearing HNSW index file from IndexedDB...');
+          dlog('VectorDatabase: Clearing HNSW index file from IndexedDB...');
 
           // 1. First try to physically delete index file (using EmscriptenFileSystemManager)
           try {
@@ -838,16 +847,14 @@ export class VectorDatabase {
               globalHnswlib &&
               globalHnswlib.EmscriptenFileSystemManager.checkFileExists(this.config.indexFileName)
             ) {
-              console.log(
-                `VectorDatabase: Deleting physical index file: ${this.config.indexFileName}`,
-              );
+              dlog(`VectorDatabase: Deleting physical index file: ${this.config.indexFileName}`);
               globalHnswlib.EmscriptenFileSystemManager.deleteFile(this.config.indexFileName);
               await this.syncFileSystem('write'); // Ensure deletion is synced to persistent storage
-              console.log(
+              dlog(
                 `VectorDatabase: Physical index file ${this.config.indexFileName} deleted successfully`,
               );
             } else {
-              console.log(
+              dlog(
                 `VectorDatabase: Physical index file ${this.config.indexFileName} does not exist or already deleted`,
               );
             }
@@ -861,10 +868,10 @@ export class VectorDatabase {
 
           // 2. Delete index file from IndexedDB
           await this.index.deleteIndex(this.config.indexFileName);
-          console.log('VectorDatabase: HNSW index file cleared from IndexedDB');
+          dlog('VectorDatabase: HNSW index file cleared from IndexedDB');
 
           // 3. Reinitialize empty index
-          console.log('VectorDatabase: Reinitializing empty HNSW index...');
+          dlog('VectorDatabase: Reinitializing empty HNSW index...');
           this.index.initIndex(
             this.config.maxElements,
             this.config.M,
@@ -883,9 +890,9 @@ export class VectorDatabase {
 
       // Clear document mappings from IndexedDB (in VectorDatabaseStorage database)
       try {
-        console.log('VectorDatabase: Clearing document mappings from IndexedDB...');
+        dlog('VectorDatabase: Clearing document mappings from IndexedDB...');
         await IndexedDBHelper.deleteData(this.config.indexFileName);
-        console.log('VectorDatabase: Document mappings cleared from IndexedDB');
+        dlog('VectorDatabase: Document mappings cleared from IndexedDB');
       } catch (idbError) {
         console.warn(
           'VectorDatabase: Failed to clear document mappings from IndexedDB, trying chrome.storage fallback:',
@@ -896,7 +903,7 @@ export class VectorDatabase {
         try {
           const storageKey = `hnswlib_document_mappings_${this.config.indexFileName}`;
           await chrome.storage.local.remove([storageKey]);
-          console.log('VectorDatabase: Chrome storage fallback cleared');
+          dlog('VectorDatabase: Chrome storage fallback cleared');
         } catch (storageError) {
           console.warn('VectorDatabase: Failed to clear chrome.storage fallback:', storageError);
         }
@@ -905,7 +912,7 @@ export class VectorDatabase {
       // Save empty document mappings to ensure consistency
       await this.saveDocumentMappings();
 
-      console.log('VectorDatabase: Complete database clear finished successfully');
+      dlog('VectorDatabase: Complete database clear finished successfully');
     } catch (error) {
       console.error('VectorDatabase: Failed to clear database:', error);
       throw error;
@@ -932,13 +939,11 @@ export class VectorDatabase {
       const currentCount = this.documents.size;
       const maxElements = this.config.maxElements;
 
-      console.log(
-        `VectorDatabase: Auto cleanup check - current: ${currentCount}, max: ${maxElements}`,
-      );
+      dlog(`VectorDatabase: Auto cleanup check - current: ${currentCount}, max: ${maxElements}`);
 
       // Check if maximum element count is exceeded
       if (currentCount >= maxElements) {
-        console.log('VectorDatabase: Document count reached limit, performing cleanup...');
+        dlog('VectorDatabase: Document count reached limit, performing cleanup...');
         await this.performLRUCleanup(Math.floor(maxElements * 0.2)); // Clean up 20% of data
       }
 
@@ -956,9 +961,7 @@ export class VectorDatabase {
    */
   private async performLRUCleanup(cleanupCount: number): Promise<void> {
     try {
-      console.log(
-        `VectorDatabase: Starting LRU cleanup, removing ${cleanupCount} oldest documents`,
-      );
+      dlog(`VectorDatabase: Starting LRU cleanup, removing ${cleanupCount} oldest documents`);
 
       // Get all documents and sort by timestamp
       const allDocuments = Array.from(this.documents.entries());
@@ -975,9 +978,7 @@ export class VectorDatabase {
       await this.saveIndex();
       await this.saveDocumentMappings();
 
-      console.log(
-        `VectorDatabase: LRU cleanup completed, removed ${documentsToDelete.length} documents`,
-      );
+      dlog(`VectorDatabase: LRU cleanup completed, removed ${documentsToDelete.length} documents`);
     } catch (error) {
       console.error('VectorDatabase: LRU cleanup failed:', error);
     }
@@ -991,7 +992,7 @@ export class VectorDatabase {
       const maxRetentionMs = this.config.maxRetentionDays! * 24 * 60 * 60 * 1000;
       const cutoffTime = Date.now() - maxRetentionMs;
 
-      console.log(
+      dlog(
         `VectorDatabase: Starting time-based cleanup, removing documents older than ${this.config.maxRetentionDays} days`,
       );
 
@@ -1013,7 +1014,7 @@ export class VectorDatabase {
         await this.saveDocumentMappings();
       }
 
-      console.log(
+      dlog(
         `VectorDatabase: Time-based cleanup completed, removed ${documentsToDelete.length} expired documents`,
       );
     } catch (error) {
@@ -1057,7 +1058,7 @@ export class VectorDatabase {
         }
       }
 
-      console.log(`VectorDatabase: Removed document with label ${label} from tab ${tabId}`);
+      dlog(`VectorDatabase: Removed document with label ${label} from tab ${tabId}`);
     } catch (error) {
       console.error(`VectorDatabase: Failed to remove document with label ${label}:`, error);
     }
@@ -1079,7 +1080,7 @@ export class VectorDatabase {
 
       // If sync operation is already in progress, wait for it to complete
       if (syncInProgress && pendingSyncPromise) {
-        console.log(`VectorDatabase: Sync already in progress, waiting...`);
+        dlog(`VectorDatabase: Sync already in progress, waiting...`);
         await pendingSyncPromise;
         return;
       }
@@ -1099,7 +1100,7 @@ export class VectorDatabase {
         try {
           globalHnswlib.EmscriptenFileSystemManager.syncFS(direction === 'read', () => {
             clearTimeout(timeout);
-            console.log(`VectorDatabase: Filesystem sync (${direction}) completed`);
+            dlog(`VectorDatabase: Filesystem sync (${direction}) completed`);
             syncInProgress = false;
             pendingSyncPromise = null;
             resolve();
@@ -1149,7 +1150,7 @@ export class VectorDatabase {
       try {
         // Use IndexedDB to save data, supports larger storage capacity
         await IndexedDBHelper.saveData(this.config.indexFileName, mappingData);
-        console.log('VectorDatabase: Document mappings saved to IndexedDB');
+        dlog('VectorDatabase: Document mappings saved to IndexedDB');
       } catch (idbError) {
         console.warn(
           'VectorDatabase: Failed to save to IndexedDB, falling back to chrome.storage:',
@@ -1160,7 +1161,7 @@ export class VectorDatabase {
         try {
           const storageKey = `hnswlib_document_mappings_${this.config.indexFileName}`;
           await chrome.storage.local.set({ [storageKey]: mappingData });
-          console.log('VectorDatabase: Document mappings saved to chrome.storage.local (fallback)');
+          dlog('VectorDatabase: Document mappings saved to chrome.storage.local (fallback)');
         } catch (storageError) {
           console.error(
             'VectorDatabase: Failed to save to both IndexedDB and chrome.storage:',
@@ -1186,7 +1187,7 @@ export class VectorDatabase {
         // First try to read from IndexedDB
         mappingData = await IndexedDBHelper.loadData(this.config.indexFileName);
         if (mappingData) {
-          console.log(`VectorDatabase: Loaded document mappings from IndexedDB`);
+          dlog(`VectorDatabase: Loaded document mappings from IndexedDB`);
         }
       } catch (idbError) {
         console.warn(
@@ -1202,14 +1203,12 @@ export class VectorDatabase {
           const result = await chrome.storage.local.get([storageKey]);
           mappingData = result[storageKey];
           if (mappingData) {
-            console.log(
-              `VectorDatabase: Loaded document mappings from chrome.storage.local (fallback)`,
-            );
+            dlog(`VectorDatabase: Loaded document mappings from chrome.storage.local (fallback)`);
 
             // Migrate to IndexedDB
             try {
               await IndexedDBHelper.saveData(this.config.indexFileName, mappingData);
-              console.log('VectorDatabase: Migrated data from chrome.storage to IndexedDB');
+              dlog('VectorDatabase: Migrated data from chrome.storage to IndexedDB');
             } catch (migrationError) {
               console.warn('VectorDatabase: Failed to migrate data to IndexedDB:', migrationError);
             }
@@ -1243,11 +1242,11 @@ export class VectorDatabase {
           this.nextLabel = 0;
         }
 
-        console.log(
+        dlog(
           `VectorDatabase: Loaded ${this.documents.size} document mappings, next label: ${this.nextLabel}`,
         );
       } else {
-        console.log('VectorDatabase: No existing document mappings found');
+        dlog('VectorDatabase: No existing document mappings found');
       }
     } catch (error) {
       console.error('VectorDatabase: Failed to load document mappings:', error);
@@ -1270,14 +1269,14 @@ export async function getGlobalVectorDatabase(
 
   // If dimension changes, need to recreate vector database
   if (globalVectorDatabase && currentDimension !== null && currentDimension !== newDimension) {
-    console.log(
+    dlog(
       `VectorDatabase: Dimension changed from ${currentDimension} to ${newDimension}, recreating instance`,
     );
 
     // Clean up old instance - this will clean up index files and document mappings
     try {
       await globalVectorDatabase.clear();
-      console.log('VectorDatabase: Successfully cleared old instance for dimension change');
+      dlog('VectorDatabase: Successfully cleared old instance for dimension change');
     } catch (error) {
       console.warn('VectorDatabase: Error during cleanup:', error);
     }
@@ -1289,9 +1288,7 @@ export async function getGlobalVectorDatabase(
   if (!globalVectorDatabase) {
     globalVectorDatabase = new VectorDatabase(config);
     currentDimension = newDimension;
-    console.log(
-      `VectorDatabase: Created global singleton instance with dimension ${currentDimension}`,
-    );
+    dlog(`VectorDatabase: Created global singleton instance with dimension ${currentDimension}`);
   }
 
   return globalVectorDatabase;
@@ -1316,9 +1313,7 @@ export function getGlobalVectorDatabaseSync(
   if (!globalVectorDatabase) {
     globalVectorDatabase = new VectorDatabase(config);
     currentDimension = newDimension;
-    console.log(
-      `VectorDatabase: Created global singleton instance with dimension ${currentDimension}`,
-    );
+    dlog(`VectorDatabase: Created global singleton instance with dimension ${currentDimension}`);
   }
 
   return globalVectorDatabase;
@@ -1328,13 +1323,13 @@ export function getGlobalVectorDatabaseSync(
  * Reset global VectorDatabase instance (mainly for testing or model switching)
  */
 export async function resetGlobalVectorDatabase(): Promise<void> {
-  console.log('VectorDatabase: Starting global instance reset...');
+  dlog('VectorDatabase: Starting global instance reset...');
 
   if (globalVectorDatabase) {
     try {
-      console.log('VectorDatabase: Clearing existing global instance...');
+      dlog('VectorDatabase: Clearing existing global instance...');
       await globalVectorDatabase.clear();
-      console.log('VectorDatabase: Global instance cleared successfully');
+      dlog('VectorDatabase: Global instance cleared successfully');
     } catch (error) {
       console.warn('VectorDatabase: Failed to clear during reset:', error);
     }
@@ -1342,14 +1337,14 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
 
   // Additional cleanup: ensure all possible IndexedDB data is cleared
   try {
-    console.log('VectorDatabase: Performing comprehensive IndexedDB cleanup...');
+    dlog('VectorDatabase: Performing comprehensive IndexedDB cleanup...');
 
     // Clear all data in VectorDatabaseStorage database
     await IndexedDBHelper.clearAllData();
 
     // Clear index files from hnswlib-index database
     try {
-      console.log('VectorDatabase: Clearing HNSW index files from IndexedDB...');
+      dlog('VectorDatabase: Clearing HNSW index files from IndexedDB...');
 
       // Try to clean up possible existing index files
       const possibleIndexFiles = ['tab_content_index.dat', 'content_index.dat', 'vector_index.dat'];
@@ -1361,12 +1356,12 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
             // 1. First try to physically delete index file (using EmscriptenFileSystemManager)
             try {
               if (globalHnswlib.EmscriptenFileSystemManager.checkFileExists(fileName)) {
-                console.log(`VectorDatabase: Deleting physical index file: ${fileName}`);
+                dlog(`VectorDatabase: Deleting physical index file: ${fileName}`);
                 globalHnswlib.EmscriptenFileSystemManager.deleteFile(fileName);
-                console.log(`VectorDatabase: Physical index file ${fileName} deleted successfully`);
+                dlog(`VectorDatabase: Physical index file ${fileName} deleted successfully`);
               }
             } catch (fileError) {
-              console.log(
+              dlog(
                 `VectorDatabase: Physical index file ${fileName} not found or failed to delete:`,
                 fileError,
               );
@@ -1375,10 +1370,10 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
             // 2. Delete index file from IndexedDB
             const tempIndex = new globalHnswlib.HierarchicalNSW('cosine', 384);
             await tempIndex.deleteIndex(fileName);
-            console.log(`VectorDatabase: Deleted IndexedDB index file: ${fileName}`);
+            dlog(`VectorDatabase: Deleted IndexedDB index file: ${fileName}`);
           } catch (deleteError) {
             // File might not exist, this is normal
-            console.log(`VectorDatabase: Index file ${fileName} not found or already deleted`);
+            dlog(`VectorDatabase: Index file ${fileName} not found or already deleted`);
           }
         }
 
@@ -1392,7 +1387,7 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
 
             globalHnswlib.EmscriptenFileSystemManager.syncFS(false, () => {
               clearTimeout(timeout);
-              console.log('VectorDatabase: Filesystem sync completed during cleanup');
+              dlog('VectorDatabase: Filesystem sync completed during cleanup');
               resolve();
             });
           });
@@ -1416,20 +1411,20 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
     if (possibleKeys.length > 0) {
       try {
         await chrome.storage.local.remove(possibleKeys);
-        console.log('VectorDatabase: Chrome storage backup data cleared');
+        dlog('VectorDatabase: Chrome storage backup data cleared');
       } catch (storageError) {
         console.warn('VectorDatabase: Failed to clear chrome.storage backup:', storageError);
       }
     }
 
-    console.log('VectorDatabase: Comprehensive cleanup completed');
+    dlog('VectorDatabase: Comprehensive cleanup completed');
   } catch (cleanupError) {
     console.warn('VectorDatabase: Comprehensive cleanup failed:', cleanupError);
   }
 
   globalVectorDatabase = null;
   currentDimension = null;
-  console.log('VectorDatabase: Global singleton instance reset completed');
+  dlog('VectorDatabase: Global singleton instance reset completed');
 }
 
 /**
@@ -1437,7 +1432,7 @@ export async function resetGlobalVectorDatabase(): Promise<void> {
  * Clear all IndexedDB data, including HNSW index files and document mappings
  */
 export async function clearAllVectorData(): Promise<void> {
-  console.log('VectorDatabase: Starting comprehensive vector data cleanup for model switch...');
+  dlog('VectorDatabase: Starting comprehensive vector data cleanup for model switch...');
 
   try {
     // 1. Clear global instance
@@ -1451,7 +1446,7 @@ export async function clearAllVectorData(): Promise<void> {
 
     // 2. Clear VectorDatabaseStorage database
     try {
-      console.log('VectorDatabase: Clearing VectorDatabaseStorage database...');
+      dlog('VectorDatabase: Clearing VectorDatabaseStorage database...');
       await IndexedDBHelper.clearAllData();
     } catch (error) {
       console.warn('VectorDatabase: Failed to clear VectorDatabaseStorage:', error);
@@ -1459,7 +1454,7 @@ export async function clearAllVectorData(): Promise<void> {
 
     // 3. Clear hnswlib-index database and physical files
     try {
-      console.log('VectorDatabase: Clearing hnswlib-index database and physical files...');
+      dlog('VectorDatabase: Clearing hnswlib-index database and physical files...');
 
       // 3.1 First try to physically delete index files (using EmscriptenFileSystemManager)
       if (typeof globalHnswlib !== 'undefined' && globalHnswlib) {
@@ -1472,12 +1467,12 @@ export async function clearAllVectorData(): Promise<void> {
         for (const fileName of possibleIndexFiles) {
           try {
             if (globalHnswlib.EmscriptenFileSystemManager.checkFileExists(fileName)) {
-              console.log(`VectorDatabase: Deleting physical index file: ${fileName}`);
+              dlog(`VectorDatabase: Deleting physical index file: ${fileName}`);
               globalHnswlib.EmscriptenFileSystemManager.deleteFile(fileName);
-              console.log(`VectorDatabase: Physical index file ${fileName} deleted successfully`);
+              dlog(`VectorDatabase: Physical index file ${fileName} deleted successfully`);
             }
           } catch (fileError) {
-            console.log(
+            dlog(
               `VectorDatabase: Physical index file ${fileName} not found or failed to delete:`,
               fileError,
             );
@@ -1494,7 +1489,7 @@ export async function clearAllVectorData(): Promise<void> {
 
             globalHnswlib.EmscriptenFileSystemManager.syncFS(false, () => {
               clearTimeout(timeout);
-              console.log('VectorDatabase: Filesystem sync completed during model switch cleanup');
+              dlog('VectorDatabase: Filesystem sync completed during model switch cleanup');
               resolve();
             });
           });
@@ -1510,7 +1505,7 @@ export async function clearAllVectorData(): Promise<void> {
       await new Promise<void>((resolve) => {
         const deleteRequest = indexedDB.deleteDatabase('/hnswlib-index');
         deleteRequest.onsuccess = () => {
-          console.log('VectorDatabase: Successfully deleted /hnswlib-index database');
+          dlog('VectorDatabase: Successfully deleted /hnswlib-index database');
           resolve();
         };
         deleteRequest.onerror = () => {
@@ -1540,7 +1535,7 @@ export async function clearAllVectorData(): Promise<void> {
         'hnswlib_document_mappings_vector_index.dat',
       ];
       await chrome.storage.local.remove(storageKeys);
-      console.log('VectorDatabase: Chrome storage backup data cleared');
+      dlog('VectorDatabase: Chrome storage backup data cleared');
     } catch (error) {
       console.warn('VectorDatabase: Failed to clear chrome.storage backup:', error);
     }
@@ -1549,7 +1544,7 @@ export async function clearAllVectorData(): Promise<void> {
     globalVectorDatabase = null;
     currentDimension = null;
 
-    console.log('VectorDatabase: Comprehensive vector data cleanup completed successfully');
+    dlog('VectorDatabase: Comprehensive vector data cleanup completed successfully');
   } catch (error) {
     console.error('VectorDatabase: Comprehensive vector data cleanup failed:', error);
     throw error;

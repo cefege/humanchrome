@@ -87,17 +87,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Export isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel from css-helpers.ts. Delete the 8 local copies. Update each file import. Functions are self-contained.
 - **Risk**: Low. TypeScript compiler will catch any body divergence at compile time.
 
-### IMP-0032 · Strip verbose debug logging and unconditional setDebugLogs(true) from vector-database.ts hot path (perf) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: VectorDatabase.search() and addDocument() emit 158 console.log calls across their execution paths, including per-call logs like "Processing N search neighbors", "Available documents in mapping", and "About to call addPoint". In addition, hnswlib.EmscriptenFileSystemManager.setDebugLogs(true) is unconditionally set on every initialization, flooding the service-worker console with WASM FS noise. Both are debug artifacts that add synchronous string-formatting overhead on every embedding lookup.
-- **Cost**: S
-- **Value**: M
-- **Files**: (1557 LoC, 158 console.log calls)
-- **Sketch**: Replace the 158 console.log with a single debug-flag guard (const DEBUG = false) at the top of the file; calls become if (DEBUG) console.log(...). Change setDebugLogs(true) to setDebugLogs(false). Keep console.error for real errors.
-- **Risk**: Low. No behavior change. Loss of verbose tracing for future debugging mitigated by the DEBUG flag being a one-line change to re-enable.
-
 ### IMP-0041 · Add chrome_list_injected_scripts tool to enumerate active injections per tab (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-08
@@ -390,6 +379,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0032 · Strip verbose debug logging from vector-database.ts hot path (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Routed all 89 informational `console.log` sites in `app/chrome-extension/utils/vector-database.ts` (1557 LoC, hit on every embedding lookup) through a module-level `dlog()` helper that's a no-op when `const DEBUG = false`. Bundlers can DCE the call sites; flipping DEBUG to true brings the trace back. The unconditional `EmscriptenFileSystemManager.setDebugLogs(true)` was changed to `setDebugLogs(DEBUG)` so it mirrors the same flag — no more WASM FS noise on every embedding lookup. The 38 `console.warn` and 31 `console.error` sites stay direct so real warnings/errors aren't muffled. New `tests/utils/vector-database-debug-logging.test.ts` (6 tests) acts as a regression guard via static analysis (DEBUG=false declaration, ≤1 direct console.log site, setDebugLogs(DEBUG) not setDebugLogs(true), ≥20 console.warn / ≥20 console.error preserved, dlog ternary on DEBUG with a no-op false branch) plus a runtime check that module import emits zero console.log. Extension: 700/700, typecheck clean. No tool-schema changes.
+- **Branch**: perf/imp-0032-vector-db-debug-logging
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
