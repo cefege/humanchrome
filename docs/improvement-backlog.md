@@ -67,15 +67,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   New tool chrome_history_delete. Params: url? (delete single URL), startTime?/endTime? (delete range — same date-parse conventions as chrome_history), all?: boolean (deleteAll shortcut, requires explicit true to avoid accidents). Returns { deleted: number } via chrome.history.deleteUrl/deleteRange/deleteAll. Touch: history.ts (add execute branch or second class), TOOL_NAMES.BROWSER.HISTORY_DELETE, TOOL_SCHEMAS entry, TOOL_CATEGORIES map. Zero new infrastructure — same permission already granted.
 
-### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_network_capture action=stop returns all accumulated entries and tears down the listener. In long-running scrape sessions (e.g. scrolling an infinite feed for 5 minutes) an agent cannot drain the buffer periodically to stay within context limits — it must stop, read, restart, losing requests that arrive during the restart gap. A flush action returns and clears the internal buffer while keeping the webRequest/debugger listener attached.
-- **Cost**: S
-- **Value**: M
-  Add action enum value flush to the chrome_network_capture schema (alongside start and stop). Implementation: the existing handler already accumulates requests in an in-memory array; flush returns a snapshot of that array and splices it empty without calling stop(). Returns the same shape as stop (requests[], requestCount, etc.). Touch: tools/browser/network-capture.ts handler, TOOL_SCHEMAS action enum. No new infrastructure — flush is a pure read+clear of the existing buffer.
-
 ### IMP-0031 · Extend css-helpers.ts to deduplicate isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel across 8 control files (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-07
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added `action: "flush"` to the unified `chrome_network_capture` tool. Both backends now expose `flushCapture(tabId)` that snapshots the current request buffer in the same envelope shape `stop` produces (with `flushed: true`, `stillActive: true`, `flushedAt`, and `previousFlushAt` for stitching multiple drains), then clears `captureInfo.requests`, `requestCounters`, and `limitReached` while leaving listeners, timers, and the CDP session intact. `lastActivityTime` is bumped so the inactivity watchdog doesn't fire as a side-effect of the drain pause; the MAX_REQUESTS cap also resets per flush so long sessions don't stay stuck at the cap. `stopCapture` on both backends was refactored to share a private `buildResultData()` helper with `flushCapture` — keeps the envelope shapes in lockstep. New `tests/tools/browser/network-capture-flush.test.ts` (20 tests) covers each backend's flush, the unified routing (web-only, debugger-only, needResponseBody preference, fallback, multi-tab drain, active-tab preference), the no-active-capture and unknown-action error paths, the post-flush stop-without-double-counting invariant, and a stop-envelope regression check on both backends. Extension: 714/714, typecheck + lint clean.
+- **Branch**: feat/imp-0028-network-capture-flush
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

@@ -745,14 +745,15 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
     description:
-      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.',
+      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results, action="flush" to drain the buffer mid-session without stopping. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.\n\n`flush` returns the same envelope as `stop` (with `flushed:true` and `stillActive:true`) and clears the in-memory buffer while keeping listeners and timers attached — use it for long-running scrape sessions where you need to drain accumulated requests every few minutes to stay within context limits without losing the requests that arrive during a stop/restart gap.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['start', 'stop'],
-          description: 'Action to perform: "start" begins capture, "stop" ends and returns results',
+          enum: ['start', 'stop', 'flush'],
+          description:
+            'Action to perform: "start" begins capture, "stop" ends and returns results, "flush" returns the buffered results so far and clears them without ending the capture.',
         },
         needResponseBody: {
           type: 'boolean',
