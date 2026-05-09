@@ -325,6 +325,14 @@ Inject a user-specified content script into a webpage. By default, injects into 
 | `type` | `ISOLATED` \| `MAIN` | ✓ | The JavaScript world the script should execute in. Must be ISOLATED or MAIN. |
 | `jsScript` | string | ✓ | The JavaScript source to inject. |
 
+### `chrome_list_injected_scripts`
+
+List the user scripts currently injected via chrome_inject_script across all tabs. Returns one entry per injected tab with `{ tabId, world, scriptLength, injectedAt }`. Use this for safe pre-flight checks before chrome_inject_script (idempotent inject-once patterns) and to confirm a tab still carries an active bridge before chrome_send_command_to_inject_script. Read-only — never modifies extension state.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | When provided, return only the entry for this tab id (or an empty array if no injection). Omit to list every injected tab. |
+
 ### `chrome_send_command_to_inject_script`
 
 If the script injected via chrome_inject_script listens for user-defined events, this tool dispatches those events to the injected script.
