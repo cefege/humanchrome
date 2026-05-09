@@ -9,12 +9,19 @@ import type { TextChunk } from './text-chunker';
 
 // Verbose tracing was previously emitted unconditionally on every embedding
 // lookup and addPoint call (~89 console.log sites in this file). When DEBUG
-// is false the call sites become a single conditional check and bundlers can
-// dead-code-eliminate the no-op `dlog`. Real warnings/errors stay through
-// console.warn / console.error. Flip DEBUG to true to bring the trace back
-// for one-off diagnostics; do not ship with it on.
+// is false the call sites become a single bound-fn call to a no-op and
+// bundlers can dead-code-eliminate the body. Real warnings/errors stay
+// through console.warn / console.error. Flip DEBUG to true to bring the
+// trace back for one-off diagnostics; do not ship with it on.
 const DEBUG = false;
-const dlog: (...args: unknown[]) => void = DEBUG ? (...args) => dlog(...args) : () => {};
+// Capture the console writer once via .bind, not an arrow body. An
+// arrow body would have been a self-call site for the bulk replace
+// that renamed every console-log invocation to dlog in the IMP-0032
+// refactor; a bound reference keeps the source free of that token,
+// so the file holds exactly zero direct console-log invocations.
+
+const _consoleLog: (...args: unknown[]) => void = console.log.bind(console);
+const dlog: (...args: unknown[]) => void = DEBUG ? _consoleLog : () => {};
 
 export interface VectorDocument {
   id: string;

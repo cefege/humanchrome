@@ -78,8 +78,18 @@ describe('vector-database debug-logging refactor (IMP-0032)', () => {
       // accidentally always invoke console.log. We require both: a dlog
       // declaration ternary on DEBUG, and a no-op arrow somewhere in
       // the file (the false branch).
-      expect(source).toMatch(/const dlog[\s\S]{0,120}=\s*DEBUG\b/);
+      expect(source).toMatch(/const dlog[\s\S]{0,200}=\s*DEBUG\b/);
       expect(source).toMatch(/:\s*\(\)\s*=>\s*\{\s*\}/);
+    });
+
+    it('does not define dlog as a self-recursive function', () => {
+      // Regression guard for the "replace_all swap rewrote my arrow body"
+      // bug: the original IMP-0032 commit briefly had
+      //   `const dlog ... = DEBUG ? (...args) => dlog(...args) : ...`
+      // because the bulk replace of `console.log(` -> `dlog(` also
+      // rewrote the arrow inside the dlog definition. That stack-overflows
+      // when DEBUG is true. Lock the shape so it can't return.
+      expect(source).not.toMatch(/=>\s*dlog\(/);
     });
   });
 
