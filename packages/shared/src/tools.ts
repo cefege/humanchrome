@@ -141,6 +141,7 @@ export const TOOL_NAMES = {
     DRAG_DROP: 'chrome_drag_drop',
     DOWNLOAD_LIST: 'chrome_download_list',
     DOWNLOAD_CANCEL: 'chrome_download_cancel',
+    REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2952,6 +2953,22 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['downloadId'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT,
+    description:
+      "Explicitly tear down a user script previously installed via `chrome_inject_script` on a tab. Sends the existing `humanchrome:cleanup` teardown signal and drops the tab from the internal `injectedTabs` registry. Useful for monitoring bridges (mutation observers, WebSocket proxies) that an agent wants to remove before handing the tab back to the user — without this, the only way to unload was to navigate the tab away. Returns `{removed, tabId}`. Idempotent: `removed:false` when the tab had no injection (callers that don't track state can call freely without checking first).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description:
+            'Target tab. Falls back to the active tab in the focused window when omitted.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -3076,6 +3093,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DRAG_DROP]: 'Interaction',
   [TOOL_NAMES.BROWSER.DOWNLOAD_LIST]: 'Files',
   [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
+  [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

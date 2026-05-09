@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
 
 interface InjectScriptParam {
@@ -288,9 +288,77 @@ class ListInjectedScriptsTool extends BaseBrowserToolExecutor {
   }
 }
 
+export interface RemoveInjectedScriptParams {
+  tabId?: number;
+}
+
+/**
+ * Tear down an injected user script (IMP-0029). Wraps the internal
+ * `handleCleanup`, which was previously only reachable via tab close.
+ * Returns `{ removed: boolean, tabId }`; `removed:false` means there was
+ * nothing to remove, so callers that don't track state can call freely.
+ */
+class RemoveInjectedScriptTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT;
+  static readonly mutates = true;
+
+  async execute(args: RemoveInjectedScriptParams = {}): Promise<ToolResult> {
+    let tabId = typeof args.tabId === 'number' ? args.tabId : undefined;
+    if (tabId === undefined) {
+      try {
+        const tab = await this.getActiveTabOrThrowInWindow();
+        tabId = tab.id;
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return createErrorResponse(msg, ToolErrorCode.TAB_NOT_FOUND);
+      }
+    }
+    if (typeof tabId !== 'number') {
+      return createErrorResponse('Active tab has no ID', ToolErrorCode.TAB_NOT_FOUND);
+    }
+
+    if (!injectedTabs.has(tabId)) {
+      return jsonOk({ removed: false, tabId });
+    }
+    try {
+      await handleCleanup(tabId);
+      return jsonOk({ removed: true, tabId });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // Tab raced closure between has-check and cleanup; the map entry was
+      // still cleared, so report removed:true.
+      if (/no tab with id/i.test(msg)) {
+        return jsonOk({ removed: true, tabId });
+      }
+      return createErrorResponse(
+        `chrome_remove_injected_script failed: ${msg}`,
+        ToolErrorCode.UNKNOWN,
+        { tabId },
+      );
+    }
+  }
+}
+
+function jsonOk(body: Record<string, unknown>): ToolResult {
+  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
+}
+
 export const injectScriptTool = new InjectScriptTool();
 export const listInjectedScriptsTool = new ListInjectedScriptsTool();
 export const sendCommandToInjectScriptTool = new SendCommandToInjectScriptTool();
+export const removeInjectedScriptTool = new RemoveInjectedScriptTool();
+
+/** Test-only — seed the injectedTabs map without going through the public inject path. */
+export function _seedInjectedTabForTest(
+  tabId: number,
+  entry: { type: ExecutionWorld; jsScript: string; injectedAt?: number },
+): void {
+  injectedTabs.set(tabId, {
+    type: entry.type,
+    jsScript: entry.jsScript,
+    injectedAt: entry.injectedAt ?? Date.now(),
+  });
+}
 
 // --- Automatic Cleanup Listeners ---
 chrome.tabs.onRemoved.addListener((tabId) => {
