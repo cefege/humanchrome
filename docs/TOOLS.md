@@ -685,6 +685,7 @@ Return recent debug-log entries from the extension. Each entry includes a `reque
 | `sinceMs` | number |  | Absolute epoch milliseconds — only return entries newer than this. |
 | `limit` | number |  | Maximum entries to return. Defaults to 200, max 1000. |
 | `clear` | boolean |  | When true, wipe the buffer instead of returning entries. |
+| `persist` | boolean |  | Toggle whether log entries are written through to chrome.storage.local across SW restarts. Off by default (steady-state SW CPU optimization, IMP-0059) — `true` enables persistence so future logs survive a service-worker restart, `false` disables it and clears the persisted blob, omitted leaves the current state unchanged. The response always includes `persistEnabled` so callers can check the current state. |
 
 ## Pacing
 

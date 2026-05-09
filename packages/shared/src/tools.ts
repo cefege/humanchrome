@@ -1906,6 +1906,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'When true, wipe the buffer instead of returning entries.',
         },
+        persist: {
+          type: 'boolean',
+          description:
+            'Toggle whether log entries are written through to chrome.storage.local across SW restarts. Off by default (steady-state SW CPU optimization, IMP-0059) — `true` enables persistence so future logs survive a service-worker restart, `false` disables it and clears the persisted blob, omitted leaves the current state unchanged. The response always includes `persistEnabled` so callers can check the current state.',
+        },
       },
       required: [],
     },
