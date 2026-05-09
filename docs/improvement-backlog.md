@@ -125,17 +125,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   New tool chrome_storage. Params: action: get|set|remove|clear|keys (required), scope: local|session (default: local), key? (required for get/set/remove), value? (required for set), tabId?/windowId?/frameId?. Implementation: chrome.scripting.executeScript MAIN-world shim that reads/writes window.localStorage or window.sessionStorage. Returns {value} for get, {keys: string[]} for keys, {cleared: number} for clear. IndexedDB access deferred to a follow-up. Touch: new tools/browser/storage.ts, TOOL_NAMES.BROWSER.STORAGE, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category).
 
-### IMP-0048 · chrome_performance_start_trace returns isError:false when a trace is already running (bug) · score: 4
-
-- **Proposed by**: bug-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: When a trace session already exists for the active tab, PerformanceStartTraceTool returns { content: [{ text: "Error: a performance trace is already running." }], isError: false }. Agents that branch on isError proceed as if the second start succeeded and never recover the in-progress trace.
-- **Cost**: S
-- **Value**: S
-- **Repro**: Call `chrome_performance_start_trace` twice on the same tab without stopping in between. Expected: second call returns isError:true. Actual: returns isError:false with an "Error:" string embedded in the text body.
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` line 164 — replace the early `return { content: [...], isError: false }` with `return createErrorResponse("A performance trace is already recording for this tab.", ToolErrorCode.UNKNOWN)`.
-- **Notes**: Latent. Same isError:false-for-errors pattern also appears at line 263 (stop with no session) and line 362 (analyze with no trace), but those are more debatable as idempotent no-ops.
-
 ### IMP-0050 · Add chrome_close_tabs_matching tool for bulk tab cleanup after navigate_batch fan-out (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-08
@@ -144,17 +133,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: S
 - **Value**: M
   New tool chrome_close_tabs_matching. Params: urlMatches? (substring or /regex/ string), titleMatches? (substring or /regex/ string), olderThanMs? (close tabs opened more than N ms ago), exceptTabIds? (number[], always preserve these), windowId? (default: preferred client window, honoring single-window preference). Returns {closed: number, tabIds: number[]}. Implementation: chrome.tabs.query filtered in the background, then chrome.tabs.remove(matchingIds). Never closes the last tab in the window (consistent with IMP-0062 last-tab guard commit). Touch: new tools/browser/close-tabs-matching.ts, TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Tabs category alongside CLOSE_TAB).
-
-### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
-
-- **Proposed by**: bug-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: When LAST_RESULTS has no entry for the active tab, PerformanceAnalyzeInsightTool returns { content: [{ text: "No recorded traces found..." }], isError: false }. Agents that branch on isError treat the pre-condition failure as a successful (empty) analysis and do not retry the start/stop sequence.
-- **Cost**: S
-- **Value**: S
-- **Repro**: Call `chrome_performance_analyze_insight` on a tab that has never had a trace. Expected: isError:true. Actual: isError:false, success:undefined, text says "No recorded traces found".
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` lines 361–371 — replace the early return with `return createErrorResponse("No recorded trace for this tab. Call chrome_performance_start_trace then chrome_performance_stop_trace first.", ToolErrorCode.UNKNOWN)`.
-- **Notes**: Latent. Same root cause as IMP-0048 — the performance tool family uses plain text error strings with isError:false rather than createErrorResponse.
 
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
@@ -390,6 +368,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0048 + IMP-0051 · chrome*performance*\* pre-condition errors now return isError:true (bug bundle) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Both bugs share the same root cause — the performance tool family was returning `{ isError: false, content: [{ text: "Error: ..." }] }` on pre-condition failures, so agents branching on `isError` treated the failure as success. Fixed in `app/chrome-extension/entrypoints/background/tools/browser/performance.ts`: `start_trace` (line 164) when a session is already recording, and `analyze_insight` (line 361) when LAST_RESULTS has no entry — both now route through `createErrorResponse(..., ToolErrorCode.UNKNOWN, { tabId })`. The "stop with no session" case at line 263 is intentionally **not** changed (IMP-0048 notes flagged it as a debatable idempotent no-op); a regression test pins the existing tolerant behavior so a future cleanup doesn't widen the fix beyond review. New `tests/tools/browser/performance.test.ts` (7 tests, uses `vi.resetModules()` per test for clean module-scoped state and synthesizes `chrome.debugger.onEvent` to drive the full trace lifecycle) covers: start happy path; IMP-0048 second-start; analyze IMP-0051; TAB_NOT_FOUND on both; stop's preserved no-session behavior; full start→stop→analyze round-trip. Extension: 701/701, typecheck clean. No tool-schema changes.
+- **Branch**: fix/imp-0048-0051-performance-iserror
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

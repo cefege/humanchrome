@@ -162,10 +162,11 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
       const tabId = activeTab.id;
       const existed = sessions.get(tabId);
       if (existed?.recording) {
-        return {
-          content: [{ type: 'text', text: 'Error: a performance trace is already running.' }],
-          isError: false,
-        };
+        return createErrorResponse(
+          'A performance trace is already recording for this tab. Call chrome_performance_stop_trace first.',
+          ToolErrorCode.UNKNOWN,
+          { tabId },
+        );
       }
 
       await cdpSessionManager.attach(tabId, 'performance');
@@ -359,15 +360,11 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
       const tabId = activeTab.id;
       const result = LAST_RESULTS.get(tabId);
       if (!result) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'No recorded traces found. Start and stop a performance trace first.',
-            },
-          ],
-          isError: false,
-        };
+        return createErrorResponse(
+          'No recorded trace for this tab. Call chrome_performance_start_trace then chrome_performance_stop_trace first.',
+          ToolErrorCode.UNKNOWN,
+          { tabId },
+        );
       }
 
       // Prefer native-side deep analysis when we have a saved file path
