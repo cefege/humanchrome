@@ -19,6 +19,7 @@ export { webVitalsTool } from './web-vitals';
 export { idleTool } from './idle';
 export { alarmsTool } from './alarms';
 export { clearBrowsingDataTool } from './clear-browsing-data';
+export { proxyTool } from './proxy';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';

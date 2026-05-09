@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0082 · Add chrome_proxy tool — set/clear proxy configuration (feat) · score: 3
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Big for scraping, regional testing, and anonymity flows. chrome.proxy.settings lets the extension switch proxy config at runtime via a fixed_servers / pac_script / direct / system value. No tool surface exists today.
-- **Cost**: M
-- **Value**: M
-  **Fix sketch**: Add `proxy` to wxt.config.ts permissions. New file `app/chrome-extension/entrypoints/background/tools/browser/proxy.ts`. Action enum: `set | clear | get`. `set` takes one of `{ mode: 'direct' }`, `{ mode: 'system' }`, `{ mode: 'fixed_servers', singleProxy: { scheme, host, port }, bypassList? }`, or `{ mode: 'pac_script', pacUrl }`. Wraps `chrome.proxy.settings.set({ value: <PCS>, scope: 'regular' })`. `clear` → `chrome.proxy.settings.clear({ scope: 'regular' })`. `get` returns the current value. Error mapping standard. New TOOL_NAMES.BROWSER.PROXY, TOOL_CATEGORIES['Network']. 10-12 tests covering each mode + clear + get round-trip.
-
 ### IMP-0083 · Add chrome_identity tool — OAuth via getAuthToken (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -330,6 +321,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0082 · Add chrome_proxy tool — set/clear proxy configuration (feat) · score: 3
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_proxy` MCP tool wrapping `chrome.proxy.settings.{set,clear,get}` so agents can switch proxy config at runtime — useful for scraping, regional testing, and anonymity flows. Action enum: `set` (mode = `direct` | `system` | `fixed_servers` | `pac_script`; `fixed_servers` requires `singleProxy: {scheme?, host, port}` plus optional `bypassList[]`; `pac_script` requires `pacUrl`), `clear` (revert to default), `get` (returns current `{value, levelOfControl, incognitoSpecific}`). Scope is hardcoded to `regular` (incognito left untouched). Error classification: missing chrome.proxy → UNKNOWN, missing/invalid mode/host/port/pacUrl → INVALID_ARGS naming the field, UNKNOWN otherwise. Added `proxy` to manifest permissions. Wired through the eager dispatcher. New tests at `tests/tools/browser/proxy.test.ts` (13 cases) covering each mode + clear + get round-trip + custom scheme handling. Extension: 1049/1049 (was 1036 + 13 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0082-proxy
 
 ### IMP-0081 · Add chrome_clear_browsing_data tool — wipe browsing-data stores (feat) · score: 4
 

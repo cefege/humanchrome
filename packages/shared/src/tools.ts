@@ -136,6 +136,7 @@ export const TOOL_NAMES = {
     IDLE: 'chrome_idle',
     ALARMS: 'chrome_alarms',
     CLEAR_BROWSING_DATA: 'chrome_clear_browsing_data',
+    PROXY: 'chrome_proxy',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2763,6 +2764,51 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['dataTypes'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.PROXY,
+    description:
+      'Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Useful for scraping, regional testing, and anonymity flows. Actions: `set` (mode = `direct` | `system` | `fixed_servers` | `pac_script`; for `fixed_servers` provide `singleProxy: {scheme?, host, port}` plus optional `bypassList[]`; for `pac_script` provide `pacUrl`), `clear` (revert to default), `get` (returns the current `{value, levelOfControl, incognitoSpecific}`). Scope is always `regular` (incognito is left untouched). The `proxy` permission is required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['set', 'clear', 'get'],
+          description: 'Operation to perform.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['direct', 'system', 'fixed_servers', 'pac_script'],
+          description: 'For `set`. Required.',
+        },
+        singleProxy: {
+          type: 'object',
+          description:
+            'For `set` with mode="fixed_servers". `host` and `port` required; `scheme` defaults to "http".',
+          properties: {
+            scheme: {
+              type: 'string',
+              enum: ['http', 'https', 'quic', 'socks4', 'socks5'],
+            },
+            host: { type: 'string' },
+            port: { type: 'number' },
+          },
+          required: ['host', 'port'],
+        },
+        bypassList: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'For `set` with mode="fixed_servers". Optional list of host patterns the proxy is bypassed for.',
+        },
+        pacUrl: {
+          type: 'string',
+          description: 'For `set` with mode="pac_script". URL of the PAC script.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2882,6 +2928,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.IDLE]: 'System',
   [TOOL_NAMES.BROWSER.ALARMS]: 'System',
   [TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA]: 'State',
+  [TOOL_NAMES.BROWSER.PROXY]: 'Network',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
