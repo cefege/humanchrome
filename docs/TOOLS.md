@@ -102,6 +102,16 @@ Tip: If the returned elements do not include the specific element you need, use 
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `raw` | boolean |  | When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger). |
 
+### `chrome_list_frames`
+
+List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `urlContains` | string |  | Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself). |
+
 ### `chrome_screenshot`
 
 [Prefer read_page over taking a screenshot and Prefer chrome_computer] Take a screenshot of the current page or a specific element. For new usage, use chrome_computer with action="screenshot". Use this tool if you need advanced options.
