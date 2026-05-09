@@ -51,6 +51,7 @@ import { pasteTool } from './browser/paste';
 import { selectTextTool } from './browser/select-text';
 import { windowManageTool } from './browser/window-manage';
 import { webVitalsTool } from './browser/web-vitals';
+import { idleTool } from './browser/idle';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -121,6 +122,7 @@ const eagerTools: ToolInstance[] = [
   selectTextTool,
   windowManageTool,
   webVitalsTool,
+  idleTool,
   waitForTabTool,
   windowTool,
   webFetcherTool,

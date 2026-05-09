@@ -133,6 +133,7 @@ export const TOOL_NAMES = {
     SELECT_TEXT: 'chrome_select_text',
     WINDOW_MANAGE: 'chrome_window',
     WEB_VITALS: 'chrome_web_vitals',
+    IDLE: 'chrome_idle',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2683,6 +2684,21 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.IDLE,
+    description:
+      'Query the user\'s idle state via `chrome.idle.queryState`. Returns `{ state: "active" | "idle" | "locked", detectionIntervalSec }`. Pair with the pacing throttle to back off intrusive operations while the user is at the keyboard, or skip a screenshot when the system is locked. The `idle` permission is required (granted at install time). `detectionIntervalSec` is the threshold of inactivity that flips state from active → idle; Chrome accepts 15..14400 seconds. Default 60.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        detectionIntervalSec: {
+          type: 'number',
+          description: 'Inactivity threshold in seconds (15..14400). Default 60.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -2799,6 +2815,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SELECT_TEXT]: 'Interaction',
   [TOOL_NAMES.BROWSER.WINDOW_MANAGE]: 'Browser management',
   [TOOL_NAMES.BROWSER.WEB_VITALS]: 'Performance',
+  [TOOL_NAMES.BROWSER.IDLE]: 'System',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
