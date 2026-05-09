@@ -58,15 +58,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: L
   **Fix sketch**: extract `hasAnyModelCache` and `cleanupModelCache` into a tiny `utils/model-cache-status.ts` that touches only IndexedDB — no transformers/onnxruntime/SIMDMathEngine reach. Re-point `entrypoints/background/index.ts:7` and `entrypoints/background/semantic-similarity.ts:5` to the new file. Verify by checking `.output/chrome-mv3/background.js` size and grepping for `transformers.js/${l}` UA marker (currently present, should disappear). Expected: SW shrinks from 2.16 MB to ~1 MB.
 
-### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_history only searches/reads. Agents automating privacy-sensitive workflows (clearing traces after a scrape session, removing test visits before asserting history state) must open the Chrome UI to delete. chrome.history.deleteUrl, deleteRange, and deleteAll are already within the history permission the extension declares. Completes the read/write lifecycle the same way bookmark_delete rounds out the bookmark group.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_history_delete. Params: url? (delete single URL), startTime?/endTime? (delete range — same date-parse conventions as chrome_history), all?: boolean (deleteAll shortcut, requires explicit true to avoid accidents). Returns { deleted: number } via chrome.history.deleteUrl/deleteRange/deleteAll. Touch: history.ts (add execute branch or second class), TOOL_NAMES.BROWSER.HISTORY_DELETE, TOOL_SCHEMAS entry, TOOL_CATEGORIES map. Zero new infrastructure — same permission already granted.
-
 ### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-07
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_history_delete` MCP tool wraps `chrome.history.deleteUrl` / `deleteRange` / `deleteAll`. Single mutually-exclusive mode per call: `url`, `startTime`+`endTime` (reuses existing relative/keyword date parsing), or `all: true` gated behind `confirmDeleteAll: true` as a wipe-all safety check. `parseDateString` and `formatDate` were promoted from `HistoryTool` private methods to module-scope helpers so both classes share them. New `tests/tools/browser/history-delete.test.ts` (10 tests covering each mode, missing-mode, multi-mode, partial range, malformed dates, inverted range, missing-confirm, and chrome rejection passthrough). No manifest change — `history` permission already declared. Auto-generated `docs/TOOLS.md` regenerated. Extension: 704/704, typecheck + lint clean.
+- **Branch**: feat/imp-0027-history-delete
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
