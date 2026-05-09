@@ -14,13 +14,24 @@ interface ScriptConfig {
   jsScript: string;
 }
 
+// Map value carries the original ScriptConfig plus an injection timestamp,
+// surfaced via chrome_list_injected_scripts (IMP-0041) so callers can age
+// out long-lived injections or trace what was injected when.
+interface InjectedTabEntry extends ScriptConfig {
+  injectedAt: number;
+}
+
 interface SendCommandToInjectScriptToolParam {
   tabId?: number;
   eventName: string;
   payload?: string;
 }
 
-const injectedTabs = new Map();
+interface ListInjectedScriptsToolParam {
+  tabId?: number;
+}
+
+const injectedTabs = new Map<number, InjectedTabEntry>();
 class InjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.INJECT_SCRIPT;
   async execute(args: InjectScriptParam & ScriptConfig): Promise<ToolResult> {
@@ -138,13 +149,14 @@ class SendCommandToInjectScriptTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active tab found');
       }
 
-      if (!injectedTabs.has(finalTabId)) {
+      const entry = injectedTabs.get(finalTabId);
+      if (!entry) {
         throw new Error('No script injected in this tab.');
       }
       const result = await chrome.tabs.sendMessage(finalTabId, {
         action: eventName,
         payload,
-        targetWorld: injectedTabs.get(finalTabId).type, // The bridge uses this to decide whether to forward to MAIN world.
+        targetWorld: entry.type, // The bridge uses this to decide whether to forward to MAIN world.
       });
 
       return {
@@ -210,7 +222,7 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig) {
       world: ExecutionWorld.ISOLATED,
     });
   }
-  injectedTabs.set(tabId, scriptConfig);
+  injectedTabs.set(tabId, { ...scriptConfig, injectedAt: Date.now() });
   console.log(`Scripts successfully injected into tab ${tabId}.`);
   return { injected: true };
 }
@@ -232,7 +244,52 @@ async function handleCleanup(tabId: number) {
   console.log(`Cleanup signal sent to tab ${tabId}. State cleared.`);
 }
 
+/**
+ * Read-only enumeration of every tab that currently carries an injected
+ * user script. Backs `chrome_list_injected_scripts` (IMP-0041). Pure
+ * read of the same in-memory `injectedTabs` Map the inject/send-command
+ * tools mutate — no chrome.* call, no permission needed beyond what
+ * chrome_inject_script already declares.
+ */
+class ListInjectedScriptsTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS;
+
+  async execute(args: ListInjectedScriptsToolParam): Promise<ToolResult> {
+    const filterTabId = typeof args?.tabId === 'number' ? args.tabId : undefined;
+
+    const items: Array<{
+      tabId: number;
+      world: ExecutionWorld;
+      scriptLength: number;
+      injectedAt: number;
+    }> = [];
+
+    for (const [tabId, entry] of injectedTabs) {
+      if (filterTabId !== undefined && tabId !== filterTabId) continue;
+      items.push({
+        tabId,
+        world: entry.type,
+        scriptLength: typeof entry.jsScript === 'string' ? entry.jsScript.length : 0,
+        injectedAt: entry.injectedAt,
+      });
+    }
+
+    items.sort((a, b) => a.tabId - b.tabId);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ injectedTabs: items, count: items.length }),
+        },
+      ],
+      isError: false,
+    };
+  }
+}
+
 export const injectScriptTool = new InjectScriptTool();
+export const listInjectedScriptsTool = new ListInjectedScriptsTool();
 export const sendCommandToInjectScriptTool = new SendCommandToInjectScriptTool();
 
 // --- Automatic Cleanup Listeners ---

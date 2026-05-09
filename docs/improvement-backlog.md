@@ -49,102 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (~1.2 MB) (perf) · score: 6
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: background.js is 2.16 MB because Rolldown collapsed the dynamic import(@huggingface/transformers) at semantic-similarity-engine.ts:23 into an inlined Promise.resolve. Root cause: the SW statically imports cleanupModelCache (entrypoints/background/index.ts:7) and hasAnyModelCache (entrypoints/background/semantic-similarity.ts:5) from the same file that hosts the engine, so Rolldown drags the whole module — including transformers (~700 KB) and onnxruntime-web (~500 KB) — into the SW chunk. The offscreen entrypoint already owns the engine instance correctly; the SW just needs to not co-import status helpers from the heavy module.
-- **Cost**: S
-- **Value**: L
-  **Fix sketch**: extract `hasAnyModelCache` and `cleanupModelCache` into a tiny `utils/model-cache-status.ts` that touches only IndexedDB — no transformers/onnxruntime/SIMDMathEngine reach. Re-point `entrypoints/background/index.ts:7` and `entrypoints/background/semantic-similarity.ts:5` to the new file. Verify by checking `.output/chrome-mv3/background.js` size and grepping for `transformers.js/${l}` UA marker (currently present, should disappear). Expected: SW shrinks from 2.16 MB to ~1 MB.
-
-### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_history only searches/reads. Agents automating privacy-sensitive workflows (clearing traces after a scrape session, removing test visits before asserting history state) must open the Chrome UI to delete. chrome.history.deleteUrl, deleteRange, and deleteAll are already within the history permission the extension declares. Completes the read/write lifecycle the same way bookmark_delete rounds out the bookmark group.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_history_delete. Params: url? (delete single URL), startTime?/endTime? (delete range — same date-parse conventions as chrome_history), all?: boolean (deleteAll shortcut, requires explicit true to avoid accidents). Returns { deleted: number } via chrome.history.deleteUrl/deleteRange/deleteAll. Touch: history.ts (add execute branch or second class), TOOL_NAMES.BROWSER.HISTORY_DELETE, TOOL_SCHEMAS entry, TOOL_CATEGORIES map. Zero new infrastructure — same permission already granted.
-
-### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_network_capture action=stop returns all accumulated entries and tears down the listener. In long-running scrape sessions (e.g. scrolling an infinite feed for 5 minutes) an agent cannot drain the buffer periodically to stay within context limits — it must stop, read, restart, losing requests that arrive during the restart gap. A flush action returns and clears the internal buffer while keeping the webRequest/debugger listener attached.
-- **Cost**: S
-- **Value**: M
-  Add action enum value flush to the chrome_network_capture schema (alongside start and stop). Implementation: the existing handler already accumulates requests in an in-memory array; flush returns a snapshot of that array and splices it empty without calling stop(). Returns the same shape as stop (requests[], requestCount, etc.). Touch: tools/browser/network-capture.ts handler, TOOL_SCHEMAS action enum. No new infrastructure — flush is a pure read+clear of the existing buffer.
-
-### IMP-0031 · Extend css-helpers.ts to deduplicate isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel across 8 control files (refactor) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: isFieldFocused, readInlineValue, readComputedValue are copy-pasted verbatim in 8 control files (gradient-control, effects-control, layout-control, typography-control, border-control, position-control, appearance-control, background-control). splitTopLevel and tokenizeTopLevel are separately duplicated in gradient-control.ts and effects-control.ts. css-helpers.ts already exists as the shared utilities file; these functions belong there. Total duplicated code ~200 LoC across 8 files.
-- **Cost**: S
-- **Value**: M
-- **Files**: controls/css-helpers.ts (target); gradient-control.ts (2715 LoC), effects-control.ts (2392 LoC), layout-control.ts (1523 LoC), typography-control.ts (1190 LoC), border-control.ts (1151 LoC), position-control.ts, appearance-control.ts, background-control.ts
-- **Sketch**: Export isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel from css-helpers.ts. Delete the 8 local copies. Update each file import. Functions are self-contained.
-- **Risk**: Low. TypeScript compiler will catch any body divergence at compile time.
-
-### IMP-0032 · Strip verbose debug logging and unconditional setDebugLogs(true) from vector-database.ts hot path (perf) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: VectorDatabase.search() and addDocument() emit 158 console.log calls across their execution paths, including per-call logs like "Processing N search neighbors", "Available documents in mapping", and "About to call addPoint". In addition, hnswlib.EmscriptenFileSystemManager.setDebugLogs(true) is unconditionally set on every initialization, flooding the service-worker console with WASM FS noise. Both are debug artifacts that add synchronous string-formatting overhead on every embedding lookup.
-- **Cost**: S
-- **Value**: M
-- **Files**: (1557 LoC, 158 console.log calls)
-- **Sketch**: Replace the 158 console.log with a single debug-flag guard (const DEBUG = false) at the top of the file; calls become if (DEBUG) console.log(...). Change setDebugLogs(true) to setDebugLogs(false). Keep console.error for real errors.
-- **Risk**: Low. No behavior change. Loss of verbose tracing for future debugging mitigated by the DEBUG flag being a one-line change to re-enable.
-
-### IMP-0041 · Add chrome_list_injected_scripts tool to enumerate active injections per tab (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_inject_script and chrome_send_command_to_inject_script cover write and message, but agents have no read path. Before injecting a monitoring bridge or mutation observer, an agent must blindly inject again (risking duplicates) or reload the tab. chrome_list_injected_scripts returns the existing injectedTabs Map as [{tabId, scriptId, sourceUrl, injectedAt}], enabling idempotent inject-once patterns and safe pre-flight checks.
-- **Cost**: S
-- **Value**: M
-  Touch: tools/browser/inject-script.ts (expose injectedTabs read path), TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS, TOOL_SCHEMAS entry, TOOL_CATEGORIES (same category as INJECT_SCRIPT). No new infrastructure — reads the Map already maintained by the existing inject handler. Zero new permissions.
-
-### IMP-0044 · Add chrome_list_frames tool to enumerate iframes and their frameIds in a tab (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_click_element, chrome_fill_or_select, and chrome_await_element all accept a frameId param for iframe-targeted operations, but there is no MCP tool to discover frame IDs. Agents currently inject JS to walk window.frames — which is cross-origin-blocked for sandboxed iframes and returns unstable numeric indexes. chrome.webNavigation.getAllFrames returns stable frameId values per origin, indexed independently of the DOM tree.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_list_frames. Params: tabId? (standard tab targeting). Returns [{frameId, url, parentFrameId, name}]. Implementation: chrome.webNavigation.getAllFrames({tabId}) in the extension background. Audit whether webNavigation is already declared in wxt.config.ts permissions — if not, add it and note the Web Store review trigger. Touch: new tools/browser/list-frames.ts, TOOL_NAMES.BROWSER.LIST_FRAMES, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category alongside READ_PAGE).
-
-### IMP-0047 · Add chrome_storage tool to read, write, and clear web app localStorage and sessionStorage (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: Agents automating web apps (login flows, onboarding tests, state-seeding) must currently inject raw JS to read or clear localStorage and sessionStorage. A dedicated tool reduces prompt complexity, avoids quoting/escaping hazards in chrome_javascript payloads, and is more discoverable than a JS snippet. Particularly useful for clearing auth state between test runs or pre-seeding feature flags without opening DevTools.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_storage. Params: action: get|set|remove|clear|keys (required), scope: local|session (default: local), key? (required for get/set/remove), value? (required for set), tabId?/windowId?/frameId?. Implementation: chrome.scripting.executeScript MAIN-world shim that reads/writes window.localStorage or window.sessionStorage. Returns {value} for get, {keys: string[]} for keys, {cleared: number} for clear. IndexedDB access deferred to a follow-up. Touch: new tools/browser/storage.ts, TOOL_NAMES.BROWSER.STORAGE, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category).
-
-### IMP-0048 · chrome_performance_start_trace returns isError:false when a trace is already running (bug) · score: 4
-
-- **Proposed by**: bug-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: When a trace session already exists for the active tab, PerformanceStartTraceTool returns { content: [{ text: "Error: a performance trace is already running." }], isError: false }. Agents that branch on isError proceed as if the second start succeeded and never recover the in-progress trace.
-- **Cost**: S
-- **Value**: S
-- **Repro**: Call `chrome_performance_start_trace` twice on the same tab without stopping in between. Expected: second call returns isError:true. Actual: returns isError:false with an "Error:" string embedded in the text body.
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` line 164 — replace the early `return { content: [...], isError: false }` with `return createErrorResponse("A performance trace is already recording for this tab.", ToolErrorCode.UNKNOWN)`.
-- **Notes**: Latent. Same isError:false-for-errors pattern also appears at line 263 (stop with no session) and line 362 (analyze with no trace), but those are more debatable as idempotent no-ops.
-
-### IMP-0050 · Add chrome_close_tabs_matching tool for bulk tab cleanup after navigate_batch fan-out (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_navigate_batch opens many tabs in parallel, but cleanup requires iterating chrome_get_windows_and_tabs and calling chrome_close_tab once per tab — O(N) round trips for a common workflow. A single bulk-close tool with URL/title/age filters covers the post-scrape cleanup pattern in one call and keeps the window tidy for the next agent interaction.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_close_tabs_matching. Params: urlMatches? (substring or /regex/ string), titleMatches? (substring or /regex/ string), olderThanMs? (close tabs opened more than N ms ago), exceptTabIds? (number[], always preserve these), windowId? (default: preferred client window, honoring single-window preference). Returns {closed: number, tabIds: number[]}. Implementation: chrome.tabs.query filtered in the background, then chrome.tabs.remove(matchingIds). Never closes the last tab in the window (consistent with IMP-0062 last-tab guard commit). Touch: new tools/browser/close-tabs-matching.ts, TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Tabs category alongside CLOSE_TAB).
-
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-08
@@ -159,12 +63,12 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: in-progress (slice 1 of N landed: CDPHelper extracted to `browser/computer/cdp-helper.ts`)
 - **Why**: After IMP-0008 (domain-shift helper) and IMP-0035 (params typing), the dominant bulk in computer.ts is a 16-case switch inside executeAction spanning lines 392-1348 (~956 LoC). Representative case sizes: left_click_drag 93 LoC, zoom 98 LoC, screenshot 147 LoC. Adding a new action or fixing a case requires navigating past all 15 others. CDPHelper (lines 142-310) is already a self-contained class that could be elevated to a sibling module without any refactor risk.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
-- **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
+- **Sketch**: Slicing into focused PRs. Slice 1 (done): move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Slice 2: extract `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag). Slice 3: scroll-actions.ts. Slice 4: fill-actions.ts. Slice 5: screenshot-actions.ts. Slice 6: replace switch with `const HANDLERS: Record<string, ActionHandler> = {...}` dispatch table. After all slices: computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
 
 ### IMP-0056 · Lazy-load tool handlers in tools/index.ts so heavy ones (gif-recorder, performance, network-capture-debugger, computer, read-page) do not instantiate at SW boot (perf) · score: 4
@@ -176,24 +80,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
 
-### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: tools/browser/vector-search.ts:9 static-imports ContentIndexer from utils/content-indexer.ts (586 LoC), which transitively pulls utils/vector-database.ts (1557 LoC) and the hnswlib-wasm-static loader stub. The chrome_vector_search tool runs only when explicitly invoked; today the entire indexing/search engine is parsed on every SW cold-start. Estimated ~50–80 KB off the SW chunk plus removing a wasm pre-init cost from boot.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
-
-### IMP-0058 · Cache listDynamicFlowTools with invalidation so tools/list and flow.\* calls stop doing a fresh extension round-trip every time (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: app/native-server/src/mcp/dispatch.ts:78 listDynamicFlowTools() does a full native-messaging round-trip (rr_list_published_flows, 20s timeout) on every MCP tools/list request — and every MCP client reconnect re-issues that. Worse, dispatch.ts:150 (the flow.\* call path) does the SAME round-trip again to look up the slug, doubling the per-flow-call latency. There is zero caching today. The shape of published flows changes only when flow_publish/flow_unpublish runs, which is a publishable event.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: add a module-scope cache in dispatch.ts holding the last fetched tools+items+timestamp. listDynamicFlowTools returns the cached tools if fresh; otherwise refetches and stores. dispatchTool for a flow.\* call reuses the cached items to look up the slug. Invalidation: add a native message kind flows_changed (or piggyback on an existing event) that the extension publishes after every flow_publish/flow_unpublish; the bridge clears the cache on receipt. TTL fallback (e.g. 60s) for safety. Acceptance: a tools/list immediately followed by flow.<slug> shows only one rr_list_published_flows in extension logs.
-
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
@@ -202,7 +88,7 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/native-server/src/agent/engines/claude.ts` (1601 LoC)
-- **Sketch**: Extract at minimum: `private async loadSdk()`, `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
+- **Sketch**: Extract at minimum: `private async loadSdk()` (slice 1 landed), `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
 - **Risk**: Medium — the event loop is stateful (pendingToolInputs map, assistantBuffer); extraction must preserve the shared-state references. No behavior change.
 
 ### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
@@ -388,6 +274,90 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-08
 - **Summary**: Combined fix-sketch options (a) and (b). Added a `persistEnabled` flag to `app/chrome-extension/utils/logger.ts` (default **off**), persisted under `humanchrome:logPersistEnabled` so the choice survives SW restart. When off, `schedulePersist` short-circuits before queuing the 5 MB chrome.storage.local.set — eliminating the dominant steady-state SW CPU cost during automation runs (was ~240 writes/min, now zero). When on, the debounce was bumped from 250 ms to 5 s so a hot stream coalesces into ~12 writes/min instead of 240. Toggle via the new exported `setPersistEnabled(boolean)` / `getPersistEnabled()` or via `chrome_debug_dump({ persist: true|false })` (new arg, response always echoes `persistEnabled`). on→off drops the persisted blob so the next SW boot starts clean; off→on schedules a debounced flush so the in-memory backlog gets persisted. Buffer-restore on SW restart is gated on the flag too — old persisted blobs from a previous "on" session are not resurrected after the user turns persistence off. New `tests/utils/logger-persist-opt-in.test.ts` (7 tests, uses `vi.resetModules()` per test for clean module-scoped state and a fake `chrome.storage.local` whose set/remove/get are spied): default-off zero-write hot stream, in-memory dumpLog still works with persistence off, on→off drops blob and prevents further writes, off→on schedules a flush, 50-event burst within 5 s coalesces into ONE write, SW-restart-with-persistence-off does not resurrect old logs, SW-restart-with-persistence-on does. `chrome_debug_dump` schema gained the `persist` arg; `docs/TOOLS.md` regenerated. Extension: 701/701, typecheck clean. Bridge `tool-categories-coverage` 3/3.
 - **Branch**: perf/imp-0059-logger-persist
+
+### IMP-0050 · Add chrome_close_tabs_matching tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_close_tabs_matching` MCP tool for bulk post-`chrome_navigate_batch` cleanup. Filters: `urlMatches` (case-insensitive substring or `/regex/flags`), `titleMatches` (same matching rules), `olderThanMs` (matches tabs whose recorded creation timestamp is older than N ms — tabs without a recorded creation time are NOT matched, documented). Filters AND together. `exceptTabIds` always preserves the listed tabs. `windowId` scopes the search. `dryRun: true` returns matches without closing — useful pre-flight. Refuses calls with no filter set (no implicit close-everything). Honors the IMP-0062 last-tab guard via `safeRemoveTabs`, so closing every tab in a window opens a placeholder first. Bad regex falls back to substring match against the **inner** pattern (slashes stripped) — better matches user intent than literally searching for `/pattern/`. Returns `{ ok, closed, scanned, matched, tabIds }`. New `utils/tab-creation-tracker.ts` (~40 LoC) listens to `chrome.tabs.onCreated` / `onRemoved` so `olderThanMs` has a creation timestamp to compare against; wired in the background entrypoint via `initTabCreationTracker()` next to `initLastTabGuardListeners()`. New `tests/tools/browser/close-tabs-matching.test.ts` (14 tests): empty-filter rejection, blank-string rejection, substring URL match, AND-combined url+title, regex form, malformed-regex fallback to inner-pattern substring, olderThanMs cutoff, untracked-tab non-match, exceptTabIds preservation, windowId scoping, dryRun no-mutation, empty-match no-call, query rejection, safeRemoveTabs rejection. The `safeRemoveTabs` helper is mocked at the module level so tests assert it was invoked with the right ids without spinning up the real placeholder dance. Extension: 708/708, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0050-close-tabs-matching
+
+### IMP-0047 · Add chrome_storage tool for localStorage / sessionStorage (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_storage` MCP tool wraps a MAIN-world `chrome.scripting.executeScript` shim that reads/writes a tab's `window.localStorage` or `window.sessionStorage` so prompts no longer need to embed JS into `chrome_javascript`. Five actions: `get` → `{value, exists}`; `set` (string only — wrap structured data via JSON.stringify) → `{stored:true}`; `remove` → `{removed:boolean}`; `clear` → `{cleared:count}`; `keys` → `{keys:string[]}`. `scope` defaults to `local`. `tabId` / `windowId` / `frameId` route the call (frameId is forwarded as `target.frameIds`). The shim returns a discriminated union — Safari-private-mode-style `QuotaExceededError`, sandboxed iframe blocks, etc. surface as a structured error rather than throwing across the bridge. Distinct error classification: tab-gone-mid-call → `TAB_CLOSED`, frame mismatch → `INVALID_ARGS`, missing active tab → `TAB_NOT_FOUND`. IndexedDB intentionally out of scope; cookies handled by `chrome_get_cookies` / `chrome_set_cookie` / `chrome_remove_cookie`. New `tests/tools/browser/storage.test.ts` (21 tests) drives the real shim against a `FakeStorage` that implements the `Storage` interface, exercising all 5 actions, scope routing, frame routing, every validation guard, and error classification. Extension: 715/715, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0047-chrome-storage
+
+### IMP-0044 · Add chrome_list_frames tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_list_frames` MCP tool wraps `chrome.webNavigation.getAllFrames` to return one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }`, with the main document at `frameId: 0` / `parentFrameId: -1`. Optional `urlContains` (case-insensitive substring) filter narrows results without an extra round-trip. Sort is stable: parent frames before children, then by `frameId`. Read-only, no DOM access. **No manifest change** — `webNavigation` was already declared in `wxt.config.ts` for the navigation guards in `base-browser`. Distinct error classification: tab-gone-mid-call surfaces as `TAB_CLOSED`; null result (discarded tab) returns an empty list rather than an error so callers can retry after activating; missing active tab returns `TAB_NOT_FOUND`. New `tests/tools/browser/list-frames.test.ts` (9 tests): explicit-tabId forwarding, active-tab fallback, `windowId` routing, parent/frameId sort, urlContains filter with `totalBeforeFilter` reporting, null result → empty, `no tab with id` → `TAB_CLOSED`, generic rejection → `UNKNOWN`, missing active tab → `TAB_NOT_FOUND`. Extension: 703/703, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0044-list-frames
+
+### IMP-0041 · Add chrome_list_injected_scripts tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_list_injected_scripts` MCP tool returns one entry per injected tab as `{tabId, world, scriptLength, injectedAt}` so agents can do idempotent inject-once patterns and pre-flight checks before `chrome_send_command_to_inject_script`. Pure read of the existing `injectedTabs` Map in `app/chrome-extension/.../inject-script.ts`; the Map's value type was extended from `ScriptConfig` to `InjectedTabEntry` (adding `injectedAt: number`) so the timestamp is captured at inject time. Optional `tabId` param filters to a single tab. Zero new permissions, zero new infrastructure. New `tests/tools/browser/list-injected-scripts.test.ts` (7 tests) drives the inject pipeline through the public API and covers: empty case, multi-tab listing, deterministic tabId-sorted order, single-tab filter, filter-miss empty case, re-injection replaces the entry and bumps `injectedAt`, and a no-mutation guard (verifies the list call doesn't touch chrome.scripting/tabs.update/sendMessage). Extension: 701/701, typecheck + lint clean. Tool count 47→48; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0041-list-injected-scripts
+
+### IMP-0032 · Strip verbose debug logging from vector-database.ts hot path (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Routed all 89 informational `console.log` sites in `app/chrome-extension/utils/vector-database.ts` (1557 LoC, hit on every embedding lookup) through a module-level `dlog()` helper that's a no-op when `const DEBUG = false`. Bundlers can DCE the call sites; flipping DEBUG to true brings the trace back. The unconditional `EmscriptenFileSystemManager.setDebugLogs(true)` was changed to `setDebugLogs(DEBUG)` so it mirrors the same flag — no more WASM FS noise on every embedding lookup. The 38 `console.warn` and 31 `console.error` sites stay direct so real warnings/errors aren't muffled. New `tests/utils/vector-database-debug-logging.test.ts` (6 tests) acts as a regression guard via static analysis (DEBUG=false declaration, ≤1 direct console.log site, setDebugLogs(DEBUG) not setDebugLogs(true), ≥20 console.warn / ≥20 console.error preserved, dlog ternary on DEBUG with a no-op false branch) plus a runtime check that module import emits zero console.log. Extension: 700/700, typecheck clean. No tool-schema changes.
+- **Branch**: perf/imp-0032-vector-db-debug-logging
+
+### IMP-0048 + IMP-0051 · chrome*performance*\* pre-condition errors now return isError:true (bug bundle) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Both bugs share the same root cause — the performance tool family was returning `{ isError: false, content: [{ text: "Error: ..." }] }` on pre-condition failures, so agents branching on `isError` treated the failure as success. Fixed in `app/chrome-extension/entrypoints/background/tools/browser/performance.ts`: `start_trace` (line 164) when a session is already recording, and `analyze_insight` (line 361) when LAST_RESULTS has no entry — both now route through `createErrorResponse(..., ToolErrorCode.UNKNOWN, { tabId })`. The "stop with no session" case at line 263 is intentionally **not** changed (IMP-0048 notes flagged it as a debatable idempotent no-op); a regression test pins the existing tolerant behavior so a future cleanup doesn't widen the fix beyond review. New `tests/tools/browser/performance.test.ts` (7 tests, uses `vi.resetModules()` per test for clean module-scoped state and synthesizes `chrome.debugger.onEvent` to drive the full trace lifecycle) covers: start happy path; IMP-0048 second-start; analyze IMP-0051; TAB_NOT_FOUND on both; stop's preserved no-session behavior; full start→stop→analyze round-trip. Extension: 701/701, typecheck clean. No tool-schema changes.
+- **Branch**: fix/imp-0048-0051-performance-iserror
+
+### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added `action: "flush"` to the unified `chrome_network_capture` tool. Both backends now expose `flushCapture(tabId)` that snapshots the current request buffer in the same envelope shape `stop` produces (with `flushed: true`, `stillActive: true`, `flushedAt`, and `previousFlushAt` for stitching multiple drains), then clears `captureInfo.requests`, `requestCounters`, and `limitReached` while leaving listeners, timers, and the CDP session intact. `lastActivityTime` is bumped so the inactivity watchdog doesn't fire as a side-effect of the drain pause; the MAX_REQUESTS cap also resets per flush so long sessions don't stay stuck at the cap. `stopCapture` on both backends was refactored to share a private `buildResultData()` helper with `flushCapture` — keeps the envelope shapes in lockstep. New `tests/tools/browser/network-capture-flush.test.ts` (20 tests) covers each backend's flush, the unified routing (web-only, debugger-only, needResponseBody preference, fallback, multi-tab drain, active-tab preference), the no-active-capture and unknown-action error paths, the post-flush stop-without-double-counting invariant, and a stop-envelope regression check on both backends. Extension: 714/714, typecheck + lint clean.
+- **Branch**: feat/imp-0028-network-capture-flush
+
+### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_history_delete` MCP tool wraps `chrome.history.deleteUrl` / `deleteRange` / `deleteAll`. Single mutually-exclusive mode per call: `url`, `startTime`+`endTime` (reuses existing relative/keyword date parsing), or `all: true` gated behind `confirmDeleteAll: true` as a wipe-all safety check. `parseDateString` and `formatDate` were promoted from `HistoryTool` private methods to module-scope helpers so both classes share them. New `tests/tools/browser/history-delete.test.ts` (10 tests covering each mode, missing-mode, multi-mode, partial range, malformed dates, inverted range, missing-confirm, and chrome rejection passthrough). No manifest change — `history` permission already declared. Auto-generated `docs/TOOLS.md` regenerated. Extension: 704/704, typecheck + lint clean.
+- **Branch**: feat/imp-0027-history-delete
+
+### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (perf) · score: 6
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Extracted `cleanupModelCache` and `hasAnyModelCache` to a new `app/chrome-extension/utils/model-cache-status.ts` (40 lines, IndexedDB only — no transformers/onnxruntime/SIMDMathEngine reach). Repointed the SW imports at `entrypoints/background/index.ts` and `entrypoints/background/semantic-similarity.ts`. Kept a back-compat re-export from `semantic-similarity-engine.ts` so popup imports still work. Load-bearing prerequisite for IMP-0057's actual win.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-abf1cc03caa7065e5 · branch worktree-agent-abf1cc03caa7065e5
+
+### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Lazy-loaded `ContentIndexer` in `tools/browser/vector-search.ts` via memoized `getIndexer()` async helper that does `await import('@/utils/content-indexer')` on first use. Plus the load-bearing flip of `defineBackground` to `{ type: 'module', main: ... }` so WXT compiles the SW as ESM (Chrome 91+ supports module SWs natively) — without this, IIFE bundling silently inlines every `await import(...)`. Combined with IMP-0055, **background.js dropped from 2168 KB to 612 KB (−72%)**; total dist 6.95 MB → 6.16 MB. Bridge 69/69, extension 694/694, build green.
+- **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-abf1cc03caa7065e5 · branch worktree-agent-abf1cc03caa7065e5
+
+### IMP-0031 · Dedup css-helpers across control files (refactor) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: No code change needed — investigation showed all 5 helpers (`isFieldFocused`, `readInlineValue`, `readComputedValue`, `splitTopLevel`, `tokenizeTopLevel`) are already exported once from `app/chrome-extension/entrypoints/web-editor-v2/ui/property-panel/controls/css-helpers.ts` (lines 245, 261, 275, 293, 349) and consumed by every flagged control file via `import { ... } from './css-helpers'` — no local copies exist anywhere under `entrypoints/web-editor-v2`. The scout's report was stale (likely pre-dating an earlier dedup pass). The one nearby function that _did_ match by partial name — `splitTopLevelTokens` in `layout-control.ts:157` — is intentionally a simpler subset for grid-track parsing (no quote/escape handling) and is not interchangeable with `tokenizeTopLevel`; folding it would have been scope creep beyond IMP-0031. Moved the entry to Done so the next loop iteration doesn't re-pick it.
+- **Branch**: docs/imp-0031-already-deduped
+
+### IMP-0058 · Cache listDynamicFlowTools with invalidation (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added a module-scope cache in `app/native-server/src/mcp/dispatch.ts` shared by both `listDynamicFlowTools` (tools/list path) and `dispatchTool`'s `flow.<slug>` resolution path. 60s TTL with an `invalidateFlowToolsCache()` exported helper for eager invalidation when a flows_changed event fires. Concurrent cold-cache callers collapse onto a single in-flight fetch via a `pendingFlowToolsFetch` promise. The flow-call path falls back to one targeted refetch when a slug isn't in cache (covers the "flow published since last fetch" case). Errors don't poison the cache — empty result returned and next call retries. Pre-cache: a single tools/list immediately followed by `flow.<slug>` cost two 20s-timeout `rr_list_published_flows` round-trips. Post-cache: one round-trip serves both. New `dispatch.flow-cache.test.ts` (8 tests) pins each contract: shared fetch within TTL, concurrent collapse, error doesn't poison, manual invalidation, the IMP-0058 acceptance criterion (tools/list + flow.demo = 1 fetch), multi-flow-call reuse, unknown-slug single refetch, and a published-since-last-fetch round-trip. Existing 6 collision tests updated with `invalidateFlowToolsCache()` in `beforeEach`. Bridge: 77/77 (was 68 + 9 new); extension: 694/694; typecheck clean. No tool-schema changes.
+- **Branch**: perf/imp-0058-flow-tools-cache
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
