@@ -71,6 +71,7 @@ export const TOOL_NAMES = {
     CLOSE_TAB: 'chrome_close_tab',
     CLOSE_TABS_MATCHING: 'chrome_close_tabs_matching',
     SWITCH_TAB: 'chrome_switch_tab',
+    TAB_GROUPS: 'chrome_tab_groups',
     WEB_FETCHER: 'chrome_get_web_content',
     CLICK: 'chrome_click_element',
     FILL: 'chrome_fill_or_select',
@@ -334,6 +335,59 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.TAB_GROUPS,
+    description:
+      "Manage Chrome tab groups (the colored, named clusters in the tab strip). Single tool with an `action` enum that wraps `chrome.tabs.group` / `chrome.tabs.ungroup` / `chrome.tabGroups.*`. Useful for partitioning agent-managed tabs from the user's own tabs (create a labelled group at session start, add new tabs as the agent opens them, ungroup or close-all when the session ends). Actions: `create` (group one or more tabIds — returns `{groupId}`; pair with `update` to set title/color), `update` (rename, recolor, or collapse an existing group; pass any of `title`, `color`, `collapsed`), `query` (filter groups by `title`, `color`, `collapsed`, `windowId` — returns matching groups), `get` (one group plus the list of tabIds currently in it), `add_tabs` (move tabIds into an existing groupId), `remove_tabs` (ungroup tabIds — they keep existing in their window, just leave the group), `move` (reorder a group within its window by `index`). Colors: grey | blue | red | yellow | green | pink | purple | cyan | orange (Chrome's fixed palette).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'update', 'query', 'get', 'add_tabs', 'remove_tabs', 'move'],
+          description: 'Operation to perform.',
+        },
+        groupId: {
+          type: 'number',
+          description:
+            'Existing group ID. Required for `update`, `get`, `add_tabs`, `move`. Optional for `create` (when set, the new tabs are added to this group instead of creating a new one — same shape as `add_tabs`).',
+        },
+        tabIds: {
+          type: 'array',
+          items: { type: 'number' },
+          description:
+            "Tab IDs to operate on. Required for `create`, `add_tabs`, `remove_tabs`. The first tab's window decides the group's window for `create` (Chrome rejects mixing windows).",
+        },
+        title: {
+          type: 'string',
+          description:
+            'Group label shown in the tab strip. Optional for `create` (set via `update` after) and `update`. For `query`, exact-match filter.',
+        },
+        color: {
+          type: 'string',
+          enum: ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'],
+          description:
+            'Group color. Optional for `update` and as a `query` filter. Chrome auto-assigns one if omitted at create time.',
+        },
+        collapsed: {
+          type: 'boolean',
+          description:
+            'Collapse / expand the group in the tab strip. Optional for `update` and as a `query` filter.',
+        },
+        windowId: {
+          type: 'number',
+          description:
+            'Window scope for `query` (only return groups in this window) and `create` (when no tabIds are supplied — rare, prefer `tabIds`).',
+        },
+        index: {
+          type: 'number',
+          description:
+            'Target index for `move`. -1 places the group at the end. Group moves within its current window only; cross-window moves require a separate flow.',
+        },
+      },
+      required: ['action'],
     },
   },
   {
@@ -2115,6 +2169,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CLOSE_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING]: 'Browser management',
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.TAB_GROUPS]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
   [TOOL_NAMES.BROWSER.STORAGE]: 'State',

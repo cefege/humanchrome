@@ -259,6 +259,13 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0063 · Add chrome_tab_groups tool — Chrome tab-group management (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New consolidated tool wrapping `chrome.tabs.group` / `chrome.tabs.ungroup` / `chrome.tabGroups.*`. Single tool with an `action` enum — `create`, `update`, `query`, `get`, `add_tabs`, `remove_tabs`, `move` — same dispatch shape as `chrome_storage` and `chrome_network_capture`. Lets agents partition their managed tabs into a labelled, colored group in the tab strip (e.g. one group per session run) so the user can always tell which tabs belong to which agent. Color palette pinned to Chrome's fixed 9 (grey/blue/red/yellow/green/pink/purple/cyan/orange) via input-schema enum. Added `tabGroups` to manifest permissions in `wxt.config.ts`. Tool is `mutates = true` so it serializes through the per-tab lock and honors the pacing throttle. Error classification: `No group with id` → not-found error, `No tab with id` → `TAB_CLOSED`, plus undefined-return guards on `chrome.tabGroups.update` / `.move` for the concurrent-delete window. New `tests/tools/browser/tab-groups.test.ts` (24 tests) covers each action, every input-validation branch, the missing-permission path, and both error classifications. Extension: 838/838 (was 814 + 24 new), typecheck clean.
+- **Branch**: feat/imp-tab-groups
+
 ### IMP-0056 · Lazy-load heavy tool handlers (perf) · score: 4
 
 - **Status**: done

@@ -35,6 +35,7 @@ import { runWithContext } from '../utils/request-context';
 
 import { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './browser/common';
 import { closeTabsMatchingTool } from './browser/close-tabs-matching';
+import { tabGroupsTool } from './browser/tab-groups';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -89,6 +90,7 @@ const eagerTools: ToolInstance[] = [
   closeTabsTool,
   closeTabsMatchingTool,
   switchTabTool,
+  tabGroupsTool,
   waitForTabTool,
   windowTool,
   webFetcherTool,
