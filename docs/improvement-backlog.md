@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0077 · Add chrome_window tool — create / focus / update windows (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: We have rich tab tools but no first-class window control beyond the read-only chrome_get_windows_and_tabs. Agents that need to spawn an isolated window (incognito, popup, kiosk) for a session, or just bring a window to front before a screenshot, have to fall back to chrome_javascript with `window.open()` (no incognito control, no positioning) or to chrome_computer's full-screen mode (heavy).
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/window-manage.ts` (note: distinct from the existing window.ts which is for tab-window scoping helpers). Class extends BaseBrowserToolExecutor. Action enum: `create | focus | update | close`. `create` accepts `{ url?, type?: 'normal'|'popup'|'panel', incognito?, focused?, state?: 'normal'|'minimized'|'maximized'|'fullscreen', left?, top?, width?, height? }` and wraps `chrome.windows.create`. `focus` takes `{ windowId }` and calls `chrome.windows.update(windowId, { focused: true })`. `update` is a generic chrome.windows.update wrapper for state/size/position. `close` calls chrome.windows.remove. Returns the resulting Window object serialized via a `serializeWindow()` helper (id, type, state, focused, incognito, top/left/width/height, tabs.length). Error mapping: "No window with id" → INVALID_ARGS with a `windowId` field. New TOOL_NAMES.BROWSER.WINDOW_MANAGE = 'chrome_window', TOOL_CATEGORIES['Browser management']. 12-16 tests.
-
 ### IMP-0078 · Add chrome_web_vitals tool — Core Web Vitals via PerformanceObserver (feat) · score: 5
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -375,6 +366,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0077 · Add chrome_window tool — create / focus / update / close windows (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_window` MCP tool wrapping `chrome.windows.{create,update,remove}` so agents can spawn an isolated incognito/popup window for a sandboxed flow, bring a window to front before a screenshot, or close one as cleanup. Single tool with action enum: `create` (`url?, type=normal|popup|panel, incognito, focused, state=normal|minimized|maximized|fullscreen, left/top/width/height`), `focus` (calls `update({focused:true})`), `update` (generic update — needs at least one of focused/state/left/top/width/height), `close` (`chrome.windows.remove`). Returns the resulting Window via a `serializeWindow()` helper as `{id, type, state, focused, incognito, top, left, width, height, tabsCount}`. Tool file at `window-manage.ts` (distinct from the existing `window.ts` which holds tab-window scoping helpers — those are unchanged). Error classification: TAB_CLOSED for `/no tab with id/i`, "No window with id" → INVALID_ARGS with the windowId, INVALID_ARGS for missing/empty fields, UNKNOWN otherwise. Wired through the eager dispatcher; no new manifest permissions. New tests at `tests/tools/browser/window-manage.test.ts` (14 cases). Extension: 989/989 (was 975 + 14 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0077-window
 
 ### IMP-0076 · Add chrome_select_text tool — select text by range or substring (feat) · score: 4
 

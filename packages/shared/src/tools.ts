@@ -131,6 +131,7 @@ export const TOOL_NAMES = {
     FOCUS: 'chrome_focus',
     PASTE: 'chrome_paste',
     SELECT_TEXT: 'chrome_select_text',
+    WINDOW_MANAGE: 'chrome_window',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2606,6 +2607,52 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.WINDOW_MANAGE,
+    description:
+      'Manage Chrome browser windows. Wraps `chrome.windows.{create,update,remove}`. Actions: `create` (open a new window — `url`, `type` = normal | popup | panel, `incognito`, `focused`, `state` = normal | minimized | maximized | fullscreen, `left`/`top`/`width`/`height`), `focus` (bring `windowId` to front via update({focused:true})), `update` (generic update — needs at least one of focused/state/left/top/width/height), `close` (chrome.windows.remove). Returns the updated `Window` object as `{id, type, state, focused, incognito, top, left, width, height, tabsCount}`. Useful for spawning isolated incognito windows for sandboxed flows, popping a popup window for a workflow, or just bringing a window to front before a screenshot.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'focus', 'update', 'close'],
+          description: 'Operation to perform.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Required for `focus`, `update`, and `close`. Ignored for `create`.',
+        },
+        url: {
+          type: 'string',
+          description: 'Initial URL for `create`. Optional — defaults to the new-tab page.',
+        },
+        type: {
+          type: 'string',
+          enum: ['normal', 'popup', 'panel'],
+          description: 'Window type for `create`. Default: `normal`.',
+        },
+        incognito: {
+          type: 'boolean',
+          description: 'For `create`. Open the window in incognito mode.',
+        },
+        focused: {
+          type: 'boolean',
+          description: 'For `create` and `update`. Whether the window has focus.',
+        },
+        state: {
+          type: 'string',
+          enum: ['normal', 'minimized', 'maximized', 'fullscreen'],
+          description: 'Window state for `create` and `update`.',
+        },
+        left: { type: 'number', description: 'Left edge in screen pixels (create / update).' },
+        top: { type: 'number', description: 'Top edge in screen pixels (create / update).' },
+        width: { type: 'number', description: 'Window width in pixels (create / update).' },
+        height: { type: 'number', description: 'Window height in pixels (create / update).' },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2720,6 +2767,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.FOCUS]: 'Interaction',
   [TOOL_NAMES.BROWSER.PASTE]: 'Interaction',
   [TOOL_NAMES.BROWSER.SELECT_TEXT]: 'Interaction',
+  [TOOL_NAMES.BROWSER.WINDOW_MANAGE]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
