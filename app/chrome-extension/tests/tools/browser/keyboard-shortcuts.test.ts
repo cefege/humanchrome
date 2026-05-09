@@ -1,5 +1,5 @@
 /**
- * chrome_keyboard `shortcut` param tests (IMP-0030).
+ * chrome_keyboard `shortcut` param tests (IMP-0085).
  *
  * Two layers:
  *   1. `resolveShortcutKeys` is a pure function — exhaustive
@@ -16,12 +16,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  _resetPlatformCacheForTest,
   keyboardTool,
   resolveShortcutKeys,
   type KeyboardShortcut,
+  type KeyboardToolParams,
 } from '@/entrypoints/background/tools/browser/keyboard';
 
-describe('resolveShortcutKeys (IMP-0030 pure mapping)', () => {
+describe('resolveShortcutKeys (IMP-0085 pure mapping)', () => {
   const cases: Array<{ shortcut: KeyboardShortcut; mac: string; other: string }> = [
     { shortcut: 'copy', mac: 'Meta+c', other: 'Ctrl+c' },
     { shortcut: 'paste', mac: 'Meta+v', other: 'Ctrl+v' },
@@ -53,6 +55,7 @@ describe('chrome_keyboard shortcut → keys forwarding', () => {
   let sendMessageMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    _resetPlatformCacheForTest();
     getPlatformInfo = vi.fn().mockResolvedValue({ os: 'mac' });
     (globalThis.chrome as any).runtime = {
       ...(globalThis.chrome as any).runtime,
@@ -82,35 +85,40 @@ describe('chrome_keyboard shortcut → keys forwarding', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses macOS chord when getPlatformInfo returns os:mac', async () => {
-    const res = await keyboardTool.execute({ shortcut: 'copy', tabId: 7 } as any);
-    expect(res.isError).toBe(false);
+  function exec(args: KeyboardToolParams) {
+    return keyboardTool.execute(args);
+  }
+
+  function lastForwardedKeys(): string | undefined {
     const sent = sendMessageMock.mock.calls.find((c) => (c[1] as any)?.keys);
-    expect((sent?.[1] as any).keys).toBe('Meta+c');
+    return (sent?.[1] as any)?.keys;
+  }
+
+  it('uses macOS chord when getPlatformInfo returns os:mac', async () => {
+    const res = await exec({ shortcut: 'copy', tabId: 7 });
+    expect(res.isError).toBe(false);
+    expect(lastForwardedKeys()).toBe('Meta+c');
   });
 
   it('uses non-mac chord when getPlatformInfo returns os:win', async () => {
     getPlatformInfo.mockResolvedValueOnce({ os: 'win' });
-    await keyboardTool.execute({ shortcut: 'paste', tabId: 7 } as any);
-    const sent = sendMessageMock.mock.calls.find((c) => (c[1] as any)?.keys);
-    expect((sent?.[1] as any).keys).toBe('Ctrl+v');
+    await exec({ shortcut: 'paste', tabId: 7 });
+    expect(lastForwardedKeys()).toBe('Ctrl+v');
   });
 
   it('shortcut wins over keys when both are supplied', async () => {
-    await keyboardTool.execute({ shortcut: 'copy', keys: 'Enter', tabId: 7 } as any);
-    const sent = sendMessageMock.mock.calls.find((c) => (c[1] as any)?.keys);
-    expect((sent?.[1] as any).keys).toBe('Meta+c');
+    await exec({ shortcut: 'copy', keys: 'Enter', tabId: 7 });
+    expect(lastForwardedKeys()).toBe('Meta+c');
   });
 
   it('falls back to non-mac chord if getPlatformInfo throws', async () => {
     getPlatformInfo.mockRejectedValueOnce(new Error('not available'));
-    await keyboardTool.execute({ shortcut: 'find', tabId: 7 } as any);
-    const sent = sendMessageMock.mock.calls.find((c) => (c[1] as any)?.keys);
-    expect((sent?.[1] as any).keys).toBe('Ctrl+f');
+    await exec({ shortcut: 'find', tabId: 7 });
+    expect(lastForwardedKeys()).toBe('Ctrl+f');
   });
 
   it('rejects with INVALID_ARGS when neither keys nor shortcut is supplied', async () => {
-    const res = await keyboardTool.execute({ tabId: 7 } as any);
+    const res = await exec({ tabId: 7 });
     expect(res.isError).toBe(true);
     const text = (res.content[0] as any).text as string;
     expect(text).toContain('INVALID_ARGS');
@@ -118,10 +126,8 @@ describe('chrome_keyboard shortcut → keys forwarding', () => {
   });
 
   it('still accepts a raw keys string when no shortcut is supplied', async () => {
-    await keyboardTool.execute({ keys: 'Enter', tabId: 7 } as any);
-    const sent = sendMessageMock.mock.calls.find((c) => (c[1] as any)?.keys);
-    expect((sent?.[1] as any).keys).toBe('Enter');
-    // No platform lookup needed when shortcut is absent.
+    await exec({ keys: 'Enter', tabId: 7 });
+    expect(lastForwardedKeys()).toBe('Enter');
     expect(getPlatformInfo).not.toHaveBeenCalled();
   });
 });

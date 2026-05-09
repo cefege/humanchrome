@@ -23,15 +23,15 @@ export type KeyboardShortcut =
   | 'new_tab'
   | 'close_tab';
 
-interface KeyboardToolParams {
-  keys?: string; // Optional when `shortcut` is provided. String representing keys or key combinations (e.g., "Enter", "Ctrl+C").
-  shortcut?: KeyboardShortcut; // High-level named shortcut, resolved to the platform-correct chord. Wins over `keys` if both supplied.
-  selector?: string; // Optional: CSS selector or XPath for target element to send keyboard events to
-  selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
-  delay?: number; // Optional: delay between keystrokes in milliseconds
-  tabId?: number; // target existing tab id
-  windowId?: number; // when no tabId, pick active tab from this window
-  frameId?: number; // target frame id for iframe support
+export interface KeyboardToolParams {
+  keys?: string;
+  shortcut?: KeyboardShortcut;
+  selector?: string;
+  selectorType?: 'css' | 'xpath';
+  delay?: number;
+  tabId?: number;
+  windowId?: number;
+  frameId?: number;
 }
 
 /**
@@ -74,15 +74,31 @@ export function resolveShortcutKeys(shortcut: KeyboardShortcut, isMac: boolean):
   }
 }
 
+// Cache the platform-info promise for the lifetime of the SW. The OS
+// can't change at runtime, so one resolved value is correct for every
+// subsequent call. SW eviction clears it; the next cold start pays for
+// one IPC and then memoizes again.
+let cachedIsMac: Promise<boolean> | undefined;
+
 async function isMacPlatform(): Promise<boolean> {
-  try {
-    const info = await chrome.runtime.getPlatformInfo();
-    return info.os === 'mac';
-  } catch {
-    // Fallback: if the API is unavailable, assume non-mac so the chord
-    // is the more portable Ctrl-prefixed variant.
-    return false;
-  }
+  if (cachedIsMac) return cachedIsMac;
+  cachedIsMac = (async () => {
+    try {
+      const info = await chrome.runtime.getPlatformInfo();
+      return info.os === 'mac';
+    } catch (error) {
+      console.warn(
+        'isMacPlatform: chrome.runtime.getPlatformInfo failed, defaulting to non-mac',
+        error,
+      );
+      return false;
+    }
+  })();
+  return cachedIsMac;
+}
+
+export function _resetPlatformCacheForTest(): void {
+  cachedIsMac = undefined;
 }
 
 /**
