@@ -118,6 +118,16 @@ export const TOOL_NAMES = {
     ASSERT: 'chrome_assert',
     WAIT_FOR: 'chrome_wait_for',
     PACE: 'chrome_pace',
+    NOTIFICATIONS: 'chrome_notifications',
+    CLIPBOARD: 'chrome_clipboard',
+    SESSIONS: 'chrome_sessions',
+    TAB_LIFECYCLE: 'chrome_tab_lifecycle',
+    NETWORK_EMULATE: 'chrome_network_emulate',
+    PRINT_TO_PDF: 'chrome_print_to_pdf',
+    BLOCK_OR_REDIRECT: 'chrome_block_or_redirect',
+    ACTION_BADGE: 'chrome_action_badge',
+    KEEP_AWAKE: 'chrome_keep_awake',
+    CONTEXT_MENU: 'chrome_context_menu',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2125,6 +2135,359 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['profile'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.NOTIFICATIONS,
+    description:
+      'Push native OS notifications via `chrome.notifications`. Lets a long-running agent surface "task done" / "needs attention" pings outside the browser. Actions: `create` (returns `{notificationId}`; `title` and `message` required, `iconUrl` optional — defaults to the extension icon, `type` defaults to `basic`, optional `buttons[]` of `{title}` up to 2), `clear` (by `notificationId`), `clear_all` (close every notification this extension owns), `get_all` (list ids currently visible). The `notifications` permission is granted at install time. iconUrls must be data URIs or extension-relative paths.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'clear', 'clear_all', 'get_all'],
+          description: 'Operation to perform.',
+        },
+        notificationId: {
+          type: 'string',
+          description:
+            'Required for `clear`. Optional for `create` (when set, replaces the existing notification with the same id; otherwise Chrome auto-generates).',
+        },
+        title: { type: 'string', description: 'Notification title. Required for `create`.' },
+        message: {
+          type: 'string',
+          description: 'Notification body. Required for `create`.',
+        },
+        type: {
+          type: 'string',
+          enum: ['basic', 'image', 'list', 'progress'],
+          description: 'Notification template. Defaults to `basic`.',
+        },
+        iconUrl: {
+          type: 'string',
+          description:
+            'Icon as a data URI or extension-relative path. Defaults to the extension icon.',
+        },
+        priority: {
+          type: 'number',
+          description: 'Priority -2..2 (Chrome may ignore on some platforms).',
+        },
+        buttons: {
+          type: 'array',
+          items: { type: 'object', properties: { title: { type: 'string' } } },
+          description: 'Up to 2 action buttons (for the `basic` type). Each: `{title}`.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.CLIPBOARD,
+    description:
+      'Read and write the system clipboard via the offscreen document (the only DOM context where `navigator.clipboard.readText` / `writeText` works from a service-worker extension). Actions: `read` (returns `{text}`), `write` (takes `text`, returns `{written: true}`). Useful for copying a table from one page and pasting into another, capturing an OTP from an email tab, or pre-seeding clipboard contents before triggering a paste shortcut. Plain text only — image / HTML clipboards are out of scope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['read', 'write'],
+          description: 'Operation to perform.',
+        },
+        text: {
+          type: 'string',
+          description: 'Plain text to write. Required for `write`.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.SESSIONS,
+    description:
+      'Inspect and restore recently-closed tabs/windows via `chrome.sessions`. Actions: `get_recently_closed` (returns up to `maxResults` entries, each `{lastModified, tab|window}` — tabs include `sessionId, url, title, windowId`, windows include `sessionId, tabs[]`), `restore` (restores by `sessionId`; without one, restores the most recent closure). Lets an agent un-close a tab it killed by mistake without re-navigating. The `sessions` permission is required (granted at install time).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get_recently_closed', 'restore'],
+          description: 'Operation to perform.',
+        },
+        sessionId: {
+          type: 'string',
+          description:
+            'Session id from `get_recently_closed`. Optional for `restore` — omit to restore the most recent closure.',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Max entries for `get_recently_closed`. Default 25, cap 25.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.TAB_LIFECYCLE,
+    description:
+      "Memory-management and audio-state controls on tabs. Actions: `discard` (free the tab's in-memory state — Chrome reloads on next focus; takes `tabId`), `mute` / `unmute` (set the audio mute state via `chrome.tabs.update({muted}`), `set_auto_discardable` (allow / forbid Chrome to auto-discard this tab under memory pressure — useful to pin a tab the agent depends on). All actions return the updated tab's `{id, url, mutedInfo, discarded, autoDiscardable}`.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['discard', 'mute', 'unmute', 'set_auto_discardable'],
+          description: 'Operation to perform.',
+        },
+        tabId: {
+          type: 'number',
+          description:
+            'Target tab. Required for all actions. Use chrome_get_windows_and_tabs to enumerate.',
+        },
+        autoDiscardable: {
+          type: 'boolean',
+          description:
+            'Required for `set_auto_discardable`. `false` pins the tab; `true` allows Chrome to discard it.',
+        },
+      },
+      required: ['action', 'tabId'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.NETWORK_EMULATE,
+    description:
+      'Emulate network conditions on a tab via the Chrome DevTools Protocol (`Network.emulateNetworkConditions`). Useful for testing behavior under slow / offline connections without touching system network settings. Actions: `set` (apply offline | latencyMs | downloadKbps | uploadKbps to the tab), `reset` (restore default network conditions). Requires the `debugger` permission (already granted). Each call attaches the debugger if not already attached; the `reset` action also detaches when no other debugger consumers are active. State is per-tab and persists until reset or the tab is closed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['set', 'reset'],
+          description: 'Operation to perform.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Required for both actions.',
+        },
+        offline: {
+          type: 'boolean',
+          description: 'When true, force the tab offline. Default false.',
+        },
+        latencyMs: {
+          type: 'number',
+          description:
+            'Round-trip latency in milliseconds. 0 disables latency emulation. Used by `set`.',
+        },
+        downloadKbps: {
+          type: 'number',
+          description: 'Max download throughput in kbps. -1 disables (unbounded). Used by `set`.',
+        },
+        uploadKbps: {
+          type: 'number',
+          description: 'Max upload throughput in kbps. -1 disables. Used by `set`.',
+        },
+      },
+      required: ['action', 'tabId'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.PRINT_TO_PDF,
+    description:
+      'Save a tab as PDF via the Chrome DevTools Protocol (`Page.printToPDF`). Returns the PDF as a base64 string by default. When `savePath` is provided, the bridge writes the file to disk and returns `{path, bytes}` instead. Common formatting options exposed: `landscape`, `printBackground`, `scale`, `paperWidthIn` / `paperHeightIn`, `marginTopIn` / `marginRightIn` / `marginBottomIn` / `marginLeftIn`, `pageRanges`. Requires the `debugger` permission. The CDP attach window is short — the tool detaches before returning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        savePath: {
+          type: 'string',
+          description:
+            'Optional bridge-side filesystem path. When provided the PDF is written to disk and the response returns `{path, bytes}` instead of base64.',
+        },
+        landscape: { type: 'boolean', description: 'Default false.' },
+        printBackground: { type: 'boolean', description: 'Default true.' },
+        scale: { type: 'number', description: 'CSS scale factor. Default 1.' },
+        paperWidthIn: { type: 'number', description: 'Paper width in inches. Default 8.5.' },
+        paperHeightIn: { type: 'number', description: 'Paper height in inches. Default 11.' },
+        marginTopIn: { type: 'number', description: 'Top margin in inches. Default 0.4.' },
+        marginRightIn: { type: 'number', description: 'Right margin in inches. Default 0.4.' },
+        marginBottomIn: { type: 'number', description: 'Bottom margin in inches. Default 0.4.' },
+        marginLeftIn: { type: 'number', description: 'Left margin in inches. Default 0.4.' },
+        pageRanges: {
+          type: 'string',
+          description: 'Page ranges to print, e.g. `"1-5,8,11-13"`. Empty = all pages.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.BLOCK_OR_REDIRECT,
+    description:
+      'Block or redirect URLs at the network layer via `chrome.declarativeNetRequest` *session* rules (no DNR ruleset reload, no manifest declaration — rules clear when Chrome restarts). Actions: `add` (one rule: `urlFilter` + `action` = `block` | `redirect`; for redirect, `redirectUrl` is required; optional `resourceTypes` filter), `remove` (by `ruleId`), `list` (all session rules registered by this extension), `clear` (drop every session rule). Use it to mock APIs during a test flow, block trackers for a session, or simulate a 404 on a specific URL. Requires `declarativeNetRequestWithHostAccess` (already granted) — host_permissions are honored.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['add', 'remove', 'list', 'clear'],
+          description: 'Operation to perform.',
+        },
+        ruleId: {
+          type: 'number',
+          description:
+            'Required for `remove`. Optional for `add` — when omitted, the tool auto-assigns the next free id.',
+        },
+        urlFilter: {
+          type: 'string',
+          description:
+            'URL pattern (DNR `urlFilter` syntax — e.g. `||example.com/api/*`). Required for `add`.',
+        },
+        ruleAction: {
+          type: 'string',
+          enum: ['block', 'redirect'],
+          description: 'What to do when the URL matches. Required for `add`.',
+        },
+        redirectUrl: {
+          type: 'string',
+          description:
+            'Required when `ruleAction` is `redirect`. Absolute URL the request is rewritten to.',
+        },
+        resourceTypes: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'main_frame',
+              'sub_frame',
+              'stylesheet',
+              'script',
+              'image',
+              'font',
+              'object',
+              'xmlhttprequest',
+              'ping',
+              'csp_report',
+              'media',
+              'websocket',
+              'webtransport',
+              'webbundle',
+              'other',
+            ],
+          },
+          description:
+            'Optional. Restrict the rule to specific resource types (e.g. `["xmlhttprequest","script"]`).',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.ACTION_BADGE,
+    description:
+      'Show a small badge on the extension icon — useful for live status during a long-running agent ("3 tabs", "ERR"). Actions: `set` (takes `text`, optional `color` as a hex string `#RRGGBB[AA]`, optional `tabId` for per-tab scope), `clear` (empties the badge text; per-tab when `tabId` is set, otherwise global). Badge text is truncated to ~4 characters by Chrome.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['set', 'clear'],
+          description: 'Operation to perform.',
+        },
+        text: {
+          type: 'string',
+          description:
+            'Badge text. Required for `set`. Truncated to ~4 chars by Chrome — keep it terse.',
+        },
+        color: {
+          type: 'string',
+          description:
+            'Optional badge background color, hex `#RRGGBB` or `#RRGGBBAA`. Default red on most platforms.',
+        },
+        tabId: {
+          type: 'number',
+          description:
+            'Optional. When set, the badge is scoped to this tab; without it, the badge is global.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.KEEP_AWAKE,
+    description:
+      'Prevent the system from sleeping during long agent runs via `chrome.power.requestKeepAwake`. Actions: `enable` (with `level` = `display` | `system` — `display` keeps the screen awake too, `system` lets the screen sleep but keeps the OS active), `disable` (release the lock). Idempotent — repeated `enable` calls just refresh the existing lock. The lock is released when the extension reloads.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['enable', 'disable'],
+          description: 'Operation to perform.',
+        },
+        level: {
+          type: 'string',
+          enum: ['display', 'system'],
+          description: 'Required for `enable`. `display` is stricter (also blocks screen sleep).',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.CONTEXT_MENU,
+    description:
+      'Register transient right-click menu items via `chrome.contextMenus`. Use it to let the user manually inject input mid-session ("treat this element as the next target"). Actions: `add` (returns `{id}`; takes `title`, optional `id`, optional `contexts[]` like `["page","selection"]`), `update` (modify title/contexts of an existing id), `remove` (by id), `remove_all` (drop every menu item this extension registered). Click events are surfaced via the bridge\'s native-message channel as `context_menu_clicked` events with `{menuItemId, info, tab}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['add', 'update', 'remove', 'remove_all'],
+          description: 'Operation to perform.',
+        },
+        id: {
+          type: 'string',
+          description:
+            'Menu item id. Optional for `add` (auto-generated). Required for `update`, `remove`.',
+        },
+        title: {
+          type: 'string',
+          description: 'Menu item label. Required for `add`. Optional for `update`.',
+        },
+        contexts: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'all',
+              'page',
+              'frame',
+              'selection',
+              'link',
+              'editable',
+              'image',
+              'video',
+              'audio',
+              'launcher',
+              'browser_action',
+              'page_action',
+              'action',
+            ],
+          },
+          description:
+            'Where the item appears. Defaults to `["page"]` for `add`. See chrome.contextMenus docs for which contexts each label applies in.',
+        },
+        documentUrlPatterns: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional. Match patterns the URL must satisfy for the item to appear (e.g. `["https://example.com/*"]`).',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2141,6 +2504,7 @@ export const TOOL_CATEGORY_ORDER = [
   'Network',
   'Files',
   'State',
+  'System',
   'Performance',
   'Diagnostics',
   'Pacing',
@@ -2224,6 +2588,17 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
 
   [TOOL_NAMES.BROWSER.PACE]: 'Pacing',
+
+  [TOOL_NAMES.BROWSER.NOTIFICATIONS]: 'System',
+  [TOOL_NAMES.BROWSER.CLIPBOARD]: 'System',
+  [TOOL_NAMES.BROWSER.SESSIONS]: 'Browser management',
+  [TOOL_NAMES.BROWSER.TAB_LIFECYCLE]: 'Browser management',
+  [TOOL_NAMES.BROWSER.NETWORK_EMULATE]: 'Network',
+  [TOOL_NAMES.BROWSER.PRINT_TO_PDF]: 'Reading',
+  [TOOL_NAMES.BROWSER.BLOCK_OR_REDIRECT]: 'Network',
+  [TOOL_NAMES.BROWSER.ACTION_BADGE]: 'System',
+  [TOOL_NAMES.BROWSER.KEEP_AWAKE]: 'System',
+  [TOOL_NAMES.BROWSER.CONTEXT_MENU]: 'System',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

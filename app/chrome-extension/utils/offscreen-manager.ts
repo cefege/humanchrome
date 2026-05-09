@@ -59,8 +59,12 @@ export class OffscreenManager {
 
       await chrome.offscreen.createDocument({
         url: 'offscreen.html',
-        reasons: ['WORKERS'],
-        justification: 'Need to run semantic similarity engine with workers',
+        // CLIPBOARD is co-listed so chrome_clipboard can read/write the system
+        // clipboard from the same offscreen doc the similarity worker lives in
+        // (Chrome only allows a single offscreen document per extension).
+        reasons: ['WORKERS', 'CLIPBOARD'] as chrome.offscreen.Reason[],
+        justification:
+          'Run the semantic similarity worker AND service the chrome_clipboard tool (navigator.clipboard requires a DOM context).',
       });
 
       this.isCreated = true;
@@ -103,6 +107,5 @@ export class OffscreenManager {
     this.createPromise = null;
   }
 }
-
 
 export const offscreenManager = OffscreenManager.getInstance();

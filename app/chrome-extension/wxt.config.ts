@@ -55,6 +55,10 @@ export default defineConfig({
       'storage',
       'alarms',
       'pageCapture',
+      'notifications',
+      'power',
+      'sessions',
+      'declarativeNetRequestWithHostAccess',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',
     ],

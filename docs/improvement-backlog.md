@@ -259,6 +259,76 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0064 · Add chrome_notifications tool — native OS notifications (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Wraps `chrome.notifications.{create,clear,getAll}` so a long-running agent can push native OS pings ("session done", "captcha needs attention"). Actions: `create` (returns `{notificationId}`), `clear` (by id), `clear_all`, `get_all`. `buttons[]` is capped to 2; default icon resolves to the extension icon via `chrome.runtime.getURL('icon/128.png')`. Added `notifications` to manifest permissions. 9 tests cover validation, default-icon fallback, button capping, and bulk clear.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0065 · Add chrome_clipboard tool — read/write system clipboard (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Plain-text clipboard read/write via the offscreen document (only DOM context where `navigator.clipboard.{readText,writeText}` works from a service-worker extension). Actions: `read`, `write`. The offscreen doc gains `CLIPBOARD` as a co-reason alongside the existing `WORKERS` so the existing similarity worker isn't disturbed (Chrome only allows one offscreen doc per extension). Two early-return branches added to `offscreen/main.ts` for `clipboard.read` / `clipboard.write` message types. 8 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0066 · Add chrome_sessions tool — list & restore recently-closed tabs/windows (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Wraps `chrome.sessions.{getRecentlyClosed,restore}` so an agent can un-close a tab it killed by mistake. Actions: `get_recently_closed` (returns up to 25, capped server-side), `restore` (by `sessionId`, or omit to restore the most recent closure). Added `sessions` to manifest permissions. Serializes both tab and window entries (windows include their `tabs[]`). 8 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0067 · Add chrome_tab_lifecycle tool — discard / mute / autoDiscardable (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Memory and audio controls on tabs. Actions: `discard` (free in-memory state via `chrome.tabs.discard`), `mute`/`unmute` (via `chrome.tabs.update({muted})`), `set_auto_discardable` (pin a tab so Chrome's memory-pressure heuristics leave it alone). Returns the updated tab's `{id, url, mutedInfo, discarded, autoDiscardable}`. "No tab with id" classified as `TAB_CLOSED`. 9 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0068 · Add chrome_network_emulate tool — Network.emulateNetworkConditions (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Emulate network conditions on a tab via the existing `debugger` permission. Actions: `set` (offline | latencyMs | downloadKbps | uploadKbps; throughput converted to CDP's bytes/sec via the kbps→bytes/sec factor `1024/8`), `reset` (restore defaults and detach). Idempotently handles "Another debugger is already attached". On error, best-effort detach so a stale attach doesn't block DevTools. 9 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0069 · Add chrome_print_to_pdf tool — Page.printToPDF (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Save a tab as PDF via CDP's `Page.printToPDF`. Returns base64 by default; when `savePath` is supplied the bridge's `file_operation` `saveToPath` action writes to disk and the response returns `{path, bytes}`. Standard formatting options exposed (`landscape`, `printBackground`, `scale`, paper / margin sizes in inches, `pageRanges`). Auto-attaches the debugger and detaches on the way out (skips detach when an existing CDP consumer was already attached, so the caller's state is preserved). 8 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0070 · Add chrome_block_or_redirect tool — declarativeNetRequest session rules (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Runtime URL block / redirect via `chrome.declarativeNetRequest.updateSessionRules` (session-scoped, no manifest declaration, cleared on Chrome restart). Actions: `add` (urlFilter + ruleAction = block | redirect; auto-assigns the next free ruleId; optional `resourceTypes` filter), `remove` (by ruleId), `list`, `clear`. Lets an agent mock APIs during a flow, block trackers for a session, or simulate a 404 on a specific URL. Added `declarativeNetRequestWithHostAccess` to manifest permissions (host_permissions are honored). 14 tests including auto-id increment.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0071 · Add chrome_action_badge tool — extension icon badge text + color (feat) · score: 3
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Show a small badge on the extension icon for live status during long runs. Actions: `set` (text, optional `#RRGGBB` / `#RRGGBBAA` color, optional per-tab scope), `clear`. Hex parsing returns `[r,g,b,a]` in 0..255 (alpha defaults to 255 when 6-digit hex is supplied). No new permissions. 10 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0072 · Add chrome_keep_awake tool — power.requestKeepAwake (feat) · score: 3
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Prevent the system from sleeping during long agent runs. Actions: `enable` (`level` = `display` blocks screen sleep too, `system` lets the screen sleep but keeps the OS active), `disable`. Idempotent — repeated `enable` calls just refresh the existing lock. Released when the extension reloads. Added `power` to manifest permissions. 7 tests.
+- **Branch**: feat/imp-bulk-tools
+
+### IMP-0073 · Add chrome_context_menu tool — register transient right-click items (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Register transient right-click menu items via `chrome.contextMenus`. Actions: `add` (auto-generates `humanchrome-cm-<ts>` id when none supplied; default contexts `["page"]`), `update`, `remove`, `remove_all`. The tool installs a one-time `onClicked` listener that broadcasts `{type:'context_menu_clicked', menuItemId, info, tab}` over `chrome.runtime.sendMessage` so flows can correlate clicks. The `contextMenus` permission was already in the manifest. 12 tests.
+- **Branch**: feat/imp-bulk-tools
+
 ### IMP-0063 · Add chrome_tab_groups tool — Chrome tab-group management (feat) · score: 5
 
 - **Status**: done

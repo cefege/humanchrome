@@ -71,6 +71,32 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
 
+    // chrome_clipboard tool: navigator.clipboard.readText / writeText only work
+    // in a DOM context, so the SW dispatches here.
+    if (message.type === 'clipboard.read') {
+      navigator.clipboard
+        .readText()
+        .then((text) => sendResponse({ success: true, result: text }))
+        .catch((err) =>
+          sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) }),
+        );
+      return true;
+    }
+    if (message.type === 'clipboard.write') {
+      const text = (message as { text?: unknown }).text;
+      if (typeof text !== 'string') {
+        sendResponse({ success: false, error: 'clipboard.write: [text] must be a string' });
+        return true;
+      }
+      navigator.clipboard
+        .writeText(text)
+        .then(() => sendResponse({ success: true }))
+        .catch((err) =>
+          sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) }),
+        );
+      return true;
+    }
+
     try {
       switch (message.type) {
         case SendMessageType.SimilarityEngineInit:
