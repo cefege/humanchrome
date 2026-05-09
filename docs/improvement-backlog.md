@@ -67,17 +67,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   Add action enum value flush to the chrome_network_capture schema (alongside start and stop). Implementation: the existing handler already accumulates requests in an in-memory array; flush returns a snapshot of that array and splices it empty without calling stop(). Returns the same shape as stop (requests[], requestCount, etc.). Touch: tools/browser/network-capture.ts handler, TOOL_SCHEMAS action enum. No new infrastructure — flush is a pure read+clear of the existing buffer.
 
-### IMP-0031 · Extend css-helpers.ts to deduplicate isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel across 8 control files (refactor) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: isFieldFocused, readInlineValue, readComputedValue are copy-pasted verbatim in 8 control files (gradient-control, effects-control, layout-control, typography-control, border-control, position-control, appearance-control, background-control). splitTopLevel and tokenizeTopLevel are separately duplicated in gradient-control.ts and effects-control.ts. css-helpers.ts already exists as the shared utilities file; these functions belong there. Total duplicated code ~200 LoC across 8 files.
-- **Cost**: S
-- **Value**: M
-- **Files**: controls/css-helpers.ts (target); gradient-control.ts (2715 LoC), effects-control.ts (2392 LoC), layout-control.ts (1523 LoC), typography-control.ts (1190 LoC), border-control.ts (1151 LoC), position-control.ts, appearance-control.ts, background-control.ts
-- **Sketch**: Export isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel from css-helpers.ts. Delete the 8 local copies. Update each file import. Functions are self-contained.
-- **Risk**: Low. TypeScript compiler will catch any body divergence at compile time.
-
 ### IMP-0032 · Strip verbose debug logging and unconditional setDebugLogs(true) from vector-database.ts hot path (perf) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-07
@@ -150,12 +139,12 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: in-progress (slice 1 of N landed: CDPHelper extracted to `browser/computer/cdp-helper.ts`)
 - **Why**: After IMP-0008 (domain-shift helper) and IMP-0035 (params typing), the dominant bulk in computer.ts is a 16-case switch inside executeAction spanning lines 392-1348 (~956 LoC). Representative case sizes: left_click_drag 93 LoC, zoom 98 LoC, screenshot 147 LoC. Adding a new action or fixing a case requires navigating past all 15 others. CDPHelper (lines 142-310) is already a self-contained class that could be elevated to a sibling module without any refactor risk.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
-- **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
+- **Sketch**: Slicing into focused PRs. Slice 1 (done): move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Slice 2: extract `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag). Slice 3: scroll-actions.ts. Slice 4: fill-actions.ts. Slice 5: screenshot-actions.ts. Slice 6: replace switch with `const HANDLERS: Record<string, ActionHandler> = {...}` dispatch table. After all slices: computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
 
 ### IMP-0056 · Lazy-load tool handlers in tools/index.ts so heavy ones (gif-recorder, performance, network-capture-debugger, computer, read-page) do not instantiate at SW boot (perf) · score: 4
@@ -167,14 +156,14 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
 
-### IMP-0058 · Cache listDynamicFlowTools with invalidation so tools/list and flow.\* calls stop doing a fresh extension round-trip every time (perf) · score: 4
+### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
 
 - **Proposed by**: audit-bundle · 2026-05-08
 - **Status**: proposed
-- **Why**: app/native-server/src/mcp/dispatch.ts:78 listDynamicFlowTools() does a full native-messaging round-trip (rr_list_published_flows, 20s timeout) on every MCP tools/list request — and every MCP client reconnect re-issues that. Worse, dispatch.ts:150 (the flow.\* call path) does the SAME round-trip again to look up the slug, doubling the per-flow-call latency. There is zero caching today. The shape of published flows changes only when flow_publish/flow_unpublish runs, which is a publishable event.
+- **Why**: tools/browser/vector-search.ts:9 static-imports ContentIndexer from utils/content-indexer.ts (586 LoC), which transitively pulls utils/vector-database.ts (1557 LoC) and the hnswlib-wasm-static loader stub. The chrome_vector_search tool runs only when explicitly invoked; today the entire indexing/search engine is parsed on every SW cold-start. Estimated ~50–80 KB off the SW chunk plus removing a wasm pre-init cost from boot.
 - **Cost**: S
 - **Value**: M
-  **Fix sketch**: add a module-scope cache in dispatch.ts holding the last fetched tools+items+timestamp. listDynamicFlowTools returns the cached tools if fresh; otherwise refetches and stores. dispatchTool for a flow.\* call reuses the cached items to look up the slug. Invalidation: add a native message kind flows_changed (or piggyback on an existing event) that the extension publishes after every flow_publish/flow_unpublish; the bridge clears the cache on receipt. TTL fallback (e.g. 60s) for safety. Acceptance: a tools/list immediately followed by flow.<slug> shows only one rr_list_published_flows in extension logs.
+  **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
 
 ### IMP-0059 · Make logger.persist delta-based or opt-in so chrome.storage.local stops re-serializing the whole 5 MB log ring every 250 ms during tool streams (perf) · score: 4
 
@@ -193,7 +182,7 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/native-server/src/agent/engines/claude.ts` (1601 LoC)
-- **Sketch**: Extract at minimum: `private async loadSdk()`, `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
+- **Sketch**: Extract at minimum: `private async loadSdk()` (slice 1 landed), `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
 - **Risk**: Medium — the event loop is stateful (pendingToolInputs map, assistantBuffer); extraction must preserve the shared-state references. No behavior change.
 
 ### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
@@ -386,6 +375,20 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-08
 - **Summary**: Lazy-loaded `ContentIndexer` in `tools/browser/vector-search.ts` via memoized `getIndexer()` async helper that does `await import('@/utils/content-indexer')` on first use. Plus the load-bearing flip of `defineBackground` to `{ type: 'module', main: ... }` so WXT compiles the SW as ESM (Chrome 91+ supports module SWs natively) — without this, IIFE bundling silently inlines every `await import(...)`. Combined with IMP-0055, **background.js dropped from 2168 KB to 612 KB (−72%)**; total dist 6.95 MB → 6.16 MB. Bridge 69/69, extension 694/694, build green.
 - **Worktree**: /Users/mike/Documents/Code/humanchrome/.claude/worktrees/agent-abf1cc03caa7065e5 · branch worktree-agent-abf1cc03caa7065e5
+
+### IMP-0031 · Dedup css-helpers across control files (refactor) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: No code change needed — investigation showed all 5 helpers (`isFieldFocused`, `readInlineValue`, `readComputedValue`, `splitTopLevel`, `tokenizeTopLevel`) are already exported once from `app/chrome-extension/entrypoints/web-editor-v2/ui/property-panel/controls/css-helpers.ts` (lines 245, 261, 275, 293, 349) and consumed by every flagged control file via `import { ... } from './css-helpers'` — no local copies exist anywhere under `entrypoints/web-editor-v2`. The scout's report was stale (likely pre-dating an earlier dedup pass). The one nearby function that _did_ match by partial name — `splitTopLevelTokens` in `layout-control.ts:157` — is intentionally a simpler subset for grid-track parsing (no quote/escape handling) and is not interchangeable with `tokenizeTopLevel`; folding it would have been scope creep beyond IMP-0031. Moved the entry to Done so the next loop iteration doesn't re-pick it.
+- **Branch**: docs/imp-0031-already-deduped
+
+### IMP-0058 · Cache listDynamicFlowTools with invalidation (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added a module-scope cache in `app/native-server/src/mcp/dispatch.ts` shared by both `listDynamicFlowTools` (tools/list path) and `dispatchTool`'s `flow.<slug>` resolution path. 60s TTL with an `invalidateFlowToolsCache()` exported helper for eager invalidation when a flows_changed event fires. Concurrent cold-cache callers collapse onto a single in-flight fetch via a `pendingFlowToolsFetch` promise. The flow-call path falls back to one targeted refetch when a slug isn't in cache (covers the "flow published since last fetch" case). Errors don't poison the cache — empty result returned and next call retries. Pre-cache: a single tools/list immediately followed by `flow.<slug>` cost two 20s-timeout `rr_list_published_flows` round-trips. Post-cache: one round-trip serves both. New `dispatch.flow-cache.test.ts` (8 tests) pins each contract: shared fetch within TTL, concurrent collapse, error doesn't poison, manual invalidation, the IMP-0058 acceptance criterion (tools/list + flow.demo = 1 fetch), multi-flow-call reuse, unknown-slug single refetch, and a published-since-last-fetch round-trip. Existing 6 collision tests updated with `invalidateFlowToolsCache()` in `beforeEach`. Bridge: 77/77 (was 68 + 9 new); extension: 694/694; typecheck clean. No tool-schema changes.
+- **Branch**: perf/imp-0058-flow-tools-cache
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
