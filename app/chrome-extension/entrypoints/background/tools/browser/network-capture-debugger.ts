@@ -189,6 +189,7 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
         includeStatic,
         requests: {},
         limitReached: false,
+        lastFlushAt: null,
       });
 
       // Initialize request counter
@@ -595,6 +596,80 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
     console.log(`NetworkDebuggerStartTool: Cleaned up resources for tab ${tabId}.`);
   }
 
+  /**
+   * Build the result envelope from the requests currently buffered in
+   * `captureInfo`. Pure: reads `captureInfo.requests` and the per-tab
+   * activity map; does not mutate either. Shared by stop and flush so the
+   * envelope shape stays consistent across both code paths.
+   */
+  private buildResultData(
+    captureInfo: any,
+    tabId: number,
+    endTime: number,
+  ): {
+    captureStartTime: number;
+    captureEndTime: number;
+    totalDurationMs: number;
+    commonRequestHeaders: Record<string, string>;
+    commonResponseHeaders: Record<string, string>;
+    requests: NetworkRequestInfo[];
+    requestCount: number;
+    totalRequestsReceivedBeforeLimit: number;
+    requestLimitReached: boolean;
+    tabUrl: string;
+    tabTitle: string;
+    previousFlushAt: number | null;
+  } {
+    const allRequests = Object.values(captureInfo.requests) as NetworkRequestInfo[];
+    const commonRequestHeaders = this.analyzeCommonHeaders(allRequests, 'requestHeaders');
+    const commonResponseHeaders = this.analyzeCommonHeaders(allRequests, 'responseHeaders');
+
+    const processedRequests = allRequests.map((req) => {
+      const finalReq: Partial<NetworkRequestInfo> &
+        Pick<NetworkRequestInfo, 'requestId' | 'url' | 'method' | 'type' | 'status'> = { ...req };
+
+      if (finalReq.requestHeaders) {
+        finalReq.specificRequestHeaders = this.filterOutCommonHeaders(
+          finalReq.requestHeaders,
+          commonRequestHeaders,
+        );
+        delete finalReq.requestHeaders;
+      } else {
+        finalReq.specificRequestHeaders = {};
+      }
+
+      if (finalReq.responseHeaders) {
+        finalReq.specificResponseHeaders = this.filterOutCommonHeaders(
+          finalReq.responseHeaders,
+          commonResponseHeaders,
+        );
+        delete finalReq.responseHeaders;
+      } else {
+        finalReq.specificResponseHeaders = {};
+      }
+      return finalReq as NetworkRequestInfo;
+    });
+
+    processedRequests.sort((a, b) => (a.requestTime || 0) - (b.requestTime || 0));
+
+    return {
+      captureStartTime: captureInfo.startTime,
+      captureEndTime: endTime,
+      totalDurationMs: endTime - captureInfo.startTime,
+      commonRequestHeaders,
+      commonResponseHeaders,
+      requests: processedRequests,
+      requestCount: processedRequests.length,
+      totalRequestsReceivedBeforeLimit: captureInfo.limitReached
+        ? NetworkDebuggerStartTool.MAX_REQUESTS_PER_CAPTURE
+        : processedRequests.length,
+      requestLimitReached: !!captureInfo.limitReached,
+      tabUrl: captureInfo.tabUrl,
+      tabTitle: captureInfo.tabTitle,
+      previousFlushAt: captureInfo.lastFlushAt ?? null,
+    };
+  }
+
   // isAutoStop is true if stop was triggered by timeout, false if by user/explicit call
   async stopCapture(tabId: number, isAutoStop: boolean = false): Promise<any> {
     const captureInfo = this.captureData.get(tabId);
@@ -633,59 +708,15 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
       // Proceed to cleanup and data formatting
     }
 
-    // Process data even if detach/disable failed, as some data might have been captured.
-    const allRequests = Object.values(captureInfo.requests) as NetworkRequestInfo[];
-    const commonRequestHeaders = this.analyzeCommonHeaders(allRequests, 'requestHeaders');
-    const commonResponseHeaders = this.analyzeCommonHeaders(allRequests, 'responseHeaders');
-
-    const processedRequests = allRequests.map((req) => {
-      const finalReq: Partial<NetworkRequestInfo> &
-        Pick<NetworkRequestInfo, 'requestId' | 'url' | 'method' | 'type' | 'status'> = { ...req };
-
-      if (finalReq.requestHeaders) {
-        finalReq.specificRequestHeaders = this.filterOutCommonHeaders(
-          finalReq.requestHeaders,
-          commonRequestHeaders,
-        );
-        delete finalReq.requestHeaders; // Remove original full headers
-      } else {
-        finalReq.specificRequestHeaders = {};
-      }
-
-      if (finalReq.responseHeaders) {
-        finalReq.specificResponseHeaders = this.filterOutCommonHeaders(
-          finalReq.responseHeaders,
-          commonResponseHeaders,
-        );
-        delete finalReq.responseHeaders; // Remove original full headers
-      } else {
-        finalReq.specificResponseHeaders = {};
-      }
-      return finalReq as NetworkRequestInfo; // Cast back to full type
-    });
-
-    // Sort requests by requestTime
-    processedRequests.sort((a, b) => (a.requestTime || 0) - (b.requestTime || 0));
-
+    const endTime = Date.now();
+    const baseResult = this.buildResultData(captureInfo, tabId, endTime);
     const resultData = {
-      captureStartTime: captureInfo.startTime,
-      captureEndTime: Date.now(),
-      totalDurationMs: Date.now() - captureInfo.startTime,
-      commonRequestHeaders,
-      commonResponseHeaders,
-      requests: processedRequests,
-      requestCount: processedRequests.length, // Actual stored requests
-      totalRequestsReceivedBeforeLimit: captureInfo.limitReached
-        ? NetworkDebuggerStartTool.MAX_REQUESTS_PER_CAPTURE
-        : processedRequests.length,
-      requestLimitReached: !!captureInfo.limitReached,
+      ...baseResult,
       stoppedBy: isAutoStop
         ? this.lastActivityTime.get(tabId)
           ? 'inactivity_timeout'
           : 'max_capture_time'
         : 'user_request',
-      tabUrl: captureInfo.tabUrl,
-      tabTitle: captureInfo.tabTitle,
     };
 
     console.log(
@@ -699,6 +730,54 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
       message: `Capture stopped. ${resultData.requestCount} requests.`,
       data: resultData,
     };
+  }
+
+  /**
+   * Drain the buffered debugger-mode requests for `tabId` and return
+   * them, leaving the CDP session attached and Network.enable in place.
+   * Counterpart to stopCapture's snapshot-and-detach: we snapshot
+   * identically, then reset only the in-memory buffer + counter +
+   * limitReached so the long-running capture can keep filling. Pending
+   * `getResponseBody` promises are left to resolve naturally — they
+   * write to the (now empty) request map, which means a flush right at
+   * the moment a body finishes loading may miss that single body. Bump
+   * `lastActivityTime` so the inactivity watchdog doesn't fire as a
+   * side-effect of the buffer-drain pause.
+   */
+  public async flushCapture(tabId: number): Promise<any> {
+    const captureInfo = this.captureData.get(tabId);
+    if (!captureInfo) {
+      return { success: false, message: 'No capture in progress for this tab.' };
+    }
+
+    try {
+      const flushedAt = Date.now();
+      const baseResult = this.buildResultData(captureInfo, tabId, flushedAt);
+
+      // Reset buffered state but keep the debugger session attached
+      captureInfo.requests = {};
+      captureInfo.limitReached = false;
+      captureInfo.lastFlushAt = flushedAt;
+      this.requestCounters.set(tabId, 0);
+
+      this.updateLastActivityTime(tabId);
+
+      console.log(
+        `NetworkDebuggerStartTool: Flushed ${baseResult.requestCount} requests for tab ${tabId}; capture continues.`,
+      );
+
+      return {
+        success: true,
+        message: `Capture flushed. ${baseResult.requestCount} requests.`,
+        data: { ...baseResult, flushed: true, stillActive: true, flushedAt },
+      };
+    } catch (error: any) {
+      console.error(`NetworkDebuggerStartTool: Error flushing capture for tab ${tabId}:`, error);
+      return {
+        success: false,
+        message: `Error flushing capture: ${error.message || String(error)}`,
+      };
+    }
   }
 
   private analyzeCommonHeaders(

@@ -84,6 +84,10 @@ interface CaptureInfo {
   inactivityTimeout: number;
   includeStatic: boolean;
   limitReached?: boolean; // Whether request count limit is reached
+  // Timestamp of the last flush() that returned & cleared the buffer.
+  // Echoed back in the next flush/stop envelope so callers can stitch
+  // multiple drains together unambiguously. Null until first flush.
+  lastFlushAt?: number | null;
 }
 
 /**
@@ -594,6 +598,7 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
         inactivityTimeout,
         includeStatic,
         limitReached: false,
+        lastFlushAt: null,
       });
 
       // Initialize request counter
@@ -634,6 +639,91 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
   }
 
   /**
+   * Build the result envelope from the requests currently buffered in
+   * `captureInfo`. Pure: reads `captureInfo.requests` and the per-tab
+   * counter; does not mutate either. Shared by stop and flush so the two
+   * stay in lockstep — the only difference between them is what state is
+   * cleared after the snapshot is taken.
+   */
+  private buildResultData(
+    captureInfo: CaptureInfo,
+    tabId: number,
+    endTime: number,
+  ): {
+    captureStartTime: number;
+    captureEndTime: number;
+    totalDurationMs: number;
+    settingsUsed: {
+      maxCaptureTime: number;
+      inactivityTimeout: number;
+      includeStatic: boolean;
+      maxRequests: number;
+    };
+    commonRequestHeaders: Record<string, string>;
+    commonResponseHeaders: Record<string, string>;
+    requests: NetworkRequestInfo[];
+    requestCount: number;
+    totalRequestsReceived: number;
+    requestLimitReached: boolean;
+    tabUrl: string;
+    tabTitle: string;
+    previousFlushAt: number | null;
+  } {
+    const requestsArray = Object.values(captureInfo.requests);
+    const commonRequestHeaders = this.analyzeCommonHeaders(requestsArray, 'requestHeaders');
+    const commonResponseHeaders = this.analyzeCommonHeaders(requestsArray, 'responseHeaders');
+
+    const processedRequests = requestsArray.map((req) => {
+      const finalReq: NetworkRequestInfo = { ...req };
+
+      if (finalReq.requestHeaders) {
+        finalReq.specificRequestHeaders = this.filterOutCommonHeaders(
+          finalReq.requestHeaders,
+          commonRequestHeaders,
+        );
+        delete finalReq.requestHeaders;
+      } else {
+        finalReq.specificRequestHeaders = {};
+      }
+
+      if (finalReq.responseHeaders) {
+        finalReq.specificResponseHeaders = this.filterOutCommonHeaders(
+          finalReq.responseHeaders,
+          commonResponseHeaders,
+        );
+        delete finalReq.responseHeaders;
+      } else {
+        finalReq.specificResponseHeaders = {};
+      }
+
+      return finalReq;
+    });
+
+    processedRequests.sort((a, b) => (a.requestTime || 0) - (b.requestTime || 0));
+
+    return {
+      captureStartTime: captureInfo.startTime,
+      captureEndTime: endTime,
+      totalDurationMs: endTime - captureInfo.startTime,
+      settingsUsed: {
+        maxCaptureTime: captureInfo.maxCaptureTime,
+        inactivityTimeout: captureInfo.inactivityTimeout,
+        includeStatic: captureInfo.includeStatic,
+        maxRequests: NetworkCaptureStartTool.MAX_REQUESTS_PER_CAPTURE,
+      },
+      commonRequestHeaders,
+      commonResponseHeaders,
+      requests: processedRequests,
+      requestCount: processedRequests.length,
+      totalRequestsReceived: this.requestCounters.get(tabId) || 0,
+      requestLimitReached: captureInfo.limitReached || false,
+      tabUrl: captureInfo.tabUrl,
+      tabTitle: captureInfo.tabTitle,
+      previousFlushAt: captureInfo.lastFlushAt ?? null,
+    };
+  }
+
+  /**
    * Stop capture
    * @param tabId Tab ID
    */
@@ -647,67 +737,13 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
     }
 
     try {
-      // Record end time
-      captureInfo.endTime = Date.now();
+      const endTime = Date.now();
+      captureInfo.endTime = endTime;
 
-      // Extract common request and response headers
-      const requestsArray = Object.values(captureInfo.requests);
-      const commonRequestHeaders = this.analyzeCommonHeaders(requestsArray, 'requestHeaders');
-      const commonResponseHeaders = this.analyzeCommonHeaders(requestsArray, 'responseHeaders');
-
-      // Process request data, remove common headers
-      const processedRequests = requestsArray.map((req) => {
-        const finalReq: NetworkRequestInfo = { ...req };
-
-        if (finalReq.requestHeaders) {
-          finalReq.specificRequestHeaders = this.filterOutCommonHeaders(
-            finalReq.requestHeaders,
-            commonRequestHeaders,
-          );
-          delete finalReq.requestHeaders;
-        } else {
-          finalReq.specificRequestHeaders = {};
-        }
-
-        if (finalReq.responseHeaders) {
-          finalReq.specificResponseHeaders = this.filterOutCommonHeaders(
-            finalReq.responseHeaders,
-            commonResponseHeaders,
-          );
-          delete finalReq.responseHeaders;
-        } else {
-          finalReq.specificResponseHeaders = {};
-        }
-
-        return finalReq;
-      });
-
-      // Sort by time
-      processedRequests.sort((a, b) => (a.requestTime || 0) - (b.requestTime || 0));
+      const resultData = this.buildResultData(captureInfo, tabId, endTime);
 
       // Remove listeners
       this.removeListeners();
-
-      // Prepare result data
-      const resultData = {
-        captureStartTime: captureInfo.startTime,
-        captureEndTime: captureInfo.endTime,
-        totalDurationMs: captureInfo.endTime - captureInfo.startTime,
-        settingsUsed: {
-          maxCaptureTime: captureInfo.maxCaptureTime,
-          inactivityTimeout: captureInfo.inactivityTimeout,
-          includeStatic: captureInfo.includeStatic,
-          maxRequests: NetworkCaptureStartTool.MAX_REQUESTS_PER_CAPTURE,
-        },
-        commonRequestHeaders,
-        commonResponseHeaders,
-        requests: processedRequests,
-        requestCount: processedRequests.length,
-        totalRequestsReceived: this.requestCounters.get(tabId) || 0,
-        requestLimitReached: captureInfo.limitReached || false,
-        tabUrl: captureInfo.tabUrl,
-        tabTitle: captureInfo.tabTitle,
-      };
 
       // Clean up resources
       this.cleanupCapture(tabId);
@@ -725,6 +761,57 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
       return {
         success: false,
         message: `Error stopping capture: ${error.message || String(error)}`,
+      };
+    }
+  }
+
+  /**
+   * Drain the buffered requests for `tabId` and return them, leaving the
+   * capture itself running. The returned shape matches stopCapture's
+   * `data` envelope, with `flushed: true` and `stillActive: true` set so
+   * the unified tool's caller can disambiguate the two paths.
+   *
+   * Resets `captureInfo.requests`, the request counter (so the per-capture
+   * `MAX_REQUESTS_PER_CAPTURE` cap doesn't carry over and starve a long
+   * session), and `limitReached`. Listeners and timers stay attached.
+   * Bumps the activity timestamp so the inactivity timer doesn't fire as
+   * a side effect of the time spent sitting in the buffer.
+   */
+  public async flushCapture(
+    tabId: number,
+  ): Promise<{ success: boolean; message?: string; data?: any }> {
+    const captureInfo = this.captureData.get(tabId);
+    if (!captureInfo) {
+      return { success: false, message: `No capture in progress for tab ${tabId}` };
+    }
+
+    try {
+      const flushedAt = Date.now();
+      const resultData = this.buildResultData(captureInfo, tabId, flushedAt);
+
+      // Reset buffered state but keep listeners/timers attached
+      captureInfo.requests = {};
+      captureInfo.limitReached = false;
+      captureInfo.lastFlushAt = flushedAt;
+      this.requestCounters.set(tabId, 0);
+
+      // Refresh activity so the inactivity watchdog doesn't fire as a
+      // side effect of the buffer-drain pause.
+      this.updateLastActivityTime(tabId);
+
+      console.log(
+        `NetworkCaptureV2: Flushed ${resultData.requestCount} requests for tab ${tabId}; capture continues.`,
+      );
+
+      return {
+        success: true,
+        data: { ...resultData, flushed: true, stillActive: true, flushedAt },
+      };
+    } catch (error: any) {
+      console.error(`NetworkCaptureV2: Error flushing capture for tab ${tabId}:`, error);
+      return {
+        success: false,
+        message: `Error flushing capture: ${error.message || String(error)}`,
       };
     }
   }
