@@ -76,17 +76,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   Add action enum value flush to the chrome_network_capture schema (alongside start and stop). Implementation: the existing handler already accumulates requests in an in-memory array; flush returns a snapshot of that array and splices it empty without calling stop(). Returns the same shape as stop (requests[], requestCount, etc.). Touch: tools/browser/network-capture.ts handler, TOOL_SCHEMAS action enum. No new infrastructure — flush is a pure read+clear of the existing buffer.
 
-### IMP-0031 · Extend css-helpers.ts to deduplicate isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel across 8 control files (refactor) · score: 4
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: isFieldFocused, readInlineValue, readComputedValue are copy-pasted verbatim in 8 control files (gradient-control, effects-control, layout-control, typography-control, border-control, position-control, appearance-control, background-control). splitTopLevel and tokenizeTopLevel are separately duplicated in gradient-control.ts and effects-control.ts. css-helpers.ts already exists as the shared utilities file; these functions belong there. Total duplicated code ~200 LoC across 8 files.
-- **Cost**: S
-- **Value**: M
-- **Files**: controls/css-helpers.ts (target); gradient-control.ts (2715 LoC), effects-control.ts (2392 LoC), layout-control.ts (1523 LoC), typography-control.ts (1190 LoC), border-control.ts (1151 LoC), position-control.ts, appearance-control.ts, background-control.ts
-- **Sketch**: Export isFieldFocused, readInlineValue, readComputedValue, splitTopLevel, tokenizeTopLevel from css-helpers.ts. Delete the 8 local copies. Update each file import. Functions are self-contained.
-- **Risk**: Low. TypeScript compiler will catch any body divergence at compile time.
-
 ### IMP-0032 · Strip verbose debug logging and unconditional setDebugLogs(true) from vector-database.ts hot path (perf) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-07
@@ -390,6 +379,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0031 · Dedup css-helpers across control files (refactor) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: No code change needed — investigation showed all 5 helpers (`isFieldFocused`, `readInlineValue`, `readComputedValue`, `splitTopLevel`, `tokenizeTopLevel`) are already exported once from `app/chrome-extension/entrypoints/web-editor-v2/ui/property-panel/controls/css-helpers.ts` (lines 245, 261, 275, 293, 349) and consumed by every flagged control file via `import { ... } from './css-helpers'` — no local copies exist anywhere under `entrypoints/web-editor-v2`. The scout's report was stale (likely pre-dating an earlier dedup pass). The one nearby function that _did_ match by partial name — `splitTopLevelTokens` in `layout-control.ts:157` — is intentionally a simpler subset for grid-track parsing (no quote/escape handling) and is not interchangeable with `tokenizeTopLevel`; folding it would have been scope creep beyond IMP-0031. Moved the entry to Done so the next loop iteration doesn't re-pick it.
+- **Branch**: docs/imp-0031-already-deduped
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
