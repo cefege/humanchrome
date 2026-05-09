@@ -1,6 +1,16 @@
 export { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './common';
 export { closeTabsMatchingTool } from './close-tabs-matching';
 export { tabGroupsTool } from './tab-groups';
+export { notificationsTool } from './notifications';
+export { clipboardTool } from './clipboard';
+export { sessionsTool } from './sessions';
+export { tabLifecycleTool } from './tab-lifecycle';
+export { networkEmulateTool } from './network-emulate';
+export { printToPdfTool } from './print-to-pdf';
+export { blockOrRedirectTool } from './block-or-redirect';
+export { actionBadgeTool } from './action-badge';
+export { keepAwakeTool } from './keep-awake';
+export { contextMenuTool } from './context-menu';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';
