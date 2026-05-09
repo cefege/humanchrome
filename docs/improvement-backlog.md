@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0078 · Add chrome_web_vitals tool — Core Web Vitals via PerformanceObserver (feat) · score: 5
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: chrome*performance*\* records full DevTools traces — heavy, tied to a recording window, and the analyze step explicitly punts on CWV. For 95% of "is this page fast?" questions agents actually want the standard six numbers (LCP, CLS, INP, FCP, TTFB, FID), measurable live and cheap. PerformanceObserver in MAIN world returns those without any trace overhead.
-- **Cost**: S
-- **Value**: L
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/web-vitals.ts`. Action enum: `start | snapshot | stop`. Inject a MAIN-world script via chrome.scripting.executeScript that builds a per-tab observer storing values on `window.__hcWebVitals`, observing `largest-contentful-paint` (take the most recent), `layout-shift` (sum non-input-emitted shifts → CLS), `event` with `durationThreshold:40` (max → INP), `paint` (filter for `first-contentful-paint` → FCP), `first-input` (one-shot → FID), and `navigation` (responseStart - startTime → TTFB). `start` action installs the observer (idempotent — guard with the `__hcWebVitals` global). Optional `reload: true` reloads the page so cold-start metrics get captured. `snapshot` reads `window.__hcWebVitals` without removing the observer; `stop` reads then disconnects + clears the global. Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs }` with `null` for any metric not yet observed. New TOOL_NAMES.BROWSER.WEB_VITALS, TOOL_CATEGORIES['Performance']. 10-14 tests using `chrome.scripting.executeScript` mocks that return canned vital values.
-
 ### IMP-0079 · Add chrome_idle tool — query user idle state (feat) · score: 3
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -366,6 +357,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0078 · Add chrome_web_vitals tool — Core Web Vitals via PerformanceObserver (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_web_vitals` MCP tool that wraps a MAIN-world `PerformanceObserver` shim (installed idempotently on `window.__hcWebVitals`) to deliver the standard six Core Web Vitals: LCP (most recent `largest-contentful-paint`), CLS (sum of non-input `layout-shift` entries), INP (max `event` entry duration with `durationThreshold:40`), FCP (`paint` entry filtered for `first-contentful-paint`), FID (one-shot `first-input` `processingStart - startTime`), TTFB (navigation `responseStart - startTime`). Different shape from `chrome_performance_*` (those record full DevTools traces — heavy, post-hoc); this is "what does the user actually feel" measurement, live and cheap. Action enum: `start` (idempotent observer install; optional `reload: true` reloads the tab first so cold-start LCP/FCP/TTFB get captured), `snapshot` (read current values without disturbing), `stop` (read + disconnect observers + clear the global). Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs, installed }` with `null` for any metric not yet observed. Each `safeObserve` swallows individual entry-type rejections so older Chromium builds still get partial vitals (whatever the build supports). Error mapping: TAB_CLOSED for `/no tab with id/i`, INVALID_ARGS for unknown action, TAB_NOT_FOUND when no active tab, UNKNOWN otherwise. Wired through the eager dispatcher; no new manifest permissions. New tests at `tests/tools/browser/web-vitals.test.ts` (13 cases). Extension: 1002/1002 (was 989 + 13 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0078-web-vitals
 
 ### IMP-0077 · Add chrome_window tool — create / focus / update / close windows (feat) · score: 4
 
