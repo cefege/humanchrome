@@ -304,6 +304,13 @@ IMP entry. Move to next iteration on the next tick.
 
 ## Done
 
+### IMP-0085 · Add `shortcut` enum to chrome_keyboard for platform-correct named chords (feat) · score: 3
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Augments the existing `chrome_keyboard` tool with an optional `shortcut` enum (`copy | paste | cut | undo | redo | save | select_all | find | refresh | back | forward | new_tab | close_tab`) that resolves at dispatch time to the platform-correct chord — `Meta` on macOS (via `chrome.runtime.getPlatformInfo()`), `Ctrl` elsewhere — so agents no longer hard-code Ctrl-vs-Meta in prompts. Asymmetric mapping where it matters (redo: `Meta+Shift+z` on macOS vs `Ctrl+y` elsewhere; back/forward: `Meta+Arrow*` vs `Alt+Arrow*`). When both `keys` and `shortcut` are supplied, `shortcut` wins (callers reaching for a high-level name don't want a stale literal silently overriding it). When neither is supplied, returns `INVALID_ARGS` naming `keys|shortcut` (was `keys`-only before). The `keys` field is no longer required at the schema level but is still validated in code. Pure helper `resolveShortcutKeys` is exported for unit testing without `chrome.runtime` mocks. Falls back to non-mac chord on `getPlatformInfo` failure. New tests at `tests/tools/browser/keyboard-shortcuts.test.ts` (32 cases): exhaustive 13×2 mac/non-mac mapping coverage plus 6 end-to-end cases for `chrome.runtime.getPlatformInfo` integration, shortcut-wins-over-keys, fallback, and the no-args INVALID_ARGS path. No new manifest permissions. Extension: 1109/1109; bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0085-keyboard-shortcuts
+
 ### IMP-0084 · Add chrome_drag_drop tool — synthesize mousedown/move/up + DnD events (feat) · score: 4
 
 - **Status**: done
