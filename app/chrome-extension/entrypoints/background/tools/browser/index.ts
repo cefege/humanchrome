@@ -1,4 +1,5 @@
 export { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './common';
+export { closeTabsMatchingTool } from './close-tabs-matching';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';
@@ -14,7 +15,7 @@ export { interceptResponseTool } from './intercept-response';
 export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
 export { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 export { keyboardTool } from './keyboard';
-export { historyTool } from './history';
+export { historyTool, historyDeleteTool } from './history';
 export {
   bookmarkSearchTool,
   bookmarkAddTool,
@@ -22,12 +23,18 @@ export {
   bookmarkDeleteTool,
 } from './bookmark';
 export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
-export { injectScriptTool, sendCommandToInjectScriptTool } from './inject-script';
+export {
+  injectScriptTool,
+  listInjectedScriptsTool,
+  sendCommandToInjectScriptTool,
+} from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';
 export { consoleClearTool } from './console-clear';
 export { fileUploadTool } from './file-upload';
 export { readPageTool } from './read-page';
+export { storageTool } from './storage';
+export { listFramesTool } from './list-frames';
 export { computerTool } from './computer';
 export { handleDialogTool } from './dialog';
 export { handleDownloadTool } from './download';

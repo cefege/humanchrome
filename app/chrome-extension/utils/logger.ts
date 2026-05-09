@@ -26,8 +26,14 @@
 const BUFFER_CAP = 4000;
 const PERSIST_KEY = '__humanchrome_log_v2';
 const LEVEL_KEY = 'humanchrome:logLevel';
-const PERSIST_DEBOUNCE_MS = 250;
+// Pre-IMP-0059 this was 250 ms unconditionally — every tool call dropped
+// 3+ events into the ring and each fired a JSON.stringify of the whole 5 MB
+// buffer 4× per second. Bumping to 5 s when persistence IS enabled (and
+// disabling persistence by default — see PERSIST_ENABLED_KEY) cuts steady-
+// state SW CPU from ~240 chrome.storage.local writes/min to ~12.
+const PERSIST_DEBOUNCE_MS = 5_000;
 const PERSIST_BYTE_BUDGET = 5 * 1024 * 1024; // ~5 MB
+const PERSIST_ENABLED_KEY = 'humanchrome:logPersistEnabled';
 
 export const DEBUG_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type DebugLogLevel = (typeof DEBUG_LOG_LEVELS)[number];
@@ -80,6 +86,12 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let activeLevel: DebugLogLevel = 'info';
 let levelLoaded = false;
 let extensionVersion: string | undefined;
+// Persistence to chrome.storage.local is OFF by default — see IMP-0059 for
+// the SW-CPU rationale. Toggle via setPersistEnabled (or chrome_debug_dump
+// with `persist: true`) when you actually want logs to survive a SW restart.
+// The flag is itself persisted under PERSIST_ENABLED_KEY so it survives.
+let persistEnabled = false;
+let persistEnabledLoaded = false;
 
 function getExtensionVersion(): string | undefined {
   if (extensionVersion !== undefined) return extensionVersion;
@@ -107,6 +119,56 @@ async function loadLevel(): Promise<void> {
   }
 }
 
+async function loadPersistEnabled(): Promise<void> {
+  if (persistEnabledLoaded) return;
+  persistEnabledLoaded = true;
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+    const got = await chrome.storage.local.get(PERSIST_ENABLED_KEY);
+    const raw = got?.[PERSIST_ENABLED_KEY];
+    if (raw === true) persistEnabled = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Toggle whether log entries get written through to chrome.storage.local.
+ * When false (default), the in-memory ring is the only home for logs and
+ * chrome.storage.local sees zero traffic — eliminates the dominant
+ * steady-state SW CPU cost during automation runs (IMP-0059).
+ *
+ * Side-effects:
+ *  - on→off: drops the persisted blob so the next SW boot starts clean
+ *    (in-memory buffer is left intact for the rest of the SW life)
+ *  - off→on: schedules a flush so any logs accumulated since boot are
+ *    written through, with the same 5 s debounce that gates ongoing writes.
+ */
+export async function setPersistEnabled(enabled: boolean): Promise<void> {
+  persistEnabled = enabled;
+  persistEnabledLoaded = true;
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+    await chrome.storage.local.set({ [PERSIST_ENABLED_KEY]: enabled });
+    if (!enabled) {
+      // Drop the persisted blob so SW restart doesn't resurrect old logs.
+      await chrome.storage.local.remove(PERSIST_KEY);
+      if (persistTimer) {
+        clearTimeout(persistTimer);
+        persistTimer = null;
+      }
+    } else {
+      schedulePersist();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getPersistEnabled(): boolean {
+  return persistEnabled;
+}
+
 export function setLogLevel(level: DebugLogLevel): void {
   activeLevel = level;
   try {
@@ -124,6 +186,10 @@ async function restoreFromStorage(): Promise<void> {
   if (restored) return;
   restored = true;
   await loadLevel();
+  await loadPersistEnabled();
+  // Only restore the ring buffer when persistence is on; otherwise we know
+  // the persisted blob (if any) is stale from a previous "on" session.
+  if (!persistEnabled) return;
   try {
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
     const got = await chrome.storage.local.get(PERSIST_KEY);
@@ -159,6 +225,9 @@ function trimToByteBudget(): void {
 }
 
 function schedulePersist(): void {
+  // Skip the work entirely when persistence is off — this is the IMP-0059
+  // hot path that pre-fix was firing 4×/sec during automation runs.
+  if (!persistEnabled) return;
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
@@ -167,6 +236,7 @@ function schedulePersist(): void {
 }
 
 async function persistNow(): Promise<void> {
+  if (!persistEnabled) return;
   try {
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
     trimToByteBudget();

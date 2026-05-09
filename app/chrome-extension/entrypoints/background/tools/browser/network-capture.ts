@@ -7,7 +7,7 @@ import { networkDebuggerStartTool, networkDebuggerStopTool } from './network-cap
 type NetworkCaptureBackend = 'webRequest' | 'debugger';
 
 interface NetworkCaptureToolParams {
-  action: 'start' | 'stop';
+  action: 'start' | 'stop' | 'flush';
   needResponseBody?: boolean;
   url?: string;
   maxCaptureTime?: number;
@@ -76,8 +76,10 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
   async execute(args: NetworkCaptureToolParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'start' && action !== 'stop') {
-      return createErrorResponse('Parameter [action] is required and must be one of: start, stop');
+    if (action !== 'start' && action !== 'stop' && action !== 'flush') {
+      return createErrorResponse(
+        'Parameter [action] is required and must be one of: start, stop, flush',
+      );
     }
 
     const wantBody = args?.needResponseBody === true;
@@ -86,6 +88,10 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
     if (action === 'start') {
       return this.handleStart(args, wantBody, debuggerActive, webActive);
+    }
+
+    if (action === 'flush') {
+      return this.handleFlush(args, debuggerActive, webActive);
     }
 
     return this.handleStop(args, debuggerActive, webActive);
@@ -117,6 +123,101 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
     });
 
     return decorateJsonResult(result, { backend, needResponseBody: wantBody });
+  }
+
+  private async handleFlush(
+    args: NetworkCaptureToolParams,
+    debuggerActive: boolean,
+    webActive: boolean,
+  ): Promise<ToolResult> {
+    // Pick the same backend we'd pick on stop, but call flushCapture
+    // instead so the underlying capture state stays attached.
+    let backendToFlush: NetworkCaptureBackend | null = null;
+
+    if (args?.needResponseBody === true) {
+      backendToFlush = debuggerActive ? 'debugger' : null;
+    } else if (args?.needResponseBody === false) {
+      backendToFlush = webActive ? 'webRequest' : null;
+    }
+
+    if (!backendToFlush) {
+      if (debuggerActive) {
+        backendToFlush = 'debugger';
+      } else if (webActive) {
+        backendToFlush = 'webRequest';
+      }
+    }
+
+    if (!backendToFlush) {
+      return createErrorResponse('No active network captures found in any tab.');
+    }
+
+    const startTool =
+      backendToFlush === 'debugger' ? networkDebuggerStartTool : networkCaptureStartTool;
+    const captureData = (startTool as unknown as { captureData?: Map<number, unknown> })
+      .captureData;
+    const ongoing =
+      captureData instanceof Map ? Array.from(captureData.keys() as IterableIterator<number>) : [];
+
+    if (ongoing.length === 0) {
+      return createErrorResponse('No active network captures found in any tab.');
+    }
+
+    // Mirror the stop-tool's tab-selection precedence: active tab if it
+    // happens to be one of the captured tabs, otherwise the first ongoing.
+    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTabId = activeTabs[0]?.id;
+    const primaryTabId =
+      typeof activeTabId === 'number' && ongoing.includes(activeTabId) ? activeTabId : ongoing[0];
+
+    const primaryResult = await (
+      startTool as unknown as { flushCapture: (id: number) => Promise<any> }
+    ).flushCapture(primaryTabId);
+
+    if (!primaryResult || !primaryResult.success) {
+      return createErrorResponse(
+        primaryResult?.message || `Failed to flush network capture for tab ${primaryTabId}`,
+      );
+    }
+
+    // For multi-tab captures, drain the rest with continue-on-error.
+    const otherFlushes: Array<{ tabId: number; data?: any; error?: string }> = [];
+    if (ongoing.length > 1) {
+      for (const tabId of ongoing) {
+        if (tabId === primaryTabId) continue;
+        try {
+          const result = await (
+            startTool as unknown as { flushCapture: (id: number) => Promise<any> }
+          ).flushCapture(tabId);
+          if (result?.success) {
+            otherFlushes.push({ tabId, data: result.data });
+          } else {
+            otherFlushes.push({ tabId, error: result?.message || 'unknown error' });
+          }
+        } catch (error: any) {
+          otherFlushes.push({ tabId, error: error?.message || String(error) });
+        }
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            backend: backendToFlush,
+            needResponseBody: backendToFlush === 'debugger',
+            flushed: true,
+            stillActive: true,
+            tabId: primaryTabId,
+            ...primaryResult.data,
+            ...(otherFlushes.length > 0 ? { otherFlushes } : {}),
+          }),
+        },
+      ],
+      isError: false,
+    };
   }
 
   private async handleStop(
