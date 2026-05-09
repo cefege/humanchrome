@@ -167,15 +167,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
 
-### IMP-0056 · Lazy-load tool handlers in tools/index.ts so heavy ones (gif-recorder, performance, network-capture-debugger, computer, read-page) do not instantiate at SW boot (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: tools/index.ts:3 does import \* as browserTools from ./browser, which through tools/browser/index.ts star-exports every tool file and constructs export const xxxTool = new XxxTool() at module-eval time. All 40+ tools — including gif-recorder, gif-enhanced-renderer, performance traces, network-capture-debugger, computer, vector-search, read-page, userscript — are instantiated on every service-worker cold-start, even when the user never calls them. Estimated ~80–120 KB of bundled code plus per-instance allocations on every browser wake.
-- **Cost**: M
-- **Value**: M
-  **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
-
 ### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
 
 - **Proposed by**: audit-bundle · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0056 · Lazy-load heavy tool handlers (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Rebuilt `app/chrome-extension/entrypoints/background/tools/index.ts` to drop the `import * as browserTools from './browser'` star-import that was forcing every tool file to evaluate at SW boot. Light tools (the ~30 small ones called every session) stay eager via explicit named imports — keeps the dispatcher fast on the common paths. The 14 heavy tools that the audit flagged go through a `Record<string, () => Promise<ToolInstance>>` lazy registry: `chrome_screenshot`, `chrome_search_tabs_content`, `chrome_request_element_selection`, `chrome_network_debugger_start`/`_stop`, `chrome_intercept_response`, `chrome_javascript`, `chrome_read_page`, `chrome_computer`, `chrome_userscript`, `chrome_performance_start_trace`/`_stop_trace`/`_analyze_insight`, `chrome_gif_recorder`. Each entry is one line — `async () => (await import('./browser/<file>')).<exportName>`. First call resolves and memoizes via `lazyResolved` Map; concurrent first calls collapse onto a `lazyInflight` Promise. Heavy tools that previously dragged ~80–120 KB of code (gif-encoding chain ~2.6k LoC, computer.ts 1478 LoC, network-capture-debugger 1035 LoC, vector-database 1557 LoC + hnswlib WASM, etc.) now only land in the SW chunk when they're actually used. The `./browser/index.ts` barrel is left in place for any future caller; the dispatcher just doesn't use it. Test-only `_resetLazyToolCacheForTest()` and `_listRegisteredToolNamesForTest()` exports support the new test suite. New `tests/tools/lazy-tool-registry.test.ts` (8 tests): coverage guard (every TOOL_NAMES.BROWSER + TOOL_NAMES.RECORD_REPLAY entry has a registered handler — no orphans), source-shape guards (every flagged heavy tool is wired through the lazy half AND the dispatcher does NOT statically import any heavy module — caught a regression early via test 8), runtime memoization (handleCallTool routes a heavy tool through the dynamic loader, the spy fires, second call hits the memo), unknown-tool returns INVALID_ARGS. Extension: 702/702 (was 694, +8 from the new suite), typecheck clean.
+- **Branch**: perf/imp-0056-lazy-tool-registry
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

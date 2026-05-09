@@ -1,7 +1,5 @@
 import { createErrorResponse, createErrorResponseFromThrown } from '@/common/tool-handler';
-import { ToolErrorCode } from 'humanchrome-shared';
-import * as browserTools from './browser';
-import { flowRunTool, listPublishedFlowsTool } from './record-replay';
+import { ToolErrorCode, TOOL_NAMES } from 'humanchrome-shared';
 import { debugLog } from '../utils/debug-log';
 import {
   recordClientTab,
@@ -12,8 +10,194 @@ import {
 import { acquireTabLock } from '../utils/tab-lock';
 import { runWithContext } from '../utils/request-context';
 
-const tools = { ...browserTools, flowRunTool, listPublishedFlowsTool } as any;
-const toolsMap = new Map(Object.values(tools).map((tool: any) => [tool.name, tool]));
+// =============================================================================
+// Tool registry — eager + lazy split (IMP-0056)
+// =============================================================================
+//
+// Pre-IMP-0056 this file did `import * as browserTools from './browser'`,
+// which through the barrel star-export construction-time-evaluated EVERY
+// tool file at SW boot. That dragged ~80–120 KB of bundled code plus
+// per-instance allocations into the cold-start path even when most tools
+// were never called in the session.
+//
+// Now: light tools stay eager (they're tiny, cheap, and called every
+// session). Heavy tools — gif-recorder, performance, network-capture-
+// debugger, computer, read-page, screenshot, vector-search,
+// element-picker, intercept-response, javascript, userscript — are
+// loaded on first use via dynamic `import()` and memoized. The Map is
+// keyed by tool name; lookup falls through eager → lazy → not-found.
+//
+// Tests still import the singletons directly from `./browser/<file>`,
+// which is unaffected by this change. The `./browser/index.ts` barrel
+// stays in place for any future caller that wants the eager-everything
+// shape; this dispatcher just doesn't use it.
+// =============================================================================
+
+import { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './browser/common';
+import { waitForTabTool } from './browser/wait-for-tab';
+import { windowTool } from './browser/window';
+import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
+import { clickTool, fillTool } from './browser/interaction';
+import { awaitElementTool } from './browser/await-element';
+import { networkRequestTool } from './browser/network-request';
+import { networkCaptureTool } from './browser/network-capture';
+import {
+  networkCaptureStartTool,
+  networkCaptureStopTool,
+} from './browser/network-capture-web-request';
+import { keyboardTool } from './browser/keyboard';
+import { historyTool } from './browser/history';
+import {
+  bookmarkSearchTool,
+  bookmarkAddTool,
+  bookmarkUpdateTool,
+  bookmarkDeleteTool,
+} from './browser/bookmark';
+import { getCookiesTool, setCookieTool, removeCookieTool } from './browser/cookies';
+import { injectScriptTool, sendCommandToInjectScriptTool } from './browser/inject-script';
+import { consoleTool } from './browser/console';
+import { consoleClearTool } from './browser/console-clear';
+import { fileUploadTool } from './browser/file-upload';
+import { handleDialogTool } from './browser/dialog';
+import { handleDownloadTool } from './browser/download';
+import { debugDumpTool } from './browser/debug-dump';
+import { assertTool } from './browser/assert';
+import { waitForTool } from './browser/wait-for';
+import { paceTool } from './browser/pace';
+import { flowRunTool, listPublishedFlowsTool } from './record-replay';
+
+interface ToolInstance {
+  name: string;
+  // Loosened to `any` because each concrete tool narrows its args to its
+  // own params interface; we don't try to reconcile those shapes here.
+  // The dispatcher only ever forwards an arbitrary args bag.
+  execute: (args: any) => Promise<any>;
+  // `mutates` lives on the constructor's static side. Not every tool sets
+  // it — the dispatcher reads it via `(tool.constructor as any).mutates`.
+}
+
+const eagerTools: ToolInstance[] = [
+  navigateTool,
+  navigateBatchTool,
+  closeTabsTool,
+  switchTabTool,
+  waitForTabTool,
+  windowTool,
+  webFetcherTool,
+  getInteractiveElementsTool,
+  clickTool,
+  fillTool,
+  awaitElementTool,
+  networkRequestTool,
+  networkCaptureTool,
+  networkCaptureStartTool,
+  networkCaptureStopTool,
+  keyboardTool,
+  historyTool,
+  bookmarkSearchTool,
+  bookmarkAddTool,
+  bookmarkUpdateTool,
+  bookmarkDeleteTool,
+  getCookiesTool,
+  setCookieTool,
+  removeCookieTool,
+  injectScriptTool,
+  sendCommandToInjectScriptTool,
+  consoleTool,
+  consoleClearTool,
+  fileUploadTool,
+  handleDialogTool,
+  handleDownloadTool,
+  debugDumpTool,
+  assertTool,
+  waitForTool,
+  paceTool,
+  flowRunTool as unknown as ToolInstance,
+  listPublishedFlowsTool as unknown as ToolInstance,
+];
+
+const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
+
+/**
+ * Heavy tools — loaded on first use via dynamic import, then memoized.
+ * Each entry returns a Promise that resolves to the singleton instance
+ * exported by the corresponding module.
+ *
+ * The estimated savings (per IMP-0056): SW chunk shrinks by ~80–120 KB
+ * in steady state when these tools aren't called. The chrome.scripting
+ * / chrome.debugger listener constructors that some of these tools
+ * register inside their class constructors also stop firing at boot.
+ */
+type LazyLoader = () => Promise<ToolInstance>;
+
+const lazyLoaders: Record<string, LazyLoader> = {
+  [TOOL_NAMES.BROWSER.SCREENSHOT]: async () =>
+    (await import('./browser/screenshot')).screenshotTool,
+  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: async () =>
+    (await import('./browser/vector-search')).vectorSearchTabsContentTool,
+  [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: async () =>
+    (await import('./browser/element-picker')).elementPickerTool,
+  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START]: async () =>
+    (await import('./browser/network-capture-debugger')).networkDebuggerStartTool,
+  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP]: async () =>
+    (await import('./browser/network-capture-debugger')).networkDebuggerStopTool,
+  [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: async () =>
+    (await import('./browser/intercept-response')).interceptResponseTool,
+  [TOOL_NAMES.BROWSER.JAVASCRIPT]: async () =>
+    (await import('./browser/javascript')).javascriptTool,
+  [TOOL_NAMES.BROWSER.READ_PAGE]: async () => (await import('./browser/read-page')).readPageTool,
+  [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
+  [TOOL_NAMES.BROWSER.USERSCRIPT]: async () =>
+    (await import('./browser/userscript')).userscriptTool,
+  [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: async () =>
+    (await import('./browser/performance')).performanceStartTraceTool,
+  [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: async () =>
+    (await import('./browser/performance')).performanceStopTraceTool,
+  [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: async () =>
+    (await import('./browser/performance')).performanceAnalyzeInsightTool,
+  [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
+    (await import('./browser/gif-recorder')).gifRecorderTool,
+};
+
+const lazyResolved = new Map<string, ToolInstance>();
+const lazyInflight = new Map<string, Promise<ToolInstance>>();
+
+async function resolveLazyTool(name: string): Promise<ToolInstance | undefined> {
+  const cached = lazyResolved.get(name);
+  if (cached) return cached;
+  const inflight = lazyInflight.get(name);
+  if (inflight) return inflight;
+  const loader = lazyLoaders[name];
+  if (!loader) return undefined;
+  const promise = loader().then((tool) => {
+    lazyResolved.set(name, tool);
+    lazyInflight.delete(name);
+    return tool;
+  });
+  lazyInflight.set(name, promise);
+  return promise;
+}
+
+/**
+ * Resolve a tool by name. Eager tools answer instantly; heavy tools
+ * are imported on first use and memoized for subsequent calls.
+ */
+async function getTool(name: string): Promise<ToolInstance | undefined> {
+  const eager = eagerToolsByName.get(name);
+  if (eager) return eager;
+  return resolveLazyTool(name);
+}
+
+/** Test-only — drop the lazy memo so a test can re-exercise the loader. */
+export function _resetLazyToolCacheForTest(): void {
+  lazyResolved.clear();
+  lazyInflight.clear();
+}
+
+/** Test-only — list every name the dispatcher will resolve (eager + lazy). */
+export function _listRegisteredToolNamesForTest(): string[] {
+  return [...eagerToolsByName.keys(), ...Object.keys(lazyLoaders)];
+}
 
 export interface ToolCallParam {
   name: string;
@@ -104,7 +288,7 @@ export const handleCallTool = async (
   const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
   log.info('tool call start');
 
-  const tool = toolsMap.get(param.name);
+  const tool = await getTool(param.name);
   if (!tool) {
     log.warn('tool not found');
     return createErrorResponse(`Tool ${param.name} not found`, ToolErrorCode.INVALID_ARGS, {
