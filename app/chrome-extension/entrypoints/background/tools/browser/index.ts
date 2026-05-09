@@ -1,4 +1,5 @@
 export { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './common';
+export { closeTabsMatchingTool } from './close-tabs-matching';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';
