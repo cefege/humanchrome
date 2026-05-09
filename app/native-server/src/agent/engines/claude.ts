@@ -89,26 +89,8 @@ export class ClaudeEngine implements AgentEngine {
       throw new Error('ClaudeEngine: instruction must not be empty');
     }
 
-    // Dynamically import the Claude Agent SDK
     // Images are passed via temp file paths appended to the prompt string
-    let query: (args: { prompt: string; options?: Record<string, unknown> }) => AsyncIterable<any>;
-    try {
-      // Dynamic import to avoid hard dependency - install @anthropic-ai/claude-agent-sdk to use this engine
-      // Use string variable to bypass TypeScript module resolution
-      const sdkModuleName = '@anthropic-ai/claude-agent-sdk';
-
-      const sdk = await (Function(
-        'moduleName',
-        'return import(moduleName)',
-      )(sdkModuleName) as Promise<any>);
-      query = sdk.query;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `ClaudeEngine: Failed to load Claude Agent SDK. Please install @anthropic-ai/claude-agent-sdk. Error: ${message}`,
-        { cause: error },
-      );
-    }
+    const query = await this.loadSdk();
 
     // Resolve model
     const resolvedModel =
@@ -1342,6 +1324,32 @@ export class ClaudeEngine implements AgentEngine {
     const base =
       (projectRoot && projectRoot.trim()) || process.env.MCP_AGENT_PROJECT_ROOT || process.cwd();
     return path.resolve(base);
+  }
+
+  /**
+   * Load the Claude Agent SDK at runtime. Dynamic import avoids a hard
+   * dependency on `@anthropic-ai/claude-agent-sdk` — the package is
+   * optional and only required for callers that actually use this engine.
+   * The string-variable + Function-eval indirection bypasses TypeScript's
+   * static module resolution so the bundler doesn't try to resolve it.
+   */
+  private async loadSdk(): Promise<
+    (args: { prompt: string; options?: Record<string, unknown> }) => AsyncIterable<any>
+  > {
+    try {
+      const sdkModuleName = '@anthropic-ai/claude-agent-sdk';
+      const sdk = await (Function(
+        'moduleName',
+        'return import(moduleName)',
+      )(sdkModuleName) as Promise<any>);
+      return sdk.query;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `ClaudeEngine: Failed to load Claude Agent SDK. Please install @anthropic-ai/claude-agent-sdk. Error: ${message}`,
+        { cause: error },
+      );
+    }
   }
 
   /**

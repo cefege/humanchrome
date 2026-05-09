@@ -42,73 +42,74 @@ interface HistoryResult {
   query?: string;
 }
 
-class HistoryTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.HISTORY;
-  private static readonly ONE_DAY_MS = 24 * 60 * 60 * 1000;
+interface HistoryDeleteToolParams {
+  url?: string;
+  startTime?: string;
+  endTime?: string;
+  all?: boolean;
+  confirmDeleteAll?: boolean;
+}
 
-  /**
-   * Parse a date string into milliseconds since epoch.
-   * Returns null if the date string is invalid.
-   * Supports:
-   *  - ISO date strings (e.g., "2023-10-31", "2023-10-31T14:30:00.000Z")
-   *  - Relative times: "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"
-   *  - Special keywords: "now", "today", "yesterday"
-   */
-  private parseDateString(dateStr: string | undefined | null): number | null {
-    if (!dateStr) {
-      // If an empty or null string is passed, it might mean "no specific date",
-      // depending on how you want to treat it. Returning null is safer.
-      return null;
-    }
-
-    const now = new Date();
-    const lowerDateStr = dateStr.toLowerCase().trim();
-
-    if (lowerDateStr === 'now') return now.getTime();
-    if (lowerDateStr === 'today') return startOfToday().getTime();
-    if (lowerDateStr === 'yesterday') return startOfYesterday().getTime();
-
-    const relativeMatch = lowerDateStr.match(
-      /^(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago$/,
-    );
-    if (relativeMatch) {
-      const amount = parseInt(relativeMatch[1], 10);
-      const unit = relativeMatch[2];
-      let resultDate: Date;
-      if (unit.startsWith('day')) resultDate = subDays(now, amount);
-      else if (unit.startsWith('week')) resultDate = subWeeks(now, amount);
-      else if (unit.startsWith('month')) resultDate = subMonths(now, amount);
-      else if (unit.startsWith('year')) resultDate = subYears(now, amount);
-      else return null; // Should not happen with the regex
-      return resultDate.getTime();
-    }
-
-    // Try parsing as ISO or other common date string formats
-    // Native Date constructor can be unreliable for non-standard formats.
-    // date-fns' parseISO is good for ISO 8601.
-    // For other formats, date-fns' parse function is more flexible.
-    let parsedDate = parseISO(dateStr); // Handles "2023-10-31" or "2023-10-31T10:00:00"
-    if (isValid(parsedDate)) {
-      return parsedDate.getTime();
-    }
-
-    // Fallback to new Date() for other potential formats, but with caution
-    parsedDate = new Date(dateStr);
-    if (isValid(parsedDate) && dateStr.includes(parsedDate.getFullYear().toString())) {
-      return parsedDate.getTime();
-    }
-
-    console.warn(`Could not parse date string: ${dateStr}`);
+/**
+ * Parse a date string into milliseconds since epoch.
+ * Returns null if the date string is invalid.
+ * Supports:
+ *  - ISO date strings (e.g., "2023-10-31", "2023-10-31T14:30:00.000Z")
+ *  - Relative times: "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"
+ *  - Special keywords: "now", "today", "yesterday"
+ */
+function parseDateString(dateStr: string | undefined | null): number | null {
+  if (!dateStr) {
     return null;
   }
 
-  /**
-   * Format a timestamp as a human-readable date string
-   */
-  private formatDate(timestamp: number): string {
-    // Using date-fns for consistent and potentially localized formatting
-    return format(timestamp, 'yyyy-MM-dd HH:mm:ss');
+  const now = new Date();
+  const lowerDateStr = dateStr.toLowerCase().trim();
+
+  if (lowerDateStr === 'now') return now.getTime();
+  if (lowerDateStr === 'today') return startOfToday().getTime();
+  if (lowerDateStr === 'yesterday') return startOfYesterday().getTime();
+
+  const relativeMatch = lowerDateStr.match(
+    /^(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago$/,
+  );
+  if (relativeMatch) {
+    const amount = parseInt(relativeMatch[1], 10);
+    const unit = relativeMatch[2];
+    let resultDate: Date;
+    if (unit.startsWith('day')) resultDate = subDays(now, amount);
+    else if (unit.startsWith('week')) resultDate = subWeeks(now, amount);
+    else if (unit.startsWith('month')) resultDate = subMonths(now, amount);
+    else if (unit.startsWith('year')) resultDate = subYears(now, amount);
+    else return null;
+    return resultDate.getTime();
   }
+
+  // Try parsing as ISO or other common date string formats.
+  // Native Date constructor can be unreliable for non-standard formats.
+  // date-fns' parseISO is good for ISO 8601.
+  let parsedDate = parseISO(dateStr);
+  if (isValid(parsedDate)) {
+    return parsedDate.getTime();
+  }
+
+  // Fallback to new Date() for other potential formats, but with caution
+  parsedDate = new Date(dateStr);
+  if (isValid(parsedDate) && dateStr.includes(parsedDate.getFullYear().toString())) {
+    return parsedDate.getTime();
+  }
+
+  console.warn(`Could not parse date string: ${dateStr}`);
+  return null;
+}
+
+function formatDate(timestamp: number): string {
+  return format(timestamp, 'yyyy-MM-dd HH:mm:ss');
+}
+
+class HistoryTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.HISTORY;
+  private static readonly ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
   async execute(args: HistoryToolParams): Promise<ToolResult> {
     try {
@@ -126,7 +127,7 @@ class HistoryTool extends BaseBrowserToolExecutor {
 
       // Parse startTime
       if (args.startTime) {
-        const parsedStart = this.parseDateString(args.startTime);
+        const parsedStart = parseDateString(args.startTime);
         if (parsedStart === null) {
           return createErrorResponse(
             `Invalid format for start time: "${args.startTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
@@ -142,7 +143,7 @@ class HistoryTool extends BaseBrowserToolExecutor {
 
       // Parse endTime
       if (args.endTime) {
-        const parsedEnd = this.parseDateString(args.endTime);
+        const parsedEnd = parseDateString(args.endTime);
         if (parsedEnd === null) {
           return createErrorResponse(
             `Invalid format for end time: "${args.endTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
@@ -165,7 +166,7 @@ class HistoryTool extends BaseBrowserToolExecutor {
       }
 
       console.log(
-        `Searching history from ${this.formatDate(startTimeMs)} to ${this.formatDate(endTimeMs)} for query "${text}"`,
+        `Searching history from ${formatDate(startTimeMs)} to ${formatDate(endTimeMs)} for query "${text}"`,
       );
 
       const historyItems = await chrome.history.search({
@@ -209,8 +210,8 @@ class HistoryTool extends BaseBrowserToolExecutor {
         timeRange: {
           startTime: startTimeMs,
           endTime: endTimeMs,
-          startTimeFormatted: this.formatDate(startTimeMs),
-          endTimeFormatted: this.formatDate(endTimeMs),
+          startTimeFormatted: formatDate(startTimeMs),
+          endTimeFormatted: formatDate(endTimeMs),
         },
       };
 
@@ -236,4 +237,122 @@ class HistoryTool extends BaseBrowserToolExecutor {
   }
 }
 
+class HistoryDeleteTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.HISTORY_DELETE;
+
+  async execute(args: HistoryDeleteToolParams): Promise<ToolResult> {
+    const { url, startTime, endTime, all, confirmDeleteAll } = args ?? {};
+    const hasUrl = typeof url === 'string' && url.length > 0;
+    const hasRangeStart = typeof startTime === 'string' && startTime.length > 0;
+    const hasRangeEnd = typeof endTime === 'string' && endTime.length > 0;
+    const hasRange = hasRangeStart || hasRangeEnd;
+    const wantAll = all === true;
+
+    const modeCount = (hasUrl ? 1 : 0) + (hasRange ? 1 : 0) + (wantAll ? 1 : 0);
+    if (modeCount === 0) {
+      return createErrorResponse(
+        'Provide one of: `url`, `startTime`+`endTime`, or `all: true` (with `confirmDeleteAll: true`).',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+    if (modeCount > 1) {
+      return createErrorResponse(
+        'Choose exactly one deletion mode: `url`, time range, or `all`. Combining modes is not supported.',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+
+    try {
+      if (hasUrl) {
+        await chrome.history.deleteUrl({ url: url! });
+        return jsonResult({
+          success: true,
+          mode: 'url',
+          url,
+          message: `Deleted history entries for ${url}.`,
+        });
+      }
+
+      if (hasRange) {
+        if (!hasRangeStart || !hasRangeEnd) {
+          return createErrorResponse(
+            'Time-range deletion requires both `startTime` and `endTime`.',
+            ToolErrorCode.INVALID_ARGS,
+            { arg: hasRangeStart ? 'endTime' : 'startTime' },
+          );
+        }
+
+        const startMs = parseDateString(startTime);
+        if (startMs === null) {
+          return createErrorResponse(
+            `Invalid format for start time: "${startTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'startTime' },
+          );
+        }
+        const endMs = parseDateString(endTime);
+        if (endMs === null) {
+          return createErrorResponse(
+            `Invalid format for end time: "${endTime}". Supported formats: ISO (YYYY-MM-DD), "today", "yesterday", "X days/weeks/months/years ago".`,
+            ToolErrorCode.INVALID_ARGS,
+            { arg: 'endTime' },
+          );
+        }
+        if (startMs > endMs) {
+          return createErrorResponse(
+            'Start time cannot be after end time.',
+            ToolErrorCode.INVALID_ARGS,
+          );
+        }
+
+        await chrome.history.deleteRange({ startTime: startMs, endTime: endMs });
+        return jsonResult({
+          success: true,
+          mode: 'range',
+          range: {
+            startTime: startMs,
+            endTime: endMs,
+            startTimeFormatted: formatDate(startMs),
+            endTimeFormatted: formatDate(endMs),
+          },
+          message: `Deleted history entries from ${formatDate(startMs)} to ${formatDate(endMs)}.`,
+        });
+      }
+
+      // wantAll path
+      if (!confirmDeleteAll) {
+        return createErrorResponse(
+          'Refusing to delete all history without `confirmDeleteAll: true`.',
+          ToolErrorCode.INVALID_ARGS,
+          { arg: 'confirmDeleteAll' },
+        );
+      }
+      await chrome.history.deleteAll();
+      return jsonResult({
+        success: true,
+        mode: 'all',
+        message: 'Deleted all browsing history.',
+      });
+    } catch (error) {
+      console.error('Error in HistoryDeleteTool.execute:', error);
+      return createErrorResponse(
+        `Error deleting browsing history: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+function jsonResult(payload: unknown): ToolResult {
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(payload, null, 2),
+      },
+    ],
+    isError: false,
+  };
+}
+
 export const historyTool = new HistoryTool();
+export const historyDeleteTool = new HistoryDeleteTool();
