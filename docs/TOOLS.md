@@ -481,6 +481,20 @@ Use "stop" to end recording and save the GIF.
 
 ## State
 
+### `chrome_storage`
+
+Read, write, and clear a tab's `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don't need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `get` \| `set` \| `remove` \| `clear` \| `keys` | ✓ | Operation to perform on the storage area. |
+| `scope` | `local` \| `session` |  | Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`. |
+| `key` | string |  | Storage key. Required for `get`, `set`, and `remove`. |
+| `value` | string |  | Value to store. Required for `set`. Strings only — wrap structured data in JSON.stringify before passing. |
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores. |
+
 ### `chrome_history`
 
 Retrieve and search browsing history from Chrome

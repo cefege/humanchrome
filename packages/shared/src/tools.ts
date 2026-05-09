@@ -102,6 +102,7 @@ export const TOOL_NAMES = {
     CONSOLE_CLEAR: 'chrome_console_clear',
     FILE_UPLOAD: 'chrome_upload_file',
     READ_PAGE: 'chrome_read_page',
+    STORAGE: 'chrome_storage',
     LIST_FRAMES: 'chrome_list_frames',
     COMPUTER: 'chrome_computer',
     HANDLE_DIALOG: 'chrome_handle_dialog',
@@ -278,6 +279,43 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.STORAGE,
+    description:
+      'Read, write, and clear a tab\'s `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don\'t need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'set', 'remove', 'clear', 'keys'],
+          description: 'Operation to perform on the storage area.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['local', 'session'],
+          description:
+            'Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`.',
+        },
+        key: {
+          type: 'string',
+          description: 'Storage key. Required for `get`, `set`, and `remove`.',
+        },
+        value: {
+          type: 'string',
+          description:
+            'Value to store. Required for `set`. Strings only — wrap structured data in JSON.stringify before passing.',
+        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: {
+          type: 'number',
+          description:
+            'Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores.',
+        },
+      },
+      required: ['action'],
     },
   },
   {
@@ -2030,6 +2068,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
+  [TOOL_NAMES.BROWSER.STORAGE]: 'State',
   [TOOL_NAMES.BROWSER.LIST_FRAMES]: 'Reading',
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
   // TOOL_NAMES.BROWSER.GET_INTERACTIVE_ELEMENTS has a handler but no
