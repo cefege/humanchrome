@@ -185,15 +185,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
 
-### IMP-0058 · Cache listDynamicFlowTools with invalidation so tools/list and flow.\* calls stop doing a fresh extension round-trip every time (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: app/native-server/src/mcp/dispatch.ts:78 listDynamicFlowTools() does a full native-messaging round-trip (rr_list_published_flows, 20s timeout) on every MCP tools/list request — and every MCP client reconnect re-issues that. Worse, dispatch.ts:150 (the flow.\* call path) does the SAME round-trip again to look up the slug, doubling the per-flow-call latency. There is zero caching today. The shape of published flows changes only when flow_publish/flow_unpublish runs, which is a publishable event.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: add a module-scope cache in dispatch.ts holding the last fetched tools+items+timestamp. listDynamicFlowTools returns the cached tools if fresh; otherwise refetches and stores. dispatchTool for a flow.\* call reuses the cached items to look up the slug. Invalidation: add a native message kind flows_changed (or piggyback on an existing event) that the extension publishes after every flow_publish/flow_unpublish; the bridge clears the cache on receipt. TTL fallback (e.g. 60s) for safety. Acceptance: a tools/list immediately followed by flow.<slug> shows only one rr_list_published_flows in extension logs.
-
 ### IMP-0059 · Make logger.persist delta-based or opt-in so chrome.storage.local stops re-serializing the whole 5 MB log ring every 250 ms during tool streams (perf) · score: 4
 
 - **Proposed by**: audit-bundle · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0058 · Cache listDynamicFlowTools with invalidation (perf) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: Added a module-scope cache in `app/native-server/src/mcp/dispatch.ts` shared by both `listDynamicFlowTools` (tools/list path) and `dispatchTool`'s `flow.<slug>` resolution path. 60s TTL with an `invalidateFlowToolsCache()` exported helper for eager invalidation when a flows_changed event fires. Concurrent cold-cache callers collapse onto a single in-flight fetch via a `pendingFlowToolsFetch` promise. The flow-call path falls back to one targeted refetch when a slug isn't in cache (covers the "flow published since last fetch" case). Errors don't poison the cache — empty result returned and next call retries. Pre-cache: a single tools/list immediately followed by `flow.<slug>` cost two 20s-timeout `rr_list_published_flows` round-trips. Post-cache: one round-trip serves both. New `dispatch.flow-cache.test.ts` (8 tests) pins each contract: shared fetch within TTL, concurrent collapse, error doesn't poison, manual invalidation, the IMP-0058 acceptance criterion (tools/list + flow.demo = 1 fetch), multi-flow-call reuse, unknown-slug single refetch, and a published-since-last-fetch round-trip. Existing 6 collision tests updated with `invalidateFlowToolsCache()` in `beforeEach`. Bridge: 77/77 (was 68 + 9 new); extension: 694/694; typecheck clean. No tool-schema changes.
+- **Branch**: perf/imp-0058-flow-tools-cache
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
