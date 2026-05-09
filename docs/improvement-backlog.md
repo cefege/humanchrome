@@ -94,17 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
-
-- **Proposed by**: bug-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: When LAST_RESULTS has no entry for the active tab, PerformanceAnalyzeInsightTool returns { content: [{ text: "No recorded traces found..." }], isError: false }. Agents that branch on isError treat the pre-condition failure as a successful (empty) analysis and do not retry the start/stop sequence.
-- **Cost**: S
-- **Value**: S
-- **Repro**: Call `chrome_performance_analyze_insight` on a tab that has never had a trace. Expected: isError:true. Actual: isError:false, success:undefined, text says "No recorded traces found".
-- **Fix sketch**: `/Users/mike/Documents/Code/humanchrome/app/chrome-extension/entrypoints/background/tools/browser/performance.ts` lines 361–371 — replace the early return with `return createErrorResponse("No recorded trace for this tab. Call chrome_performance_start_trace then chrome_performance_stop_trace first.", ToolErrorCode.UNKNOWN)`.
-- **Notes**: Latent. Same root cause as IMP-0048 — the performance tool family uses plain text error strings with isError:false rather than createErrorResponse.
-
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
@@ -284,15 +273,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Value**: S
   New tool chrome_remove_injected_script. Params: tabId? (falls back to preferred tab). Calls the existing internal cleanup path that calls injectedTabs.delete(tabId) and sends a teardown event to the injected script via the existing message channel. Returns { removed: boolean, tabId }. Touch: inject-script.ts (expose existing teardown logic), TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT, TOOL_SCHEMAS entry, TOOL_CATEGORIES map (same category as INJECT_SCRIPT).
 
-### IMP-0030 · Add named-shortcut param to chrome_keyboard for common browser-level key combos (feat) · score: 2
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: Agents that need to trigger copy/paste/undo/redo/save/open-devtools must know the platform-correct key sequence (Ctrl vs Cmd, exact key names) and assemble it via the raw key array. A shortcut string param (e.g. shortcut: copy | paste | undo | redo | save | select_all | find) maps to the correct platform keys at dispatch time, reducing prompt engineering burden and platform-portability bugs for the most common combos.
-- **Cost**: S
-- **Value**: S
-  Add optional shortcut param to chrome_keyboard schema (enum of common action names). At dispatch time in keyboard.ts, a lookup table maps shortcut names to platform-correct key arrays (macOS: Meta+C for copy; Windows/Linux: Ctrl+C). If both shortcut and key are provided, shortcut takes precedence. The existing key array path remains fully supported — this is purely additive. Touch: tools/browser/keyboard.ts (add lookup table + shortcut branch), TOOL_SCHEMAS chrome_keyboard properties. No new tool needed, no new infrastructure.
-
 ### IMP-0053 · Add status action to chrome_network_capture for non-destructive buffer inspection (feat) · score: 2
 
 - **Proposed by**: feature-scout · 2026-05-08
@@ -303,6 +283,18 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
+
+- **Status**: done (already fixed before backlog audit)
+- **Completed**: 2026-05-09
+- **Summary**: Audit during the IMP-0085 cycle confirmed `PerformanceAnalyzeInsightTool` (`app/chrome-extension/entrypoints/background/tools/browser/performance.ts:362-368`) already uses `createErrorResponse(..., ToolErrorCode.UNKNOWN, { tabId })` for the "no recorded trace for this tab" pre-condition. The fix was bundled into the IMP-0048 batch when the performance-tool family was migrated off the legacy `isError:false` text-error pattern. The parallel `PerformanceStopTraceTool` "no session" branch deliberately stays `isError:false` (idempotent stop), guarded by `tests/tools/browser/performance.test.ts:162` so future refactors don't widen the fix beyond what was intended. No code change required to close.
+
+### IMP-0030 · Add named-shortcut param to chrome_keyboard for common browser-level key combos (feat) · score: 2
+
+- **Status**: done (superseded by IMP-0085)
+- **Completed**: 2026-05-09
+- **Summary**: Functionality landed via IMP-0085 (`Add shortcut enum to chrome_keyboard for platform-correct named chords`, PR #113 + simplify follow-up #114). IMP-0085 covers the same surface (copy/paste/cut/undo/redo/save/select_all/find/refresh/back/forward/new_tab/close_tab) plus platform detection via `chrome.runtime.getPlatformInfo()`, asymmetric mappings where macOS diverges (redo, back, forward), exported pure helper `resolveShortcutKeys`, memoized platform lookup, and 32 unit tests. The IMP-0030 sketch is a strict subset.
 
 ### IMP-0085 · Add `shortcut` enum to chrome_keyboard for platform-correct named chords (feat) · score: 3
 
