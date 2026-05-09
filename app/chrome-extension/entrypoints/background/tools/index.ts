@@ -56,6 +56,7 @@ import { alarmsTool } from './browser/alarms';
 import { clearBrowsingDataTool } from './browser/clear-browsing-data';
 import { proxyTool } from './browser/proxy';
 import { identityTool } from './browser/identity';
+import { dragDropTool } from './browser/drag-drop';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -131,6 +132,7 @@ const eagerTools: ToolInstance[] = [
   clearBrowsingDataTool,
   proxyTool,
   identityTool,
+  dragDropTool,
   waitForTabTool,
   windowTool,
   webFetcherTool,

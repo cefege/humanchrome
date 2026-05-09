@@ -138,6 +138,7 @@ export const TOOL_NAMES = {
     CLEAR_BROWSING_DATA: 'chrome_clear_browsing_data',
     PROXY: 'chrome_proxy',
     IDENTITY: 'chrome_identity',
+    DRAG_DROP: 'chrome_drag_drop',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2841,6 +2842,51 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.DRAG_DROP,
+    description:
+      'Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + Pointer-Event chain. Single tool (no action enum). The MAIN-world shim resolves both targets (selector or ref), computes their bounding-rect centers, then dispatches `pointerdown` → `mousedown` → `dragstart` on FROM, N intermediate `pointermove` + `dragover` events along a linear interpolation, then `dragenter` → `dragover` → `drop` on TO and `dragend` on FROM and `pointerup` / `mouseup` on TO. Returns `{ steps, fromBox, toBox }`. Hidden / not-visible / not-found targets surface as INVALID_ARGS so callers can branch without re-raising. Useful for Trello cards, kanban boards, file-upload drop zones, sortable lists.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromSelector: {
+          type: 'string',
+          description: 'CSS selector for the drag source. Mutually exclusive with `fromRef`.',
+        },
+        fromRef: {
+          type: 'string',
+          description:
+            'Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`.',
+        },
+        toSelector: {
+          type: 'string',
+          description: 'CSS selector for the drop target. Mutually exclusive with `toRef`.',
+        },
+        toRef: {
+          type: 'string',
+          description: 'Element ref for the drop target. Mutually exclusive with `toSelector`.',
+        },
+        steps: {
+          type: 'number',
+          description:
+            'Number of intermediate pointermove + dragover events between the two centers. Clamped to [1, 50]. Default 5.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Target window for active-tab lookup when `tabId` is omitted.',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Optional frame to scope the operation to. Defaults to the main frame.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -2962,6 +3008,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA]: 'State',
   [TOOL_NAMES.BROWSER.PROXY]: 'Network',
   [TOOL_NAMES.BROWSER.IDENTITY]: 'System',
+  [TOOL_NAMES.BROWSER.DRAG_DROP]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

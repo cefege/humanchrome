@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0084 · Add chrome_drag_drop tool — synthesize mousedown/move/up + DnD events (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Drag-and-drop is the last big gap in the interaction surface. Trello cards, kanban boards, file-upload zones, sortable lists — agents either fall back to chrome_computer (heavy, screen-coords) or give up. A first-class drag/drop tool that takes from + to refs/selectors and synthesizes the full event sequence covers most use cases.
-- **Cost**: M
-- **Value**: L
-  **Fix sketch**: Ship LAST in the queue so the simpler tools have validated the iteration shape. New file `app/chrome-extension/entrypoints/background/tools/browser/drag-drop.ts`. Single tool (no enum). Params: `{ tabId?, windowId?, fromSelector? | fromRef?, toSelector? | toRef?, frameId?, steps?: number }` (default `steps: 5`). MAIN-world shim resolves both elements, computes their bounding-rect centers, then dispatches the full sequence on the FROM element: `pointerdown` → N intermediate `pointermove`+`dragover` events along a linear interpolation between the two centers (one per step) → `dragenter` on the TO element → final `drop` on TO → `dragend` on FROM → `pointerup`. Each event includes a fresh `DataTransfer` initialized via `new DataTransfer()` (in MAIN world this works in Chrome 118+). Returns `{ ok, fromBox, toBox, steps }`. Error mapping standard, plus `INVALID_ARGS` if either element is not visible (offsetParent === null AND not body) so the agent gets a clear signal instead of silently no-op'ing. New TOOL_NAMES.BROWSER.DRAG_DROP, TOOL_CATEGORIES['Interaction']. 10-14 tests covering basic drop, multi-step move, missing-element, hidden-element rejection.
-
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-08
@@ -312,6 +303,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0084 · Add chrome_drag_drop tool — synthesize mousedown/move/up + DnD events (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_drag_drop` MCP tool that synthesizes the full HTML5 Drag-and-Drop + Pointer-Event chain between two elements. Single tool, no action enum. Params: `{ fromSelector? | fromRef?, toSelector? | toRef?, tabId?, windowId?, frameId?, steps? }`. MAIN-world shim resolves both targets, computes their bounding-rect centers, then dispatches `pointerdown` → `mousedown` → `dragstart` on FROM, then `steps` intermediate `pointermove` + `dragover` events along a linear interpolation (target shifts to TO past the halfway point so kanban / sortable libs see crossing), then `dragenter` → `dragover` → `drop` on TO and `dragend` on FROM and `pointerup` / `mouseup` on TO. Each drag event carries a fresh `DataTransfer`. Returns `{ steps, fromBox, toBox, tabId, frameId }`. Error classification: `INVALID_ARGS` for missing/duplicate from-or-to source, `INVALID_ARGS` for not-found / hidden targets (with a `reason` field of `from_not_found | to_not_found | from_hidden | to_hidden`) so callers can branch without re-raising; `TAB_CLOSED` for `no tab with id`; `TAB_NOT_FOUND` when no active tab; `UNKNOWN` otherwise. `steps` is clamped to `[1, 50]`. No new manifest permissions (uses existing `scripting`). Wired through the eager dispatcher. New tests at `tests/tools/browser/drag-drop.test.ts` (16 cases) covering arg validation, both selector + ref happy paths, steps clamping, frame scoping, all four error reasons, missing-result, and TAB_NOT_FOUND. Extension: 1077/1077; bridge: 77/77; typecheck clean. Ralph-loop queue IMP-0074..IMP-0084 complete.
+- **Branch**: feat/imp-0084-drag-drop
 
 ### IMP-0083 · Add chrome_identity tool — OAuth via chrome.identity (feat) · score: 4
 
