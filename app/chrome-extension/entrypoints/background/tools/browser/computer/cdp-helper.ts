@@ -1,10 +1,4 @@
 /**
- * CDP helper for the chrome_computer tool.
- *
- * Pre-IMP-0054 this lived inline at the top of computer.ts. Extracted
- * so the per-action handler split planned for IMP-0054 has a stable
- * import target (every action handler needs a few of these primitives).
- *
  * `timeoutMs` flows down to `cdpSessionManager.sendCommand` via a per-tab
  * map. `chrome_computer.execute()` calls `withTimeout(tabId, params.timeoutMs,
  * async () => { ... })` to scope the override; nested invocations restore
@@ -82,24 +76,24 @@ export class CDPHelper {
     await this.send(tabId, 'Input.insertText', { text });
   }
 
+  private static MODIFIER_MASK: Record<string, number> = {
+    alt: 1,
+    ctrl: 2,
+    control: 2,
+    meta: 4,
+    cmd: 4,
+    command: 4,
+    win: 4,
+    windows: 4,
+    shift: 8,
+  };
+
   static modifierMask(mods: string[]): number {
-    const map: Record<string, number> = {
-      alt: 1,
-      ctrl: 2,
-      control: 2,
-      meta: 4,
-      cmd: 4,
-      command: 4,
-      win: 4,
-      windows: 4,
-      shift: 8,
-    };
     let mask = 0;
-    for (const m of mods) mask |= map[m] || 0;
+    for (const m of mods) mask |= this.MODIFIER_MASK[m] || 0;
     return mask;
   }
 
-  // Enhanced key mapping for common non-character keys
   private static KEY_ALIASES: Record<string, { key: string; code?: string; text?: string }> = {
     enter: { key: 'Enter', code: 'Enter' },
     return: { key: 'Enter', code: 'Enter' },
@@ -138,44 +132,31 @@ export class CDPHelper {
       await this.insertText(tabId, def.text);
       return;
     }
-    await this.send(tabId, 'Input.dispatchKeyEvent', {
-      type: 'rawKeyDown',
-      key: def.key,
-      code: def.code,
-    });
-    await this.send(tabId, 'Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: def.key,
-      code: def.code,
-    });
+    await this.dispatchKeyDownUp(tabId, def);
   }
 
   static async dispatchKeyChord(tabId: number, chord: string) {
-    const parts = chord.split('+');
     const modifiers: string[] = [];
     let keyToken = '';
-    for (const pRaw of parts) {
+    for (const pRaw of chord.split('+')) {
       const p = pRaw.trim().toLowerCase();
-      if (
-        ['ctrl', 'control', 'alt', 'shift', 'cmd', 'meta', 'command', 'win', 'windows'].includes(p)
-      )
-        modifiers.push(p);
+      if (this.MODIFIER_MASK[p] !== undefined) modifiers.push(p);
       else keyToken = pRaw.trim();
     }
-    const mask = this.modifierMask(modifiers);
-    const def = this.resolveKeyDef(keyToken);
-    await this.send(tabId, 'Input.dispatchKeyEvent', {
-      type: 'rawKeyDown',
-      key: def.key,
-      code: def.code,
-      text: def.text,
-      modifiers: mask,
-    });
-    await this.send(tabId, 'Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: def.key,
-      code: def.code,
-      modifiers: mask,
-    });
+    await this.dispatchKeyDownUp(tabId, this.resolveKeyDef(keyToken), this.modifierMask(modifiers));
+  }
+
+  private static async dispatchKeyDownUp(
+    tabId: number,
+    def: { key: string; code?: string; text?: string },
+    modifiers?: number,
+  ) {
+    const base: any = { key: def.key, code: def.code };
+    if (modifiers !== undefined) base.modifiers = modifiers;
+    if (def.text !== undefined && modifiers !== undefined) base.text = def.text;
+    await this.send(tabId, 'Input.dispatchKeyEvent', { ...base, type: 'rawKeyDown' });
+    const up = { ...base };
+    delete up.text;
+    await this.send(tabId, 'Input.dispatchKeyEvent', { ...up, type: 'keyUp' });
   }
 }

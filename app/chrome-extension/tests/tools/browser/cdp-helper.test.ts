@@ -1,17 +1,9 @@
-/**
- * CDPHelper extraction smoke test (IMP-0054 slice 1).
- *
- * After hoisting CDPHelper out of computer.ts into its own module, lock
- * the public-surface shape so a future split (per-action handlers) can
- * import the helper from a stable path.
- */
-
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stubs = vi.hoisted(() => ({
-  attach: vi.fn().mockResolvedValue(undefined),
-  detach: vi.fn().mockResolvedValue(undefined),
-  sendCommand: vi.fn().mockResolvedValue({}),
+  attach: vi.fn(),
+  detach: vi.fn(),
+  sendCommand: vi.fn(),
 }));
 
 vi.mock('@/utils/cdp-session-manager', () => ({
@@ -19,7 +11,6 @@ vi.mock('@/utils/cdp-session-manager', () => ({
     attach: stubs.attach,
     detach: stubs.detach,
     sendCommand: stubs.sendCommand,
-    withSession: vi.fn(),
   },
 }));
 
@@ -29,10 +20,6 @@ beforeEach(() => {
   stubs.attach.mockReset().mockResolvedValue(undefined);
   stubs.detach.mockReset().mockResolvedValue(undefined);
   stubs.sendCommand.mockReset().mockResolvedValue({});
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 describe('CDPHelper — extracted module', () => {
@@ -58,15 +45,13 @@ describe('CDPHelper — extracted module', () => {
     expect(stubs.sendCommand).toHaveBeenCalledWith(7, 'Some.method', { y: 2 }, undefined);
   });
 
-  it('restores the previous timeout after withTimeout exits', async () => {
+  it('restores the previous timeout after withTimeout exits (incl. nesting)', async () => {
     await CDPHelper.withTimeout(7, 1000, async () => {
       await CDPHelper.withTimeout(7, 2000, async () => {
         await CDPHelper.send(7, 'A');
       });
-      // After the inner withTimeout exits, the outer 1000 should be restored.
       await CDPHelper.send(7, 'B');
     });
-    // After the outer exits, undefined again.
     await CDPHelper.send(7, 'C');
 
     expect(stubs.sendCommand).toHaveBeenNthCalledWith(1, 7, 'A', undefined, 2000);
@@ -93,19 +78,22 @@ describe('CDPHelper — extracted module', () => {
     expect(CDPHelper.modifierMask(['ctrl', 'control'])).toBe(2);
   });
 
-  it('insertText routes to Input.insertText', async () => {
+  it('insertText routes to Input.insertText (and dispatchSimpleKey for a single char piggybacks)', async () => {
     await CDPHelper.insertText(7, 'hello');
-    expect(stubs.sendCommand).toHaveBeenCalledWith(
+    expect(stubs.sendCommand).toHaveBeenLastCalledWith(
       7,
       'Input.insertText',
       { text: 'hello' },
       undefined,
     );
-  });
 
-  it('dispatchSimpleKey for a single character routes through insertText', async () => {
     await CDPHelper.dispatchSimpleKey(7, 'a');
-    expect(stubs.sendCommand).toHaveBeenCalledWith(7, 'Input.insertText', { text: 'a' }, undefined);
+    expect(stubs.sendCommand).toHaveBeenLastCalledWith(
+      7,
+      'Input.insertText',
+      { text: 'a' },
+      undefined,
+    );
   });
 
   it('dispatchSimpleKey for a named key fires rawKeyDown + keyUp', async () => {
