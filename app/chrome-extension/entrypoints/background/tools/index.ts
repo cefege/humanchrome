@@ -46,6 +46,7 @@ import { blockOrRedirectTool } from './browser/block-or-redirect';
 import { actionBadgeTool } from './browser/action-badge';
 import { keepAwakeTool } from './browser/keep-awake';
 import { contextMenuTool } from './browser/context-menu';
+import { focusTool } from './browser/focus';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
@@ -111,6 +112,7 @@ const eagerTools: ToolInstance[] = [
   actionBadgeTool,
   keepAwakeTool,
   contextMenuTool,
+  focusTool,
   waitForTabTool,
   windowTool,
   webFetcherTool,

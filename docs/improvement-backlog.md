@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0074 · Add chrome_focus tool — focus an element programmatically (feat) · score: 5
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Several tools (chrome_keyboard, chrome_paste once it lands, chrome_fill_or_select on some sites) require the target element to have focus before keyboard input lands correctly. Today there is no first-class way to focus an element by selector or ref — agents have to dispatch a synthetic click and hope it lands. A dedicated focus tool removes the guesswork and works on form elements that don't accept clicks (offscreen inputs, contenteditable spans, etc.).
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/focus.ts`. Class `FocusTool extends BaseBrowserToolExecutor`. Params: `{ tabId?, windowId?, selector?, ref?, frameId? }`. Validation: exactly one of `selector` or `ref` is required; if `ref` is provided, resolve via the existing read-page ref registry (look at how `chrome_click_element` resolves refs and reuse the helper, do not reinvent). Implementation: use `chrome.scripting.executeScript({ target: { tabId, frameIds }, world: 'MAIN', func: focusShim, args: [...] })`. The shim does `el.focus({ preventScroll: false })`, returns `{ ok, focused: document.activeElement === el }`. Error mapping: `TAB_CLOSED` for /no tab with id/i, `INVALID_ARGS` for missing selector/ref, `UNKNOWN` for everything else. New TOOL_NAMES.BROWSER.FOCUS = 'chrome_focus', TOOL_CATEGORIES['Interaction']. 8-12 tests covering argument validation, happy path with selector, happy path with ref, the focused:false branch (element exists but cannot accept focus), TAB_CLOSED classification, and missing-element error. Append to eagerTools.
-
 ### IMP-0075 · Add chrome_paste tool — focus + Ctrl+V into an element (feat) · score: 5
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -402,6 +393,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0074 · Add chrome_focus tool — focus an element programmatically (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_focus` MCP tool that resolves a target by `selector` or `ref` (mutually exclusive — exactly one required) and calls `el.focus({ preventScroll: false })`. The ISOLATED-world shim looks refs up against `window.__claudeElementMap` (populated by `chrome_read_page`/`chrome_await_element`'s injected helpers) via the existing WeakRef contract, then reports `focused: document.activeElement === el` so callers can detect "element exists but doesn't accept focus" cases (disabled inputs, hidden tabindex=-1 elements). Error classification: `TAB_CLOSED` for `/no tab with id/i`, `INVALID_ARGS` for missing/conflicting selector|ref, `TAB_NOT_FOUND` when no active tab, `UNKNOWN` otherwise. Wired through the eager dispatcher; no new manifest permissions. New tests at `tests/tools/browser/focus.test.ts` (13 cases) cover both resolution paths, focused:true vs focused:false, frame scoping, the no-result-from-shim branch, and each error classification. Extension: 945/945 (was 932 + 13 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0074-focus
 
 ### IMP-0064 · Add chrome_notifications tool — native OS notifications (feat) · score: 5
 
