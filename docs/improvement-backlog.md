@@ -238,12 +238,12 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0049 · Split codex.ts initializeAndRun into focused sub-methods (mirrors IMP-0009 pattern for claude.ts) (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: in-progress (slice 1 of N landed: `buildCliInvocation` extracted to a private async helper, returning `{executable, args, tempFiles}` so the caller still controls temp-file cleanup)
 - **Why**: codex.ts initializeAndRun spans lines 48-680 (~632 LoC), mirroring the IMP-0009 problem in claude.ts. It blends Codex CLI spawn, env construction, JSON-line event parsing, todo-list synthesis, apply-patch summarization, attachment temp-file creation, and stderr buffering in one method. Divergence from the claude.ts refactor creates parallel maintenance pressure: every change to shared message shape must be replicated in both engines without structural parity to guide the developer.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/native-server/src/agent/engines/codex.ts` (965 LoC; initializeAndRun lines 48-680 ~632 LoC)
-- **Sketch**: Extract `private async setupCodexProcess(options)` (env + args + spawn, ~80 LoC), `private async processCodexEventStream(child, ctx, runLog)` (for-await loop, ~350 LoC), `private emitTodoListUpdate(record, phase, ctx)` (uses extractTodoListItems + normalizeTodoListItems + buildTodoListContent, ~80 LoC). initializeAndRun becomes ~80-line orchestrator. Apply same sub-method pattern as IMP-0009 so both engines are structurally parallel.
+- **Sketch**: Slicing into focused PRs. Slice 1 (done): extract `private async buildCliInvocation(input)` covering executable selection, the canonical `exec --json --skip-git-repo-check ...` flag block, the codex config args, the humanchrome MCP injection, the `--model` flag, and the resolvedImagePaths / attachments → `--image` flag mapping. Returns `{executable, args, tempFiles}` so the caller still owns temp-file cleanup. Locked by 10 unit tests at `src/agent/engines/codex.cli-invocation.test.ts`. Remaining slices: `processCodexEventStream(child, ctx, runLog)` (for-await loop, ~350 LoC), `emitTodoListUpdate(record, phase, ctx)` (~80 LoC). After all slices: initializeAndRun becomes a ~80-line orchestrator. Apply same sub-method pattern as IMP-0009 so both engines are structurally parallel.
 - **Risk**: Low-Medium — stateful event loop with shared accumulators (stderr buffer, pending lines) must preserve closure references. No runtime change.
 
 ### IMP-0052 · Split rpc-server.ts into request-router plus per-domain handler modules (queue, flow, trigger, run-control) (refactor) · score: 3

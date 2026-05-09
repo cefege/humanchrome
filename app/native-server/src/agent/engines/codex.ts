@@ -102,66 +102,15 @@ export class CodexEngine implements AgentEngine {
       ? await this.appendProjectContext(normalizedInstruction, repoPath)
       : normalizedInstruction;
 
-    const executable = process.platform === 'win32' ? 'codex.cmd' : 'codex';
-    const args: string[] = [
-      'exec',
-      '--json',
-      '--skip-git-repo-check',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '--color',
-      'never',
-      '--cd',
+    const { executable, args, tempFiles } = await this.buildCliInvocation({
+      prompt,
       repoPath,
-    ];
-
-    // Add Codex configuration arguments
-    args.push(...this.buildCodexConfigArgs(resolvedConfig));
-
-    // Inject local HumanChrome bridge via runtime config override (no global codex config mutation)
-    // Use a unique server name to avoid collision with any existing global config
-    if (enableHumanChrome) {
-      const humanchromeUrl = getHumanChromeUrl();
-      // Set both url and type for complete HTTP MCP server configuration
-      args.push('-c', `mcp_servers.humanchrome.url=${JSON.stringify(humanchromeUrl)}`);
-      args.push('-c', `mcp_servers.humanchrome.type="http"`);
-      log.info({ url: humanchromeUrl }, 'HumanChrome bridge enabled for codex run');
-    } else {
-      log.info('HumanChrome bridge disabled for codex run');
-    }
-
-    if (model && model.trim()) {
-      args.push('--model', model.trim());
-    }
-
-    // Process image attachments - prefer resolvedImagePaths (persisted), fallback to temp files
-    const tempFiles: string[] = [];
-    const hasResolvedPaths = resolvedImagePaths && resolvedImagePaths.length > 0;
-
-    if (hasResolvedPaths) {
-      // Use pre-resolved persistent paths (preferred - no temp files needed)
-      log.debug({ count: resolvedImagePaths.length }, 'using pre-resolved image paths');
-      for (const imagePath of resolvedImagePaths) {
-        args.push('--image', imagePath);
-      }
-    } else if (attachments && attachments.length > 0) {
-      // Fallback: write base64 to temp files (legacy behavior)
-      for (const attachment of attachments) {
-        if (attachment.type === 'image') {
-          try {
-            const tempFile = await this.writeAttachmentToTemp(attachment);
-            tempFiles.push(tempFile);
-            args.push('--image', tempFile);
-          } catch (err) {
-            log.error(
-              { err: err instanceof Error ? err.message : String(err) },
-              'failed to write attachment to temp file',
-            );
-          }
-        }
-      }
-    }
-
-    args.push(prompt);
+      enableHumanChrome,
+      model,
+      attachments,
+      resolvedImagePaths,
+      resolvedConfig,
+    });
 
     // Use explicit Promise wrapping to ensure child process errors are properly rejected.
     return new Promise<void>((resolve, reject) => {
@@ -717,6 +666,92 @@ Work directly in the current directory. Do not create subdirectories unless spec
       );
       return baseInstruction;
     }
+  }
+
+  /**
+   * Assemble the full `codex exec` invocation: executable, args, and any
+   * temp files the caller must clean up after the child exits. Pure (modulo
+   * the temp-file write side effect) and exhaustively unit-testable so the
+   * spawn site in `initializeAndRun` can stay focused on stream wiring.
+   *
+   * Returns `tempFiles` so the caller can `unlink` them in its `finish`
+   * branch — moving the writes here without surfacing the paths back would
+   * leak temp files on every run with attachments.
+   */
+  private async buildCliInvocation(input: {
+    prompt: string;
+    repoPath: string;
+    enableHumanChrome: boolean;
+    model?: string;
+    attachments?: { type: string; name: string; mimeType: string; dataBase64: string }[];
+    resolvedImagePaths?: string[];
+    resolvedConfig: CodexEngineConfig;
+  }): Promise<{ executable: string; args: string[]; tempFiles: string[] }> {
+    const {
+      prompt,
+      repoPath,
+      enableHumanChrome,
+      model,
+      attachments,
+      resolvedImagePaths,
+      resolvedConfig,
+    } = input;
+
+    const executable = process.platform === 'win32' ? 'codex.cmd' : 'codex';
+    const args: string[] = [
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--color',
+      'never',
+      '--cd',
+      repoPath,
+    ];
+
+    args.push(...this.buildCodexConfigArgs(resolvedConfig));
+
+    if (enableHumanChrome) {
+      const humanchromeUrl = getHumanChromeUrl();
+      args.push('-c', `mcp_servers.humanchrome.url=${JSON.stringify(humanchromeUrl)}`);
+      args.push('-c', `mcp_servers.humanchrome.type="http"`);
+      log.info({ url: humanchromeUrl }, 'HumanChrome bridge enabled for codex run');
+    } else {
+      log.info('HumanChrome bridge disabled for codex run');
+    }
+
+    if (model && model.trim()) {
+      args.push('--model', model.trim());
+    }
+
+    const tempFiles: string[] = [];
+    const hasResolvedPaths = resolvedImagePaths && resolvedImagePaths.length > 0;
+
+    if (hasResolvedPaths) {
+      log.debug({ count: resolvedImagePaths!.length }, 'using pre-resolved image paths');
+      for (const imagePath of resolvedImagePaths!) {
+        args.push('--image', imagePath);
+      }
+    } else if (attachments && attachments.length > 0) {
+      for (const attachment of attachments) {
+        if (attachment.type === 'image') {
+          try {
+            const tempFile = await this.writeAttachmentToTemp(attachment);
+            tempFiles.push(tempFile);
+            args.push('--image', tempFile);
+          } catch (err) {
+            log.error(
+              { err: err instanceof Error ? err.message : String(err) },
+              'failed to write attachment to temp file',
+            );
+          }
+        }
+      }
+    }
+
+    args.push(prompt);
+
+    return { executable, args, tempFiles };
   }
 
   /**
