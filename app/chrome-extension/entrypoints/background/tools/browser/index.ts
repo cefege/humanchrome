@@ -14,7 +14,7 @@ export { interceptResponseTool } from './intercept-response';
 export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
 export { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 export { keyboardTool } from './keyboard';
-export { historyTool } from './history';
+export { historyTool, historyDeleteTool } from './history';
 export {
   bookmarkSearchTool,
   bookmarkAddTool,

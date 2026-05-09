@@ -49,15 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_history only searches/reads. Agents automating privacy-sensitive workflows (clearing traces after a scrape session, removing test visits before asserting history state) must open the Chrome UI to delete. chrome.history.deleteUrl, deleteRange, and deleteAll are already within the history permission the extension declares. Completes the read/write lifecycle the same way bookmark_delete rounds out the bookmark group.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_history_delete. Params: url? (delete single URL), startTime?/endTime? (delete range — same date-parse conventions as chrome_history), all?: boolean (deleteAll shortcut, requires explicit true to avoid accidents). Returns { deleted: number } via chrome.history.deleteUrl/deleteRange/deleteAll. Touch: history.ts (add execute branch or second class), TOOL_NAMES.BROWSER.HISTORY_DELETE, TOOL_SCHEMAS entry, TOOL_CATEGORIES map. Zero new infrastructure — same permission already granted.
-
 ### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-07
@@ -155,15 +146,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
   **Fix sketch**: replace the eager toolsMap (built from Object.values(browserTools)) with a lazy registry shaped as Record<string, () => Promise<BrowserToolExecutor>>. In handleCallTool (or wherever the dispatch happens), await registry[name]() then call execute. Memoize the resolved tool per name so subsequent calls do not re-import. Start with the 8 heaviest tools listed in the title; the rest can stay eager if their footprint is trivial. Acceptance: background.js shrinks; no tool regression in the 694-test extension suite.
-
-### IMP-0057 · Defer vector-search dependency chain so vector-database.ts and hnswlib-wasm-static stop landing in the service worker (perf) · score: 4
-
-- **Proposed by**: audit-bundle · 2026-05-08
-- **Status**: proposed
-- **Why**: tools/browser/vector-search.ts:9 static-imports ContentIndexer from utils/content-indexer.ts (586 LoC), which transitively pulls utils/vector-database.ts (1557 LoC) and the hnswlib-wasm-static loader stub. The chrome_vector_search tool runs only when explicitly invoked; today the entire indexing/search engine is parsed on every SW cold-start. Estimated ~50–80 KB off the SW chunk plus removing a wasm pre-init cost from boot.
-- **Cost**: S
-- **Value**: M
-  **Fix sketch**: wrap the imports inside the tool lazy initializer. In tools/browser/vector-search.ts, change the top-level static import to a dynamic one inside a getIndexer() helper that memoizes a single ContentIndexer instance. The tool execute() awaits getIndexer() before calling search. Alternative (cleaner long-term): move vector ops to the offscreen document and have the tool message-pass — same pattern the semantic-similarity engine already uses. Pairs naturally with the lazy tool-registry change.
 
 ### IMP-0059 · Make logger.persist delta-based or opt-in so chrome.storage.local stops re-serializing the whole 5 MB log ring every 250 ms during tool streams (perf) · score: 4
 
@@ -361,6 +343,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0027 · Add chrome_history_delete tool to remove history entries by URL or time range (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_history_delete` MCP tool wraps `chrome.history.deleteUrl` / `deleteRange` / `deleteAll`. Single mutually-exclusive mode per call: `url`, `startTime`+`endTime` (reuses existing relative/keyword date parsing), or `all: true` gated behind `confirmDeleteAll: true` as a wipe-all safety check. `parseDateString` and `formatDate` were promoted from `HistoryTool` private methods to module-scope helpers so both classes share them. New `tests/tools/browser/history-delete.test.ts` (10 tests covering each mode, missing-mode, multi-mode, partial range, malformed dates, inverted range, missing-confirm, and chrome rejection passthrough). No manifest change — `history` permission already declared. Auto-generated `docs/TOOLS.md` regenerated. Extension: 704/704, typecheck + lint clean.
+- **Branch**: feat/imp-0027-history-delete
 
 ### IMP-0055 · Split model-cache helpers out of semantic-similarity-engine.ts so the service worker stops inlining @huggingface/transformers and onnxruntime-web (perf) · score: 6
 

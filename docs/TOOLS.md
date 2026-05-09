@@ -132,6 +132,8 @@ Fetch content from a web page
 | `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent will be ignored (default: false) |
 | `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true) |
 | `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned |
+| `savePath` | string |  | Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success. |
+| `raw` | boolean |  | When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original). |
 
 ### `chrome_search_tabs_content`
 
@@ -181,7 +183,7 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `width` | number |  | For action=resize_page: viewport width |
 | `height` | number |  | For action=resize_page: viewport height |
 | `appear` | boolean |  | For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false) |
-| `timeoutMs` | number |  | For action=wait with text: timeout in milliseconds (default 10000, max 120000) |
+| `timeoutMs` | number |  | Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000). |
 | `duration` | number |  | Seconds to wait for action=wait (max 30s) |
 
 ### `chrome_click_element`
@@ -470,6 +472,18 @@ Retrieve and search browsing history from Chrome
 | `endTime` | string |  | End time as a date string. Supports ISO format (e.g., "2023-10-31", "2023-10-31T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: current time |
 | `maxResults` | number |  | Maximum number of history entries to return. Use this to limit results for performance or to focus on the most relevant entries. (default: 100) |
 | `excludeCurrentTabs` | boolean |  | When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false) |
+
+### `chrome_history_delete`
+
+Delete entries from Chrome browsing history. Wraps chrome.history.deleteUrl / deleteRange / deleteAll. Choose exactly one mode: pass `url` to remove a single URL's visit history; pass `startTime` AND `endTime` to delete every visit in a window; pass `all: true` to wipe history entirely. The deletion is permanent — `chrome.history.search` will not return removed entries afterwards. Useful for cleaning up after automated runs (e.g. removing test visits before asserting on history state) or honoring privacy intent. Set `confirmDeleteAll: true` together with `all: true` as an explicit safety check for the wipe-all mode.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string |  | When provided, removes all visits to this exact URL (chrome.history.deleteUrl). Mutually exclusive with the time-range and `all` modes. |
+| `startTime` | string |  | Start of the deletion window. Same date formats as chrome_history (ISO, "1 day ago", "yesterday", etc.). Required together with `endTime`. Mutually exclusive with `url` and `all`. |
+| `endTime` | string |  | End of the deletion window. Same date formats as chrome_history. Required together with `startTime`. Mutually exclusive with `url` and `all`. |
+| `all` | boolean |  | When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode. |
+| `confirmDeleteAll` | boolean |  | Required safety acknowledgement when `all` is true. Has no effect for url or range mode. |
 
 ### `chrome_bookmark_search`
 
