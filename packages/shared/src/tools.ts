@@ -128,6 +128,7 @@ export const TOOL_NAMES = {
     ACTION_BADGE: 'chrome_action_badge',
     KEEP_AWAKE: 'chrome_keep_awake',
     CONTEXT_MENU: 'chrome_context_menu',
+    FOCUS: 'chrome_focus',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2488,6 +2489,39 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.FOCUS,
+    description:
+      'Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector for the target element. Required if `ref` is omitted; mutually exclusive with `ref`.',
+        },
+        ref: {
+          type: 'string',
+          description:
+            'Element ref from chrome_read_page / chrome_await_element. Required if `selector` is omitted; mutually exclusive with `selector`.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Target window for active-tab lookup when `tabId` is omitted.',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Optional frame to scope the lookup to. Defaults to the main frame.',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -2599,6 +2633,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.ACTION_BADGE]: 'System',
   [TOOL_NAMES.BROWSER.KEEP_AWAKE]: 'System',
   [TOOL_NAMES.BROWSER.CONTEXT_MENU]: 'System',
+  [TOOL_NAMES.BROWSER.FOCUS]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
