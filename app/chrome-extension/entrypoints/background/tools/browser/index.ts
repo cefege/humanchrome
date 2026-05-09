@@ -12,6 +12,7 @@ export { actionBadgeTool } from './action-badge';
 export { keepAwakeTool } from './keep-awake';
 export { contextMenuTool } from './context-menu';
 export { focusTool } from './focus';
+export { pasteTool } from './paste';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';

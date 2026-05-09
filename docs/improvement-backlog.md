@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0075 · Add chrome_paste tool — focus + Ctrl+V into an element (feat) · score: 5
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: chrome_clipboard sets clipboard contents but agents still have to chain a focus + a synthetic Ctrl+V to actually paste into a field — three tool calls for one logical operation, with the focus often slipping between calls. A single chrome_paste tool that focuses, optionally writes the clipboard, then dispatches a synthetic ClipboardEvent OR a keyboard Ctrl+V is the missing glue. Most agent flows that say "fill the address line" actually want this.
-- **Cost**: S
-- **Value**: L
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/paste.ts`. Params: `{ tabId?, windowId?, selector?, ref?, frameId?, text? }`. If `text` is supplied, write it to the clipboard first via the existing offscreen `clipboard.write` message (re-use `clipboardTool` internals — extract a small `writeClipboardFromBackground(text)` helper if needed; do not duplicate the offscreen plumbing). Then `chrome.scripting.executeScript` MAIN-world to focus the element AND dispatch a synthetic `ClipboardEvent('paste', { clipboardData: dt })` with `dt.setData('text/plain', text)` so pages that listen for paste events receive the text reliably (works on contenteditable + textarea + input). For pages that ignore the synthetic event, also call `document.execCommand('insertText', false, text)` as a fallback inside the same shim. Returns `{ ok, mode: 'event' | 'execCommand' | 'both', focused, pasted }`. Error mapping standard. New TOOL_NAMES.BROWSER.PASTE = 'chrome_paste', TOOL_CATEGORIES['Interaction']. 10-14 tests including the no-text branch (use whatever's already on the clipboard), the focus-failed branch, the page-ignored-the-event branch, TAB_CLOSED.
-
 ### IMP-0076 · Add chrome_select_text tool — select text by range or substring inside an element (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -393,6 +384,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0075 · Add chrome_paste tool — focus + paste into an element (feat) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_paste` MCP tool that wires up the missing `chrome_clipboard.write → chrome_focus → keyboard Ctrl+V` chain into one call. If `text` is supplied, the tool seeds the clipboard via a co-located `writeClipboardFromBackground` helper (uses the same offscreen `clipboard.write` plumbing as `chrome_clipboard` without re-entering the dispatcher), then injects an ISOLATED-world shim that focuses the target (resolved by `selector` or `ref` against `__claudeElementMap`), dispatches a synthetic `ClipboardEvent('paste')` carrying a `text/plain` `DataTransfer`, AND falls back to `document.execCommand('insertText', false, text)` so pages that ignore paste events still receive the value. Returns `{ focused, pasted, mode: 'event' | 'execCommand' | 'both' }`. Without `text`, the page sees whatever the OS clipboard currently holds. Error mapping: TAB_CLOSED for `/no tab with id/i`, INVALID_ARGS for missing/conflicting selector|ref, TAB_NOT_FOUND when no active tab. Wired through the eager dispatcher; no new manifest permissions. New tests at `tests/tools/browser/paste.test.ts` (14 cases). Extension: 959/959 (was 945 + 14 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0075-paste
 
 ### IMP-0074 · Add chrome_focus tool — focus an element programmatically (feat) · score: 5
 
