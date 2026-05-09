@@ -2,7 +2,7 @@ import type { ModelPreset } from '@/utils/semantic-similarity-engine';
 import { OffscreenManager } from '@/utils/offscreen-manager';
 import { BACKGROUND_MESSAGE_TYPES, OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 import { STORAGE_KEYS, ERROR_MESSAGES } from '@/common/constants';
-import { hasAnyModelCache } from '@/utils/semantic-similarity-engine';
+import { hasAnyModelCache } from '@/utils/model-cache-status';
 
 /**
  * Model configuration state management interface
