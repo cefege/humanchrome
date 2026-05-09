@@ -22,7 +22,11 @@ export {
   bookmarkDeleteTool,
 } from './bookmark';
 export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
-export { injectScriptTool, sendCommandToInjectScriptTool } from './inject-script';
+export {
+  injectScriptTool,
+  listInjectedScriptsTool,
+  sendCommandToInjectScriptTool,
+} from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';
 export { consoleClearTool } from './console-clear';

@@ -98,15 +98,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Replace the 158 console.log with a single debug-flag guard (const DEBUG = false) at the top of the file; calls become if (DEBUG) console.log(...). Change setDebugLogs(true) to setDebugLogs(false). Keep console.error for real errors.
 - **Risk**: Low. No behavior change. Loss of verbose tracing for future debugging mitigated by the DEBUG flag being a one-line change to re-enable.
 
-### IMP-0041 · Add chrome_list_injected_scripts tool to enumerate active injections per tab (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_inject_script and chrome_send_command_to_inject_script cover write and message, but agents have no read path. Before injecting a monitoring bridge or mutation observer, an agent must blindly inject again (risking duplicates) or reload the tab. chrome_list_injected_scripts returns the existing injectedTabs Map as [{tabId, scriptId, sourceUrl, injectedAt}], enabling idempotent inject-once patterns and safe pre-flight checks.
-- **Cost**: S
-- **Value**: M
-  Touch: tools/browser/inject-script.ts (expose injectedTabs read path), TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS, TOOL_SCHEMAS entry, TOOL_CATEGORIES (same category as INJECT_SCRIPT). No new infrastructure — reads the Map already maintained by the existing inject handler. Zero new permissions.
-
 ### IMP-0044 · Add chrome_list_frames tool to enumerate iframes and their frameIds in a tab (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0041 · Add chrome_list_injected_scripts tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_list_injected_scripts` MCP tool returns one entry per injected tab as `{tabId, world, scriptLength, injectedAt}` so agents can do idempotent inject-once patterns and pre-flight checks before `chrome_send_command_to_inject_script`. Pure read of the existing `injectedTabs` Map in `app/chrome-extension/.../inject-script.ts`; the Map's value type was extended from `ScriptConfig` to `InjectedTabEntry` (adding `injectedAt: number`) so the timestamp is captured at inject time. Optional `tabId` param filters to a single tab. Zero new permissions, zero new infrastructure. New `tests/tools/browser/list-injected-scripts.test.ts` (7 tests) drives the inject pipeline through the public API and covers: empty case, multi-tab listing, deterministic tabId-sorted order, single-tab filter, filter-miss empty case, re-injection replaces the entry and bumps `injectedAt`, and a no-mutation guard (verifies the list call doesn't touch chrome.scripting/tabs.update/sendMessage). Extension: 701/701, typecheck + lint clean. Tool count 47→48; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0041-list-injected-scripts
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 
