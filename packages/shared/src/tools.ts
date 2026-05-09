@@ -100,6 +100,7 @@ export const TOOL_NAMES = {
     CONSOLE_CLEAR: 'chrome_console_clear',
     FILE_UPLOAD: 'chrome_upload_file',
     READ_PAGE: 'chrome_read_page',
+    LIST_FRAMES: 'chrome_list_frames',
     COMPUTER: 'chrome_computer',
     HANDLE_DIALOG: 'chrome_handle_dialog',
     HANDLE_DOWNLOAD: 'chrome_handle_download',
@@ -272,6 +273,23 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description:
             'When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger).',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.LIST_FRAMES,
+    description:
+      'List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...TAB_TARGETING_NO_BG,
+        urlContains: {
+          type: 'string',
+          description:
+            'Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself).',
         },
       },
       required: [],
@@ -1957,6 +1975,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
+  [TOOL_NAMES.BROWSER.LIST_FRAMES]: 'Reading',
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
   // TOOL_NAMES.BROWSER.GET_INTERACTIVE_ELEMENTS has a handler but no
   // TOOL_SCHEMAS entry (reserved name, not yet published). Add here under

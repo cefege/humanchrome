@@ -107,15 +107,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
   Touch: tools/browser/inject-script.ts (expose injectedTabs read path), TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS, TOOL_SCHEMAS entry, TOOL_CATEGORIES (same category as INJECT_SCRIPT). No new infrastructure — reads the Map already maintained by the existing inject handler. Zero new permissions.
 
-### IMP-0044 · Add chrome_list_frames tool to enumerate iframes and their frameIds in a tab (feat) · score: 4
-
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_click_element, chrome_fill_or_select, and chrome_await_element all accept a frameId param for iframe-targeted operations, but there is no MCP tool to discover frame IDs. Agents currently inject JS to walk window.frames — which is cross-origin-blocked for sandboxed iframes and returns unstable numeric indexes. chrome.webNavigation.getAllFrames returns stable frameId values per origin, indexed independently of the DOM tree.
-- **Cost**: S
-- **Value**: M
-  New tool chrome_list_frames. Params: tabId? (standard tab targeting). Returns [{frameId, url, parentFrameId, name}]. Implementation: chrome.webNavigation.getAllFrames({tabId}) in the extension background. Audit whether webNavigation is already declared in wxt.config.ts permissions — if not, add it and note the Web Store review trigger. Touch: new tools/browser/list-frames.ts, TOOL_NAMES.BROWSER.LIST_FRAMES, TOOL_SCHEMAS entry, TOOL_CATEGORIES (Page category alongside READ_PAGE).
-
 ### IMP-0047 · Add chrome_storage tool to read, write, and clear web app localStorage and sessionStorage (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-08
@@ -390,6 +381,13 @@ The order of items inside ## Active is sorted by score descending.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0044 · Add chrome_list_frames tool (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-08
+- **Summary**: New `chrome_list_frames` MCP tool wraps `chrome.webNavigation.getAllFrames` to return one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }`, with the main document at `frameId: 0` / `parentFrameId: -1`. Optional `urlContains` (case-insensitive substring) filter narrows results without an extra round-trip. Sort is stable: parent frames before children, then by `frameId`. Read-only, no DOM access. **No manifest change** — `webNavigation` was already declared in `wxt.config.ts` for the navigation guards in `base-browser`. Distinct error classification: tab-gone-mid-call surfaces as `TAB_CLOSED`; null result (discarded tab) returns an empty list rather than an error so callers can retry after activating; missing active tab returns `TAB_NOT_FOUND`. New `tests/tools/browser/list-frames.test.ts` (9 tests): explicit-tabId forwarding, active-tab fallback, `windowId` routing, parent/frameId sort, urlContains filter with `totalBeforeFilter` reporting, null result → empty, `no tab with id` → `TAB_CLOSED`, generic rejection → `UNKNOWN`, missing active tab → `TAB_NOT_FOUND`. Extension: 703/703, typecheck clean. Tool count 47→48 on this branch; `docs/TOOLS.md` regenerated; bridge `tool-categories-coverage` 3/3.
+- **Branch**: feat/imp-0044-list-frames
 
 ### IMP-0042 · chrome_screenshot reports success:true when both bridge save and chrome.downloads fallback fail (bug) · score: 7
 

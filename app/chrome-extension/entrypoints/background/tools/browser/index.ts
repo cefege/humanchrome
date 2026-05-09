@@ -28,6 +28,7 @@ export { consoleTool } from './console';
 export { consoleClearTool } from './console-clear';
 export { fileUploadTool } from './file-upload';
 export { readPageTool } from './read-page';
+export { listFramesTool } from './list-frames';
 export { computerTool } from './computer';
 export { handleDialogTool } from './dialog';
 export { handleDownloadTool } from './download';

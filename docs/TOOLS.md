@@ -102,6 +102,16 @@ Tip: If the returned elements do not include the specific element you need, use 
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `raw` | boolean |  | When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger). |
 
+### `chrome_list_frames`
+
+List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `urlContains` | string |  | Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself). |
+
 ### `chrome_screenshot`
 
 [Prefer read_page over taking a screenshot and Prefer chrome_computer] Take a screenshot of the current page or a specific element. For new usage, use chrome_computer with action="screenshot". Use this tool if you need advanced options.
@@ -132,6 +142,8 @@ Fetch content from a web page
 | `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent will be ignored (default: false) |
 | `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true) |
 | `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned |
+| `savePath` | string |  | Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success. |
+| `raw` | boolean |  | When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original). |
 
 ### `chrome_search_tabs_content`
 
@@ -181,7 +193,7 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `width` | number |  | For action=resize_page: viewport width |
 | `height` | number |  | For action=resize_page: viewport height |
 | `appear` | boolean |  | For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false) |
-| `timeoutMs` | number |  | For action=wait with text: timeout in milliseconds (default 10000, max 120000) |
+| `timeoutMs` | number |  | Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000). |
 | `duration` | number |  | Seconds to wait for action=wait (max 30s) |
 
 ### `chrome_click_element`
