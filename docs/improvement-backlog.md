@@ -159,12 +159,12 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: in-progress (slice 1 of N landed: CDPHelper extracted to `browser/computer/cdp-helper.ts`)
 - **Why**: After IMP-0008 (domain-shift helper) and IMP-0035 (params typing), the dominant bulk in computer.ts is a 16-case switch inside executeAction spanning lines 392-1348 (~956 LoC). Representative case sizes: left_click_drag 93 LoC, zoom 98 LoC, screenshot 147 LoC. Adding a new action or fixing a case requires navigating past all 15 others. CDPHelper (lines 142-310) is already a self-contained class that could be elevated to a sibling module without any refactor risk.
 - **Cost**: M
 - **Value**: M
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
-- **Sketch**: Move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Extract per-action handler files: `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag), `browser/computer/actions/scroll-actions.ts` (scroll/scroll_to), `browser/computer/actions/fill-actions.ts` (type/fill/fill_form/key), `browser/computer/actions/screenshot-actions.ts` (screenshot/zoom/resize_page/hover/wait). Replace switch with dispatch table `const HANDLERS: Record<string, ActionHandler> = {...}`. computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
+- **Sketch**: Slicing into focused PRs. Slice 1 (done): move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Slice 2: extract `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag). Slice 3: scroll-actions.ts. Slice 4: fill-actions.ts. Slice 5: screenshot-actions.ts. Slice 6: replace switch with `const HANDLERS: Record<string, ActionHandler> = {...}` dispatch table. After all slices: computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
 
 ### IMP-0056 · Lazy-load tool handlers in tools/index.ts so heavy ones (gif-recorder, performance, network-capture-debugger, computer, read-page) do not instantiate at SW boot (perf) · score: 4
