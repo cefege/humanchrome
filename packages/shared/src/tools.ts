@@ -134,6 +134,7 @@ export const TOOL_NAMES = {
     WINDOW_MANAGE: 'chrome_window',
     WEB_VITALS: 'chrome_web_vitals',
     IDLE: 'chrome_idle',
+    ALARMS: 'chrome_alarms',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2699,6 +2700,40 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.ALARMS,
+    description:
+      'Schedule one-shot or repeating callbacks via `chrome.alarms`. Actions: `create` (`name` plus at least one of `when` (epoch ms), `delayInMinutes`, optional `periodInMinutes` for repeating fires), `clear` (by name; returns `cleared` boolean), `clear_all` (drops every alarm this extension owns), `get` (returns `{name, scheduledTime, periodInMinutes}` or null), `get_all`. Each alarm fire broadcasts `{type:"alarm_fired", name, scheduledTime}` over `chrome.runtime.sendMessage` so flows polling for the event can correlate. The `alarms` permission is already in the manifest (used internally elsewhere).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'clear', 'clear_all', 'get', 'get_all'],
+          description: 'Operation to perform.',
+        },
+        name: {
+          type: 'string',
+          description: 'Alarm name. Required for `create`, `clear`, `get`.',
+        },
+        when: {
+          type: 'number',
+          description:
+            'For `create`. Absolute fire time as a Unix epoch milliseconds value. Use this OR `delayInMinutes`.',
+        },
+        delayInMinutes: {
+          type: 'number',
+          description: 'For `create`. Minutes from now until first fire. Use this OR `when`.',
+        },
+        periodInMinutes: {
+          type: 'number',
+          description:
+            'For `create`. When set, the alarm refires every N minutes after the first fire. Omit for one-shot.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2816,6 +2851,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.WINDOW_MANAGE]: 'Browser management',
   [TOOL_NAMES.BROWSER.WEB_VITALS]: 'Performance',
   [TOOL_NAMES.BROWSER.IDLE]: 'System',
+  [TOOL_NAMES.BROWSER.ALARMS]: 'System',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

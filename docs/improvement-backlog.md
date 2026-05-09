@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0080 · Add chrome_alarms tool — schedule one-shot or repeating callbacks (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: The `alarms` permission is already in the manifest (used internally elsewhere) but there's no tool surface for agents to schedule "fire chrome_navigate to <url> in 5 minutes" or "ping me every 30 seconds while this is rendering". Useful for refresh-watching, polling external state, or coordinating multi-stage flows that span minutes.
-- **Cost**: M
-- **Value**: M
-  **Fix sketch**: New file `app/chrome-extension/entrypoints/background/tools/browser/alarms.ts`. Action enum: `create | clear | clear_all | get | get_all`. `create` takes `{ name, delayInMinutes?, periodInMinutes?, when? }` and calls `chrome.alarms.create`. The fired alarm needs to do something useful — wire `chrome.alarms.onAlarm.addListener` once at module load to broadcast `{ type: 'alarm_fired', name, scheduledTime }` over `chrome.runtime.sendMessage` so a flow polling for it can react (same shape as chrome_context_menu's onClicked broadcast). Other actions are direct wrappers. Error mapping standard. New TOOL_NAMES.BROWSER.ALARMS, TOOL_CATEGORIES['System']. 12-15 tests including the listener-installed-once invariant.
-
 ### IMP-0081 · Add chrome_clear_browsing_data tool — wipe cookies/cache/history per origin (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -348,6 +339,13 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0080 · Add chrome_alarms tool — schedule one-shot or repeating callbacks (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_alarms` MCP tool wrapping `chrome.alarms.{create,clear,clearAll,get,getAll}`. Action enum: `create | clear | clear_all | get | get_all`. `create` takes `{ name, when?, delayInMinutes?, periodInMinutes? }` (requires at least one of `when` or `delayInMinutes`); `periodInMinutes` makes it a repeating alarm. Each alarm fire broadcasts `{type:"alarm_fired", name, scheduledTime}` via `chrome.runtime.sendMessage` so flows polling for it can correlate (same shape as chrome_context_menu's onClicked bridge). The `onAlarm` listener installs exactly once at first call (idempotent guard via module-scoped flag). Error classification: missing chrome.alarms → UNKNOWN, missing/invalid args → INVALID_ARGS naming the field. The `alarms` permission was already in the manifest. Wired through the eager dispatcher. New tests at `tests/tools/browser/alarms.test.ts` (14 cases) including the listener-installed-once invariant. Extension: 1024/1024 (was 1010 + 14 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0080-alarms
 
 ### IMP-0079 · Add chrome_idle tool — query user idle state (feat) · score: 3
 
