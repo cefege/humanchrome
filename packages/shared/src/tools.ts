@@ -1599,6 +1599,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         frameId: FRAME_ID_PROP,
       },
       required: [],
+      anyOf: [{ required: ['keys'] }, { required: ['shortcut'] }],
     },
   },
   {
