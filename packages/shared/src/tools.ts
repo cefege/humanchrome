@@ -87,6 +87,7 @@ export const TOOL_NAMES = {
     KEYBOARD: 'chrome_keyboard',
     AWAIT_ELEMENT: 'chrome_await_element',
     HISTORY: 'chrome_history',
+    HISTORY_DELETE: 'chrome_history_delete',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
     BOOKMARK_ADD: 'chrome_bookmark_add',
     BOOKMARK_UPDATE: 'chrome_bookmark_update',
@@ -95,12 +96,15 @@ export const TOOL_NAMES = {
     SET_COOKIE: 'chrome_set_cookie',
     REMOVE_COOKIE: 'chrome_remove_cookie',
     INJECT_SCRIPT: 'chrome_inject_script',
+    LIST_INJECTED_SCRIPTS: 'chrome_list_injected_scripts',
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
     JAVASCRIPT: 'chrome_javascript',
     CONSOLE: 'chrome_console',
     CONSOLE_CLEAR: 'chrome_console_clear',
     FILE_UPLOAD: 'chrome_upload_file',
     READ_PAGE: 'chrome_read_page',
+    STORAGE: 'chrome_storage',
+    LIST_FRAMES: 'chrome_list_frames',
     COMPUTER: 'chrome_computer',
     HANDLE_DIALOG: 'chrome_handle_dialog',
     HANDLE_DOWNLOAD: 'chrome_handle_download',
@@ -273,6 +277,60 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description:
             'When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger).',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.STORAGE,
+    description:
+      'Read, write, and clear a tab\'s `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don\'t need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'set', 'remove', 'clear', 'keys'],
+          description: 'Operation to perform on the storage area.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['local', 'session'],
+          description:
+            'Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`.',
+        },
+        key: {
+          type: 'string',
+          description: 'Storage key. Required for `get`, `set`, and `remove`.',
+        },
+        value: {
+          type: 'string',
+          description:
+            'Value to store. Required for `set`. Strings only — wrap structured data in JSON.stringify before passing.',
+        },
+        ...TAB_TARGETING_NO_BG,
+        frameId: {
+          type: 'number',
+          description:
+            'Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores.',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.LIST_FRAMES,
+    description:
+      'List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...TAB_TARGETING_NO_BG,
+        urlContains: {
+          type: 'string',
+          description:
+            'Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself).',
         },
       },
       required: [],
@@ -788,14 +846,15 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
     description:
-      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.',
+      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results, action="flush" to drain the buffer mid-session without stopping. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.\n\n`flush` returns the same envelope as `stop` (with `flushed:true` and `stillActive:true`) and clears the in-memory buffer while keeping listeners and timers attached — use it for long-running scrape sessions where you need to drain accumulated requests every few minutes to stay within context limits without losing the requests that arrive during a stop/restart gap.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['start', 'stop'],
-          description: 'Action to perform: "start" begins capture, "stop" ends and returns results',
+          enum: ['start', 'stop', 'flush'],
+          description:
+            'Action to perform: "start" begins capture, "stop" ends and returns results, "flush" returns the buffered results so far and clears them without ending the capture.',
         },
         needResponseBody: {
           type: 'boolean',
@@ -913,6 +972,42 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description:
             "When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.HISTORY_DELETE,
+    description:
+      "Delete entries from Chrome browsing history. Wraps chrome.history.deleteUrl / deleteRange / deleteAll. Choose exactly one mode: pass `url` to remove a single URL's visit history; pass `startTime` AND `endTime` to delete every visit in a window; pass `all: true` to wipe history entirely. The deletion is permanent — `chrome.history.search` will not return removed entries afterwards. Useful for cleaning up after automated runs (e.g. removing test visits before asserting on history state) or honoring privacy intent. Set `confirmDeleteAll: true` together with `all: true` as an explicit safety check for the wipe-all mode.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description:
+            'When provided, removes all visits to this exact URL (chrome.history.deleteUrl). Mutually exclusive with the time-range and `all` modes.',
+        },
+        startTime: {
+          type: 'string',
+          description:
+            'Start of the deletion window. Same date formats as chrome_history (ISO, "1 day ago", "yesterday", etc.). Required together with `endTime`. Mutually exclusive with `url` and `all`.',
+        },
+        endTime: {
+          type: 'string',
+          description:
+            'End of the deletion window. Same date formats as chrome_history. Required together with `startTime`. Mutually exclusive with `url` and `all`.',
+        },
+        all: {
+          type: 'boolean',
+          description:
+            'When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode.',
+        },
+        confirmDeleteAll: {
+          type: 'boolean',
+          description:
+            'Required safety acknowledgement when `all` is true. Has no effect for url or range mode.',
         },
       },
       required: [],
@@ -1194,6 +1289,22 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['type', 'jsScript'],
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS,
+    description:
+      'List the user scripts currently injected via chrome_inject_script across all tabs. Returns one entry per injected tab with `{ tabId, world, scriptLength, injectedAt }`. Use this for safe pre-flight checks before chrome_inject_script (idempotent inject-once patterns) and to confirm a tab still carries an active bridge before chrome_send_command_to_inject_script. Read-only — never modifies extension state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description:
+            'When provided, return only the entry for this tab id (or an empty array if no injection). Omit to list every injected tab.',
+        },
+      },
+      required: [],
     },
   },
   {
@@ -2001,6 +2112,8 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
+  [TOOL_NAMES.BROWSER.STORAGE]: 'State',
+  [TOOL_NAMES.BROWSER.LIST_FRAMES]: 'Reading',
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
   // TOOL_NAMES.BROWSER.GET_INTERACTIVE_ELEMENTS has a handler but no
   // TOOL_SCHEMAS entry (reserved name, not yet published). Add here under
@@ -2021,6 +2134,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',
+  [TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS]: 'Scripting',
   [TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.USERSCRIPT]: 'Scripting',
 
@@ -2034,6 +2148,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.CONSOLE]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY]: 'State',
+  [TOOL_NAMES.BROWSER.HISTORY_DELETE]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_SEARCH]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_ADD]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK_UPDATE]: 'State',

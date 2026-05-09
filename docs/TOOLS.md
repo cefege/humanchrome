@@ -115,6 +115,16 @@ Tip: If the returned elements do not include the specific element you need, use 
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `raw` | boolean |  | When the accessibility tree is too sparse and we fall back to the interactive-element scanner, results are capped at 150 elements by default and the response includes a `truncation` envelope indicating whether more were available. Set raw=true to skip the cap and return everything (response will be larger). |
 
+### `chrome_list_frames`
+
+List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `urlContains` | string |  | Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself). |
+
 ### `chrome_screenshot`
 
 [Prefer read_page over taking a screenshot and Prefer chrome_computer] Take a screenshot of the current page or a specific element. For new usage, use chrome_computer with action="screenshot". Use this tool if you need advanced options.
@@ -338,6 +348,14 @@ Inject a user-specified content script into a webpage. By default, injects into 
 | `type` | `ISOLATED` \| `MAIN` | ✓ | The JavaScript world the script should execute in. Must be ISOLATED or MAIN. |
 | `jsScript` | string | ✓ | The JavaScript source to inject. |
 
+### `chrome_list_injected_scripts`
+
+List the user scripts currently injected via chrome_inject_script across all tabs. Returns one entry per injected tab with `{ tabId, world, scriptLength, injectedAt }`. Use this for safe pre-flight checks before chrome_inject_script (idempotent inject-once patterns) and to confirm a tab still carries an active bridge before chrome_send_command_to_inject_script. Read-only — never modifies extension state.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | When provided, return only the entry for this tab id (or an empty array if no injection). Omit to list every injected tab. |
+
 ### `chrome_send_command_to_inject_script`
 
 If the script injected via chrome_inject_script listens for user-defined events, this tool dispatches those events to the injected script.
@@ -387,13 +405,15 @@ Send a network request from the browser with cookies and other browser context
 
 ### `chrome_network_capture`
 
-Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).
+Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results, action="flush" to drain the buffer mid-session without stopping. Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).
 
 Response bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.
 
+`flush` returns the same envelope as `stop` (with `flushed:true` and `stillActive:true`) and clears the in-memory buffer while keeping listeners and timers attached — use it for long-running scrape sessions where you need to drain accumulated requests every few minutes to stay within context limits without losing the requests that arrive during a stop/restart gap.
+
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action` | `start` \| `stop` | ✓ | Action to perform: "start" begins capture, "stop" ends and returns results |
+| `action` | `start` \| `stop` \| `flush` | ✓ | Action to perform: "start" begins capture, "stop" ends and returns results, "flush" returns the buffered results so far and clears them without ending the capture. |
 | `needResponseBody` | boolean |  | When true, captures response body using Debugger API (default: false). Only use when you need to inspect response content. |
 | `url` | string |  | URL to capture network requests from. For action="start". If not provided, uses the current active tab. |
 | `maxCaptureTime` | number |  | Maximum capture time in milliseconds (default: 180000) |
@@ -474,6 +494,20 @@ Use "stop" to end recording and save the GIF.
 
 ## State
 
+### `chrome_storage`
+
+Read, write, and clear a tab's `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don't need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `get` \| `set` \| `remove` \| `clear` \| `keys` | ✓ | Operation to perform on the storage area. |
+| `scope` | `local` \| `session` |  | Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`. |
+| `key` | string |  | Storage key. Required for `get`, `set`, and `remove`. |
+| `value` | string |  | Value to store. Required for `set`. Strings only — wrap structured data in JSON.stringify before passing. |
+| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
+| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+| `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores. |
+
 ### `chrome_history`
 
 Retrieve and search browsing history from Chrome
@@ -485,6 +519,18 @@ Retrieve and search browsing history from Chrome
 | `endTime` | string |  | End time as a date string. Supports ISO format (e.g., "2023-10-31", "2023-10-31T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: current time |
 | `maxResults` | number |  | Maximum number of history entries to return. Use this to limit results for performance or to focus on the most relevant entries. (default: 100) |
 | `excludeCurrentTabs` | boolean |  | When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false) |
+
+### `chrome_history_delete`
+
+Delete entries from Chrome browsing history. Wraps chrome.history.deleteUrl / deleteRange / deleteAll. Choose exactly one mode: pass `url` to remove a single URL's visit history; pass `startTime` AND `endTime` to delete every visit in a window; pass `all: true` to wipe history entirely. The deletion is permanent — `chrome.history.search` will not return removed entries afterwards. Useful for cleaning up after automated runs (e.g. removing test visits before asserting on history state) or honoring privacy intent. Set `confirmDeleteAll: true` together with `all: true` as an explicit safety check for the wipe-all mode.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string |  | When provided, removes all visits to this exact URL (chrome.history.deleteUrl). Mutually exclusive with the time-range and `all` modes. |
+| `startTime` | string |  | Start of the deletion window. Same date formats as chrome_history (ISO, "1 day ago", "yesterday", etc.). Required together with `endTime`. Mutually exclusive with `url` and `all`. |
+| `endTime` | string |  | End of the deletion window. Same date formats as chrome_history. Required together with `startTime`. Mutually exclusive with `url` and `all`. |
+| `all` | boolean |  | When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode. |
+| `confirmDeleteAll` | boolean |  | Required safety acknowledgement when `all` is true. Has no effect for url or range mode. |
 
 ### `chrome_bookmark_search`
 
