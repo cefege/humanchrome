@@ -135,6 +135,7 @@ export const TOOL_NAMES = {
     WEB_VITALS: 'chrome_web_vitals',
     IDLE: 'chrome_idle',
     ALARMS: 'chrome_alarms',
+    CLEAR_BROWSING_DATA: 'chrome_clear_browsing_data',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2734,6 +2735,34 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA,
+    description:
+      'Wipe browsing-data stores via `chrome.browsingData.remove`. Useful for sanitizing state between agent runs without walking each store individually. Single tool, no action enum. Required: `dataTypes` — non-empty array of any of `cookies`, `localStorage`, `indexedDB`, `cache`, `cacheStorage`, `history`, `downloads`, `formData`, `passwords`, `serviceWorkers`, `webSQL`, `fileSystems`, `pluginData`, `appcache`. Optional: `since` (epoch ms; default 0 = all time), `origins` (origin-scoped filter — only data from these origins is removed). Unknown dataTypes are rejected with INVALID_ARGS naming the offender. The `browsingData` permission is granted at install time.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dataTypes: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Non-empty array of data-store names to wipe. Valid keys: cookies, localStorage, indexedDB, cache, cacheStorage, history, downloads, formData, passwords, serviceWorkers, webSQL, fileSystems, pluginData, appcache.',
+        },
+        since: {
+          type: 'number',
+          description:
+            'Epoch ms cutoff — only data created after this time is removed. Default 0 (all time).',
+        },
+        origins: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional origin-scoped filter (e.g. ["https://example.com"]). When omitted, applies to all origins.',
+        },
+      },
+      required: ['dataTypes'],
+    },
+  },
 ];
 
 /**
@@ -2852,6 +2881,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.WEB_VITALS]: 'Performance',
   [TOOL_NAMES.BROWSER.IDLE]: 'System',
   [TOOL_NAMES.BROWSER.ALARMS]: 'System',
+  [TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA]: 'State',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
