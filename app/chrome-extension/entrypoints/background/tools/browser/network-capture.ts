@@ -6,8 +6,15 @@ import { networkDebuggerStartTool, networkDebuggerStopTool } from './network-cap
 
 type NetworkCaptureBackend = 'webRequest' | 'debugger';
 
+/**
+ * Minimal shape of the per-tab buffer entry shared by both backends — the
+ * status action only reads `startTime` and `requests`, so the full
+ * backend-specific shapes are intentionally not modeled here.
+ */
+type CaptureBufferEntry = { startTime?: number; requests?: Record<string, unknown> };
+
 interface NetworkCaptureToolParams {
-  action: 'start' | 'stop' | 'flush';
+  action: 'start' | 'stop' | 'flush' | 'status';
   needResponseBody?: boolean;
   url?: string;
   maxCaptureTime?: number;
@@ -47,20 +54,51 @@ function decorateJsonResult(result: ToolResult, extra: Record<string, unknown>):
 }
 
 /**
- * Check if debugger-based capture is active
+ * Debugger-backend `captureData` is `private` on the class — every
+ * cross-tool reader needs the same cast, so funnel them through one
+ * accessor instead of repeating the shape inline.
  */
-function isDebuggerCaptureActive(): boolean {
-  const captureData = (
-    networkDebuggerStartTool as unknown as { captureData?: Map<number, unknown> }
+function getDebuggerCaptureData(): Map<number, CaptureBufferEntry> | undefined {
+  const data = (
+    networkDebuggerStartTool as unknown as { captureData?: Map<number, CaptureBufferEntry> }
   ).captureData;
-  return captureData instanceof Map && captureData.size > 0;
+  return data instanceof Map ? data : undefined;
+}
+
+function isDebuggerCaptureActive(): boolean {
+  const data = getDebuggerCaptureData();
+  return !!data && data.size > 0;
+}
+
+function isWebRequestCaptureActive(): boolean {
+  return networkCaptureStartTool.captureData.size > 0;
 }
 
 /**
- * Check if webRequest-based capture is active
+ * Reduce a per-tab capture buffer to the fields the status action exposes
+ * (request count, oldest start time, tabIds in scope). Same semantics for
+ * both backends, so they share this loop.
  */
-function isWebRequestCaptureActive(): boolean {
-  return networkCaptureStartTool.captureData.size > 0;
+function summarizeCapture(data: Map<number, CaptureBufferEntry>): {
+  bufferedCount: number;
+  earliestStart: number | null;
+  tabIds: number[];
+} {
+  let bufferedCount = 0;
+  let earliest = Number.POSITIVE_INFINITY;
+  const tabIds: number[] = [];
+  for (const [tabId, info] of data) {
+    bufferedCount += Object.keys(info.requests || {}).length;
+    if (typeof info.startTime === 'number' && info.startTime < earliest) {
+      earliest = info.startTime;
+    }
+    tabIds.push(tabId);
+  }
+  return {
+    bufferedCount,
+    earliestStart: Number.isFinite(earliest) ? earliest : null,
+    tabIds,
+  };
 }
 
 /**
@@ -76,9 +114,9 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
   async execute(args: NetworkCaptureToolParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'start' && action !== 'stop' && action !== 'flush') {
+    if (action !== 'start' && action !== 'stop' && action !== 'flush' && action !== 'status') {
       return createErrorResponse(
-        'Parameter [action] is required and must be one of: start, stop, flush',
+        'Parameter [action] is required and must be one of: start, stop, flush, status',
       );
     }
 
@@ -94,7 +132,56 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
       return this.handleFlush(args, debuggerActive, webActive);
     }
 
+    if (action === 'status') {
+      return this.handleStatus(debuggerActive, webActive);
+    }
+
     return this.handleStop(args, debuggerActive, webActive);
+  }
+
+  /**
+   * Side-effect-free inspection of the capture buffer. Lets agents check
+   * for an in-flight capture (and how much it's accumulated) before
+   * choosing to flush — which empties the buffer — or stop, which also
+   * tears the listener down.
+   *
+   * Backend selection mirrors handleFlush/handleStop: if both somehow run
+   * at once, debugger wins because it's the more invasive session.
+   */
+  private async handleStatus(debuggerActive: boolean, webActive: boolean): Promise<ToolResult> {
+    const backend: NetworkCaptureBackend | null = debuggerActive
+      ? 'debugger'
+      : webActive
+        ? 'webRequest'
+        : null;
+
+    let summary = {
+      bufferedCount: 0,
+      earliestStart: null as number | null,
+      tabIds: [] as number[],
+    };
+    if (backend === 'debugger') {
+      const data = getDebuggerCaptureData();
+      if (data) summary = summarizeCapture(data);
+    } else if (backend === 'webRequest') {
+      summary = summarizeCapture(networkCaptureStartTool.captureData);
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            active: backend !== null,
+            backend,
+            sinceMs: summary.earliestStart === null ? null : Date.now() - summary.earliestStart,
+            bufferedCount: summary.bufferedCount,
+            tabIds: summary.tabIds,
+          }),
+        },
+      ],
+      isError: false,
+    };
   }
 
   private async handleStart(
