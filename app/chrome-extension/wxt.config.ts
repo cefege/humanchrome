@@ -60,6 +60,7 @@ export default defineConfig({
       'sessions',
       'idle',
       'browsingData',
+      'proxy',
       'declarativeNetRequestWithHostAccess',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',
