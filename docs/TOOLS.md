@@ -31,6 +31,21 @@ Get all currently open browser windows and tabs
 
 No parameters.
 
+### `chrome_tab_groups`
+
+Manage Chrome tab groups (the colored, named clusters in the tab strip). Single tool with an `action` enum that wraps `chrome.tabs.group` / `chrome.tabs.ungroup` / `chrome.tabGroups.*`. Useful for partitioning agent-managed tabs from the user's own tabs (create a labelled group at session start, add new tabs as the agent opens them, ungroup or close-all when the session ends). Actions: `create` (group one or more tabIds — returns `{groupId}`; pair with `update` to set title/color), `update` (rename, recolor, or collapse an existing group; pass any of `title`, `color`, `collapsed`), `query` (filter groups by `title`, `color`, `collapsed`, `windowId` — returns matching groups), `get` (one group plus the list of tabIds currently in it), `add_tabs` (move tabIds into an existing groupId), `remove_tabs` (ungroup tabIds — they keep existing in their window, just leave the group), `move` (reorder a group within its window by `index`). Colors: grey | blue | red | yellow | green | pink | purple | cyan | orange (Chrome's fixed palette).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `create` \| `update` \| `query` \| `get` \| `add_tabs` \| `remove_tabs` \| `move` | ✓ | Operation to perform. |
+| `groupId` | number |  | Existing group ID. Required for `update`, `get`, `add_tabs`, `move`. Optional for `create` (when set, the new tabs are added to this group instead of creating a new one — same shape as `add_tabs`). |
+| `tabIds` | array<number> |  | Tab IDs to operate on. Required for `create`, `add_tabs`, `remove_tabs`. The first tab's window decides the group's window for `create` (Chrome rejects mixing windows). |
+| `title` | string |  | Group label shown in the tab strip. Optional for `create` (set via `update` after) and `update`. For `query`, exact-match filter. |
+| `color` | `grey` \| `blue` \| `red` \| `yellow` \| `green` \| `pink` \| `purple` \| `cyan` \| `orange` |  | Group color. Optional for `update` and as a `query` filter. Chrome auto-assigns one if omitted at create time. |
+| `collapsed` | boolean |  | Collapse / expand the group in the tab strip. Optional for `update` and as a `query` filter. |
+| `windowId` | number |  | Window scope for `query` (only return groups in this window) and `create` (when no tabIds are supplied — rare, prefer `tabIds`). |
+| `index` | number |  | Target index for `move`. -1 places the group at the end. Group moves within its current window only; cross-window moves require a separate flow. |
+
 ### `chrome_navigate`
 
 Navigate to a URL, refresh the current tab, or navigate browser history (back/forward)
@@ -98,6 +113,44 @@ Switch to a specific browser tab
 |-------|------|----------|-------------|
 | `tabId` | number | ✓ | The ID of the tab to switch to. |
 | `windowId` | number |  | The ID of the window where the tab is located. |
+
+### `chrome_sessions`
+
+Inspect and restore recently-closed tabs/windows via `chrome.sessions`. Actions: `get_recently_closed` (returns up to `maxResults` entries, each `{lastModified, tab|window}` — tabs include `sessionId, url, title, windowId`, windows include `sessionId, tabs[]`), `restore` (restores by `sessionId`; without one, restores the most recent closure). Lets an agent un-close a tab it killed by mistake without re-navigating. The `sessions` permission is required (granted at install time).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `get_recently_closed` \| `restore` | ✓ | Operation to perform. |
+| `sessionId` | string |  | Session id from `get_recently_closed`. Optional for `restore` — omit to restore the most recent closure. |
+| `maxResults` | number |  | Max entries for `get_recently_closed`. Default 25, cap 25. |
+
+### `chrome_tab_lifecycle`
+
+Memory-management and audio-state controls on tabs. Actions: `discard` (free the tab's in-memory state — Chrome reloads on next focus; takes `tabId`), `mute` / `unmute` (set the audio mute state via `chrome.tabs.update({muted}`), `set_auto_discardable` (allow / forbid Chrome to auto-discard this tab under memory pressure — useful to pin a tab the agent depends on). All actions return the updated tab's `{id, url, mutedInfo, discarded, autoDiscardable}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `discard` \| `mute` \| `unmute` \| `set_auto_discardable` | ✓ | Operation to perform. |
+| `tabId` | number | ✓ | Target tab. Required for all actions. Use chrome_get_windows_and_tabs to enumerate. |
+| `autoDiscardable` | boolean |  | Required for `set_auto_discardable`. `false` pins the tab; `true` allows Chrome to discard it. |
+
+### `chrome_window`
+
+Manage Chrome browser windows. Wraps `chrome.windows.{create,update,remove}`. Actions: `create` (open a new window — `url`, `type` = normal | popup | panel, `incognito`, `focused`, `state` = normal | minimized | maximized | fullscreen, `left`/`top`/`width`/`height`), `focus` (bring `windowId` to front via update({focused:true})), `update` (generic update — needs at least one of focused/state/left/top/width/height), `close` (chrome.windows.remove). Returns the updated `Window` object as `{id, type, state, focused, incognito, top, left, width, height, tabsCount}`. Useful for spawning isolated incognito windows for sandboxed flows, popping a popup window for a workflow, or just bringing a window to front before a screenshot.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `create` \| `focus` \| `update` \| `close` | ✓ | Operation to perform. |
+| `windowId` | number |  | Required for `focus`, `update`, and `close`. Ignored for `create`. |
+| `url` | string |  | Initial URL for `create`. Optional — defaults to the new-tab page. |
+| `type` | `normal` \| `popup` \| `panel` |  | Window type for `create`. Default: `normal`. |
+| `incognito` | boolean |  | For `create`. Open the window in incognito mode. |
+| `focused` | boolean |  | For `create` and `update`. Whether the window has focus. |
+| `state` | `normal` \| `minimized` \| `maximized` \| `fullscreen` |  | Window state for `create` and `update`. |
+| `left` | number |  | Left edge in screen pixels (create / update). |
+| `top` | number |  | Top edge in screen pixels (create / update). |
+| `width` | number |  | Window width in pixels (create / update). |
+| `height` | number |  | Window height in pixels (create / update). |
 
 ## Reading
 
@@ -174,6 +227,25 @@ Reset the per-tab console buffer used by `chrome_console` (mode="buffer") and th
 |-------|------|----------|-------------|
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
+
+### `chrome_print_to_pdf`
+
+Save a tab as PDF via the Chrome DevTools Protocol (`Page.printToPDF`). Returns the PDF as a base64 string by default. When `savePath` is provided, the bridge writes the file to disk and returns `{path, bytes}` instead. Common formatting options exposed: `landscape`, `printBackground`, `scale`, `paperWidthIn` / `paperHeightIn`, `marginTopIn` / `marginRightIn` / `marginBottomIn` / `marginLeftIn`, `pageRanges`. Requires the `debugger` permission. The CDP attach window is short — the tool detaches before returning.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `savePath` | string |  | Optional bridge-side filesystem path. When provided the PDF is written to disk and the response returns `{path, bytes}` instead of base64. |
+| `landscape` | boolean |  | Default false. |
+| `printBackground` | boolean |  | Default true. |
+| `scale` | number |  | CSS scale factor. Default 1. |
+| `paperWidthIn` | number |  | Paper width in inches. Default 8.5. |
+| `paperHeightIn` | number |  | Paper height in inches. Default 11. |
+| `marginTopIn` | number |  | Top margin in inches. Default 0.4. |
+| `marginRightIn` | number |  | Right margin in inches. Default 0.4. |
+| `marginBottomIn` | number |  | Bottom margin in inches. Default 0.4. |
+| `marginLeftIn` | number |  | Left margin in inches. Default 0.4. |
+| `pageRanges` | string |  | Page ranges to print, e.g. `"1-5,8,11-13"`. Empty = all pages. |
 
 ## Interaction
 
@@ -324,6 +396,61 @@ Wait for one of: a DOM element to appear/disappear, the network to go idle, a sp
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `frameId` | number |  | Target frame ID for iframe support. |
 
+### `chrome_focus`
+
+Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS selector for the target element. Required if `ref` is omitted; mutually exclusive with `ref`. |
+| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Required if `selector` is omitted; mutually exclusive with `selector`. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
+| `frameId` | number |  | Optional frame to scope the lookup to. Defaults to the main frame. |
+
+### `chrome_paste`
+
+Focus an element (by `selector` or `ref`) and paste text into it. If `text` is supplied, the tool seeds the system clipboard via the offscreen document first, then dispatches BOTH a synthetic `ClipboardEvent("paste")` carrying a `text/plain` DataTransfer (so pages with paste-event handlers like rich editors see it) AND a `document.execCommand("insertText", false, text)` (so plain inputs / textareas that don't handle paste events still receive the value). Returns `{ focused, pasted, mode: "event" | "execCommand" | "both" }` so callers can detect whether the page accepted the paste. Without `text`, the page sees whatever is currently on the clipboard. Saves the chain of `chrome_clipboard write → chrome_focus → chrome_keyboard ctrl+v` agents otherwise have to glue together.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS selector for the target. Mutually exclusive with `ref`. |
+| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`. |
+| `text` | string |  | Optional text to seed the clipboard with before pasting. When omitted, whatever is currently on the OS clipboard is used. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
+| `frameId` | number |  | Optional frame to scope the paste to. Defaults to the main frame. |
+
+### `chrome_select_text`
+
+Select text inside an element. For `<input>` / `<textarea>`, calls `setSelectionRange(start, end)`. For everything else, walks text nodes to map character offsets into a `Range` and applies via `window.getSelection().addRange(range)`. Two ways to specify what to select: pass a `substring` (first occurrence inside the element's value/textContent wins) OR pass `start` AND `end` character indexes. Returns `{ start, end, selected, mode: "input-range" | "dom-range" }`. Pair with chrome_clipboard or chrome_paste for "copy this exact field" flows.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS selector for the target. Mutually exclusive with `ref`. |
+| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`. |
+| `substring` | string |  | Substring to find and select (first occurrence). Mutually exclusive with `start`+`end`. |
+| `start` | number |  | Character offset where the selection starts. Required if `end` is set. |
+| `end` | number |  | Character offset where the selection ends. Required if `start` is set. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
+| `frameId` | number |  | Optional frame. Defaults to the main frame. |
+
+### `chrome_drag_drop`
+
+Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + Pointer-Event chain. Single tool (no action enum). The MAIN-world shim resolves both targets (selector or ref), computes their bounding-rect centers, then dispatches `pointerdown` → `mousedown` → `dragstart` on FROM, N intermediate `pointermove` + `dragover` events along a linear interpolation, then `dragenter` → `dragover` → `drop` on TO and `dragend` on FROM and `pointerup` / `mouseup` on TO. Returns `{ steps, fromBox, toBox }`. Hidden / not-visible / not-found targets surface as INVALID_ARGS so callers can branch without re-raising. Useful for Trello cards, kanban boards, file-upload drop zones, sortable lists.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `fromSelector` | string |  | CSS selector for the drag source. Mutually exclusive with `fromRef`. |
+| `fromRef` | string |  | Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`. |
+| `toSelector` | string |  | CSS selector for the drop target. Mutually exclusive with `toRef`. |
+| `toRef` | string |  | Element ref for the drop target. Mutually exclusive with `toSelector`. |
+| `steps` | number |  | Number of intermediate pointermove + dragover events between the two centers. Clamped to [1, 50]. Default 5. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
+| `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. |
+
 ## Scripting
 
 ### `chrome_userscript`
@@ -433,6 +560,44 @@ Wait for the next network response on a tab whose URL matches the given pattern,
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `returnBody` | boolean |  | When false (default true), skip getResponseBody and return only headers + status. Useful when you only need to detect that the call fired. |
 | `count` | number |  | How many matching responses to accumulate before detaching (default 1, max 100). When 1 (default), the tool resolves on the first match and returns the single-response shape (ok, tabId, requestId, url, method, status, ...). When >1, it accumulates up to N matches (or until timeoutMs fires) and returns { ok, tabId, count, matched, responses: [{...}, ...] } — matched may be less than count on timeout. On timeout with zero matches, the same TIMEOUT envelope is returned regardless of count. |
+
+### `chrome_network_emulate`
+
+Emulate network conditions on a tab via the Chrome DevTools Protocol (`Network.emulateNetworkConditions`). Useful for testing behavior under slow / offline connections without touching system network settings. Actions: `set` (apply offline | latencyMs | downloadKbps | uploadKbps to the tab), `reset` (restore default network conditions). Requires the `debugger` permission (already granted). Each call attaches the debugger if not already attached; the `reset` action also detaches when no other debugger consumers are active. State is per-tab and persists until reset or the tab is closed.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `set` \| `reset` | ✓ | Operation to perform. |
+| `tabId` | number | ✓ | Target tab. Required for both actions. |
+| `offline` | boolean |  | When true, force the tab offline. Default false. |
+| `latencyMs` | number |  | Round-trip latency in milliseconds. 0 disables latency emulation. Used by `set`. |
+| `downloadKbps` | number |  | Max download throughput in kbps. -1 disables (unbounded). Used by `set`. |
+| `uploadKbps` | number |  | Max upload throughput in kbps. -1 disables. Used by `set`. |
+
+### `chrome_block_or_redirect`
+
+Block or redirect URLs at the network layer via `chrome.declarativeNetRequest` *session* rules (no DNR ruleset reload, no manifest declaration — rules clear when Chrome restarts). Actions: `add` (one rule: `urlFilter` + `action` = `block` | `redirect`; for redirect, `redirectUrl` is required; optional `resourceTypes` filter), `remove` (by `ruleId`), `list` (all session rules registered by this extension), `clear` (drop every session rule). Use it to mock APIs during a test flow, block trackers for a session, or simulate a 404 on a specific URL. Requires `declarativeNetRequestWithHostAccess` (already granted) — host_permissions are honored.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `add` \| `remove` \| `list` \| `clear` | ✓ | Operation to perform. |
+| `ruleId` | number |  | Required for `remove`. Optional for `add` — when omitted, the tool auto-assigns the next free id. |
+| `urlFilter` | string |  | URL pattern (DNR `urlFilter` syntax — e.g. `\|\|example.com/api/*`). Required for `add`. |
+| `ruleAction` | `block` \| `redirect` |  | What to do when the URL matches. Required for `add`. |
+| `redirectUrl` | string |  | Required when `ruleAction` is `redirect`. Absolute URL the request is rewritten to. |
+| `resourceTypes` | array<`main_frame` \| `sub_frame` \| `stylesheet` \| `script` \| `image` \| `font` \| `object` \| `xmlhttprequest` \| `ping` \| `csp_report` \| `media` \| `websocket` \| `webtransport` \| `webbundle` \| `other`> |  | Optional. Restrict the rule to specific resource types (e.g. `["xmlhttprequest","script"]`). |
+
+### `chrome_proxy`
+
+Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Useful for scraping, regional testing, and anonymity flows. Actions: `set` (mode = `direct` | `system` | `fixed_servers` | `pac_script`; for `fixed_servers` provide `singleProxy: {scheme?, host, port}` plus optional `bypassList[]`; for `pac_script` provide `pacUrl`), `clear` (revert to default), `get` (returns the current `{value, levelOfControl, incognitoSpecific}`). Scope is always `regular` (incognito is left untouched). The `proxy` permission is required.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `set` \| `clear` \| `get` | ✓ | Operation to perform. |
+| `mode` | `direct` \| `system` \| `fixed_servers` \| `pac_script` |  | For `set`. Required. |
+| `singleProxy` | object |  | For `set` with mode="fixed_servers". `host` and `port` required; `scheme` defaults to "http". |
+| `bypassList` | array<string> |  | For `set` with mode="fixed_servers". Optional list of host patterns the proxy is bypassed for. |
+| `pacUrl` | string |  | For `set` with mode="pac_script". URL of the PAC script. |
 
 ## Files
 
@@ -640,6 +805,105 @@ Response includes a `truncation` field of shape `{truncated, originalSize?, limi
 | `limit` | number |  | Limit returned console messages. In snapshot mode this is an alias for maxMessages; in buffer mode it limits returned messages from the buffer. |
 | `raw` | boolean |  | Snapshot mode only: skip the per-arg serializer caps (maxDepth=3, maxProps=100) so deeply nested or large console arguments survive intact. Use when the previous response's `truncation.argsTruncated` was true. Buffer mode replays already-serialized args and ignores this flag. |
 
+### `chrome_clear_browsing_data`
+
+Wipe browsing-data stores via `chrome.browsingData.remove`. Useful for sanitizing state between agent runs without walking each store individually. Single tool, no action enum. Required: `dataTypes` — non-empty array of any of `cookies`, `localStorage`, `indexedDB`, `cache`, `cacheStorage`, `history`, `downloads`, `formData`, `passwords`, `serviceWorkers`, `webSQL`, `fileSystems`, `pluginData`, `appcache`. Optional: `since` (epoch ms; default 0 = all time), `origins` (origin-scoped filter — only data from these origins is removed). Unknown dataTypes are rejected with INVALID_ARGS naming the offender. The `browsingData` permission is granted at install time.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `dataTypes` | array<string> | ✓ | Non-empty array of data-store names to wipe. Valid keys: cookies, localStorage, indexedDB, cache, cacheStorage, history, downloads, formData, passwords, serviceWorkers, webSQL, fileSystems, pluginData, appcache. |
+| `since` | number |  | Epoch ms cutoff — only data created after this time is removed. Default 0 (all time). |
+| `origins` | array<string> |  | Optional origin-scoped filter (e.g. ["https://example.com"]). When omitted, applies to all origins. |
+
+## System
+
+### `chrome_notifications`
+
+Push native OS notifications via `chrome.notifications`. Lets a long-running agent surface "task done" / "needs attention" pings outside the browser. Actions: `create` (returns `{notificationId}`; `title` and `message` required, `iconUrl` optional — defaults to the extension icon, `type` defaults to `basic`, optional `buttons[]` of `{title}` up to 2), `clear` (by `notificationId`), `clear_all` (close every notification this extension owns), `get_all` (list ids currently visible). The `notifications` permission is granted at install time. iconUrls must be data URIs or extension-relative paths.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `create` \| `clear` \| `clear_all` \| `get_all` | ✓ | Operation to perform. |
+| `notificationId` | string |  | Required for `clear`. Optional for `create` (when set, replaces the existing notification with the same id; otherwise Chrome auto-generates). |
+| `title` | string |  | Notification title. Required for `create`. |
+| `message` | string |  | Notification body. Required for `create`. |
+| `type` | `basic` \| `image` \| `list` \| `progress` |  | Notification template. Defaults to `basic`. |
+| `iconUrl` | string |  | Icon as a data URI or extension-relative path. Defaults to the extension icon. |
+| `priority` | number |  | Priority -2..2 (Chrome may ignore on some platforms). |
+| `buttons` | array<object> |  | Up to 2 action buttons (for the `basic` type). Each: `{title}`. |
+
+### `chrome_clipboard`
+
+Read and write the system clipboard via the offscreen document (the only DOM context where `navigator.clipboard.readText` / `writeText` works from a service-worker extension). Actions: `read` (returns `{text}`), `write` (takes `text`, returns `{written: true}`). Useful for copying a table from one page and pasting into another, capturing an OTP from an email tab, or pre-seeding clipboard contents before triggering a paste shortcut. Plain text only — image / HTML clipboards are out of scope.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `read` \| `write` | ✓ | Operation to perform. |
+| `text` | string |  | Plain text to write. Required for `write`. |
+
+### `chrome_action_badge`
+
+Show a small badge on the extension icon — useful for live status during a long-running agent ("3 tabs", "ERR"). Actions: `set` (takes `text`, optional `color` as a hex string `#RRGGBB[AA]`, optional `tabId` for per-tab scope), `clear` (empties the badge text; per-tab when `tabId` is set, otherwise global). Badge text is truncated to ~4 characters by Chrome.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `set` \| `clear` | ✓ | Operation to perform. |
+| `text` | string |  | Badge text. Required for `set`. Truncated to ~4 chars by Chrome — keep it terse. |
+| `color` | string |  | Optional badge background color, hex `#RRGGBB` or `#RRGGBBAA`. Default red on most platforms. |
+| `tabId` | number |  | Optional. When set, the badge is scoped to this tab; without it, the badge is global. |
+
+### `chrome_keep_awake`
+
+Prevent the system from sleeping during long agent runs via `chrome.power.requestKeepAwake`. Actions: `enable` (with `level` = `display` | `system` — `display` keeps the screen awake too, `system` lets the screen sleep but keeps the OS active), `disable` (release the lock). Idempotent — repeated `enable` calls just refresh the existing lock. The lock is released when the extension reloads.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `enable` \| `disable` | ✓ | Operation to perform. |
+| `level` | `display` \| `system` |  | Required for `enable`. `display` is stricter (also blocks screen sleep). |
+
+### `chrome_context_menu`
+
+Register transient right-click menu items via `chrome.contextMenus`. Use it to let the user manually inject input mid-session ("treat this element as the next target"). Actions: `add` (returns `{id}`; takes `title`, optional `id`, optional `contexts[]` like `["page","selection"]`), `update` (modify title/contexts of an existing id), `remove` (by id), `remove_all` (drop every menu item this extension registered). Click events are surfaced via the bridge's native-message channel as `context_menu_clicked` events with `{menuItemId, info, tab}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `add` \| `update` \| `remove` \| `remove_all` | ✓ | Operation to perform. |
+| `id` | string |  | Menu item id. Optional for `add` (auto-generated). Required for `update`, `remove`. |
+| `title` | string |  | Menu item label. Required for `add`. Optional for `update`. |
+| `contexts` | array<`all` \| `page` \| `frame` \| `selection` \| `link` \| `editable` \| `image` \| `video` \| `audio` \| `launcher` \| `browser_action` \| `page_action` \| `action`> |  | Where the item appears. Defaults to `["page"]` for `add`. See chrome.contextMenus docs for which contexts each label applies in. |
+| `documentUrlPatterns` | array<string> |  | Optional. Match patterns the URL must satisfy for the item to appear (e.g. `["https://example.com/*"]`). |
+
+### `chrome_idle`
+
+Query the user's idle state via `chrome.idle.queryState`. Returns `{ state: "active" | "idle" | "locked", detectionIntervalSec }`. Pair with the pacing throttle to back off intrusive operations while the user is at the keyboard, or skip a screenshot when the system is locked. The `idle` permission is required (granted at install time). `detectionIntervalSec` is the threshold of inactivity that flips state from active → idle; Chrome accepts 15..14400 seconds. Default 60.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `detectionIntervalSec` | number |  | Inactivity threshold in seconds (15..14400). Default 60. |
+
+### `chrome_alarms`
+
+Schedule one-shot or repeating callbacks via `chrome.alarms`. Actions: `create` (`name` plus at least one of `when` (epoch ms), `delayInMinutes`, optional `periodInMinutes` for repeating fires), `clear` (by name; returns `cleared` boolean), `clear_all` (drops every alarm this extension owns), `get` (returns `{name, scheduledTime, periodInMinutes}` or null), `get_all`. Each alarm fire broadcasts `{type:"alarm_fired", name, scheduledTime}` over `chrome.runtime.sendMessage` so flows polling for the event can correlate. The `alarms` permission is already in the manifest (used internally elsewhere).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `create` \| `clear` \| `clear_all` \| `get` \| `get_all` | ✓ | Operation to perform. |
+| `name` | string |  | Alarm name. Required for `create`, `clear`, `get`. |
+| `when` | number |  | For `create`. Absolute fire time as a Unix epoch milliseconds value. Use this OR `delayInMinutes`. |
+| `delayInMinutes` | number |  | For `create`. Minutes from now until first fire. Use this OR `when`. |
+| `periodInMinutes` | number |  | For `create`. When set, the alarm refires every N minutes after the first fire. Omit for one-shot. |
+
+### `chrome_identity`
+
+OAuth2 + profile lookup via `chrome.identity`. Lets agents call Google APIs (Gmail, Calendar, Drive, GSC, etc.) without bouncing through a browser-based consent flow each run — Chrome handles consent + caching + refresh natively. Actions: `get_token` (`scopes`, `interactive`; returns `{token, scopes, interactive}`), `remove_token` (`token`; clears Chrome's cache for that token), `get_profile` (returns `{email, id}`). Requires `oauth2.client_id` to be set in the manifest — until `HUMANCHROME_OAUTH_CLIENT_ID` is provided at build time, the placeholder is detected and an INVALID_ARGS error explains how to set it up rather than surfacing an opaque OAuth failure. The `identity` permission is granted at install time.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `get_token` \| `remove_token` \| `get_profile` | ✓ | Operation to perform. |
+| `scopes` | array<string> |  | For `get_token`. Optional OAuth2 scopes (e.g. `["https://www.googleapis.com/auth/calendar.readonly"]`). |
+| `interactive` | boolean |  | For `get_token`. When true, Chrome shows a consent UI if needed; when false, the call fails fast if the user has not already consented. Default false. |
+| `token` | string |  | For `remove_token`. The token previously returned by `get_token`. |
+
 ## Performance
 
 ### `chrome_performance_start_trace`
@@ -669,6 +933,17 @@ Provides a lightweight summary of the last recorded trace. For deep insights (CW
 |-------|------|----------|-------------|
 | `insightName` | string |  | Optional insight name for future deep analysis (e.g., "DocumentLatency"). Currently informational only. |
 | `timeoutMs` | number |  | Timeout for deep analysis via native host (milliseconds). Default 60000. Increase for large traces. |
+
+### `chrome_web_vitals`
+
+Live Core Web Vitals collector via `PerformanceObserver` in the page MAIN world. Different shape from chrome_performance_* (those record full DevTools traces — heavyweight, post-hoc). This is "what does the user actually feel?" measurement, available live and cheap. Actions: `start` (idempotently install per-tab observers on `window.__hcWebVitals`; `reload: true` reloads the tab first so cold-start LCP/FCP/TTFB get captured), `snapshot` (read current values without disturbing the observer), `stop` (read final values + disconnect observers + clear the global). Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs }` with `null` for any metric not yet observed and `installed` reflecting the observer state. No new permissions needed.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `start` \| `snapshot` \| `stop` | ✓ | Operation to perform. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Window scope for active-tab lookup when `tabId` is omitted. |
+| `reload` | boolean |  | For `start` only. Reload the tab before installing the observer so cold-start LCP / FCP / TTFB are captured. Default false. |
 
 ## Diagnostics
 
