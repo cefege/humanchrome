@@ -137,6 +137,7 @@ export const TOOL_NAMES = {
     ALARMS: 'chrome_alarms',
     CLEAR_BROWSING_DATA: 'chrome_clear_browsing_data',
     PROXY: 'chrome_proxy',
+    IDENTITY: 'chrome_identity',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2809,6 +2810,37 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.IDENTITY,
+    description:
+      "OAuth2 + profile lookup via `chrome.identity`. Lets agents call Google APIs (Gmail, Calendar, Drive, GSC, etc.) without bouncing through a browser-based consent flow each run — Chrome handles consent + caching + refresh natively. Actions: `get_token` (`scopes`, `interactive`; returns `{token, scopes, interactive}`), `remove_token` (`token`; clears Chrome's cache for that token), `get_profile` (returns `{email, id}`). Requires `oauth2.client_id` to be set in the manifest — until `HUMANCHROME_OAUTH_CLIENT_ID` is provided at build time, the placeholder is detected and an INVALID_ARGS error explains how to set it up rather than surfacing an opaque OAuth failure. The `identity` permission is granted at install time.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get_token', 'remove_token', 'get_profile'],
+          description: 'Operation to perform.',
+        },
+        scopes: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'For `get_token`. Optional OAuth2 scopes (e.g. `["https://www.googleapis.com/auth/calendar.readonly"]`).',
+        },
+        interactive: {
+          type: 'boolean',
+          description:
+            'For `get_token`. When true, Chrome shows a consent UI if needed; when false, the call fails fast if the user has not already consented. Default false.',
+        },
+        token: {
+          type: 'string',
+          description: 'For `remove_token`. The token previously returned by `get_token`.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -2929,6 +2961,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.ALARMS]: 'System',
   [TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA]: 'State',
   [TOOL_NAMES.BROWSER.PROXY]: 'Network',
+  [TOOL_NAMES.BROWSER.IDENTITY]: 'System',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

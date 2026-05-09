@@ -61,11 +61,21 @@ export default defineConfig({
       'idle',
       'browsingData',
       'proxy',
+      'identity',
       'declarativeNetRequestWithHostAccess',
       // Allow programmatic control of Chrome Side Panel
       'sidePanel',
     ],
     host_permissions: ['<all_urls>'],
+    // OAuth2 client for chrome.identity.getAuthToken (chrome_identity tool).
+    // Set HUMANCHROME_OAUTH_CLIENT_ID at build time to enable Google OAuth
+    // flows. Until that env var is set the placeholder is loaded as-is and
+    // the tool surfaces an INVALID_ARGS error pointing at this manifest
+    // entry — no silent 401s.
+    oauth2: {
+      client_id: process.env.HUMANCHROME_OAUTH_CLIENT_ID || '__SET_HUMANCHROME_OAUTH_CLIENT_ID__',
+      scopes: [],
+    },
     options_ui: {
       page: 'options.html',
       open_in_tab: true,

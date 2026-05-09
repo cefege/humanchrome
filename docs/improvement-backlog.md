@@ -94,15 +94,6 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
-### IMP-0083 · Add chrome_identity tool — OAuth via getAuthToken (feat) · score: 4
-
-- **Proposed by**: ralph-loop-queue · 2026-05-09
-- **Status**: proposed
-- **Why**: Agents that need to call Google APIs (Gmail, Calendar, Drive, GSC) currently have to bounce through an interactive browser-based OAuth flow each run. chrome.identity.getAuthToken handles consent + caching + refresh natively if the extension declares an `oauth2.client_id`.
-- **Cost**: M
-- **Value**: M
-  **Fix sketch**: Add `identity` to wxt.config.ts permissions. Add an `oauth2: { client_id: process.env.HUMANCHROME_OAUTH_CLIENT_ID || '__SET_HUMANCHROME_OAUTH_CLIENT_ID__', scopes: [] }` block to the manifest — when the placeholder is present and `getAuthToken` is called, surface a clear error message instructing the user to set the env var (do not silently 401). New file `app/chrome-extension/entrypoints/background/tools/browser/identity.ts`. Action enum: `get_token | remove_token | get_profile`. `get_token` accepts `{ scopes: string[], interactive?: boolean }` and calls `chrome.identity.getAuthToken({ scopes, interactive: !!interactive })`, returns `{ token }`. `remove_token` accepts `{ token }` (calls `chrome.identity.removeCachedAuthToken({ token })`). `get_profile` calls `chrome.identity.getProfileUserInfo({ accountStatus: 'ANY' })` and returns `{ email, id }`. Error mapping: any rejection containing 'OAuth2 not granted' or 'oauth2.client_id' → INVALID_ARGS with the placeholder-not-set message. 12-14 tests including the placeholder-detection path. Document the env-var requirement in the IMP-0083 done summary.
-
 ### IMP-0084 · Add chrome_drag_drop tool — synthesize mousedown/move/up + DnD events (feat) · score: 4
 
 - **Proposed by**: ralph-loop-queue · 2026-05-09
@@ -321,6 +312,14 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0083 · Add chrome_identity tool — OAuth via chrome.identity (feat) · score: 4
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_identity` MCP tool wrapping `chrome.identity.{getAuthToken,removeCachedAuthToken,getProfileUserInfo}`. Lets agents call Google APIs (Gmail, Calendar, Drive, GSC) via Chrome's native consent-cache-refresh flow instead of bouncing through an interactive browser-based OAuth each run. Action enum: `get_token` (`scopes: string[]`, `interactive: boolean`; returns `{token, scopes, interactive}`; unwraps both the legacy string return and the modern `{token}` object return), `remove_token` (`token`), `get_profile` (returns `{email, id}` via `getProfileUserInfo({accountStatus: 'ANY'})`). **Manifest delta:** added `identity` to permissions, plus a new `oauth2: { client_id: process.env.HUMANCHROME_OAUTH_CLIENT_ID || '__SET_HUMANCHROME_OAUTH_CLIENT_ID__', scopes: [] }` block. Until `HUMANCHROME_OAUTH_CLIENT_ID` is set at build time, the placeholder loads as-is and the tool detects placeholder/not-granted/client_id errors and surfaces an INVALID_ARGS pointing at the env-var requirement instead of an opaque OAuth failure. New tests at `tests/tools/browser/identity.test.ts` (12 cases) including both placeholder-detection paths. Extension: 1061/1061 (was 1049 + 12 new); bridge: 77/77; typecheck clean.
+- **Branch**: feat/imp-0083-identity
+- **Setup note**: For `get_token` to actually return a real token, set `HUMANCHROME_OAUTH_CLIENT_ID` in your build environment (`.env` or shell) to a Google OAuth2 client_id with the appropriate scopes whitelisted. The extension's keyfile pin is also typically required for `chrome.identity.getAuthToken` to work — see `chrome.runtime.id` and the matching client_id authorized in Google Cloud Console. Without these, the tool short-circuits with the INVALID_ARGS message above.
 
 ### IMP-0082 · Add chrome_proxy tool — set/clear proxy configuration (feat) · score: 3
 
