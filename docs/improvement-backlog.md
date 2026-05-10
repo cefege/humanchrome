@@ -238,15 +238,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
 
-### IMP-0018 · Add record_replay_flow_delete tool to complete recording lifecycle (feat) · score: 2
-
-- **Proposed by**: feature-scout · 2026-05-06
-- **Status**: proposed
-- **Why**: record_replay_list_published and record_replay_flow_run exist, but agents cannot delete a flow once it is published. During iterative recording sessions (capture, test, refine) stale versions accumulate under the same slug family, cluttering the dynamic flow.<slug> MCP tool surface and forcing the user to open the extension UI to clean up. A delete tool closes the lifecycle gap the same way bookmark_delete rounds out the bookmark group.
-- **Cost**: S
-- **Value**: S
-  Param: id (required, the flow UUID from list_published). Implementation wraps whatever the extension uses to remove a flow from IndexedDB / chrome.storage — inspect record-replay/nodes/ for the storage layer. Returns { deleted: boolean, id }. Touch: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE, TOOL_SCHEMAS entry, dispatch.ts FLOW_PREFIX path or a dedicated handler, and the bridge must un-register the dynamic flow.<slug> tool if it was auto-exposed.
-
 
 ## Done
 
@@ -261,6 +252,12 @@ IMP entry. Move to next iteration on the next tick.
 - **Status**: done
 - **Completed**: 2026-05-09
 - **Summary**: Two new MCP tools wrapping `chrome.downloads.search` and `chrome.downloads.cancel`, completing the download lifecycle alongside `chrome_handle_download`. `chrome_download_list` params: `{state?: 'in_progress'|'complete'|'interrupted'|'all', filenameContains?: string, limit?: number}`. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. `state='all'` skips the state filter; `filenameContains` is case-insensitive substring match on the basename (full path is OS-dependent and tends to false-positive against the user's home dir). `limit` clamped to `[1, 100]`, default 25. `chrome_download_cancel` params: `{downloadId: number}` (required). Returns `{cancelled: true, downloadId, postState}` where `postState` is the post-cancel state (`'interrupted'` for active cancels, the prior terminal state for already-finished). `postState` falls back to `'unknown'` if the post-cancel search throws or returns nothing — the cancel itself is reported as success regardless. Error classification: missing `chrome.downloads` API → UNKNOWN, missing/non-numeric `downloadId` → INVALID_ARGS naming the field, search/cancel rejection → UNKNOWN with the original message. No new manifest permissions (`downloads` already declared). Wired through the eager dispatcher. New tests at `tests/tools/browser/download-list-cancel.test.ts` (15 cases). Code-simplifier pass applied before tests: dropped the local `DownloadItemSummary` shape in favor of inline mapping, exported `DownloadListParams`/`DownloadCancelParams`, hoisted basename extraction into a small helper, used `chrome.downloads.DownloadQuery['state']` for the state union. Extension typecheck clean; targeted suite + lazy-tool-registry shape guard 23/23.
+
+### IMP-0018 · Add record_replay_flow_delete tool to complete recording lifecycle (feat) · score: 2
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `record_replay_flow_delete` MCP tool — completes the recording lifecycle alongside `record_replay_list_published` and `record_replay_flow_run`. Agents can now clean up stale versions during iterative record-test-refine sessions without opening the extension UI. Param: `flowId` (string, required). Always unpublishes BEFORE deleting (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. The bridge cache is TTL-bounded (60s in `dispatch.ts`) so the next `tools/list` reflects the deletion automatically. Returns `{deleted: true, unpublished, flowId}` — `unpublished` reports whether the flow was published before deletion. `unpublished:true` is determined BEFORE the unpublish call, so a failed unpublish (some storage backends throw on unknown keys) doesn't lie. Error classification: missing/whitespace `flowId` → INVALID_ARGS naming the field; nonexistent flow → INVALID_ARGS with the id; deleteFlow rejection → UNKNOWN with the original message. Survives partial failures: `listPublished` failure proceeds with delete (reports `unpublished:false`); `unpublishFlow` failure proceeds with delete (the IndexedDB delete is the source of truth). Wired through the eager dispatcher. New tests at `tests/tools/browser/flow-delete.test.ts` (8 cases). Targeted suite + lazy-tool-registry shape guard 16/16, typecheck clean.
 
 ### IMP-0029 · Add chrome_remove_injected_script tool to explicitly unload a persistent injection (feat) · score: 2
 

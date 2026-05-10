@@ -1032,6 +1032,14 @@ Run a recorded flow by ID. Recorded flows are step sequences captured via the ex
 | `timeoutMs` | number |  | Global timeout in milliseconds for the entire flow run. |
 | `startUrl` | string |  | Optional URL to open before the flow runs. |
 
+### `record_replay_flow_delete`
+
+Delete a recorded flow by ID. Closes the lifecycle gap left by `record_replay_list_published` + `record_replay_flow_run` so iterative record-test-refine sessions can clean up stale versions without opening the extension UI. Always unpublishes first (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. Returns `{deleted: true, unpublished, flowId}` on success — `unpublished` reports whether the flow was published before deletion. Errors with `INVALID_ARGS` if `flowId` is missing or the flow does not exist.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `flowId` | string | ✓ | ID of the flow to delete (from `record_replay_list_published`). |
+
 
 <!-- AUTO-GEN END -->
 

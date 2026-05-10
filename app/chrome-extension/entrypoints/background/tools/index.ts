@@ -94,7 +94,7 @@ import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
-import { flowRunTool, listPublishedFlowsTool } from './record-replay';
+import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
   name: string;
@@ -175,6 +175,7 @@ const eagerTools: ToolInstance[] = [
   paceGetTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
+  flowDeleteTool as unknown as ToolInstance,
 ];
 
 const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
