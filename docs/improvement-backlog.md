@@ -256,16 +256,13 @@ IMP entry. Move to next iteration on the next tick.
   Param: id (required, the flow UUID from list_published). Implementation wraps whatever the extension uses to remove a flow from IndexedDB / chrome.storage — inspect record-replay/nodes/ for the storage layer. Returns { deleted: boolean, id }. Touch: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE, TOOL_SCHEMAS entry, dispatch.ts FLOW_PREFIX path or a dedicated handler, and the bridge must un-register the dynamic flow.<slug> tool if it was auto-exposed.
 
 
+## Done
+
 ### IMP-0053 · Add status action to chrome_network_capture for non-destructive buffer inspection (feat) · score: 2
 
-- **Proposed by**: feature-scout · 2026-05-08
-- **Status**: proposed
-- **Why**: chrome_network_capture action=stop returns all entries and tears down the listener. An agent that wants to check whether a capture is already running, or how many entries have accumulated before deciding whether to flush (IMP-0028), must call stop and lose the listener. A status action is a pure read of the existing in-memory listener and buffer state, enabling safe pre-flight checks without side effects.
-- **Cost**: S
-- **Value**: S
-  Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
-
-## Done
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `status` action on the unified `chrome_network_capture` tool — read-only inspection of the in-memory capture state. Returns `{active, backend: 'debugger'|'webRequest'|null, sinceMs: number|null, bufferedCount, tabIds: number[]}`. Lets agents check whether a capture is already running (so they can avoid the start-while-running error), peek the buffered request count before deciding whether to `flush`, or measure capture age. Side-effect-free: listeners, timers, and buffered requests are NOT touched. Backend-precedence rule mirrors `flush`/`stop`: if both happen to be active, debugger wins (it's the more invasive session). Aggregates `bufferedCount` and `tabIds` across all tabs in the active backend's `captureData`; `sinceMs` is computed from the OLDEST `startTime` so multi-tab captures don't hide a long-running tab. Code-simplifier pass before tests landed: extracted `summarizeCapture(map)` helper for the shared per-tab loop, hoisted the debugger `captureData` cast into a single `getDebuggerCaptureData()` accessor, dropped the redundant `scope` string field in favor of just `tabIds`, trimmed comments to WHY-only. New tests at `tests/tools/browser/network-capture-status.test.ts` (8 cases). Targeted suite + flush regression 28/28, typecheck clean.
 
 ### IMP-0007 · Add chrome_download_list and chrome_download_cancel tools (feat) · score: 2
 
