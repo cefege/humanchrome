@@ -1,19 +1,19 @@
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { handleCallTool } from '@/entrypoints/background/tools';
-import type { StepScroll } from '../types';
+import type { StepScroll, SelectorCandidate } from '../legacy-types';
 import { expandTemplatesDeep } from '../rr-utils';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
 export const scrollNode: NodeRuntime<StepScroll> = {
-  run: async (ctx, step: StepScroll) => {
-    const s = expandTemplatesDeep(step as StepScroll, ctx.vars);
+  run: async (ctx: ExecCtx, step: StepScroll) => {
+    const s = expandTemplatesDeep<StepScroll>(step, ctx.vars);
     const top = s.offset?.y ?? undefined;
     const left = s.offset?.x ?? undefined;
-    const selectorFromTarget = (s as any).target?.candidates?.find(
-      (c: any) => c.type === 'css' || c.type === 'attr',
+    const selectorFromTarget = s.target?.candidates?.find(
+      (c: SelectorCandidate) => c.type === 'css' || c.type === 'attr',
     )?.value;
     let code = '';
-    if (s.mode === 'offset' && !(s as any).target) {
+    if (s.mode === 'offset' && !s.target) {
       const t = top != null ? Number(top) : 'undefined';
       const l = left != null ? Number(left) : 'undefined';
       code = `try { window.scrollTo({ top: ${t}, left: ${l}, behavior: 'instant' }); } catch (e) {}`;
@@ -30,7 +30,7 @@ export const scrollNode: NodeRuntime<StepScroll> = {
         name: TOOL_NAMES.BROWSER.COMPUTER,
         args: { action: 'scroll', scrollDirection: direction, scrollAmount: amount },
       });
-      if ((res as any).isError) throw new Error('scroll failed');
+      if ((res as { isError?: boolean }).isError) throw new Error('scroll failed');
       return {} as ExecResult;
     }
     if (code) {
@@ -38,7 +38,7 @@ export const scrollNode: NodeRuntime<StepScroll> = {
         name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
         args: { type: 'MAIN', jsScript: code },
       });
-      if ((res as any).isError) throw new Error('scroll failed');
+      if ((res as { isError?: boolean }).isError) throw new Error('scroll failed');
     }
     return {} as ExecResult;
   },

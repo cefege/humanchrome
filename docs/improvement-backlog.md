@@ -141,7 +141,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0022 · Type record-replay NodeRuntime step generics to eliminate 60+ as any casts across node files (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: in-progress
+- **Status**: in-progress (slice 1: navigate.ts + scroll.ts typed with StepNavigate / StepScroll; ~7 casts removed)
 - **Why**: The 10+ node files (click.ts, fill.ts, assert.ts, download-screenshot-attr-event-frame-loop.ts, etc.) all use NodeRuntime<any> and cast step as any before accessing step-specific fields. expandTemplatesDeep<T>(value: T, scope) already preserves the type but callers force-cast to any before calling it, discarding inference. Each file also repeats (located as any)?.ref and (located as any)?.frameId because locateElement returns an untyped shape. Typing NodeRuntime with concrete step interfaces (StepClick, StepFill, etc., already defined in legacy-types.ts) eliminates ~60 casts and catches field mismatches at compile time.
 - **Cost**: M
 - **Value**: M
