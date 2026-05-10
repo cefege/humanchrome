@@ -42,6 +42,9 @@ import {
   computeMatchedRuleSpecificity,
   computeSelectorSpecificity,
 } from './cssom/specificity-parser';
+// IMP-0046 slice 5: cascade engine extracted to ./cssom/cascade. DeclCandidate
+// is now defined there (used internally by the cascade) and re-imported here.
+import { type DeclCandidate, computeOverrides } from './cssom/cascade';
 
 // =============================================================================
 // Public Types (UI-ready snapshot)
@@ -104,18 +107,6 @@ export interface CssPanelSnapshot {
 // Internal Types (cascade + collection)
 // =============================================================================
 
-interface DeclCandidate {
-  id: string;
-  important: boolean;
-  specificity: Specificity;
-  sourceOrder: readonly [sheetIndex: number, ruleOrder: number, declIndex: number];
-  property: string;
-  value: string;
-  affects: readonly string[];
-  ownerRuleId: string;
-  ownerElementId: number;
-}
-
 interface FlatStyleRule {
   sheetIndex: number;
   order: number;
@@ -154,47 +145,6 @@ function normalizePropertyName(property: string): string {
   if (!raw) return '';
   if (raw.startsWith('--')) return raw;
   return raw.toLowerCase();
-}
-
-// =============================================================================
-// Cascade / override
-// =============================================================================
-
-function compareSourceOrder(
-  a: readonly [number, number, number],
-  b: readonly [number, number, number],
-): number {
-  if (a[0] !== b[0]) return a[0] > b[0] ? 1 : -1;
-  if (a[1] !== b[1]) return a[1] > b[1] ? 1 : -1;
-  if (a[2] !== b[2]) return a[2] > b[2] ? 1 : -1;
-  return 0;
-}
-
-function compareCascade(a: DeclCandidate, b: DeclCandidate): number {
-  if (a.important !== b.important) return a.important ? 1 : -1;
-  const spec = compareSpecificity(a.specificity, b.specificity);
-  if (spec !== 0) return spec;
-  return compareSourceOrder(a.sourceOrder, b.sourceOrder);
-}
-
-function computeOverrides(candidates: readonly DeclCandidate[]): {
-  winners: Map<string, DeclCandidate>;
-  declStatus: Map<string, DeclStatus>;
-} {
-  const winners = new Map<string, DeclCandidate>();
-
-  for (const cand of candidates) {
-    for (const longhand of cand.affects) {
-      const cur = winners.get(longhand);
-      if (!cur || compareCascade(cand, cur) > 0) winners.set(longhand, cand);
-    }
-  }
-
-  const declStatus = new Map<string, DeclStatus>();
-  for (const cand of candidates) declStatus.set(cand.id, 'overridden');
-  for (const [, winner] of winners) declStatus.set(winner.id, 'active');
-
-  return { winners, declStatus };
 }
 
 // =============================================================================

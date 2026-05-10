@@ -196,7 +196,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0046 · Split cssom-styles-collector.ts into specificity-parser, inheritance, shorthand-expander, cascade, and sheet-inspector modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: in-progress (slices 1-4: inheritance, shorthand, sheet-inspector, specificity-parser all extracted under `cssom/`; orchestrator shrunk from 1552 LoC to ~860 LoC)
+- **Status**: done (all 5 sub-modules extracted under `cssom/`: inheritance, shorthand, sheet-inspector, specificity-parser, cascade; orchestrator shrunk from 1552 LoC to ~810 LoC)
 - **Why**: 1552-LoC file has 6 pre-labeled banner sections (Specificity, Inheritance, Shorthand, Cascade, CSSOM Inspection, Collection) plus 4 large data tables: INHERITED_PROPERTIES (~120 entries), SHORTHAND_TO_LONGHANDS (~135 entries), LEGACY_PSEUDO_ELEMENTS, and a selector tokenizer (lines 363-507). Each section is self-contained. Splitting makes the specificity parser independently testable without booting the cascade engine and reduces the impact surface of CSS panel changes.
 - **Cost**: M
 - **Value**: M
