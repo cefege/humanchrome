@@ -29,10 +29,12 @@ const SCREENSHOT_CONSTANTS = {
   readonly SCRIPT_INIT_DELAY: number;
 };
 
-// Adjust CAPTURE_STITCH_DELAY_MS to respect Chrome's capture rate if available in runtime
-// Some TS typings don't expose MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND; use a safe cast with a sane fallback.
-const __MAX_CAP_RATE: number | undefined = (chrome.tabs as any)
-  ?.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND;
+// @types/chrome doesn't expose chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND
+// (a Chrome runtime constant), so we read through a typed shim with the
+// fallback path covering older Chromes that lack the constant entirely.
+const __MAX_CAP_RATE: number | undefined = (
+  chrome.tabs as unknown as { MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND?: number }
+).MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND;
 if (typeof __MAX_CAP_RATE === 'number' && __MAX_CAP_RATE > 0) {
   // Minimum interval between consecutive captureVisibleTab calls (ms)
   const minIntervalMs = Math.ceil(1000 / __MAX_CAP_RATE);

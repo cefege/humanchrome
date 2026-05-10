@@ -27,15 +27,15 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    */
   private async pingOnce(tabId: number, frameId: number | undefined): Promise<boolean> {
     try {
-      const response = await Promise.race([
+      const response = (await Promise.race([
         typeof frameId === 'number'
           ? chrome.tabs.sendMessage(tabId, { action: `${this.name}_ping` }, { frameId })
           : chrome.tabs.sendMessage(tabId, { action: `${this.name}_ping` }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('ping timeout')), PING_TIMEOUT_MS),
         ),
-      ]);
-      return !!response && (response as any).status === 'pong';
+      ])) as { status?: string } | undefined;
+      return !!response && response.status === 'pong';
     } catch {
       return false;
     }
@@ -67,7 +67,7 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
         files,
         injectImmediately,
         world,
-      } as any);
+      });
 
       // executeScript resolves when the script is injected, but Chrome may
       // dispatch our follow-up sendMessage before the script's listener
@@ -240,7 +240,7 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
     try {
       const frame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 });
       if (!frame) return undefined;
-      return { url: frame.url, documentId: (frame as any)?.documentId };
+      return { url: frame.url, documentId: frame.documentId };
     } catch {
       return undefined;
     }
