@@ -147,6 +147,7 @@ export const TOOL_NAMES = {
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
     LIST_PUBLISHED: 'record_replay_list_published',
+    FLOW_DELETE: 'record_replay_flow_delete',
   },
 };
 
@@ -2980,6 +2981,21 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
+    description:
+      'Delete a recorded flow by ID. Closes the lifecycle gap left by `record_replay_list_published` + `record_replay_flow_run` so iterative record-test-refine sessions can clean up stale versions without opening the extension UI. Always unpublishes first (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. Returns `{deleted: true, unpublished, flowId}` on success — `unpublished` reports whether the flow was published before deletion. Errors with `INVALID_ARGS` if `flowId` is missing or the flow does not exist.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flowId: {
+          type: 'string',
+          description: 'ID of the flow to delete (from `record_replay_list_published`).',
+        },
+      },
+      required: ['flowId'],
+    },
+  },
 ];
 
 /**
@@ -3109,4 +3125,5 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
+  [TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE]: 'Workflows',
 };
