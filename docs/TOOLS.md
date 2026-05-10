@@ -1003,6 +1003,12 @@ Set a per-MCP-client pacing profile. Mutating tool dispatches (anything that cli
 | `minGapMs` | number |  | Optional override: inclusive lower bound on gap between mutating dispatches (ms). Stacks with the profile preset. |
 | `jitterMs` | number |  | Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs. |
 
+### `chrome_pace_get`
+
+Read-only counterpart of `chrome_pace`. Returns the current per-MCP-client pacing profile and the resolved gap/jitter that would be applied on the next mutating call. Use to verify pacing was set as intended, or to discover whether a previous `chrome_pace` call (in this session or another) is still in effect. When no profile is set, returns `{profile: "off", minGapMs: 0, jitterMs: 0}`. No mutation, no side effects on client state.
+
+No parameters.
+
 ## Workflows
 
 ### `record_replay_list_published`

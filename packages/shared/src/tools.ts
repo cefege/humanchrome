@@ -142,6 +142,7 @@ export const TOOL_NAMES = {
     DOWNLOAD_LIST: 'chrome_download_list',
     DOWNLOAD_CANCEL: 'chrome_download_cancel',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
+    PACE_GET: 'chrome_pace_get',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2969,6 +2970,16 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.PACE_GET,
+    description:
+      'Read-only counterpart of `chrome_pace`. Returns the current per-MCP-client pacing profile and the resolved gap/jitter that would be applied on the next mutating call. Use to verify pacing was set as intended, or to discover whether a previous `chrome_pace` call (in this session or another) is still in effect. When no profile is set, returns `{profile: "off", minGapMs: 0, jitterMs: 0}`. No mutation, no side effects on client state.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 /**
@@ -3094,6 +3105,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DOWNLOAD_LIST]: 'Files',
   [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
+  [TOOL_NAMES.BROWSER.PACE_GET]: 'Pacing',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
