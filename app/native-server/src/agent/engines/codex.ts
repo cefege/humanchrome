@@ -24,6 +24,17 @@ interface TodoListItem {
   index: number;
 }
 
+// Threaded into private helpers (e.g. emitTodoListUpdate) instead of
+// captured via closure so those helpers stay unit-testable without
+// reconstructing the per-run sessionId / requestId / dedup state that
+// the in-loop dispatchToolMessage owns.
+type CodexToolDispatcher = (
+  content: string,
+  metadata: Record<string, unknown>,
+  messageType: 'tool_use' | 'tool_result',
+  isStreaming: boolean,
+) => void;
+
 /**
  * CodexEngine integrates the Codex CLI as an AgentEngine implementation.
  *
@@ -399,26 +410,6 @@ export class CodexEngine implements AgentEngine {
         );
       };
 
-      const emitTodoListUpdate = (record: Record<string, unknown>, phase: TodoListPhase): void => {
-        const rawItems = this.extractTodoListItems(record);
-        const items = this.normalizeTodoListItems(rawItems);
-        const content = this.buildTodoListContent(items, phase);
-        const status =
-          this.pickFirstString(record.status) ??
-          (phase === 'completed' ? 'completed' : 'in_progress');
-        const metadata = this.createTodoListMetadata(items, phase, {
-          status,
-          planId: this.pickFirstString(record.id),
-        });
-
-        dispatchToolMessage(
-          content,
-          metadata,
-          phase === 'completed' ? 'tool_result' : 'tool_use',
-          phase === 'update',
-        );
-      };
-
       // Item event handlers
       const handleItemStarted = (item: unknown): void => {
         if (!item || typeof item !== 'object') return;
@@ -427,7 +418,7 @@ export class CodexEngine implements AgentEngine {
         if (type === 'command_execution') {
           emitCommandStart(record);
         } else if (type === 'todo_list') {
-          emitTodoListUpdate(record, 'started');
+          this.emitTodoListUpdate(record, 'started', dispatchToolMessage);
         }
       };
 
@@ -449,7 +440,7 @@ export class CodexEngine implements AgentEngine {
             emitAssistant(false);
           }
         } else if (type === 'todo_list') {
-          emitTodoListUpdate(record, 'update');
+          this.emitTodoListUpdate(record, 'update', dispatchToolMessage);
         }
       };
 
@@ -466,7 +457,7 @@ export class CodexEngine implements AgentEngine {
             emitFileChange(record);
             break;
           case 'todo_list':
-            emitTodoListUpdate(record, 'completed');
+            this.emitTodoListUpdate(record, 'completed', dispatchToolMessage);
             break;
           case 'agent_message': {
             const text = this.pickFirstString(record.text);
@@ -992,6 +983,35 @@ Work directly in the current directory. Do not create subdirectories unless spec
       })),
       ...(extra ?? {}),
     };
+  }
+
+  /**
+   * Extracted from `initializeAndRun` (IMP-0049 slice 2) so the todo-list
+   * fan-out stays unit-testable. Dispatcher is injected rather than
+   * captured so callers don't have to rebuild the in-loop session/dedup
+   * state to exercise this path.
+   */
+  private emitTodoListUpdate(
+    record: Record<string, unknown>,
+    phase: TodoListPhase,
+    dispatch: CodexToolDispatcher,
+  ): void {
+    const rawItems = this.extractTodoListItems(record);
+    const items = this.normalizeTodoListItems(rawItems);
+    const content = this.buildTodoListContent(items, phase);
+    const status =
+      this.pickFirstString(record.status) ?? (phase === 'completed' ? 'completed' : 'in_progress');
+    const metadata = this.createTodoListMetadata(items, phase, {
+      status,
+      planId: this.pickFirstString(record.id),
+    });
+
+    dispatch(
+      content,
+      metadata,
+      phase === 'completed' ? 'tool_result' : 'tool_use',
+      phase === 'update',
+    );
   }
 
   private encodeHash(value: string): string {
