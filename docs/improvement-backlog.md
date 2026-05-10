@@ -182,17 +182,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Sketch**: Extract to (subscribeToSessionStatus, executionStatusCache, handleSseEvent, ~160 LoC), (normalizeString, normalizeStringArray, normalizeStyleMap, normalizeApplyPayload, normalizeApplyBatchPayload, ~150 LoC), (buildAgentPrompt, buildAgentPromptBatch, ~260 LoC), (chrome.runtime.onMessage handler, ~700 LoC). index.ts becomes a 30-line orchestrator calling initWebEditorListeners.
 - **Risk**: Low. No behavior change. Internal function references become cross-file imports. Message-router imports from all three helpers.
 
-### IMP-0035 · Type computer.ts params to eliminate 24 remaining as any casts in action dispatch (refactor) · score: 3
-
-- **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: computer.ts still has 24 as any casts after IMP-0008 removed the hostname-check blocks. The remaining casts are concentrated on params access in action branches (scroll, click_and_type, wait, multi-element fill) where params is typed as the broad ComputerActionParams union and callers cast to any rather than narrowing. The same unsafe pattern is also present in the wait_for text branch where 6 casts access params.text / params.timeoutMs / params.appear. Typing each action branch with a discriminated union or narrow interface eliminates runtime-invisible field mismatches.
-- **Cost**: M
-- **Value**: M
-- **Files**: (1392 LoC, 24 as any)
-- **Sketch**: 1) Audit the existing ComputerActionParams union type; add missing optional fields (text, duration, appear, timeoutMs, elements array) to the appropriate action member. 2) In each action branch, use a type assertion or in-narrowing ("text" in params) to get a typed view. 3) The multi-element fill loop at lines 955-972 can use a local interface ElementInput { ref?: string; value: string }. No new types needed beyond extending what already exists.
-- **Risk**: Medium. The params union may need new fields that could conflict with future action additions. Compile errors are safe; no runtime change.
-
 ### IMP-0043 · Split editor.ts (web-editor-v2 core) into edit-session, broadcast, transaction-apply, and lifecycle modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
@@ -218,12 +207,12 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0049 · Split codex.ts initializeAndRun into focused sub-methods (mirrors IMP-0009 pattern for claude.ts) (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: in-progress (slice 1 of N landed: `buildCliInvocation` extracted to a private async helper, returning `{executable, args, tempFiles}` so the caller still controls temp-file cleanup)
+- **Status**: in-progress (slices 1 + 2 landed)
 - **Why**: codex.ts initializeAndRun spans lines 48-680 (~632 LoC), mirroring the IMP-0009 problem in claude.ts. It blends Codex CLI spawn, env construction, JSON-line event parsing, todo-list synthesis, apply-patch summarization, attachment temp-file creation, and stderr buffering in one method. Divergence from the claude.ts refactor creates parallel maintenance pressure: every change to shared message shape must be replicated in both engines without structural parity to guide the developer.
 - **Cost**: M
 - **Value**: M
-- **Files**: `app/native-server/src/agent/engines/codex.ts` (965 LoC; initializeAndRun lines 48-680 ~632 LoC)
-- **Sketch**: Slicing into focused PRs. Slice 1 (done): extract `private async buildCliInvocation(input)` covering executable selection, the canonical `exec --json --skip-git-repo-check ...` flag block, the codex config args, the humanchrome MCP injection, the `--model` flag, and the resolvedImagePaths / attachments → `--image` flag mapping. Returns `{executable, args, tempFiles}` so the caller still owns temp-file cleanup. Locked by 10 unit tests at `src/agent/engines/codex.cli-invocation.test.ts`. Remaining slices: `processCodexEventStream(child, ctx, runLog)` (for-await loop, ~350 LoC), `emitTodoListUpdate(record, phase, ctx)` (~80 LoC). After all slices: initializeAndRun becomes a ~80-line orchestrator. Apply same sub-method pattern as IMP-0009 so both engines are structurally parallel.
+- **Files**: `app/native-server/src/agent/engines/codex.ts` (~990 LoC)
+- **Sketch**: Slicing into focused PRs. Slice 1 (done): `private async buildCliInvocation(input)` covering executable selection, the canonical `exec --json --skip-git-repo-check ...` flag block, the codex config args, the humanchrome MCP injection, the `--model` flag, and the resolvedImagePaths / attachments → `--image` flag mapping. Returns `{executable, args, tempFiles}` so the caller still owns temp-file cleanup. Locked by 10 unit tests at `src/agent/engines/codex.cli-invocation.test.ts`. Slice 2 (done): `private emitTodoListUpdate(record, phase, dispatch)` lifted from the inline closure; takes the in-loop `dispatchToolMessage` as a parameter so the helper is independently unit-testable without spawning a real Codex process. Locked by 7 unit tests at `src/agent/engines/codex.emit-todo-list.test.ts`. Remaining slices: `processCodexEventStream(child, ctx, runLog)` (for-await loop, ~350 LoC) — blocked on first promoting `handleItemStarted/Delta/Completed`, `emitAssistant`, `resetAssistantBuffers` from closures to methods (or bundling them into a `CodexStreamState` object) so the new method's signature doesn't explode. After all slices: initializeAndRun becomes a ~80-line orchestrator. Apply same sub-method pattern as IMP-0009 so both engines are structurally parallel.
 - **Risk**: Low-Medium — stateful event loop with shared accumulators (stderr buffer, pending lines) must preserve closure references. No runtime change.
 
 ### IMP-0052 · Split rpc-server.ts into request-router plus per-domain handler modules (queue, flow, trigger, run-control) (refactor) · score: 3
@@ -237,9 +226,13 @@ IMP entry. Move to next iteration on the next tick.
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
-
-
 ## Done
+
+### IMP-0035 · Type computer.ts params to eliminate 24 remaining as any casts in action dispatch (refactor) · score: 3
+
+- **Status**: done (premise stale — audit confirmed zero `as any` casts)
+- **Completed**: 2026-05-09
+- **Summary**: Audit during the IMP-0049 slice 2 cycle confirmed `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` has **zero** `as any` casts today. The IMP-0008 (domain-shift helper) + the original IMP-0035 first pass already eliminated all 24. What remains is three innocuous `: any` annotations on CDP return values (lines 748, 1101, 1120 — `Page.getLayoutMetrics`, `Page.captureScreenshot`) where the code already does defensive `?.` access on the response shape. A future micro-PR could tighten `CDPHelper.send<T>(...)` with a generic — but that's a chore touching every caller, not the IMP-0035 surface. Closed without code change. No test impact.
 
 ### IMP-0053 · Add status action to chrome_network_capture for non-destructive buffer inspection (feat) · score: 2
 
