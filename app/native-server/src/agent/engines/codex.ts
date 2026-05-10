@@ -35,6 +35,15 @@ type CodexToolDispatcher = (
   isStreaming: boolean,
 ) => void;
 
+// Per-run state threaded into `dispatchToolMessageRun` so the method
+// stays unit-testable without reconstructing the in-loop closure.
+interface CodexDispatchScope {
+  sessionId: string;
+  requestId?: string;
+  streamedToolHashes: Set<string>;
+  emit: (event: RealtimeEvent) => void;
+}
+
 /**
  * CodexEngine integrates the Codex CLI as an AgentEngine implementation.
  *
@@ -309,37 +318,24 @@ export class CodexEngine implements AgentEngine {
         ctx.emit({ type: 'message', data: message });
       };
 
-      // Helper: emit tool message with deduplication
-      const dispatchToolMessage = (
-        content: string,
-        metadata: Record<string, unknown>,
-        messageType: 'tool_use' | 'tool_result',
-        isStreaming: boolean,
+      // Built once per run (not per dispatch) so high-frequency tool
+      // messages don't re-allocate the scope object. The closure stays
+      // a thin CodexToolDispatcher-shaped binding so `emitTodoListUpdate`
+      // (and the future `processCodexEventStream`) can consume the same
+      // contract; the testable build+emit lives on `dispatchToolMessageRun`.
+      const dispatchScope: CodexDispatchScope = {
+        sessionId,
+        requestId,
+        streamedToolHashes,
+        emit: ctx.emit,
+      };
+      const dispatchToolMessage: CodexToolDispatcher = (
+        content,
+        metadata,
+        messageType,
+        isStreaming,
       ): void => {
-        const trimmed = content.trim();
-        if (!trimmed) return;
-
-        const hash = this.encodeHash(
-          `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${sessionId}:${requestId || ''}`,
-        ).slice(0, 16);
-        if (streamedToolHashes.has(hash)) return;
-        streamedToolHashes.add(hash);
-
-        const message: AgentMessage = {
-          id: randomUUID(),
-          sessionId,
-          role: 'tool',
-          content: trimmed,
-          messageType,
-          cliSource: this.name,
-          requestId,
-          isStreaming,
-          isFinal: !isStreaming,
-          createdAt: new Date().toISOString(),
-          metadata: { cli_type: 'codex', ...metadata },
-        };
-
-        ctx.emit({ type: 'message', data: message });
+        this.dispatchToolMessageRun(dispatchScope, content, metadata, messageType, isStreaming);
       };
 
       // Event handlers for specific item types
@@ -1012,6 +1008,50 @@ Work directly in the current directory. Do not create subdirectories unless spec
       phase === 'completed' ? 'tool_result' : 'tool_use',
       phase === 'update',
     );
+  }
+
+  /**
+   * Build + emit one tool message into the realtime stream. Dedup is
+   * scoped by content+metadata+sessionId+requestId so the same payload
+   * from two CLI events doesn't double-fire the UI; the dedup set lives
+   * on the scope so each run gets a fresh window.
+   */
+  private dispatchToolMessageRun(
+    scope: CodexDispatchScope,
+    content: string,
+    metadata: Record<string, unknown>,
+    messageType: 'tool_use' | 'tool_result',
+    isStreaming: boolean,
+  ): void {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    // Use the full base64 hash, not a 16-char prefix. The previous 16-
+    // char slice collided for small metadata diffs (`{k:1}` vs `{k:2}`
+    // share their first 16 base64 chars), causing the second message to
+    // be silently dropped as a duplicate. Set lookup is still O(1) on
+    // the longer key.
+    const hash = this.encodeHash(
+      `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${scope.sessionId}:${scope.requestId || ''}`,
+    );
+    if (scope.streamedToolHashes.has(hash)) return;
+    scope.streamedToolHashes.add(hash);
+
+    const message: AgentMessage = {
+      id: randomUUID(),
+      sessionId: scope.sessionId,
+      role: 'tool',
+      content: trimmed,
+      messageType,
+      cliSource: this.name,
+      requestId: scope.requestId,
+      isStreaming,
+      isFinal: !isStreaming,
+      createdAt: new Date().toISOString(),
+      metadata: { cli_type: 'codex', ...metadata },
+    };
+
+    scope.emit({ type: 'message', data: message });
   }
 
   private encodeHash(value: string): string {
