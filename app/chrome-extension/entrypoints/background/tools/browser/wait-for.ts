@@ -8,6 +8,7 @@ import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { interceptResponseTool } from './intercept-response';
+import { DEFAULT_WAIT_FOR_TIMEOUT_MS } from '../../utils/timeouts';
 
 interface WaitForToolParams {
   kind: 'element' | 'network_idle' | 'response_match' | 'js';
@@ -25,7 +26,7 @@ interface WaitForToolParams {
   frameId?: number;
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = DEFAULT_WAIT_FOR_TIMEOUT_MS;
 const MAX_TIMEOUT_MS = 120000;
 const DEFAULT_QUIET_MS = 500;
 

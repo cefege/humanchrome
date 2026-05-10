@@ -18,10 +18,11 @@
  */
 
 import { ToolError, ToolErrorCode } from 'humanchrome-shared';
+import { DEFAULT_TAB_LOCK_TIMEOUT_MS } from './timeouts';
 
 const queues = new Map<number, Promise<void>>();
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = DEFAULT_TAB_LOCK_TIMEOUT_MS;
 
 export interface AcquireOptions {
   /** Cap on time spent waiting for prior holders. Default 10s. */

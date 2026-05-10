@@ -7,6 +7,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
+import { DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS } from '../../utils/timeouts';
 
 interface AwaitElementToolParams {
   selector?: string;
@@ -20,7 +21,7 @@ interface AwaitElementToolParams {
   background?: boolean;
 }
 
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS;
 const MAX_TIMEOUT_MS = 120000;
 
 /**

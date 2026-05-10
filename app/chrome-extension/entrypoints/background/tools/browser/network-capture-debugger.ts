@@ -5,6 +5,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import { NETWORK_FILTERS } from '@/common/constants';
+import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
 
 interface NetworkDebuggerStartToolParams {
   url?: string; // URL to navigate to or focus. If not provided, uses active tab.
@@ -57,7 +58,8 @@ interface NetworkRequestInfo {
 }
 
 const DEBUGGER_PROTOCOL_VERSION = '1.3';
-const MAX_RESPONSE_BODY_SIZE_BYTES = 1 * 1024 * 1024; // 1MB
+// Re-export under the file-local name so the existing call sites keep working.
+const MAX_RESPONSE_BODY_SIZE_BYTES = MAX_RESPONSE_BODY_BYTES;
 const DEFAULT_MAX_CAPTURE_TIME_MS = 3 * 60 * 1000; // 3 minutes
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 60 * 1000; // 1 minute
 
