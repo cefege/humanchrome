@@ -54,3 +54,4 @@ CLAUDE.md
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/ralph-loop.local.md
+.claude/ralph-loop-logs/
