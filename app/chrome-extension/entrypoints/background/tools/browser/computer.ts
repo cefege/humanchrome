@@ -40,29 +40,35 @@ import {
   type ActionType,
 } from './gif-recorder';
 import { CDPHelper } from './computer/cdp-helper';
+import {
+  handleClick,
+  handleMultiClick,
+  handleLeftClickDrag,
+  type ClickActionDeps,
+} from './computer/actions/click-actions';
 
-type MouseButton = 'left' | 'right' | 'middle';
+export type MouseButton = 'left' | 'right' | 'middle';
 
-interface Coordinates {
+export interface Coordinates {
   x: number;
   y: number;
 }
 
-interface ZoomRegion {
+export interface ZoomRegion {
   x0: number;
   y0: number;
   x1: number;
   y1: number;
 }
 
-interface Modifiers {
+export interface Modifiers {
   altKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
   shiftKey?: boolean;
 }
 
-interface ComputerParams {
+export interface ComputerParams {
   action:
     | 'left_click'
     | 'right_click'
@@ -134,7 +140,7 @@ function getHostnameFromUrl(url: string): string {
 // matches the coordinate-driven actions; pass `trailing: 'first'` to emit
 // "Capture a new screenshot first." for actions that have no ref-based fallback
 // (e.g. zoom).
-function checkDomainShift(
+export function checkDomainShift(
   ctx: ScreenshotContext | undefined,
   tabUrl: string | undefined,
   action: string,
@@ -236,6 +242,25 @@ class ComputerTool extends BaseBrowserToolExecutor {
       zoom: 'other',
     };
     return mapping[action] || null;
+  }
+
+  /**
+   * Build the deps bag passed to extracted action handlers so they can call
+   * back into base-class helpers without inheriting from us.
+   */
+  private buildClickDeps(tab: chrome.tabs.Tab): ClickActionDeps {
+    return {
+      tab,
+      project: (c) => {
+        if (!c) return undefined;
+        const ctx = screenshotContextManager.getContext(tab.id!);
+        if (!ctx) return c;
+        const scaled = scaleCoordinates(c.x, c.y, ctx);
+        return { x: scaled.x, y: scaled.y };
+      },
+      injectContentScript: (tabId, files) => this.injectContentScript(tabId, files),
+      sendMessageToTab: (tabId, msg, frameId) => this.sendMessageToTab(tabId, msg, frameId),
+    };
   }
 
   private async executeAction(params: ComputerParams, tab: chrome.tabs.Tab): Promise<ToolResult> {
@@ -422,327 +447,13 @@ class ComputerTool extends BaseBrowserToolExecutor {
         }
       }
       case 'left_click':
-      case 'right_click': {
-        // Calculate CDP modifier mask for click events
-        const modifiersMask = CDPHelper.modifierMask(
-          [
-            params.modifiers?.altKey ? 'alt' : undefined,
-            params.modifiers?.ctrlKey ? 'ctrl' : undefined,
-            params.modifiers?.metaKey ? 'meta' : undefined,
-            params.modifiers?.shiftKey ? 'shift' : undefined,
-          ].filter((v): v is string => typeof v === 'string'),
-        );
-
-        if (params.ref) {
-          // Prefer DOM click via ref
-          const domResult = await clickTool.execute({
-            ref: params.ref,
-            waitForNavigation: false,
-            timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
-            button: params.action === 'right_click' ? 'right' : 'left',
-            modifiers: params.modifiers,
-          });
-          return domResult;
-        }
-        if (params.selector) {
-          // Support selector-based click
-          const domResult = await clickTool.execute({
-            selector: params.selector,
-            selectorType: params.selectorType,
-            frameId: params.frameId,
-            waitForNavigation: false,
-            timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
-            button: params.action === 'right_click' ? 'right' : 'left',
-            modifiers: params.modifiers,
-          });
-          return domResult;
-        }
-        if (!params.coordinates)
-          return createErrorResponse('Provide ref, selector, or coordinates for click action');
-        {
-          const stale = checkDomainShift(
-            screenshotContextManager.getContext(tab.id!),
-            tab.url,
-            params.action,
-          );
-          if (stale) return stale;
-        }
-        const coord = project(params.coordinates)!;
-        // Prefer DOM path via existing click tool
-        const domResult = await clickTool.execute({
-          coordinates: coord,
-          waitForNavigation: false,
-          timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
-          button: params.action === 'right_click' ? 'right' : 'left',
-          modifiers: params.modifiers,
-        });
-        if (!domResult.isError) {
-          return domResult; // Standardized response from click tool
-        }
-        // Fallback to CDP if DOM failed
-        try {
-          await CDPHelper.attach(tab.id);
-          const button: MouseButton = params.action === 'right_click' ? 'right' : 'left';
-          const clickCount = 1;
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseMoved',
-            x: coord.x,
-            y: coord.y,
-            button: 'none',
-            buttons: 0,
-            modifiers: modifiersMask,
-          });
-          for (let i = 1; i <= clickCount; i++) {
-            await CDPHelper.dispatchMouseEvent(tab.id, {
-              type: 'mousePressed',
-              x: coord.x,
-              y: coord.y,
-              button,
-              buttons: button === 'left' ? 1 : 2,
-              clickCount: i,
-              modifiers: modifiersMask,
-            });
-            await CDPHelper.dispatchMouseEvent(tab.id, {
-              type: 'mouseReleased',
-              x: coord.x,
-              y: coord.y,
-              button,
-              buttons: 0,
-              clickCount: i,
-              modifiers: modifiersMask,
-            });
-          }
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: params.action,
-                  coordinates: coord,
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          return createErrorResponse(
-            `CDP click failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
+      case 'right_click':
+        return handleClick(params, this.buildClickDeps(tab));
       case 'double_click':
-      case 'triple_click': {
-        // Calculate CDP modifier mask for click events
-        const modifiersMask = CDPHelper.modifierMask(
-          [
-            params.modifiers?.altKey ? 'alt' : undefined,
-            params.modifiers?.ctrlKey ? 'ctrl' : undefined,
-            params.modifiers?.metaKey ? 'meta' : undefined,
-            params.modifiers?.shiftKey ? 'shift' : undefined,
-          ].filter((v): v is string => typeof v === 'string'),
-        );
-
-        if (!params.coordinates && !params.ref && !params.selector)
-          return createErrorResponse(
-            'Provide ref, selector, or coordinates for double/triple click',
-          );
-        let coord: Coordinates | undefined = params.coordinates
-          ? project(params.coordinates)
-          : undefined;
-        // If ref is provided, resolve center via accessibility helper
-        if (params.ref) {
-          try {
-            await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-            const resolved = await this.sendMessageToTab(tab.id, {
-              action: TOOL_MESSAGE_TYPES.RESOLVE_REF,
-              ref: params.ref,
-            });
-            if (resolved && resolved.success) {
-              coord = project({ x: resolved.center.x, y: resolved.center.y })!;
-            }
-          } catch (e) {
-            // ignore and use provided coordinates
-          }
-        } else if (params.selector) {
-          // Support selector-based click
-          try {
-            await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-            const selectorType = params.selectorType || 'css';
-            const ensured = await this.sendMessageToTab(
-              tab.id,
-              {
-                action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR,
-                selector: params.selector,
-                isXPath: selectorType === 'xpath',
-              },
-              params.frameId,
-            );
-            if (ensured && ensured.success) {
-              coord = project({ x: ensured.center.x, y: ensured.center.y })!;
-            }
-          } catch (e) {
-            // ignore
-          }
-        }
-        if (!coord) return createErrorResponse('Failed to resolve coordinates from ref/selector');
-        if (params.coordinates) {
-          const stale = checkDomainShift(
-            screenshotContextManager.getContext(tab.id!),
-            tab.url,
-            params.action,
-          );
-          if (stale) return stale;
-        }
-        try {
-          await CDPHelper.attach(tab.id);
-          const button: MouseButton = 'left';
-          const clickCount = params.action === 'double_click' ? 2 : 3;
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseMoved',
-            x: coord.x,
-            y: coord.y,
-            button: 'none',
-            buttons: 0,
-            modifiers: modifiersMask,
-          });
-          for (let i = 1; i <= clickCount; i++) {
-            await CDPHelper.dispatchMouseEvent(tab.id, {
-              type: 'mousePressed',
-              x: coord.x,
-              y: coord.y,
-              button,
-              buttons: 1,
-              clickCount: i,
-              modifiers: modifiersMask,
-            });
-            await CDPHelper.dispatchMouseEvent(tab.id, {
-              type: 'mouseReleased',
-              x: coord.x,
-              y: coord.y,
-              button,
-              buttons: 0,
-              clickCount: i,
-              modifiers: modifiersMask,
-            });
-          }
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: params.action,
-                  coordinates: coord,
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          return createErrorResponse(
-            `CDP ${params.action} failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
-      case 'left_click_drag': {
-        if (!params.startCoordinates && !params.startRef)
-          return createErrorResponse('Provide startRef or startCoordinates for drag');
-        if (!params.coordinates && !params.ref)
-          return createErrorResponse('Provide ref or end coordinates for drag');
-        let start: Coordinates | undefined = params.startCoordinates
-          ? project(params.startCoordinates)
-          : undefined;
-        let end: Coordinates | undefined = params.coordinates
-          ? project(params.coordinates)
-          : undefined;
-        if (params.startCoordinates || params.coordinates) {
-          const stale = checkDomainShift(
-            screenshotContextManager.getContext(tab.id!),
-            tab.url,
-            'left_click_drag',
-          );
-          if (stale) return stale;
-        }
-        if (params.startRef || params.ref) {
-          await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-        }
-        if (params.startRef) {
-          try {
-            const resolved = await this.sendMessageToTab(tab.id, {
-              action: TOOL_MESSAGE_TYPES.RESOLVE_REF,
-              ref: params.startRef,
-            });
-            if (resolved && resolved.success)
-              start = project({ x: resolved.center.x, y: resolved.center.y })!;
-          } catch {
-            // ignore
-          }
-        }
-        if (params.ref) {
-          try {
-            const resolved = await this.sendMessageToTab(tab.id, {
-              action: TOOL_MESSAGE_TYPES.RESOLVE_REF,
-              ref: params.ref,
-            });
-            if (resolved && resolved.success)
-              end = project({ x: resolved.center.x, y: resolved.center.y })!;
-          } catch {
-            // ignore
-          }
-        }
-        if (!start || !end) return createErrorResponse('Failed to resolve drag coordinates');
-        try {
-          await CDPHelper.attach(tab.id);
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseMoved',
-            x: start.x,
-            y: start.y,
-            button: 'none',
-            buttons: 0,
-          });
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mousePressed',
-            x: start.x,
-            y: start.y,
-            button: 'left',
-            buttons: 1,
-            clickCount: 1,
-          });
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseMoved',
-            x: end.x,
-            y: end.y,
-            button: 'left',
-            buttons: 1,
-          });
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseReleased',
-            x: end.x,
-            y: end.y,
-            button: 'left',
-            buttons: 0,
-            clickCount: 1,
-          });
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({ success: true, action: 'left_click_drag', start, end }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          return createErrorResponse(`Drag failed: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
+      case 'triple_click':
+        return handleMultiClick(params, this.buildClickDeps(tab));
+      case 'left_click_drag':
+        return handleLeftClickDrag(params, this.buildClickDeps(tab));
       case 'scroll': {
         let coord: Coordinates | undefined = params.coordinates
           ? project(params.coordinates)
