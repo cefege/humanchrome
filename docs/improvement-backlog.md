@@ -174,7 +174,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0034 · Split background/web-editor/index.ts into sse-client, prompt-builder, normalizers, and message-router modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
+- **Status**: done (sse-client.ts, prompt-builder.ts, normalizers.ts, editor-lifecycle.ts, early-injection.ts, and now message-router.ts all extracted; index.ts shrunk from 1641 LoC to 54 LoC)
 - **Why**: app/chrome-extension/entrypoints/background/web-editor/index.ts is 1641 LoC and bundles four unrelated concerns inside a single initWebEditorListeners() export: SSE subscription / execution-status cache (lines 29-160), agent prompt builder (lines 412-670), input normalizer helpers (lines 263-410), and the 700-line chrome.runtime.onMessage switch. Any change to the prompt template requires navigating past the SSE client and vice versa. The file is evaluated in the service worker on extension start, so its parse time is in the critical path.
 - **Cost**: M
 - **Value**: M
