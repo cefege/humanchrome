@@ -1,3 +1,23 @@
+/**
+ * Single source of truth for the MCP tool catalog exposed by the bridge.
+ *
+ * Three append-only registries live here:
+ *   - TOOL_NAMES     — frozen string identifiers; never rename (clients pin them).
+ *   - TOOL_SCHEMAS   — the `Tool[]` advertised over MCP; one entry per name.
+ *   - TOOL_CATEGORIES — name → category for docs grouping.
+ *
+ * Append-only is enforced by two coverage tests so a missing entry breaks CI
+ * loudly instead of producing a silently undocumented tool:
+ *   - app/chrome-extension/tests/lazy-tool-registry.test.ts
+ *   - app/chrome-extension/tests/tool-categories-coverage.test.ts
+ *
+ * The shared fragments below (TAB_TARGETING, SELECTOR_PROP, ...) are spread
+ * into individual schemas so cross-cutting wording lives in exactly one
+ * place; per-tool overrides go inline after the spread.
+ *
+ * IMP-0021 plans to slice this file by category — keep additions in the
+ * conventional category block until then.
+ */
 import { type Tool } from '@modelcontextprotocol/sdk/types.js';
 
 // ---------------------------------------------------------------------------

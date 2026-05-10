@@ -1,3 +1,21 @@
+/**
+ * CodexEngine — drives the Codex CLI as an AgentEngine sibling to ClaudeEngine.
+ *
+ * Where Claude wraps an in-process SDK, Codex shells out: each execute()
+ * spawns the `codex` binary, pipes a JSON-RPC-style protocol over stdin/stdout
+ * (parsed via readline), and bridges tool calls back to the bridge through
+ * AgentToolBridge. RealtimeEvents are emitted as the child process streams.
+ *
+ * Lifecycle: init() resolves the binary path and validates DEFAULT_CODEX_CONFIG
+ * + CODEX_AUTO_INSTRUCTIONS. execute() spawns the child, owns its lifetime,
+ * and is responsible for SIGTERM on stop()/cancel — leaks here become orphaned
+ * codex processes, so guard the cleanup paths carefully.
+ *
+ * In-flight refactor: TodoList tracking and dispatch scope live on the engine
+ * instance for the duration of a run and are reset between calls. IMP-0049's
+ * RunContext extraction applies here too; serialize execute() per instance
+ * until then.
+ */
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import path from 'node:path';

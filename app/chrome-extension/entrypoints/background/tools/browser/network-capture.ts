@@ -1,3 +1,24 @@
+/**
+ * `chrome_network_capture` — single facade over two backends with very
+ * different capability/cost tradeoffs:
+ *
+ *   - webRequest backend (network-capture-web-request.ts): cheap, no CDP
+ *     attach, no debugger banner; cannot read response bodies and never
+ *     activates the tab. Default for headers-only/listing use cases.
+ *   - debugger backend (network-capture-debugger.ts): full CDP attach,
+ *     surfaces response bodies (capped at MAX_RESPONSE_BODY_SIZE_BYTES),
+ *     but pops the "Chrome is being controlled" banner and conflicts with
+ *     other CDP holders on the same tab. Required when needResponseBody.
+ *
+ * Backend selection lives entirely here so callers see one tool and one
+ * action vocabulary (start/stop/flush/status); the two backend modules
+ * never reach across to each other.
+ *
+ * `background: true` (default for the debugger backend) suppresses tab
+ * activation/window focus on attach so capture doesn't reorder the user's
+ * tabs. Only set false when the page genuinely needs to render (e.g.,
+ * waiting for a network event that requires layout).
+ */
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
