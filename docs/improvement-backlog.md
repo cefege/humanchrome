@@ -97,7 +97,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: in-progress (slices 1 + 2 + 3 + 4 of N landed: CDPHelper, click-actions, scroll-zoom-actions, input-actions extracted under `browser/computer/`)
+- **Status**: done (CDPHelper, click-actions, scroll-zoom-actions, input-actions, view-actions all extracted under `browser/computer/`; computer.ts shrank from 1327 LoC to ~350 LoC orchestrator)
 - **Why**: After IMP-0008 (domain-shift helper) and IMP-0035 (params typing), the dominant bulk in computer.ts is a 16-case switch inside executeAction spanning lines 392-1348 (~956 LoC). Representative case sizes: left_click_drag 93 LoC, zoom 98 LoC, screenshot 147 LoC. Adding a new action or fixing a case requires navigating past all 15 others. CDPHelper (lines 142-310) is already a self-contained class that could be elevated to a sibling module without any refactor risk.
 - **Cost**: M
 - **Value**: M
