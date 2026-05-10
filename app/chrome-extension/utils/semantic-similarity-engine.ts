@@ -170,211 +170,23 @@ export async function isDefaultModelCached(): Promise<boolean> {
 // `hasAnyModelCache` lives in `./model-cache-status` and is re-exported above
 // for back-compat. See IMP-0055.
 
-// Predefined model configurations - 2025 curated recommended models, using quantized versions to reduce file size
-export const PREDEFINED_MODELS = {
-  // Multilingual model - default recommendation
-  'multilingual-e5-small': {
-    modelIdentifier: 'Xenova/multilingual-e5-small',
-    dimension: 384,
-    description: 'Multilingual E5 Small - Lightweight multilingual model supporting 100+ languages',
-    language: 'multilingual',
-    performance: 'excellent',
-    size: '116MB', // Quantized version
-    latency: '20ms',
-    multilingualFeatures: {
-      languageSupport: '100+',
-      crossLanguageRetrieval: 'good',
-      chineseEnglishMixed: 'good',
-    },
-    modelSpecificConfig: {
-      requiresTokenTypeIds: false, // E5 model doesn't require token_type_ids
-    },
-  },
-  'multilingual-e5-base': {
-    modelIdentifier: 'Xenova/multilingual-e5-base',
-    dimension: 768,
-    description: 'Multilingual E5 base - Medium-scale multilingual model supporting 100+ languages',
-    language: 'multilingual',
-    performance: 'excellent',
-    size: '279MB', // Quantized version
-    latency: '30ms',
-    multilingualFeatures: {
-      languageSupport: '100+',
-      crossLanguageRetrieval: 'excellent',
-      chineseEnglishMixed: 'excellent',
-    },
-    modelSpecificConfig: {
-      requiresTokenTypeIds: false, // E5 model doesn't require token_type_ids
-    },
-  },
-} as const;
-
-export type ModelPreset = keyof typeof PREDEFINED_MODELS;
-
-/**
- * Get model information
- */
-export function getModelInfo(preset: ModelPreset) {
-  return PREDEFINED_MODELS[preset];
-}
-
-/**
- * List all available models
- */
-export function listAvailableModels() {
-  return Object.entries(PREDEFINED_MODELS).map(([key, value]) => ({
-    preset: key as ModelPreset,
-    ...value,
-  }));
-}
-
-/**
- * Recommend model based on language - only uses multilingual-e5 series models
- */
-export function recommendModelForLanguage(
-  _language: 'en' | 'zh' | 'multilingual' = 'multilingual',
-  scenario: 'speed' | 'balanced' | 'quality' = 'balanced',
-): ModelPreset {
-  // All languages use multilingual models
-  if (scenario === 'quality') {
-    return 'multilingual-e5-base'; // High quality choice
-  }
-  return 'multilingual-e5-small'; // Default lightweight choice
-}
-
-/**
- * Intelligently recommend model based on device performance and usage scenario - only uses multilingual-e5 series models
- */
-export function recommendModelForDevice(
-  _language: 'en' | 'zh' | 'multilingual' = 'multilingual',
-  deviceMemory: number = 4, // GB
-  networkSpeed: 'slow' | 'fast' = 'fast',
-  prioritizeSpeed: boolean = false,
-): ModelPreset {
-  // Low memory devices or slow network, prioritize small models
-  if (deviceMemory < 4 || networkSpeed === 'slow' || prioritizeSpeed) {
-    return 'multilingual-e5-small'; // Lightweight choice
-  }
-
-  // High performance devices can use better models
-  if (deviceMemory >= 8 && !prioritizeSpeed) {
-    return 'multilingual-e5-base'; // High performance choice
-  }
-
-  // Default balanced choice
-  return 'multilingual-e5-small';
-}
-
-/**
- * Get model size information (only supports quantized version)
- */
-export function getModelSizeInfo(
-  preset: ModelPreset,
-  _version: 'full' | 'quantized' | 'compressed' = 'quantized',
-) {
-  const model = PREDEFINED_MODELS[preset];
-
-  return {
-    size: model.size,
-    recommended: 'quantized',
-    description: `${model.description} (Size: ${model.size})`,
-  };
-}
-
-/**
- * Compare performance and size of multiple models
- */
-export function compareModels(presets: ModelPreset[]) {
-  return presets.map((preset) => {
-    const model = PREDEFINED_MODELS[preset];
-
-    return {
-      preset,
-      name: model.description.split(' - ')[0],
-      language: model.language,
-      performance: model.performance,
-      dimension: model.dimension,
-      latency: model.latency,
-      size: model.size,
-      features: (model as any).multilingualFeatures || {},
-      maxLength: (model as any).maxLength || 512,
-      recommendedFor: getRecommendationContext(preset),
-    };
-  });
-}
-
-/**
- * Get recommended use cases for model
- */
-function getRecommendationContext(preset: ModelPreset): string[] {
-  const contexts: string[] = [];
-  const model = PREDEFINED_MODELS[preset];
-
-  // All models are multilingual
-  contexts.push('Multilingual document processing');
-
-  if (model.performance === 'excellent') contexts.push('High accuracy requirements');
-  if (model.latency.includes('20ms')) contexts.push('Fast response');
-
-  // Add scenarios based on model size
-  const sizeInMB = parseInt(model.size.replace('MB', ''));
-  if (sizeInMB < 300) {
-    contexts.push('Mobile devices');
-    contexts.push('Lightweight deployment');
-  }
-
-  if (preset === 'multilingual-e5-small') {
-    contexts.push('Lightweight deployment');
-  } else if (preset === 'multilingual-e5-base') {
-    contexts.push('High accuracy requirements');
-  }
-
-  return contexts;
-}
-
-/**
- * Get ONNX model filename (only supports quantized version)
- */
-export function getOnnxFileNameForVersion(
-  _version: 'full' | 'quantized' | 'compressed' = 'quantized',
-): string {
-  // Only return quantized version filename
-  return 'model_quantized.onnx';
-}
-
-/**
- * Get model identifier (only supports quantized version)
- */
-export function getModelIdentifierWithVersion(
-  preset: ModelPreset,
-  _version: 'full' | 'quantized' | 'compressed' = 'quantized',
-): string {
-  const model = PREDEFINED_MODELS[preset];
-  return model.modelIdentifier;
-}
-
-/**
- * Get size comparison of all available models
- */
-export function getAllModelSizes() {
-  const models = Object.entries(PREDEFINED_MODELS).map(([preset, config]) => {
-    return {
-      preset: preset as ModelPreset,
-      name: config.description.split(' - ')[0],
-      language: config.language,
-      size: config.size,
-      performance: config.performance,
-      latency: config.latency,
-    };
-  });
-
-  // Sort by size
-  return models.sort((a, b) => {
-    const sizeA = parseInt(a.size.replace('MB', ''));
-    const sizeB = parseInt(b.size.replace('MB', ''));
-    return sizeA - sizeB;
-  });
-}
+// IMP-0019 slice 1: model-registry extracted to ./semantic-similarity/model-registry
+// — re-exported here so the import path `@/utils/semantic-similarity-engine` keeps
+// working for popup, sidepanel, etc.
+export {
+  PREDEFINED_MODELS,
+  type ModelPreset,
+  getModelInfo,
+  listAvailableModels,
+  recommendModelForLanguage,
+  recommendModelForDevice,
+  getModelSizeInfo,
+  compareModels,
+  getOnnxFileNameForVersion,
+  getModelIdentifierWithVersion,
+  getAllModelSizes,
+} from './semantic-similarity/model-registry';
+import type { ModelPreset } from './semantic-similarity/model-registry';
 
 // Define necessary types
 interface ModelConfig {
