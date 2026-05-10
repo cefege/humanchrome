@@ -1,73 +1,89 @@
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { handleCallTool } from '@/entrypoints/background/tools';
-import type { StepFill } from '../types';
+import type { StepFill } from '../legacy-types';
 import { locateElement } from '../selector-engine';
 import { expandTemplatesDeep } from '../rr-utils';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
+interface ResolveRefResponse {
+  rect?: { width: number; height: number };
+  [k: string]: unknown;
+}
+
+interface AttributeResponse {
+  value?: string | null;
+  [k: string]: unknown;
+}
+
+function logFallback(
+  ctx: ExecCtx,
+  step: StepFill,
+  first: string | undefined,
+  resolvedBy: string,
+): void {
+  ctx.logger({
+    stepId: step.id,
+    status: 'success',
+    message: `Selector fallback used (${String(first)} -> ${String(resolvedBy)})`,
+    fallbackUsed: true,
+    fallbackFrom: String(first),
+    fallbackTo: String(resolvedBy),
+  });
+}
+
 export const fillNode: NodeRuntime<StepFill> = {
-  validate: (step) => {
-    const ok = !!(step as any).target?.candidates?.length && 'value' in (step as any);
+  validate: (step: StepFill) => {
+    const ok = !!step.target?.candidates?.length && 'value' in step;
     return ok ? { ok } : { ok, errors: ['Missing target selector candidates or input value'] };
   },
   run: async (ctx: ExecCtx, step: StepFill) => {
-    const s: any = step;
+    const s = expandTemplatesDeep<StepFill>(step, ctx.vars);
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const firstTab = tabs && tabs[0];
     const tabId = firstTab && typeof firstTab.id === 'number' ? firstTab.id : undefined;
     if (!tabId) throw new Error('Active tab not found');
     await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
     const located = await locateElement(tabId, s.target, ctx.frameId);
-    const frameId = (located as any)?.frameId ?? ctx.frameId;
+    const frameId = located?.frameId ?? ctx.frameId;
     const first = s.target?.candidates?.[0]?.type;
-    const resolvedBy = (located as any)?.resolvedBy || ((located as any)?.ref ? 'ref' : '');
-    const fallbackUsed = resolvedBy && first && resolvedBy !== 'ref' && resolvedBy !== first;
-    const interpolate = (v: any) =>
-      typeof v === 'string'
-        ? v.replace(/\{([^}]+)\}/g, (_m, k) => (ctx.vars[k] ?? '').toString())
-        : v;
+    const resolvedBy = located?.resolvedBy || (located?.ref ? 'ref' : '');
+    const fallbackUsed = !!(resolvedBy && first && resolvedBy !== 'ref' && resolvedBy !== first);
+    const interpolate = (v: string): string =>
+      v.replace(/\{([^}]+)\}/g, (_m, k: string) => (ctx.vars[k] ?? '').toString());
     const value = interpolate(s.value);
-    if ((located as any)?.ref) {
-      const resolved: any = (await chrome.tabs.sendMessage(
+    if (located?.ref) {
+      const resolved = (await chrome.tabs.sendMessage(
         tabId,
-        { action: 'resolveRef', ref: (located as any).ref } as any,
-        { frameId } as any,
-      )) as any;
+        { action: 'resolveRef', ref: located.ref },
+        { frameId },
+      )) as ResolveRefResponse;
       const rect = resolved?.rect;
       if (!rect || rect.width <= 0 || rect.height <= 0) throw new Error('element not visible');
     }
-    const cssSelector = !(located as any)?.ref
-      ? s.target.candidates?.find((c: any) => c.type === 'css' || c.type === 'attr')?.value
+    const cssSelector = !located?.ref
+      ? s.target.candidates?.find((c) => c.type === 'css' || c.type === 'attr')?.value
       : undefined;
     if (cssSelector) {
       try {
-        const attr: any = (await chrome.tabs.sendMessage(
+        const attr = (await chrome.tabs.sendMessage(
           tabId,
-          { action: 'getAttributeForSelector', selector: cssSelector, name: 'type' } as any,
-          { frameId } as any,
-        )) as any;
+          { action: 'getAttributeForSelector', selector: cssSelector, name: 'type' },
+          { frameId },
+        )) as AttributeResponse;
         const typeName = (attr && attr.value ? String(attr.value) : '').toLowerCase();
         if (typeName === 'file') {
           const uploadRes = await handleCallTool({
             name: TOOL_NAMES.BROWSER.FILE_UPLOAD,
             args: { selector: cssSelector, filePath: String(value ?? '') },
           });
-          if ((uploadRes as any).isError) throw new Error('file upload failed');
-          if (fallbackUsed)
-            ctx.logger({
-              stepId: (step as any).id,
-              status: 'success',
-              message: `Selector fallback used (${String(first)} -> ${String(resolvedBy)})`,
-              fallbackUsed: true,
-              fallbackFrom: String(first),
-              fallbackTo: String(resolvedBy),
-            } as any);
+          if ((uploadRes as { isError?: boolean }).isError) throw new Error('file upload failed');
+          if (fallbackUsed) logFallback(ctx, step, first, resolvedBy);
           return {} as ExecResult;
         }
       } catch {}
     }
     try {
-      if (cssSelector)
+      if (cssSelector) {
         await handleCallTool({
           name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
           args: {
@@ -75,15 +91,16 @@ export const fillNode: NodeRuntime<StepFill> = {
             jsScript: `try{var el=document.querySelector(${JSON.stringify(cssSelector)});if(el){el.scrollIntoView({behavior:'instant',block:'center',inline:'nearest'});} }catch(e){}`,
           },
         });
+      }
     } catch {}
     try {
-      if ((located as any)?.ref)
+      if (located?.ref) {
         await chrome.tabs.sendMessage(
           tabId,
-          { action: 'focusByRef', ref: (located as any).ref } as any,
-          { frameId } as any,
+          { action: 'focusByRef', ref: located.ref },
+          { frameId },
         );
-      else if (cssSelector)
+      } else if (cssSelector) {
         await handleCallTool({
           name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
           args: {
@@ -91,26 +108,19 @@ export const fillNode: NodeRuntime<StepFill> = {
             jsScript: `try{var el=document.querySelector(${JSON.stringify(cssSelector)});if(el&&el.focus){el.focus();}}catch(e){}`,
           },
         });
+      }
     } catch {}
     const res = await handleCallTool({
       name: TOOL_NAMES.BROWSER.FILL,
       args: {
-        ref: (located as any)?.ref || (s as any).target?.ref,
+        ref: located?.ref || s.target?.ref,
         selector: cssSelector,
         value,
         frameId,
       },
     });
-    if ((res as any).isError) throw new Error('fill failed');
-    if (fallbackUsed)
-      ctx.logger({
-        stepId: (step as any).id,
-        status: 'success',
-        message: `Selector fallback used (${String(first)} -> ${String(resolvedBy)})`,
-        fallbackUsed: true,
-        fallbackFrom: String(first),
-        fallbackTo: String(resolvedBy),
-      } as any);
+    if ((res as { isError?: boolean }).isError) throw new Error('fill failed');
+    if (fallbackUsed) logFallback(ctx, step, first, resolvedBy);
     return {} as ExecResult;
   },
 };
