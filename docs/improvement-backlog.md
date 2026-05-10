@@ -218,7 +218,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0052 · Split rpc-server.ts into request-router plus per-domain handler modules (queue, flow, trigger, run-control) (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: in-progress (slice 1: queue handlers extracted to `transport/handlers/queue-handlers.ts`; flow/trigger/run-control handlers pending)
 - **Why**: Single RpcServer class has 30+ private async handle\* methods registered through one handleRequest dispatch (line 238). Concerns are clearly separable: queue management, flow CRUD + normalizeFlowSpec (140 LoC validator), trigger CRUD + normalizeTriggerSpec (155 LoC), and run controls. The transport file conflates wire-protocol lifecycle with domain validation logic, making it hard to change flow normalization without navigating past trigger and queue code.
 - **Cost**: M
 - **Value**: M

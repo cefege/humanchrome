@@ -11,6 +11,7 @@ import { RUN_SCHEMA_VERSION, type RunRecordV3 } from '../../domain/events';
 import type { StoragePort } from '../storage/storage-port';
 import type { EventsBus } from '../transport/events-bus';
 import type { RunScheduler } from './scheduler';
+import { compareQueueItems } from './queue';
 
 export interface EnqueueRunDeps {
   storage: Pick<StoragePort, 'flows' | 'runs' | 'queue'>;
@@ -82,10 +83,7 @@ async function computeQueuePosition(
   runId: RunId,
 ): Promise<number> {
   const queueItems = await storage.queue.list('queued');
-  queueItems.sort((a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    return a.createdAt - b.createdAt;
-  });
+  queueItems.sort(compareQueueItems);
   const index = queueItems.findIndex((item) => item.id === runId);
   // Return -1 if not found (run may have been claimed already)
   return index === -1 ? -1 : index + 1;

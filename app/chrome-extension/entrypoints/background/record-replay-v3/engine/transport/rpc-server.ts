@@ -15,9 +15,13 @@ import type { StoragePort } from '../storage/storage-port';
 import type { EventsBus } from './events-bus';
 import type { DebugController, RunnerRegistry } from '../kernel/debug-controller';
 import type { RunScheduler } from '../queue/scheduler';
-import type { QueueItemStatus } from '../queue/queue';
-import { enqueueRun } from '../queue/enqueue-run';
 import type { TriggerManager } from '../triggers/trigger-manager';
+import {
+  handleEnqueueRun as handleEnqueueRunImpl,
+  handleListQueue as handleListQueueImpl,
+  handleCancelQueueItem as handleCancelQueueItemImpl,
+  type QueueHandlerDeps,
+} from './handlers/queue-handlers';
 import {
   RR_V3_PORT_NAME,
   isRpcRequest,
@@ -60,6 +64,7 @@ export class RpcServer {
   private readonly now: () => number;
   private readonly connections = new Map<string, PortConnection>();
   private eventUnsubscribe: (() => void) | null = null;
+  private readonly queueDeps: QueueHandlerDeps;
 
   constructor(config: RpcServerConfig) {
     this.storage = config.storage;
@@ -70,6 +75,13 @@ export class RpcServer {
     this.triggerManager = config.triggerManager;
     this.generateRunId = config.generateRunId ?? defaultGenerateRunId;
     this.now = config.now ?? Date.now;
+    this.queueDeps = {
+      storage: this.storage,
+      events: this.events,
+      scheduler: this.scheduler,
+      generateRunId: this.generateRunId,
+      now: this.now,
+    };
   }
 
   start(): void {
@@ -147,92 +159,16 @@ export class RpcServer {
     }
   }
 
-  // ===== Queue Management Handlers =====
-
-  private async handleEnqueueRun(params: JsonObject | undefined): Promise<JsonValue> {
-    const result = await enqueueRun(
-      {
-        storage: this.storage,
-        events: this.events,
-        scheduler: this.scheduler,
-        generateRunId: this.generateRunId,
-        now: this.now,
-      },
-      {
-        flowId: params?.flowId as FlowId,
-        startNodeId: params?.startNodeId as NodeId | undefined,
-        priority: params?.priority as number | undefined,
-        maxAttempts: params?.maxAttempts as number | undefined,
-        args: params?.args as JsonObject | undefined,
-        debug: params?.debug as { breakpoints?: string[]; pauseOnStart?: boolean } | undefined,
-      },
-    );
-
-    return result as unknown as JsonValue;
+  private handleEnqueueRun(params: JsonObject | undefined): Promise<JsonValue> {
+    return handleEnqueueRunImpl(this.queueDeps, params);
   }
 
-  /** Lists queue items ordered by priority DESC then createdAt ASC. */
-  private async handleListQueue(params: JsonObject | undefined): Promise<JsonValue> {
-    const rawStatus = params?.status;
-
-    let status: QueueItemStatus | undefined;
-    if (rawStatus !== undefined) {
-      if (rawStatus !== 'queued' && rawStatus !== 'running' && rawStatus !== 'paused') {
-        throw new Error('status must be one of: queued, running, paused');
-      }
-      status = rawStatus;
-    }
-
-    const items = await this.storage.queue.list(status);
-
-    items.sort((a, b) => {
-      if (a.priority !== b.priority) {
-        return b.priority - a.priority; // DESC
-      }
-      return a.createdAt - b.createdAt; // ASC (FIFO)
-    });
-
-    return items as unknown as JsonValue;
+  private handleListQueue(params: JsonObject | undefined): Promise<JsonValue> {
+    return handleListQueueImpl(this.queueDeps, params);
   }
 
-  /**
-   * Cancel a queue item. Only `status=queued` may be cancelled here;
-   * running/paused runs must use rr_v3.cancelRun.
-   */
-  private async handleCancelQueueItem(params: JsonObject | undefined): Promise<JsonValue> {
-    const runId = params?.runId as RunId | undefined;
-    if (!runId) throw new Error('runId is required');
-
-    const reason = params?.reason as string | undefined;
-    const now = this.now();
-
-    const queueItem = await this.storage.queue.get(runId);
-    if (!queueItem) {
-      throw new Error(`Queue item "${runId}" not found`);
-    }
-
-    if (queueItem.status !== 'queued') {
-      throw new Error(
-        `Cannot cancel queue item "${runId}" with status "${queueItem.status}"; use rr_v3.cancelRun for running/paused runs`,
-      );
-    }
-
-    await this.storage.queue.cancel(runId, now, reason);
-
-    await this.storage.runs.patch(runId, {
-      status: 'canceled',
-      updatedAt: now,
-      finishedAt: now,
-    });
-
-    // Emit through EventsBus so the cancellation is broadcast to subscribers.
-    await this.events.append({
-      runId,
-      type: 'run.canceled',
-      reason,
-    });
-
-    return { ok: true, runId };
+  private handleCancelQueueItem(params: JsonObject | undefined): Promise<JsonValue> {
+    return handleCancelQueueItemImpl(this.queueDeps, params);
   }
 
   private async handleRequest(request: RpcRequest, conn: PortConnection): Promise<JsonValue> {
