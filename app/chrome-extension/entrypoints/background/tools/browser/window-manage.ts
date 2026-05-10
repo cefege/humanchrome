@@ -1,4 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -165,10 +166,6 @@ class WindowManageTool extends BaseBrowserToolExecutor {
     await chrome.windows.remove(args.windowId);
     return jsonOk({ ok: true, action: 'close', windowId: args.windowId });
   }
-}
-
-function jsonOk(body: Record<string, unknown>): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
 }
 
 export const windowManageTool = new WindowManageTool();

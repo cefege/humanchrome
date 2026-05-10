@@ -1,4 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -230,10 +231,6 @@ class DownloadCancelTool extends BaseBrowserToolExecutor {
 
 function basename(path: string | undefined): string {
   return (path ?? '').split(/[/\\]/).pop() ?? '';
-}
-
-function jsonOk(body: Record<string, unknown>): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
 }
 
 export const downloadListTool = new DownloadListTool();

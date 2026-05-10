@@ -1,4 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -52,10 +53,6 @@ class KeepAwakeTool extends BaseBrowserToolExecutor {
       });
     }
   }
-}
-
-function jsonOk(body: Record<string, unknown>): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
 }
 
 export const keepAwakeTool = new KeepAwakeTool();
