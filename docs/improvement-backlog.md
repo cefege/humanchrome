@@ -108,13 +108,13 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-05
-- **Status**: in-progress
-- **Why**: ClaudeEngine at 1601 LoC has a single public method `initializeAndRun` that spans roughly lines 62-1292 (~1230 lines). It interleaves SDK loading, env construction, tool-input streaming accumulation, stderr buffering, and HumanChrome bridge setup. Any change to stream parsing risks breaking error classification and vice versa. Splitting into private sub-methods (buildQuery, accumulateToolInput, processAssistantEvent, finalizeRun) would make each concern independently testable and cut the cognitive surface of the hot loop to <150 lines.
+- **Status**: in-progress (slices 1 + 2 landed)
+- **Why**: ClaudeEngine at 1601 LoC has a single public method `initializeAndRun` that spans roughly lines 62-1292 (~1230 lines). It interleaves SDK loading, env construction, tool-input streaming accumulation, stderr buffering, and HumanChrome bridge setup. Any change to stream parsing risks breaking error classification and vice versa. Splitting into private sub-methods makes each concern independently testable and cuts the cognitive surface of the hot loop to <150 lines.
 - **Cost**: M
 - **Value**: M
-- **Files**: `app/native-server/src/agent/engines/claude.ts` (1601 LoC)
-- **Sketch**: Extract at minimum: `private async loadSdk()` (slice 1 landed), `private buildRunOptions(...)`, `private async processEventStream(stream, ctx, runLog)` (owns the big for-await loop), `private emitToolCall(...)`. `initializeAndRun` becomes an orchestrator of ~80 lines.
-- **Risk**: Medium — the event loop is stateful (pendingToolInputs map, assistantBuffer); extraction must preserve the shared-state references. No behavior change.
+- **Files**: `app/native-server/src/agent/engines/claude.ts`
+- **Sketch**: Slice 1 (done): `private async loadSdk()` extracted. Slice 2 (done): `private async buildRunOptions(input)` lifted from `initializeAndRun` lines 445-761 (~315 LoC of permission-mode resolution, settingSources, systemPromptConfig, AbortController plumbing, queryOptions assembly, optionsConfig overrides, HumanChrome MCP injection, and resume hookup). Returns `{queryOptions, internalAbortController}` so the caller still owns cancellation handoff. Locked by 26 unit tests at `src/agent/engines/claude.build-run-options.test.ts`. Remaining slices: `processEventStream(response, ctx, runLog, ...)` (owns the big for-await loop, lines 769-1215, ~447 LoC) — blocked on first promoting the in-loop state cluster (`assistantBuffer`, `assistantMessageId`, `assistantCreatedAt`, `lastAssistantEmitted`, `streamedToolHashes`, `pendingToolInputs`, `currentContentBlockIndex`) plus closure helpers (`emitAssistant`, `dispatchToolMessage`, `buildToolMetadata`, `inferActionFromToolName`) into either a `RunState` object or methods, otherwise `processEventStream`'s signature would need ~12 callbacks. Optional later slice: `emitToolCall` (small payoff).
+- **Risk**: Medium — the event loop is stateful; extraction must preserve the shared-state references. Slice 2 extraction had zero streaming-state coupling and was a clean win.
 
 ### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
 

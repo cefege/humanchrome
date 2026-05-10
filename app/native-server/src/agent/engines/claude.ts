@@ -6,8 +6,33 @@ import { detectCcr, validateCcrConfig } from '../ccr-detector';
 import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
 import { withContext } from '../../util/logger';
+import { type Logger } from 'pino';
 
 const log = withContext({ component: 'claude-engine' });
+
+/**
+ * Input bag for {@link ClaudeEngine.buildRunOptions}.
+ *
+ * Field semantics mirror {@link EngineInitOptions} except for the four
+ * runtime-derived members (`claudeEnv`, `runLog`, `stderrBuffer`, plus
+ * the resolved `repoPath`/`resolvedModel`) which the caller computes
+ * before the builder runs. `stderrBuffer` is mutated by the SDK stderr
+ * callback the builder installs.
+ */
+interface ClaudeRunOptionsInput {
+  repoPath: string;
+  resolvedModel: string;
+  permissionMode?: string;
+  allowDangerouslySkipPermissions?: boolean;
+  optionsConfig?: unknown;
+  systemPromptConfig?: unknown;
+  signal?: AbortSignal;
+  projectId?: string;
+  resumeClaudeSessionId?: string;
+  claudeEnv: NodeJS.ProcessEnv;
+  runLog: Logger;
+  stderrBuffer: string[];
+}
 
 // Images are provided to Claude Code via local file paths referenced in the prompt text.
 // Claude Code CLI reads images from local paths, so we write base64 images to temp files and reference them.
@@ -442,323 +467,20 @@ export class ClaudeEngine implements AgentEngine {
         await this.validateAndWarnCcrConfig(sessionId, requestId, ctx);
       }
 
-      // Resolve permission mode from session config or use default
-      // SDK default is 'default', but AgentChat defaults to 'bypassPermissions' for headless operation
-      const allowedPermissionModes = new Set([
-        'default',
-        'acceptEdits',
-        'bypassPermissions',
-        'plan',
-        'dontAsk',
-      ]);
-      const normalizedPermissionMode =
-        typeof permissionMode === 'string' ? permissionMode.trim() : '';
-
-      let resolvedPermissionMode: string;
-      if (normalizedPermissionMode === '') {
-        // No permission mode specified - use AgentChat default for headless operation
-        resolvedPermissionMode = 'bypassPermissions';
-      } else if (allowedPermissionModes.has(normalizedPermissionMode)) {
-        // Valid permission mode - use as specified
-        resolvedPermissionMode = normalizedPermissionMode;
-      } else {
-        // Invalid permission mode - fall back to SDK default and warn
-        runLog.warn(
-          { provided: normalizedPermissionMode },
-          'invalid permissionMode — falling back to SDK default "default"',
-        );
-        resolvedPermissionMode = 'default';
-      }
-
-      // allowDangerouslySkipPermissions must be true when using bypassPermissions mode
-      // SDK requirement: bypass mode requires explicit acknowledgment via allowDangerouslySkipPermissions=true
-      const resolvedAllowDangerouslySkipPermissions = (() => {
-        const explicitValue =
-          typeof allowDangerouslySkipPermissions === 'boolean'
-            ? allowDangerouslySkipPermissions
-            : undefined;
-
-        if (resolvedPermissionMode === 'bypassPermissions') {
-          // Force true for bypassPermissions mode - SDK requirement
-          if (explicitValue === false) {
-            runLog.warn(
-              'allowDangerouslySkipPermissions=false is incompatible with bypassPermissions mode — forcing to true',
-            );
-          }
-          return true;
-        }
-
-        // For non-bypass modes, use explicit value or default to false
-        return explicitValue ?? false;
-      })();
-
-      // Parse optionsConfig for additional SDK options
-      const optionsRecord =
-        optionsConfig && typeof optionsConfig === 'object' && !Array.isArray(optionsConfig)
-          ? (optionsConfig as Record<string, unknown>)
-          : undefined;
-
-      // Resolve project-scoped HumanChrome toggle (default: enabled)
-      const enableHumanChrome = await (async (): Promise<boolean> => {
-        if (!projectId) return true;
-        try {
-          const project = await getProject(projectId);
-          return project?.enableHumanChrome !== false;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          runLog.warn(
-            { err: message },
-            'failed to load project.enableHumanChrome — defaulting to true',
-          );
-          return true;
-        }
-      })();
-
-      // Resolve setting sources
-      // SDK isolation mode: settingSources=[] prevents loading any filesystem settings
-      // Default behavior: include 'project' to load CLAUDE.md
-      const resolvedSettingSources = (() => {
-        const allowedSettingSources = new Set(['user', 'project', 'local']);
-        const raw = optionsRecord?.settingSources;
-
-        // Check for explicit isolation mode (empty array)
-        if (Array.isArray(raw) && raw.length === 0) {
-          runLog.debug('isolation mode enabled: settingSources=[]');
-          return [];
-        }
-
-        // Parse provided sources
-        if (Array.isArray(raw)) {
-          const sources: string[] = [];
-          for (const entry of raw) {
-            if (typeof entry === 'string' && allowedSettingSources.has(entry)) {
-              sources.push(entry);
-            }
-          }
-          // If valid sources were provided, use them as-is (trust user config)
-          if (sources.length > 0) {
-            return sources;
-          }
-        }
-
-        // Default: include 'project' to load CLAUDE.md
-        return ['project'];
-      })();
-
-      // Resolve system prompt from session config
-      const resolvedSystemPrompt = (() => {
-        if (typeof systemPromptConfig === 'string') {
-          const trimmed = systemPromptConfig.trim();
-          return trimmed.length > 0 ? trimmed : undefined;
-        }
-        if (
-          !systemPromptConfig ||
-          typeof systemPromptConfig !== 'object' ||
-          Array.isArray(systemPromptConfig)
-        ) {
-          return undefined;
-        }
-        const record = systemPromptConfig as Record<string, unknown>;
-        const type = record.type;
-        if (type === 'custom' && typeof record.text === 'string') {
-          const trimmed = record.text.trim();
-          return trimmed.length > 0 ? trimmed : undefined;
-        }
-        if (type === 'preset' && record.preset === 'claude_code') {
-          // Trim append and ignore empty strings to avoid "append is empty but object is passed" edge case
-          const rawAppend = typeof record.append === 'string' ? record.append.trim() : '';
-          const append = rawAppend.length > 0 ? rawAppend : undefined;
-          return append
-            ? { type: 'preset' as const, preset: 'claude_code' as const, append }
-            : { type: 'preset' as const, preset: 'claude_code' as const };
-        }
-        return undefined;
-      })();
-
-      // Create internal AbortController that mirrors the external signal
-      // SDK expects abortController option, not raw AbortSignal
-      const internalAbortController = new AbortController();
-      if (signal) {
-        // Propagate external abort to internal controller
-        if (signal.aborted) {
-          internalAbortController.abort();
-        } else {
-          signal.addEventListener(
-            'abort',
-            () => {
-              internalAbortController.abort();
-            },
-            { once: true },
-          );
-        }
-      }
-
-      const queryOptions: Record<string, unknown> = {
-        cwd: repoPath,
-        additionalDirectories: [repoPath],
-        model: resolvedModel,
-        // Permission settings are session-configurable (defaults preserve previous behavior)
-        permissionMode: resolvedPermissionMode,
-        allowDangerouslySkipPermissions: resolvedAllowDangerouslySkipPermissions,
-        // Enable streaming: emit stream_event with content_block_delta for real-time UI updates
-        // Without this, SDK only outputs aggregated assistant/result messages
-        includePartialMessages: true,
-        // Load CLAUDE.md / .claude/settings.json from the project root
-        settingSources: resolvedSettingSources,
-        // Custom system prompt if provided
-        systemPrompt: resolvedSystemPrompt,
-        // AbortController for cancellation support - SDK uses this to terminate underlying processes
-        abortController: internalAbortController,
-        // Pass merged env to support Claude Code Router (CCR)
-        // This allows users to set ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN via:
-        // 1. eval "$(ccr activate)" before launching Chrome
-        // 2. Or setting env vars in shell profile
-        env: claudeEnv,
-        stderr: (data: string) => {
-          const line = String(data).trimEnd();
-          if (!line) return;
-          if (stderrBuffer.length > ClaudeEngine.MAX_STDERR_LINES) {
-            stderrBuffer.shift();
-          }
-          stderrBuffer.push(line);
-          runLog.debug({ line }, 'claude stderr');
-        },
-      };
-
-      // Apply additional SDK options from optionsConfig
-      if (optionsRecord) {
-        const isStringArray = (value: unknown): value is string[] =>
-          Array.isArray(value) && value.every((v) => typeof v === 'string');
-
-        if (isStringArray(optionsRecord.allowedTools)) {
-          queryOptions.allowedTools = optionsRecord.allowedTools;
-        }
-        if (isStringArray(optionsRecord.disallowedTools)) {
-          queryOptions.disallowedTools = optionsRecord.disallowedTools;
-        }
-
-        const tools = optionsRecord.tools;
-        if (isStringArray(tools)) {
-          queryOptions.tools = tools;
-        } else if (tools && typeof tools === 'object' && !Array.isArray(tools)) {
-          const toolsRecord = tools as Record<string, unknown>;
-          if (toolsRecord.type === 'preset' && toolsRecord.preset === 'claude_code') {
-            queryOptions.tools = { type: 'preset', preset: 'claude_code' };
-          }
-        }
-
-        if (isStringArray(optionsRecord.betas)) {
-          queryOptions.betas = optionsRecord.betas;
-        }
-
-        if (
-          typeof optionsRecord.maxThinkingTokens === 'number' &&
-          Number.isFinite(optionsRecord.maxThinkingTokens)
-        ) {
-          queryOptions.maxThinkingTokens = optionsRecord.maxThinkingTokens;
-        }
-        if (typeof optionsRecord.maxTurns === 'number' && Number.isFinite(optionsRecord.maxTurns)) {
-          queryOptions.maxTurns = optionsRecord.maxTurns;
-        }
-        if (
-          typeof optionsRecord.maxBudgetUsd === 'number' &&
-          Number.isFinite(optionsRecord.maxBudgetUsd)
-        ) {
-          queryOptions.maxBudgetUsd = optionsRecord.maxBudgetUsd;
-        }
-
-        if (
-          optionsRecord.mcpServers &&
-          typeof optionsRecord.mcpServers === 'object' &&
-          !Array.isArray(optionsRecord.mcpServers)
-        ) {
-          queryOptions.mcpServers = optionsRecord.mcpServers;
-        }
-        if (
-          optionsRecord.outputFormat &&
-          typeof optionsRecord.outputFormat === 'object' &&
-          !Array.isArray(optionsRecord.outputFormat)
-        ) {
-          queryOptions.outputFormat = optionsRecord.outputFormat;
-        }
-        if (typeof optionsRecord.enableFileCheckpointing === 'boolean') {
-          queryOptions.enableFileCheckpointing = optionsRecord.enableFileCheckpointing;
-        }
-        if (
-          optionsRecord.sandbox &&
-          typeof optionsRecord.sandbox === 'object' &&
-          !Array.isArray(optionsRecord.sandbox)
-        ) {
-          queryOptions.sandbox = optionsRecord.sandbox;
-        }
-
-        // Merge session-level env overrides with base claudeEnv
-        // Session env takes precedence over process env (useful for per-session API keys, etc.)
-        if (
-          optionsRecord.env &&
-          typeof optionsRecord.env === 'object' &&
-          !Array.isArray(optionsRecord.env)
-        ) {
-          const sessionEnv = optionsRecord.env as Record<string, unknown>;
-          const mergedEnv = { ...claudeEnv };
-          for (const [key, value] of Object.entries(sessionEnv)) {
-            if (typeof value === 'string') {
-              mergedEnv[key] = value;
-            }
-          }
-          // Ensure Node.js bin directory is still in PATH after merge
-          // Session may have overwritten PATH, which would break child processes
-          const nodeBinDir = path.dirname(process.execPath);
-          const mergedPath = mergedEnv.PATH || mergedEnv.Path || '';
-          if (!mergedPath.includes(nodeBinDir)) {
-            mergedEnv.PATH = [nodeBinDir, mergedPath].filter(Boolean).join(path.delimiter);
-          }
-          queryOptions.env = mergedEnv;
-        }
-      }
-
-      // Inject the local HumanChrome bridge based on project preference.
-      // This only controls the built-in "humanchrome" entry; user-configured MCP servers remain untouched.
-      const HUMANCHROME_SERVER_NAME = 'humanchrome';
-      if (enableHumanChrome) {
-        const existingMcpServers =
-          queryOptions.mcpServers &&
-          typeof queryOptions.mcpServers === 'object' &&
-          !Array.isArray(queryOptions.mcpServers)
-            ? (queryOptions.mcpServers as Record<string, unknown>)
-            : {};
-
-        queryOptions.mcpServers = {
-          ...existingMcpServers,
-          [HUMANCHROME_SERVER_NAME]: {
-            type: 'http',
-            url: getHumanChromeUrl(),
-          },
-        };
-        runLog.info({ url: getHumanChromeUrl() }, 'HumanChrome bridge enabled');
-      } else if (
-        queryOptions.mcpServers &&
-        typeof queryOptions.mcpServers === 'object' &&
-        !Array.isArray(queryOptions.mcpServers)
-      ) {
-        // If HumanChrome is disabled, remove it from existing mcpServers if present
-        const existing = queryOptions.mcpServers as Record<string, unknown>;
-        if (HUMANCHROME_SERVER_NAME in existing) {
-          const { [HUMANCHROME_SERVER_NAME]: _removed, ...rest } = existing;
-          if (Object.keys(rest).length > 0) {
-            queryOptions.mcpServers = rest;
-          } else {
-            delete (queryOptions as Record<string, unknown>).mcpServers;
-          }
-        }
-        runLog.info('HumanChrome bridge disabled');
-      }
-
-      // Add resume option if we have a valid Claude session ID
-      if (resumeClaudeSessionId) {
-        queryOptions.resume = resumeClaudeSessionId;
-        runLog.info({ resumeClaudeSessionId }, 'resuming claude session');
-      }
+      const { queryOptions, internalAbortController } = await this.buildRunOptions({
+        repoPath,
+        resolvedModel,
+        permissionMode,
+        allowDangerouslySkipPermissions,
+        optionsConfig,
+        systemPromptConfig,
+        signal,
+        projectId,
+        resumeClaudeSessionId,
+        claudeEnv,
+        runLog,
+        stderrBuffer,
+      });
 
       const response = query({
         prompt: promptInstruction,
@@ -1350,6 +1072,336 @@ export class ClaudeEngine implements AgentEngine {
         { cause: error },
       );
     }
+  }
+
+  /**
+   * Build the Claude Agent SDK `query()` options bag for one run, plus
+   * the AbortController the caller wires up to the external signal.
+   *
+   * Pure-ish builder: every input is read-only after construction except
+   * `stderrBuffer`, which is intentionally mutated by the SDK's `stderr`
+   * callback (passed by reference so the caller still sees the captured
+   * lines for downstream error classification). Returns the controller
+   * separately so the caller can use it for cancellation handoff without
+   * digging into the options object.
+   *
+   * The six in-method IIFEs (`resolvedAllowDangerouslySkipPermissions`,
+   * `enableHumanChrome`, `resolvedSettingSources`, `resolvedSystemPrompt`,
+   * etc.) stay inline rather than promoted to private methods because
+   * each one closes over `runLog.warn(...)` to surface invalid-input
+   * diagnostics; lifting them would force threading the run-scoped logger
+   * through every signature for no readability gain.
+   */
+  private async buildRunOptions(input: ClaudeRunOptionsInput): Promise<{
+    queryOptions: Record<string, unknown>;
+    internalAbortController: AbortController;
+  }> {
+    const {
+      repoPath,
+      resolvedModel,
+      permissionMode,
+      allowDangerouslySkipPermissions,
+      optionsConfig,
+      systemPromptConfig,
+      signal,
+      projectId,
+      resumeClaudeSessionId,
+      claudeEnv,
+      runLog,
+      stderrBuffer,
+    } = input;
+
+    // SDK default is 'default'; AgentChat overrides to 'bypassPermissions' for headless operation.
+    const allowedPermissionModes = new Set([
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'plan',
+      'dontAsk',
+    ]);
+    const normalizedPermissionMode =
+      typeof permissionMode === 'string' ? permissionMode.trim() : '';
+
+    let resolvedPermissionMode: string;
+    if (normalizedPermissionMode === '') {
+      resolvedPermissionMode = 'bypassPermissions';
+    } else if (allowedPermissionModes.has(normalizedPermissionMode)) {
+      resolvedPermissionMode = normalizedPermissionMode;
+    } else {
+      runLog.warn(
+        { provided: normalizedPermissionMode },
+        'invalid permissionMode — falling back to SDK default "default"',
+      );
+      resolvedPermissionMode = 'default';
+    }
+
+    // SDK requirement: bypassPermissions mode forces allowDangerouslySkipPermissions=true
+    const resolvedAllowDangerouslySkipPermissions = (() => {
+      const explicitValue =
+        typeof allowDangerouslySkipPermissions === 'boolean'
+          ? allowDangerouslySkipPermissions
+          : undefined;
+
+      if (resolvedPermissionMode === 'bypassPermissions') {
+        if (explicitValue === false) {
+          runLog.warn(
+            'allowDangerouslySkipPermissions=false is incompatible with bypassPermissions mode — forcing to true',
+          );
+        }
+        return true;
+      }
+
+      return explicitValue ?? false;
+    })();
+
+    const optionsRecord =
+      optionsConfig && typeof optionsConfig === 'object' && !Array.isArray(optionsConfig)
+        ? (optionsConfig as Record<string, unknown>)
+        : undefined;
+
+    // Resolve project-scoped HumanChrome toggle (default: enabled)
+    const enableHumanChrome = await (async (): Promise<boolean> => {
+      if (!projectId) return true;
+      try {
+        const project = await getProject(projectId);
+        return project?.enableHumanChrome !== false;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        runLog.warn(
+          { err: message },
+          'failed to load project.enableHumanChrome — defaulting to true',
+        );
+        return true;
+      }
+    })();
+
+    // SDK isolation mode: settingSources=[] prevents loading any filesystem settings
+    // Default: include 'project' to load CLAUDE.md
+    const resolvedSettingSources = (() => {
+      const allowedSettingSources = new Set(['user', 'project', 'local']);
+      const raw = optionsRecord?.settingSources;
+
+      if (Array.isArray(raw) && raw.length === 0) {
+        runLog.debug('isolation mode enabled: settingSources=[]');
+        return [];
+      }
+
+      if (Array.isArray(raw)) {
+        const sources: string[] = [];
+        for (const entry of raw) {
+          if (typeof entry === 'string' && allowedSettingSources.has(entry)) {
+            sources.push(entry);
+          }
+        }
+        if (sources.length > 0) {
+          return sources;
+        }
+      }
+
+      return ['project'];
+    })();
+
+    const resolvedSystemPrompt = (() => {
+      if (typeof systemPromptConfig === 'string') {
+        const trimmed = systemPromptConfig.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }
+      if (
+        !systemPromptConfig ||
+        typeof systemPromptConfig !== 'object' ||
+        Array.isArray(systemPromptConfig)
+      ) {
+        return undefined;
+      }
+      const record = systemPromptConfig as Record<string, unknown>;
+      const type = record.type;
+      if (type === 'custom' && typeof record.text === 'string') {
+        const trimmed = record.text.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+      }
+      if (type === 'preset' && record.preset === 'claude_code') {
+        // Trim append and ignore empty strings to avoid "append is empty but object is passed" edge case
+        const rawAppend = typeof record.append === 'string' ? record.append.trim() : '';
+        const append = rawAppend.length > 0 ? rawAppend : undefined;
+        return append
+          ? { type: 'preset' as const, preset: 'claude_code' as const, append }
+          : { type: 'preset' as const, preset: 'claude_code' as const };
+      }
+      return undefined;
+    })();
+
+    // SDK expects abortController option, not raw AbortSignal — mirror external signal into one we own.
+    const internalAbortController = new AbortController();
+    if (signal) {
+      if (signal.aborted) {
+        internalAbortController.abort();
+      } else {
+        signal.addEventListener(
+          'abort',
+          () => {
+            internalAbortController.abort();
+          },
+          { once: true },
+        );
+      }
+    }
+
+    const queryOptions: Record<string, unknown> = {
+      cwd: repoPath,
+      additionalDirectories: [repoPath],
+      model: resolvedModel,
+      permissionMode: resolvedPermissionMode,
+      allowDangerouslySkipPermissions: resolvedAllowDangerouslySkipPermissions,
+      // includePartialMessages: stream content_block_delta events for live UI updates
+      includePartialMessages: true,
+      settingSources: resolvedSettingSources,
+      systemPrompt: resolvedSystemPrompt,
+      abortController: internalAbortController,
+      // Merged env supports Claude Code Router (CCR) — see https://github.com/musistudio/claude-code-router/issues/855
+      env: claudeEnv,
+      stderr: (data: string) => {
+        const line = String(data).trimEnd();
+        if (!line) return;
+        if (stderrBuffer.length > ClaudeEngine.MAX_STDERR_LINES) {
+          stderrBuffer.shift();
+        }
+        stderrBuffer.push(line);
+        runLog.debug({ line }, 'claude stderr');
+      },
+    };
+
+    // Apply additional SDK options from optionsConfig
+    if (optionsRecord) {
+      const isStringArray = (value: unknown): value is string[] =>
+        Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+      if (isStringArray(optionsRecord.allowedTools)) {
+        queryOptions.allowedTools = optionsRecord.allowedTools;
+      }
+      if (isStringArray(optionsRecord.disallowedTools)) {
+        queryOptions.disallowedTools = optionsRecord.disallowedTools;
+      }
+
+      const tools = optionsRecord.tools;
+      if (isStringArray(tools)) {
+        queryOptions.tools = tools;
+      } else if (tools && typeof tools === 'object' && !Array.isArray(tools)) {
+        const toolsRecord = tools as Record<string, unknown>;
+        if (toolsRecord.type === 'preset' && toolsRecord.preset === 'claude_code') {
+          queryOptions.tools = { type: 'preset', preset: 'claude_code' };
+        }
+      }
+
+      if (isStringArray(optionsRecord.betas)) {
+        queryOptions.betas = optionsRecord.betas;
+      }
+
+      if (
+        typeof optionsRecord.maxThinkingTokens === 'number' &&
+        Number.isFinite(optionsRecord.maxThinkingTokens)
+      ) {
+        queryOptions.maxThinkingTokens = optionsRecord.maxThinkingTokens;
+      }
+      if (typeof optionsRecord.maxTurns === 'number' && Number.isFinite(optionsRecord.maxTurns)) {
+        queryOptions.maxTurns = optionsRecord.maxTurns;
+      }
+      if (
+        typeof optionsRecord.maxBudgetUsd === 'number' &&
+        Number.isFinite(optionsRecord.maxBudgetUsd)
+      ) {
+        queryOptions.maxBudgetUsd = optionsRecord.maxBudgetUsd;
+      }
+
+      if (
+        optionsRecord.mcpServers &&
+        typeof optionsRecord.mcpServers === 'object' &&
+        !Array.isArray(optionsRecord.mcpServers)
+      ) {
+        queryOptions.mcpServers = optionsRecord.mcpServers;
+      }
+      if (
+        optionsRecord.outputFormat &&
+        typeof optionsRecord.outputFormat === 'object' &&
+        !Array.isArray(optionsRecord.outputFormat)
+      ) {
+        queryOptions.outputFormat = optionsRecord.outputFormat;
+      }
+      if (typeof optionsRecord.enableFileCheckpointing === 'boolean') {
+        queryOptions.enableFileCheckpointing = optionsRecord.enableFileCheckpointing;
+      }
+      if (
+        optionsRecord.sandbox &&
+        typeof optionsRecord.sandbox === 'object' &&
+        !Array.isArray(optionsRecord.sandbox)
+      ) {
+        queryOptions.sandbox = optionsRecord.sandbox;
+      }
+
+      // Session env takes precedence over process env (per-session API keys, etc.)
+      if (
+        optionsRecord.env &&
+        typeof optionsRecord.env === 'object' &&
+        !Array.isArray(optionsRecord.env)
+      ) {
+        const sessionEnv = optionsRecord.env as Record<string, unknown>;
+        const mergedEnv = { ...claudeEnv };
+        for (const [key, value] of Object.entries(sessionEnv)) {
+          if (typeof value === 'string') {
+            mergedEnv[key] = value;
+          }
+        }
+        // Re-prepend Node bin to PATH — session may have overwritten PATH and broken child processes
+        const nodeBinDir = path.dirname(process.execPath);
+        const mergedPath = mergedEnv.PATH || mergedEnv.Path || '';
+        if (!mergedPath.includes(nodeBinDir)) {
+          mergedEnv.PATH = [nodeBinDir, mergedPath].filter(Boolean).join(path.delimiter);
+        }
+        queryOptions.env = mergedEnv;
+      }
+    }
+
+    // Inject the local HumanChrome bridge based on project preference.
+    // Only controls the built-in "humanchrome" entry; user-configured MCP servers stay untouched.
+    const HUMANCHROME_SERVER_NAME = 'humanchrome';
+    if (enableHumanChrome) {
+      const existingMcpServers =
+        queryOptions.mcpServers &&
+        typeof queryOptions.mcpServers === 'object' &&
+        !Array.isArray(queryOptions.mcpServers)
+          ? (queryOptions.mcpServers as Record<string, unknown>)
+          : {};
+
+      queryOptions.mcpServers = {
+        ...existingMcpServers,
+        [HUMANCHROME_SERVER_NAME]: {
+          type: 'http',
+          url: getHumanChromeUrl(),
+        },
+      };
+      runLog.info({ url: getHumanChromeUrl() }, 'HumanChrome bridge enabled');
+    } else if (
+      queryOptions.mcpServers &&
+      typeof queryOptions.mcpServers === 'object' &&
+      !Array.isArray(queryOptions.mcpServers)
+    ) {
+      const existing = queryOptions.mcpServers as Record<string, unknown>;
+      if (HUMANCHROME_SERVER_NAME in existing) {
+        const { [HUMANCHROME_SERVER_NAME]: _removed, ...rest } = existing;
+        if (Object.keys(rest).length > 0) {
+          queryOptions.mcpServers = rest;
+        } else {
+          delete (queryOptions as Record<string, unknown>).mcpServers;
+        }
+      }
+      runLog.info('HumanChrome bridge disabled');
+    }
+
+    if (resumeClaudeSessionId) {
+      queryOptions.resume = resumeClaudeSessionId;
+      runLog.info({ resumeClaudeSessionId }, 'resuming claude session');
+    }
+
+    return { queryOptions, internalAbortController };
   }
 
   /**
