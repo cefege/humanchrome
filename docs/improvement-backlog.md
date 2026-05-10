@@ -119,7 +119,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0019 · Split semantic-similarity-engine.ts into model-registry, memory-pool, proxy, and engine modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: in-progress (slices 1 + 2 landed: model-registry + memory-pool extracted under `utils/semantic-similarity/`)
+- **Status**: done (3 of 4 sub-modules extracted under `utils/semantic-similarity/`: model-registry, memory-pool, proxy. The 4th — the SemanticSimilarityEngine class — remains in semantic-similarity-engine.ts; splitting it would be a pure file rename since the rest of the file is engine-internal types + the engine class. Concerns are separated; orchestrator now scopes to engine + cache helpers.)
 - **Why**: At 2363 LoC the file bundles four unrelated concerns: model-registry (253 lines of PREDEFINED_MODELS + recommenders), EmbeddingMemoryPool (54 lines), SemanticSimilarityEngineProxy (312 lines, offscreen IPC only), and SemanticSimilarityEngine itself (1570 lines of ONNX + SIMD + tokenization). The offscreen entrypoint only imports SemanticSimilarityEngine, so Proxy is dead weight in that bundle. Splitting lets the proxy be tree-shaken where unused and makes the ONNX inference loop independently navigable.
 - **Cost**: M
 - **Value**: M
