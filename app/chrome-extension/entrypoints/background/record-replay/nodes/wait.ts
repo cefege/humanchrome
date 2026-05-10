@@ -1,21 +1,20 @@
-import type { StepWait } from '../types';
-import { waitForNetworkIdle, waitForNavigation } from '../rr-utils';
-import { expandTemplatesDeep } from '../rr-utils';
+import type { StepWait } from '../legacy-types';
+import { waitForNetworkIdle, waitForNavigation, expandTemplatesDeep } from '../rr-utils';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
+interface WaitHelperResponse {
+  success?: boolean;
+  [k: string]: unknown;
+}
+
 export const waitNode: NodeRuntime<StepWait> = {
-  validate: (step) => {
-    const ok = !!(step as any).condition;
+  validate: (step: StepWait) => {
+    const ok = !!step.condition;
     return ok ? { ok } : { ok, errors: ['Missing wait condition'] };
   },
   run: async (ctx: ExecCtx, step: StepWait) => {
-    const s = expandTemplatesDeep(step as StepWait, ctx.vars);
-    const cond = (s as StepWait).condition as
-      | { selector: string; visible?: boolean }
-      | { text: string; appear?: boolean }
-      | { navigation: true }
-      | { networkIdle: true }
-      | { sleep: number };
+    const s = expandTemplatesDeep<StepWait>(step, ctx.vars);
+    const cond = s.condition;
     if ('text' in cond) {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tabId = tabs?.[0]?.id;
@@ -25,24 +24,24 @@ export const waitNode: NodeRuntime<StepWait> = {
         target: { tabId, frameIds },
         files: ['inject-scripts/wait-helper.js'],
         world: 'ISOLATED',
-      } as any);
-      const resp: any = (await chrome.tabs.sendMessage(
+      });
+      const resp = (await chrome.tabs.sendMessage(
         tabId,
         {
           action: 'waitForText',
           text: cond.text,
-          appear: (cond as any).appear !== false,
-          timeout: Math.max(0, Math.min((s as any).timeoutMs || 10000, 120000)),
-        } as any,
-        { frameId: ctx.frameId } as any,
-      )) as any;
+          appear: cond.appear !== false,
+          timeout: Math.max(0, Math.min(s.timeoutMs || 10000, 120000)),
+        },
+        { frameId: ctx.frameId },
+      )) as WaitHelperResponse;
       if (!resp || resp.success !== true) throw new Error('wait text failed');
     } else if ('networkIdle' in cond) {
-      const total = Math.min(Math.max(1000, (s as any).timeoutMs || 5000), 120000);
+      const total = Math.min(Math.max(1000, s.timeoutMs || 5000), 120000);
       const idle = Math.min(1500, Math.max(500, Math.floor(total / 3)));
       await waitForNetworkIdle(total, idle);
     } else if ('navigation' in cond) {
-      await waitForNavigation((s as any).timeoutMs);
+      await waitForNavigation(s.timeoutMs);
     } else if ('sleep' in cond) {
       const ms = Math.max(0, Number(cond.sleep ?? 0));
       await new Promise((r) => setTimeout(r, ms));
@@ -55,17 +54,17 @@ export const waitNode: NodeRuntime<StepWait> = {
         target: { tabId, frameIds },
         files: ['inject-scripts/wait-helper.js'],
         world: 'ISOLATED',
-      } as any);
-      const resp: any = (await chrome.tabs.sendMessage(
+      });
+      const resp = (await chrome.tabs.sendMessage(
         tabId,
         {
           action: 'waitForSelector',
-          selector: (cond as any).selector,
-          visible: (cond as any).visible !== false,
-          timeout: Math.max(0, Math.min((s as any).timeoutMs || 10000, 120000)),
-        } as any,
-        { frameId: ctx.frameId } as any,
-      )) as any;
+          selector: cond.selector,
+          visible: cond.visible !== false,
+          timeout: Math.max(0, Math.min(s.timeoutMs || 10000, 120000)),
+        },
+        { frameId: ctx.frameId },
+      )) as WaitHelperResponse;
       if (!resp || resp.success !== true) throw new Error('wait selector failed');
     }
     return {} as ExecResult;
