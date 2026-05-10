@@ -46,6 +46,7 @@ import {
   handleLeftClickDrag,
   type ClickActionDeps,
 } from './computer/actions/click-actions';
+import { handleScroll, handleScrollTo, handleZoom } from './computer/actions/scroll-zoom-actions';
 
 export type MouseButton = 'left' | 'right' | 'middle';
 
@@ -454,94 +455,8 @@ class ComputerTool extends BaseBrowserToolExecutor {
         return handleMultiClick(params, this.buildClickDeps(tab));
       case 'left_click_drag':
         return handleLeftClickDrag(params, this.buildClickDeps(tab));
-      case 'scroll': {
-        let coord: Coordinates | undefined = params.coordinates
-          ? project(params.coordinates)
-          : undefined;
-        if (params.ref) {
-          try {
-            await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-            const resolved = await this.sendMessageToTab(tab.id, {
-              action: TOOL_MESSAGE_TYPES.RESOLVE_REF,
-              ref: params.ref,
-            });
-            if (resolved && resolved.success)
-              coord = project({ x: resolved.center.x, y: resolved.center.y })!;
-          } catch {
-            // ignore
-          }
-        }
-        // No ref/coordinates: scroll the page itself by dispatching the wheel
-        // at the viewport center. CDP's mouseWheel routes the event to
-        // whatever element is at that point; on a typical page that scrolls
-        // the document the same way a user spinning the wheel would.
-        if (!coord) {
-          try {
-            await CDPHelper.attach(tab.id);
-            const metrics: any = await CDPHelper.send(tab.id, 'Page.getLayoutMetrics', {});
-            const viewport = metrics?.layoutViewport ||
-              metrics?.visualViewport || { clientWidth: 800, clientHeight: 600 };
-            const vw = Math.round(Number(viewport.clientWidth || 800));
-            const vh = Math.round(Number(viewport.clientHeight || 600));
-            coord = { x: Math.floor(vw / 2), y: Math.floor(vh / 2) };
-          } catch {
-            // CDP may already be attached or the metrics call may fail on
-            // restricted pages — fall back to a safe default that almost any
-            // viewport contains.
-            coord = { x: 400, y: 400 };
-          }
-        }
-        if (!coord) return createErrorResponse('Failed to resolve scroll coordinates');
-        if (params.coordinates) {
-          const stale = checkDomainShift(
-            screenshotContextManager.getContext(tab.id!),
-            tab.url,
-            'scroll',
-          );
-          if (stale) return stale;
-        }
-        const direction = params.scrollDirection || 'down';
-        const amount = Math.max(1, Math.min(params.scrollAmount || 3, 10));
-        // Convert to deltas (~100px per tick)
-        const unit = 100;
-        let deltaX = 0,
-          deltaY = 0;
-        if (direction === 'up') deltaY = -amount * unit;
-        if (direction === 'down') deltaY = amount * unit;
-        if (direction === 'left') deltaX = -amount * unit;
-        if (direction === 'right') deltaX = amount * unit;
-        try {
-          await CDPHelper.attach(tab.id);
-          await CDPHelper.dispatchMouseEvent(tab.id, {
-            type: 'mouseWheel',
-            x: coord.x,
-            y: coord.y,
-            deltaX,
-            deltaY,
-          });
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: 'scroll',
-                  coordinates: coord,
-                  deltaX,
-                  deltaY,
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          return createErrorResponse(
-            `Scroll failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
+      case 'scroll':
+        return handleScroll(params, this.buildClickDeps(tab));
       case 'type': {
         if (!params.text) return createErrorResponse('Text parameter is required for type action');
         try {
@@ -757,137 +672,10 @@ class ComputerTool extends BaseBrowserToolExecutor {
           };
         }
       }
-      case 'scroll_to': {
-        if (!params.ref) {
-          return createErrorResponse('ref is required for scroll_to action');
-        }
-        try {
-          await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-          const resp = await this.sendMessageToTab(tab.id, {
-            action: 'focusByRef',
-            ref: params.ref,
-          });
-          if (!resp || resp.success !== true) {
-            return createErrorResponse(resp?.error || 'scroll_to failed: element not found');
-          }
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: 'scroll_to',
-                  ref: params.ref,
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          return createErrorResponse(
-            `scroll_to failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
-      case 'zoom': {
-        const region = params.region;
-        if (!region) {
-          return createErrorResponse('region is required for zoom action');
-        }
-        const x0 = Number(region.x0);
-        const y0 = Number(region.y0);
-        const x1 = Number(region.x1);
-        const y1 = Number(region.y1);
-        if (![x0, y0, x1, y1].every(Number.isFinite)) {
-          return createErrorResponse('region must contain finite numbers (x0, y0, x1, y1)');
-        }
-        if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0) {
-          return createErrorResponse('Invalid region: require x0>=0, y0>=0 and x1>x0, y1>y0');
-        }
-
-        // Project coordinates from screenshot space to viewport space
-        const p0 = project({ x: x0, y: y0 })!;
-        const p1 = project({ x: x1, y: y1 })!;
-        const rx0 = Math.min(p0.x, p1.x);
-        const ry0 = Math.min(p0.y, p1.y);
-        const rx1 = Math.max(p0.x, p1.x);
-        const ry1 = Math.max(p0.y, p1.y);
-        const w = rx1 - rx0;
-        const h = ry1 - ry0;
-        if (w <= 0 || h <= 0) {
-          return createErrorResponse('Invalid region after projection');
-        }
-
-        // Security check: verify domain hasn't changed since last screenshot
-        {
-          const stale = checkDomainShift(
-            screenshotContextManager.getContext(tab.id!),
-            tab.url,
-            'zoom',
-            'first',
-          );
-          if (stale) return stale;
-        }
-
-        try {
-          await CDPHelper.attach(tab.id);
-          const metrics: any = await CDPHelper.send(tab.id, 'Page.getLayoutMetrics', {});
-          const viewport = metrics?.layoutViewport ||
-            metrics?.visualViewport || {
-              clientWidth: 800,
-              clientHeight: 600,
-              pageX: 0,
-              pageY: 0,
-            };
-          const vw = Math.round(Number(viewport.clientWidth || 800));
-          const vh = Math.round(Number(viewport.clientHeight || 600));
-          if (rx1 > vw || ry1 > vh) {
-            await CDPHelper.detach(tab.id);
-            return createErrorResponse(
-              `Region exceeds viewport boundaries (${vw}x${vh}). Choose a region within the visible viewport.`,
-            );
-          }
-          const pageX = Number(viewport.pageX || 0);
-          const pageY = Number(viewport.pageY || 0);
-
-          const shot: any = await CDPHelper.send(tab.id, 'Page.captureScreenshot', {
-            format: 'png',
-            captureBeyondViewport: false,
-            fromSurface: true,
-            clip: {
-              x: pageX + rx0,
-              y: pageY + ry0,
-              width: w,
-              height: h,
-              scale: 1,
-            },
-          });
-          await CDPHelper.detach(tab.id);
-
-          const base64Data = String(shot?.data || '');
-          if (!base64Data) {
-            return createErrorResponse('Failed to capture zoom screenshot via CDP');
-          }
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: 'zoom',
-                  mimeType: 'image/png',
-                  base64Data,
-                  region: { x0: rx0, y0: ry0, x1: rx1, y1: ry1 },
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          return createErrorResponse(`zoom failed: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
+      case 'scroll_to':
+        return handleScrollTo(params, this.buildClickDeps(tab));
+      case 'zoom':
+        return handleZoom(params, this.buildClickDeps(tab));
       case 'screenshot': {
         // Reuse existing screenshot tool; it already supports base64 save option
         const result = await screenshotTool.execute({
