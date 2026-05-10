@@ -1,4 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -206,10 +207,6 @@ class ContextMenuTool extends BaseBrowserToolExecutor {
     knownIds.clear();
     return jsonOk({ ok: true, action: 'remove_all', removed: count });
   }
-}
-
-function jsonOk(body: Record<string, unknown>): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
 }
 
 export const contextMenuTool = new ContextMenuTool();

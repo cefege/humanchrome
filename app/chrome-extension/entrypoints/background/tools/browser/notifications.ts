@@ -1,4 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -156,10 +157,6 @@ class NotificationsTool extends BaseBrowserToolExecutor {
       count: Object.keys(ids).length,
     });
   }
-}
-
-function jsonOk(body: Record<string, unknown>): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false };
 }
 
 export const notificationsTool = new NotificationsTool();
