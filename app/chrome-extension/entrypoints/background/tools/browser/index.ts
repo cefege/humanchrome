@@ -50,6 +50,7 @@ export {
   injectScriptTool,
   listInjectedScriptsTool,
   sendCommandToInjectScriptTool,
+  removeInjectedScriptTool,
 } from './inject-script';
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';

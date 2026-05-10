@@ -516,6 +516,14 @@ Examples:
 | `timeoutMs` | number |  | Execution timeout in milliseconds (default: 15000). |
 | `maxOutputBytes` | number |  | Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit is truncated and `truncated:true` is set in the response — pass a larger value to opt into a fuller read. |
 
+### `chrome_remove_injected_script`
+
+Explicitly tear down a user script previously installed via `chrome_inject_script` on a tab. Sends the existing `humanchrome:cleanup` teardown signal and drops the tab from the internal `injectedTabs` registry. Useful for monitoring bridges (mutation observers, WebSocket proxies) that an agent wants to remove before handing the tab back to the user — without this, the only way to unload was to navigate the tab away. Returns `{removed, tabId}`. Idempotent: `removed:false` when the tab had no injection (callers that don't track state can call freely without checking first).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab. Falls back to the active tab in the focused window when omitted. |
+
 ## Network
 
 ### `chrome_network_request`

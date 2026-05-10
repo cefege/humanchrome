@@ -82,6 +82,7 @@ import {
   injectScriptTool,
   listInjectedScriptsTool,
   sendCommandToInjectScriptTool,
+  removeInjectedScriptTool,
 } from './browser/inject-script';
 import { consoleTool } from './browser/console';
 import { consoleClearTool } from './browser/console-clear';
@@ -158,6 +159,7 @@ const eagerTools: ToolInstance[] = [
   injectScriptTool,
   listInjectedScriptsTool,
   sendCommandToInjectScriptTool,
+  removeInjectedScriptTool,
   consoleTool,
   consoleClearTool,
   fileUploadTool,

@@ -255,14 +255,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Value**: S
   Param: id (required, the flow UUID from list_published). Implementation wraps whatever the extension uses to remove a flow from IndexedDB / chrome.storage — inspect record-replay/nodes/ for the storage layer. Returns { deleted: boolean, id }. Touch: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE, TOOL_SCHEMAS entry, dispatch.ts FLOW_PREFIX path or a dedicated handler, and the bridge must un-register the dynamic flow.<slug> tool if it was auto-exposed.
 
-### IMP-0029 · Add chrome_remove_injected_script tool to explicitly unload a persistent injection (feat) · score: 2
-
-- **Proposed by**: feature-scout · 2026-05-07
-- **Status**: proposed
-- **Why**: chrome_inject_script + chrome_send_command_to_inject_script cover inject and message, but agents cannot cleanly tear down a running injection without navigating the tab away. The injectedTabs map in inject-script.ts already has internal cleanup on tab removal, but there is no MCP surface to call it deliberately. Agents that inject monitoring bridges (e.g. a mutation observer or a WebSocket proxy) and need to remove them before handing the tab back to the user have no choice but to reload the page, losing form state.
-- **Cost**: S
-- **Value**: S
-  New tool chrome_remove_injected_script. Params: tabId? (falls back to preferred tab). Calls the existing internal cleanup path that calls injectedTabs.delete(tabId) and sends a teardown event to the injected script via the existing message channel. Returns { removed: boolean, tabId }. Touch: inject-script.ts (expose existing teardown logic), TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT, TOOL_SCHEMAS entry, TOOL_CATEGORIES map (same category as INJECT_SCRIPT).
 
 ### IMP-0053 · Add status action to chrome_network_capture for non-destructive buffer inspection (feat) · score: 2
 
@@ -280,6 +272,12 @@ IMP entry. Move to next iteration on the next tick.
 - **Status**: done
 - **Completed**: 2026-05-09
 - **Summary**: Two new MCP tools wrapping `chrome.downloads.search` and `chrome.downloads.cancel`, completing the download lifecycle alongside `chrome_handle_download`. `chrome_download_list` params: `{state?: 'in_progress'|'complete'|'interrupted'|'all', filenameContains?: string, limit?: number}`. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. `state='all'` skips the state filter; `filenameContains` is case-insensitive substring match on the basename (full path is OS-dependent and tends to false-positive against the user's home dir). `limit` clamped to `[1, 100]`, default 25. `chrome_download_cancel` params: `{downloadId: number}` (required). Returns `{cancelled: true, downloadId, postState}` where `postState` is the post-cancel state (`'interrupted'` for active cancels, the prior terminal state for already-finished). `postState` falls back to `'unknown'` if the post-cancel search throws or returns nothing — the cancel itself is reported as success regardless. Error classification: missing `chrome.downloads` API → UNKNOWN, missing/non-numeric `downloadId` → INVALID_ARGS naming the field, search/cancel rejection → UNKNOWN with the original message. No new manifest permissions (`downloads` already declared). Wired through the eager dispatcher. New tests at `tests/tools/browser/download-list-cancel.test.ts` (15 cases). Code-simplifier pass applied before tests: dropped the local `DownloadItemSummary` shape in favor of inline mapping, exported `DownloadListParams`/`DownloadCancelParams`, hoisted basename extraction into a small helper, used `chrome.downloads.DownloadQuery['state']` for the state union. Extension typecheck clean; targeted suite + lazy-tool-registry shape guard 23/23.
+
+### IMP-0029 · Add chrome_remove_injected_script tool to explicitly unload a persistent injection (feat) · score: 2
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_remove_injected_script` MCP tool that wraps the existing internal `handleCleanup(tabId)` path so agents can deliberately tear down a previously-installed user script without navigating the tab away. Params: `{tabId?: number}` — falls back to the active tab in the focused window when omitted. Returns `{removed: boolean, tabId}`. Idempotent: `removed:false` when the tab had no injection (callers don't need to track state). Error classification: missing active tab → TAB_NOT_FOUND; "no tab with id" during cleanup is treated as `removed:true` (the map entry is still gone — the tab raced closure between has-check and cleanup). No new manifest permissions. New `_seedInjectedTabForTest` test-only export so test seeding doesn't depend on `injectScriptTool`'s arg shape (mirrors the IMP-0085 `_resetPlatformCacheForTest` lesson). Code-simplifier pass applied before tests landed: trimmed JSDocs, moved param doc up to the class, removed redundant error-message prefixes. New tests at `tests/tools/browser/remove-injected-script.test.ts` (6 cases). Targeted suite + lazy-tool-registry shape guard 14/14, typecheck clean.
 
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
