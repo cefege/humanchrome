@@ -20,13 +20,16 @@ interface StopTraceParams {
 
 interface AnalyzeInsightParams {
   insightName?: string; // placeholder for future deep insights
+  timeoutMs?: number;
 }
 
-type DebuggeeEvent = (source: chrome.debugger.Debuggee, method: string, params?: any) => void;
+type TraceEvent = { name?: string; [k: string]: unknown };
+
+type DebuggeeEvent = (source: chrome.debugger.Debuggee, method: string, params?: unknown) => void;
 
 interface TraceSessionState {
   recording: boolean;
-  events: any[];
+  events: TraceEvent[];
   startedAt: number;
   pageUrl?: string;
   listener: DebuggeeEvent;
@@ -38,7 +41,7 @@ const sessions = new Map<number, TraceSessionState>();
 const LAST_RESULTS = new Map<
   number,
   {
-    events: any[];
+    events: TraceEvent[];
     startedAt: number;
     endedAt: number;
     tabUrl: string;
@@ -179,11 +182,14 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
         pageUrl: activeTab.url || '',
         listener: (source, method, params) => {
           if (source.tabId !== tabId) return;
-          if (method === 'Tracing.dataCollected' && params?.value) {
-            try {
-              state.events.push(...(params.value as any[]));
-            } catch {
-              // ignore
+          if (method === 'Tracing.dataCollected') {
+            const value = (params as { value?: TraceEvent[] } | undefined)?.value;
+            if (value) {
+              try {
+                state.events.push(...value);
+              } catch {
+                // ignore
+              }
             }
           } else if (method === 'Tracing.tracingComplete') {
             state.recording = false;
@@ -303,7 +309,7 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
         // Persist to native temp directory so that analysis can run without Downloads permission
         const tempSaved = await saveTraceToNativeTemp(json, filenamePrefix || 'performance_trace');
         if (tempSaved) {
-          saved = { ...tempSaved } as any;
+          saved = { ...tempSaved };
         }
       }
 
@@ -352,7 +358,7 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
 class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT;
 
-  async execute(args: AnalyzeInsightParams & { timeoutMs?: number }): Promise<ToolResult> {
+  async execute(args: AnalyzeInsightParams): Promise<ToolResult> {
     const { insightName } = args || {};
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -369,17 +375,21 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
       }
 
       // Prefer native-side deep analysis when we have a saved file path
-      const fullPath = (result.saved && (result.saved as any).fullPath) || undefined;
+      const fullPath = result.saved?.fullPath;
       if (fullPath) {
         try {
           const timeoutMs = Math.max(
             10_000,
             Math.min(
-              (args as any)?.timeoutMs ?? DEFAULT_PERF_TRACE_MAX_DURATION_MS,
+              args?.timeoutMs ?? DEFAULT_PERF_TRACE_MAX_DURATION_MS,
               MAX_TOOL_TIMEOUT_MS,
             ),
           );
-          const resp = await sendNativeRequest<any>(
+          const resp = await sendNativeRequest<{
+            success?: boolean;
+            summary?: unknown;
+            insight?: unknown;
+          }>(
             'file_operation',
             { action: 'analyzeTrace', traceFilePath: fullPath, insightName },
             timeoutMs,
@@ -416,7 +426,7 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
       // Lightweight fallback (when no saved file path)
       const counts = new Map<string, number>();
       for (const ev of result.events.slice(0, 100000)) {
-        const n = typeof (ev as any)?.name === 'string' ? (ev as any).name : 'unknown';
+        const n = typeof ev?.name === 'string' ? ev.name : 'unknown';
         counts.set(n, (counts.get(n) || 0) + 1);
       }
       const top = [...counts.entries()]

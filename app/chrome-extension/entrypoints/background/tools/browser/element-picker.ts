@@ -135,7 +135,7 @@ class ElementPickerTool extends BaseBrowserToolExecutor {
       files: ['inject-scripts/element-picker.js'],
       world: 'ISOLATED',
       injectImmediately: false,
-    } as any);
+    });
   }
 
   /**
@@ -166,7 +166,7 @@ class ElementPickerTool extends BaseBrowserToolExecutor {
         }
       },
       args: [method, payload],
-    } as any);
+    });
   }
 
   async execute(args: ElementPickerToolParams): Promise<ToolResult> {
@@ -463,7 +463,7 @@ class ElementPickerTool extends BaseBrowserToolExecutor {
               target: { tabId, frameIds: [0] },
               files: [path],
               injectImmediately: true,
-            } as any);
+            });
             // Wait a bit for script to initialize
             await new Promise((r) => setTimeout(r, 150));
             // Check if injection worked

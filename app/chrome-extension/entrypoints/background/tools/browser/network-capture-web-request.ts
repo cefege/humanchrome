@@ -463,8 +463,10 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
       if (!captureInfo || !captureInfo.requests[details.requestId]) return;
 
       const requestInfo = captureInfo.requests[details.requestId];
-      if ('responseSize' in details) {
-        requestInfo.responseSize = details.fromCache ? 0 : (details as any).responseSize;
+      // responseSize is a runtime field on WebResponseCacheDetails not yet in @types/chrome.
+      const responseSize = (details as unknown as { responseSize?: number }).responseSize;
+      if (typeof responseSize === 'number') {
+        requestInfo.responseSize = details.fromCache ? 0 : responseSize;
       }
 
       this.updateLastActivityTime(details.tabId);

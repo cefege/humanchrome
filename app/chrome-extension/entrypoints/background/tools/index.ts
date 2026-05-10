@@ -367,7 +367,7 @@ export const handleCallTool = async (
         { requestId, clientId, tool: param.name, tabId },
         () => tool.execute(param.args),
       );
-      const ok = !(result && (result as any).isError === true);
+      const ok = !(result && (result as { isError?: boolean }).isError === true);
       if (ok) {
         // Tools like chrome_navigate pick a tab themselves when the caller
         // omits one — read the tab back out of the response so the client's

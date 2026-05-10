@@ -21,7 +21,7 @@ interface HandleDownloadParams {
  * Tool: wait for a download and return info
  */
 class HandleDownloadTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.HANDLE_DOWNLOAD as any;
+  name = TOOL_NAMES.BROWSER.HANDLE_DOWNLOAD;
 
   async execute(args: HandleDownloadParams): Promise<ToolResult> {
     const filenameContains = String(args?.filenameContains || '').trim();
@@ -38,10 +38,24 @@ class HandleDownloadTool extends BaseBrowserToolExecutor {
         content: [{ type: 'text', text: JSON.stringify({ success: true, download: result }) }],
         isError: false,
       };
-    } catch (e: any) {
-      return createErrorResponse(`Handle download failed: ${e?.message || String(e)}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return createErrorResponse(`Handle download failed: ${msg}`);
     }
   }
+}
+
+interface DownloadInfo {
+  id: number;
+  filename: string;
+  url: string;
+  state: chrome.downloads.DownloadItem['state'];
+  mime?: string;
+  fileSize?: number;
+  danger?: chrome.downloads.DownloadItem['danger'];
+  startTime?: string;
+  endTime?: string;
+  exists?: boolean;
 }
 
 async function waitForDownload(opts: {
@@ -51,9 +65,9 @@ async function waitForDownload(opts: {
   tabId?: number;
 }) {
   const { filenameContains, waitForComplete, timeoutMs, tabId } = opts;
-  return new Promise<any>((resolve, reject) => {
-    let timer: any = null;
-    const onError = (err: any) => {
+  return new Promise<DownloadInfo>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onError = (err: unknown) => {
       cleanup();
       reject(err instanceof Error ? err : new Error(String(err)));
     };
@@ -90,13 +104,13 @@ async function waitForDownload(opts: {
           id: out.id,
           filename: out.filename,
           url: out.url,
-          mime: (out as any).mime || undefined,
+          mime: out.mime || undefined,
           fileSize: out.fileSize ?? out.totalBytes ?? undefined,
           state: out.state,
           danger: out.danger,
           startTime: out.startTime,
-          endTime: (out as any).endTime || undefined,
-          exists: (out as any).exists,
+          endTime: out.endTime || undefined,
+          exists: out.exists,
         });
         return;
       } catch {

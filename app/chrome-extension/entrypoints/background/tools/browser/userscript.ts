@@ -111,7 +111,7 @@ async function probeUnsafeEvalInMain(tabId: number): Promise<boolean> {
         }
       },
     });
-    return Array.isArray(res) && res[0] && (res[0] as any).result === true;
+    return Array.isArray(res) && !!res[0] && res[0].result === true;
   } catch {
     return false;
   }
@@ -292,19 +292,29 @@ async function injectJsPersistent(
       func: (userCode) => {
         try {
           const handlerName = '__userscript_onCommand__';
-          (chrome.runtime.onMessage as any).addListener(
-            (req: any, _sender: any, sendResponse: any) => {
+          type CmdReq = { type?: string; action?: string; payload?: unknown; scriptId?: string };
+          chrome.runtime.onMessage.addListener(
+            (
+              req: CmdReq,
+              _sender: chrome.runtime.MessageSender,
+              sendResponse: (response?: unknown) => void,
+            ) => {
               if (!req || req.type !== 'userscript:command') return;
               const { action, payload, scriptId } = req;
               try {
-                const handler = (globalThis as any)[handlerName];
+                const handler = (globalThis as unknown as Record<string, unknown>)[handlerName];
                 let result;
                 if (typeof handler === 'function') {
-                  result = handler(action, payload, scriptId);
+                  result = (handler as (a?: string, p?: unknown, s?: string) => unknown)(
+                    action,
+                    payload,
+                    scriptId,
+                  );
                 }
                 sendResponse({ data: result });
               } catch (err) {
-                sendResponse({ error: String((err && (err as any).message) || err) });
+                const msg = err instanceof Error ? err.message : String(err);
+                sendResponse({ error: msg });
               }
               return true;
             },
@@ -480,11 +490,13 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const excludes = args.excludes || meta['exclude'] || [];
 
     const runAt: UserscriptRecord['runAt'] =
-      (args.runAt && args.runAt !== 'auto' ? args.runAt : (pick(meta['run-at']) as any)) ||
-      'document_idle';
+      (args.runAt && args.runAt !== 'auto'
+        ? args.runAt
+        : (pick(meta['run-at']) as UserscriptRecord['runAt'] | undefined)) || 'document_idle';
     const requestedWorld =
-      (args.world && args.world !== 'auto' ? args.world : (pick(meta['inject-into']) as any)) ||
-      'ISOLATED';
+      (args.world && args.world !== 'auto'
+        ? args.world
+        : (pick(meta['inject-into']) as UserscriptRecord['world'] | undefined)) || 'ISOLATED';
     const allFrames = toBoolean(args.allFrames, true);
     const persist = toBoolean(args.persist, true);
     const dnrFallback = toBoolean(args.dnrFallback, true);
@@ -678,7 +690,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     if (rest.matches) rec.matches = rest.matches;
     if (rest.excludes) rec.excludes = rest.excludes;
     if (rest.runAt && rest.runAt !== 'auto') rec.runAt = rest.runAt;
-    if (rest.world && rest.world !== 'auto') rec.world = rest.world as any;
+    if (rest.world && rest.world !== 'auto') rec.world = rest.world as UserscriptRecord['world'];
     if (typeof rest.allFrames === 'boolean') rec.allFrames = rest.allFrames;
     if (typeof rest.persist === 'boolean') rec.persist = rest.persist;
     if (typeof rest.dnrFallback === 'boolean') rec.dnrFallback = rest.dnrFallback;
