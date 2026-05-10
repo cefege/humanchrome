@@ -152,7 +152,7 @@ IMP entry. Move to next iteration on the next tick.
 ### IMP-0023 · Split agent.ts route file into project, session, message, attachment, and streaming sub-routers (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-06
-- **Status**: in-progress (projects.ts, attachments.ts, sessions.ts extracted; messages + streaming pending)
+- **Status**: in-progress (projects.ts, attachments.ts, sessions.ts, messages.ts extracted; streaming pending)
 - **Why**: agent.ts at 1264 LoC registers all agent-domain HTTP routes in a single registerAgentRoutes function (~53 Fastify route registrations). Sessions, projects, messages, attachments, and SSE streaming are independent concerns. Any change to SSE stream handling requires navigating past 600 lines of CRUD. Splitting into focused sub-routers (projects.ts, sessions.ts, messages.ts, attachments.ts, streaming.ts) caps each file at ~150-250 LoC and makes each endpoint group independently testable.
 - **Cost**: M
 - **Value**: M
