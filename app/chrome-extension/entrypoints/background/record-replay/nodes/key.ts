@@ -1,12 +1,12 @@
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { handleCallTool } from '@/entrypoints/background/tools';
-import type { StepKey } from '../types';
+import type { StepKey } from '../legacy-types';
 import { expandTemplatesDeep } from '../rr-utils';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
 export const keyNode: NodeRuntime<StepKey> = {
-  run: async (ctx, step: StepKey) => {
-    const s = expandTemplatesDeep(step as StepKey, ctx.vars) as StepKey;
+  run: async (ctx: ExecCtx, step: StepKey) => {
+    const s = expandTemplatesDeep<StepKey>(step, ctx.vars);
     const args: { keys: string; frameId?: number; selector?: string } = { keys: s.keys };
 
     // Support target selector for focusing before key input
@@ -25,7 +25,7 @@ export const keyNode: NodeRuntime<StepKey> = {
       name: TOOL_NAMES.BROWSER.KEYBOARD,
       args,
     });
-    if ((res as any).isError) throw new Error('key failed');
+    if ((res as { isError?: boolean }).isError) throw new Error('key failed');
     return {} as ExecResult;
   },
 };
