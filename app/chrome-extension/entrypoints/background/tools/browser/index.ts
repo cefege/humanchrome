@@ -22,6 +22,7 @@ export { clearBrowsingDataTool } from './clear-browsing-data';
 export { proxyTool } from './proxy';
 export { identityTool } from './identity';
 export { dragDropTool } from './drag-drop';
+export { downloadListTool, downloadCancelTool } from './download';
 export { waitForTabTool } from './wait-for-tab';
 export { windowTool } from './window';
 export { vectorSearchTabsContentTool as searchTabsContentTool } from './vector-search';

@@ -658,6 +658,24 @@ Use "stop" to end recording and save the GIF.
 | `selector` | string |  | Export action only (when download=false): CSS selector for drag&drop target element. |
 | `enhancedRendering` | object |  | Auto-capture mode only: Configure visual overlays for recorded actions (click indicators, drag paths, labels). Pass `true` to enable all defaults. |
 
+### `chrome_download_list`
+
+Enumerate downloads via `chrome.downloads.search`. Use to check whether a previous download is still running, find the id of an in-progress download for `chrome_download_cancel`, or list completed downloads with their saved paths. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. Pre-existing downloads matching the filter are returned even if they were started outside the agent session.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `state` | `in_progress` \| `complete` \| `interrupted` \| `all` |  | Filter by download state. `all` skips the state filter. Default: `all`. |
+| `filenameContains` | string |  | Case-insensitive substring filter on the saved filename (post-`/`-split basename). Empty string matches all. |
+| `limit` | number |  | Cap on returned items. Clamped to [1, 100]. Default 25. The full result set is fetched from Chrome and truncated client-side; Chrome itself returns up to ~1000 entries. |
+
+### `chrome_download_cancel`
+
+Cancel an in-progress download by id via `chrome.downloads.cancel`. Already-completed or already-cancelled downloads are a no-op (Chrome silently succeeds). Returns `{cancelled: true, downloadId, postState}` where `postState` is the download state immediately after the cancel attempt (typically `interrupted` for active cancels, the prior terminal state for already-finished ones).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `downloadId` | number | ✓ | The download id from `chrome_download_list` or `chrome.downloads.onCreated`. |
+
 ## State
 
 ### `chrome_storage`

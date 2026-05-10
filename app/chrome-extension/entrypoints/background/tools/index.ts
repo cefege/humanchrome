@@ -87,7 +87,7 @@ import { consoleTool } from './browser/console';
 import { consoleClearTool } from './browser/console-clear';
 import { fileUploadTool } from './browser/file-upload';
 import { handleDialogTool } from './browser/dialog';
-import { handleDownloadTool } from './browser/download';
+import { handleDownloadTool, downloadListTool, downloadCancelTool } from './browser/download';
 import { storageTool } from './browser/storage';
 import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
@@ -163,6 +163,8 @@ const eagerTools: ToolInstance[] = [
   fileUploadTool,
   handleDialogTool,
   handleDownloadTool,
+  downloadListTool,
+  downloadCancelTool,
   storageTool,
   debugDumpTool,
   assertTool,

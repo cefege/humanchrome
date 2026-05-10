@@ -237,15 +237,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
-### IMP-0007 · Add chrome_download_list and chrome_download_cancel tools (feat) · score: 2
-
-- **Proposed by**: feature-scout · 2026-05-05
-- **Status**: proposed
-- **Why**: chrome_handle_download waits for one download to start, but agents cannot enumerate in-progress downloads, check if a previous download is still running, or cancel a stalled one. The bookmark group (search/add/update/delete) is the precedent: full CRUD lifecycle. chrome.downloads.search + chrome.downloads.cancel are already within the downloads permission the extension declares.
-- **Cost**: S
-- **Value**: S
-  Two new tools: chrome_download_list (wraps chrome.downloads.search; params: state=in_progress|complete|interrupted|all, filenameContains?, limit?) and chrome_download_cancel (param: downloadId, required). Touch: tools/browser/download.ts (existing file already handles chrome.downloads), TOOL_NAMES, TOOL_SCHEMAS. Keep chrome_handle_download untouched.
-
 ### IMP-0015 · Add chrome_pace_get tool to read the current pacing profile (feat) · score: 2
 
 - **Proposed by**: feature-scout · 2026-05-06
@@ -283,6 +274,12 @@ IMP entry. Move to next iteration on the next tick.
   Add action enum value status to chrome_network_capture schema alongside start, stop, and the proposed flush (IMP-0028). Returns {active: boolean, sinceMs: number|null, bufferedCount: number, scope: string}. Implementation: read-only inspection of the same in-memory capture state object used by start/stop. Touch: tools/browser/network-capture.ts handler (add status branch), TOOL_SCHEMAS action enum. Zero new infrastructure.
 
 ## Done
+
+### IMP-0007 · Add chrome_download_list and chrome_download_cancel tools (feat) · score: 2
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: Two new MCP tools wrapping `chrome.downloads.search` and `chrome.downloads.cancel`, completing the download lifecycle alongside `chrome_handle_download`. `chrome_download_list` params: `{state?: 'in_progress'|'complete'|'interrupted'|'all', filenameContains?: string, limit?: number}`. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. `state='all'` skips the state filter; `filenameContains` is case-insensitive substring match on the basename (full path is OS-dependent and tends to false-positive against the user's home dir). `limit` clamped to `[1, 100]`, default 25. `chrome_download_cancel` params: `{downloadId: number}` (required). Returns `{cancelled: true, downloadId, postState}` where `postState` is the post-cancel state (`'interrupted'` for active cancels, the prior terminal state for already-finished). `postState` falls back to `'unknown'` if the post-cancel search throws or returns nothing — the cancel itself is reported as success regardless. Error classification: missing `chrome.downloads` API → UNKNOWN, missing/non-numeric `downloadId` → INVALID_ARGS naming the field, search/cancel rejection → UNKNOWN with the original message. No new manifest permissions (`downloads` already declared). Wired through the eager dispatcher. New tests at `tests/tools/browser/download-list-cancel.test.ts` (15 cases). Code-simplifier pass applied before tests: dropped the local `DownloadItemSummary` shape in favor of inline mapping, exported `DownloadListParams`/`DownloadCancelParams`, hoisted basename extraction into a small helper, used `chrome.downloads.DownloadQuery['state']` for the state union. Extension typecheck clean; targeted suite + lazy-tool-registry shape guard 23/23.
 
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 
