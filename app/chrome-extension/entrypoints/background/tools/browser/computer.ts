@@ -47,6 +47,13 @@ import {
   type ClickActionDeps,
 } from './computer/actions/click-actions';
 import { handleScroll, handleScrollTo, handleZoom } from './computer/actions/scroll-zoom-actions';
+import {
+  handleType,
+  handleFill,
+  handleFillForm,
+  handleKey,
+  handleWait,
+} from './computer/actions/input-actions';
 
 export type MouseButton = 'left' | 'right' | 'middle';
 
@@ -259,7 +266,8 @@ class ComputerTool extends BaseBrowserToolExecutor {
         const scaled = scaleCoordinates(c.x, c.y, ctx);
         return { x: scaled.x, y: scaled.y };
       },
-      injectContentScript: (tabId, files) => this.injectContentScript(tabId, files),
+      injectContentScript: (tabId, files, injectImmediately, world, allFrames) =>
+        this.injectContentScript(tabId, files, injectImmediately, world, allFrames),
       sendMessageToTab: (tabId, msg, frameId) => this.sendMessageToTab(tabId, msg, frameId),
     };
   }
@@ -457,221 +465,16 @@ class ComputerTool extends BaseBrowserToolExecutor {
         return handleLeftClickDrag(params, this.buildClickDeps(tab));
       case 'scroll':
         return handleScroll(params, this.buildClickDeps(tab));
-      case 'type': {
-        if (!params.text) return createErrorResponse('Text parameter is required for type action');
-        try {
-          // Optional focus via ref before typing
-          if (params.ref) {
-            await clickTool.execute({
-              ref: params.ref,
-              waitForNavigation: false,
-              timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
-            });
-          }
-          await CDPHelper.attach(tab.id);
-          // Use CDP insertText to avoid complex KeyboardEvent emulation for long text
-          await CDPHelper.insertText(tab.id, params.text);
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  success: true,
-                  action: 'type',
-                  length: params.text.length,
-                }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          // Fallback to DOM-based keyboard tool
-          const res = await keyboardTool.execute({
-            keys: params.text.split('').join(','),
-            delay: 0,
-            selector: undefined,
-          });
-          return res;
-        }
-      }
-      case 'fill': {
-        if (!params.ref && !params.selector) {
-          return createErrorResponse('Provide ref or selector and a value for fill');
-        }
-        if (params.value === undefined) {
-          return createErrorResponse('Provide a value for fill');
-        }
-        // Reuse existing fill tool to leverage robust DOM event behavior
-        const res = await fillTool.execute({
-          selector: params.selector,
-          selectorType: params.selectorType,
-          ref: params.ref,
-          value: params.value,
-          tabId: params.tabId,
-          windowId: params.windowId,
-          frameId: params.frameId,
-        });
-        return res;
-      }
-      case 'fill_form': {
-        const elements = params.elements;
-        if (!Array.isArray(elements) || elements.length === 0) {
-          return createErrorResponse('elements must be a non-empty array for fill_form');
-        }
-        const results: Array<{ ref: string; ok: boolean; error?: string }> = [];
-        for (const item of elements) {
-          if (!item || !item.ref) {
-            results.push({ ref: String(item?.ref || ''), ok: false, error: 'missing ref' });
-            continue;
-          }
-          try {
-            const r = await fillTool.execute({
-              ref: item.ref,
-              value: item.value,
-              tabId: params.tabId,
-              windowId: params.windowId,
-              frameId: params.frameId,
-            });
-            const ok = !r.isError;
-            results.push({ ref: item.ref, ok, error: ok ? undefined : 'failed' });
-          } catch (e) {
-            results.push({
-              ref: item.ref,
-              ok: false,
-              error: String(e instanceof Error ? e.message : e),
-            });
-          }
-        }
-        const successCount = results.filter((r) => r.ok).length;
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                success: true,
-                action: 'fill_form',
-                filled: successCount,
-                total: results.length,
-                results,
-              }),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case 'key': {
-        if (!params.text)
-          return createErrorResponse(
-            'text is required for key action (e.g., "Backspace Backspace Enter" or "cmd+a")',
-          );
-        const tokens = params.text.trim().split(/\s+/).filter(Boolean);
-        const repeat = params.repeat ?? 1;
-        if (!Number.isInteger(repeat) || repeat < 1 || repeat > 100) {
-          return createErrorResponse('repeat must be an integer between 1 and 100 for key action');
-        }
-        try {
-          // Optional focus via ref before key events
-          if (params.ref) {
-            await clickTool.execute({
-              ref: params.ref,
-              waitForNavigation: false,
-              timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
-            });
-          }
-          await CDPHelper.attach(tab.id);
-          for (let i = 0; i < repeat; i++) {
-            for (const t of tokens) {
-              if (t.includes('+')) await CDPHelper.dispatchKeyChord(tab.id, t);
-              else await CDPHelper.dispatchSimpleKey(tab.id, t);
-            }
-          }
-          await CDPHelper.detach(tab.id);
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({ success: true, action: 'key', keys: tokens, repeat }),
-              },
-            ],
-            isError: false,
-          };
-        } catch (e) {
-          await CDPHelper.detach(tab.id);
-          // Fallback to DOM keyboard simulation (comma-separated combinations)
-          const keysStr = tokens.join(',');
-          const repeatedKeys =
-            repeat === 1 ? keysStr : Array.from({ length: repeat }, () => keysStr).join(',');
-          const res = await keyboardTool.execute({ keys: repeatedKeys });
-          return res;
-        }
-      }
-      case 'wait': {
-        const waitText = typeof params.text === 'string' ? params.text : '';
-        const hasTextCondition = waitText.trim().length > 0;
-        if (hasTextCondition) {
-          try {
-            // Conditional wait for text appearance/disappearance using content script
-            await this.injectContentScript(
-              tab.id,
-              ['inject-scripts/wait-helper.js'],
-              false,
-              'ISOLATED',
-              true,
-            );
-            const appear = params.appear !== false; // default to true
-            const timeoutMs = Math.max(0, Math.min(params.timeoutMs ?? 10000, 120000));
-            const resp = await this.sendMessageToTab(tab.id, {
-              action: TOOL_MESSAGE_TYPES.WAIT_FOR_TEXT,
-              text: waitText,
-              appear,
-              timeout: timeoutMs,
-            });
-            if (!resp || resp.success !== true) {
-              return createErrorResponse(
-                resp && resp.reason === 'timeout'
-                  ? `wait_for timed out after ${timeoutMs}ms for text: ${waitText}`
-                  : `wait_for failed: ${resp && resp.error ? resp.error : 'unknown error'}`,
-              );
-            }
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    action: 'wait_for',
-                    appear,
-                    text: waitText,
-                    matched: resp.matched || null,
-                    tookMs: resp.tookMs,
-                  }),
-                },
-              ],
-              isError: false,
-            };
-          } catch (e) {
-            return createErrorResponse(
-              `wait_for failed: ${e instanceof Error ? e.message : String(e)}`,
-            );
-          }
-        } else {
-          const seconds = Math.max(0, Math.min(params.duration ?? 0, 30));
-          if (!seconds)
-            return createErrorResponse('Duration parameter is required and must be > 0');
-          await new Promise((r) => setTimeout(r, seconds * 1000));
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({ success: true, action: 'wait', duration: seconds }),
-              },
-            ],
-            isError: false,
-          };
-        }
-      }
+      case 'type':
+        return handleType(params, this.buildClickDeps(tab));
+      case 'fill':
+        return handleFill(params, this.buildClickDeps(tab));
+      case 'fill_form':
+        return handleFillForm(params, this.buildClickDeps(tab));
+      case 'key':
+        return handleKey(params, this.buildClickDeps(tab));
+      case 'wait':
+        return handleWait(params, this.buildClickDeps(tab));
       case 'scroll_to':
         return handleScrollTo(params, this.buildClickDeps(tab));
       case 'zoom':

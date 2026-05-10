@@ -23,7 +23,13 @@ import {
 export interface ClickActionDeps {
   tab: chrome.tabs.Tab;
   project: (c?: Coordinates) => Coordinates | undefined;
-  injectContentScript: (tabId: number, files: string[]) => Promise<void>;
+  injectContentScript: (
+    tabId: number,
+    files: string[],
+    injectImmediately?: boolean,
+    world?: 'MAIN' | 'ISOLATED',
+    allFrames?: boolean,
+  ) => Promise<void>;
   sendMessageToTab: (
     tabId: number,
     msg: Record<string, unknown>,
