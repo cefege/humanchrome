@@ -1,8 +1,26 @@
-// `@huggingface/transformers` is ~3 MB minified; static-importing it pulls the
-// whole library into every consumer of this module (popup, background, etc.)
-// even though runtime usage only happens inside `SemanticSimilarityEngine`,
-// which is constructed *exclusively* in the offscreen document. Use dynamic
-// `import()` so the heavy chunk loads on first engine init only.
+/**
+ * Semantic similarity stack — bundles four unrelated concerns in one file
+ * (kept together until IMP-0019 splits them):
+ *
+ *   1. Model registry — PREDEFINED_MODELS + recommenders (which preset for
+ *      which language/device); pure data, no runtime cost.
+ *   2. EmbeddingMemoryPool — fixed-size Float32Array recycler so per-token
+ *      inference doesn't churn the GC under steady load.
+ *   3. SemanticSimilarityEngineProxy — IPC shim used by background-context
+ *      callers; forwards to the offscreen document where ONNX actually runs.
+ *   4. SemanticSimilarityEngine — the heavy class: ONNX session, tokenizer,
+ *      SIMD pooling. Constructed *only* in the offscreen document.
+ *
+ * Why dynamic `import('@huggingface/transformers')`: the library is ~3 MB
+ * minified. Static import would pull it into every consumer (popup,
+ * background, sidepanel) even though runtime use is offscreen-only.
+ * Keep all transformers references behind `loadTransformers()` so the
+ * heavy chunk loads on first engine init.
+ *
+ * Background callers must use the Proxy (postMessage to offscreen) — never
+ * `new SemanticSimilarityEngine()` outside the offscreen entrypoint, or you
+ * boot ONNX in a context that has no GPU/SIMD pinning and will crash.
+ */
 import type {
   AutoTokenizer as AutoTokenizerType,
   env as TransformersEnvType,

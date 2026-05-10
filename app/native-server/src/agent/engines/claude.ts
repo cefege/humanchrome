@@ -1,3 +1,23 @@
+/**
+ * ClaudeEngine — drives an interactive Claude Code session as a humanchrome
+ * AgentEngine. Implements the AgentEngine contract so the bridge can swap
+ * between this and CodexEngine with no caller changes.
+ *
+ * Lifecycle: init() lazily loads @anthropic-ai/claude-code (slice extracted
+ * to loadSdk), then execute() opens an SDK conversation, wires the
+ * tool-message loop (slice: dispatchToolMessageRun), and streams
+ * RealtimeEvents back to the caller until the model yields a final text turn
+ * or stop() is invoked.
+ *
+ * In-flight refactor: per-run state (active SDK iterator, in-flight todos,
+ * dispatch scope, abort controller) still lives on the engine instance and
+ * is reset between calls. IMP-0049 plans to extract that cluster into a
+ * `RunContext` so multiple concurrent runs can be supported safely; until
+ * then, callers must serialize execute() per engine instance.
+ *
+ * CCR (Claude-Code-Router) detection runs once per init via ccr-detector,
+ * and gates how we shell out to the SDK — keep that path read-only.
+ */
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './types';

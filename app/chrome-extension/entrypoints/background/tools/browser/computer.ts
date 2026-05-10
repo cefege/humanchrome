@@ -1,3 +1,25 @@
+/**
+ * ComputerTool — the omnibus `chrome_computer` action dispatcher backing the
+ * Anthropic computer-use tool surface. One MCP tool routes 16+ low-level
+ * actions (left_click, scroll, key, type, screenshot, drag, ...) through a
+ * single execute() switch so the model sees one stable interface.
+ *
+ * Why one mega-tool instead of 16 small ones: the Claude computer-use
+ * contract pins this exact tool name + action enum. Splitting would force
+ * the bridge to translate names and break compatibility with existing
+ * trained behavior. Instead, each action delegates to a focused helper
+ * (clickTool, fillTool, keyboardTool, screenshotTool, CDPHelper) so per-
+ * action logic lives in its own file.
+ *
+ * Coordinate scaling: callers think in the model's logical viewport;
+ * scaleCoordinates + screenshotContextManager translate to real pixels
+ * captured by the most recent screenshot. Always check checkDomainShift
+ * before reusing a stale context — coords from a different page are a
+ * silent foot-gun.
+ *
+ * GIF auto-capture (gif-recorder) hooks every action when active; keep new
+ * action branches calling captureFrameOnAction so recordings stay complete.
+ */
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
