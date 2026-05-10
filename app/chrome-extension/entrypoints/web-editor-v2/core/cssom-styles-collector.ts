@@ -17,6 +17,12 @@
  * - @layer ordering is approximated via source order
  */
 
+// IMP-0046 slice 1: inheritance lookup extracted to ./cssom/inheritance —
+// re-exported so existing import paths (`from '.../cssom-styles-collector'`)
+// keep working.
+export { INHERITED_PROPERTIES, isInheritableProperty } from './cssom/inheritance';
+import { isInheritableProperty } from './cssom/inheritance';
+
 // =============================================================================
 // Public Types (UI-ready snapshot)
 // =============================================================================
@@ -504,135 +510,6 @@ function isOfTokenAt(s: string, i: number): boolean {
   const prevOk = prev === undefined || /\s/.test(prev);
   const nextOk = next === undefined || /\s/.test(next);
   return prevOk && nextOk;
-}
-
-// =============================================================================
-// Inherited properties
-// =============================================================================
-
-export const INHERITED_PROPERTIES = new Set<string>([
-  // Color & appearance
-  'color',
-  'color-scheme',
-  'caret-color',
-  'accent-color',
-
-  // Typography / fonts
-  'font',
-  'font-family',
-  'font-feature-settings',
-  'font-kerning',
-  'font-language-override',
-  'font-optical-sizing',
-  'font-palette',
-  'font-size',
-  'font-size-adjust',
-  'font-stretch',
-  'font-style',
-  'font-synthesis',
-  'font-synthesis-small-caps',
-  'font-synthesis-style',
-  'font-synthesis-weight',
-  'font-variant',
-  'font-variant-alternates',
-  'font-variant-caps',
-  'font-variant-east-asian',
-  'font-variant-emoji',
-  'font-variant-ligatures',
-  'font-variant-numeric',
-  'font-variant-position',
-  'font-variation-settings',
-  'font-weight',
-  'letter-spacing',
-  'line-height',
-  'text-rendering',
-  'text-size-adjust',
-  'text-transform',
-  'text-indent',
-  'text-align',
-  'text-align-last',
-  'text-justify',
-  'text-shadow',
-  'text-emphasis-color',
-  'text-emphasis-position',
-  'text-emphasis-style',
-  'text-underline-position',
-  'tab-size',
-  'white-space',
-  'word-break',
-  'overflow-wrap',
-  'word-spacing',
-  'hyphens',
-  'line-break',
-
-  // Writing / bidi
-  'direction',
-  'unicode-bidi',
-  'writing-mode',
-  'text-orientation',
-  'text-combine-upright',
-
-  // Lists
-  'list-style',
-  'list-style-image',
-  'list-style-position',
-  'list-style-type',
-
-  // Tables
-  'border-collapse',
-  'border-spacing',
-  'caption-side',
-  'empty-cells',
-
-  // Visibility / interaction
-  'cursor',
-  'visibility',
-  'pointer-events',
-  'user-select',
-
-  // Quotes & pagination
-  'quotes',
-  'orphans',
-  'widows',
-
-  // SVG
-  'fill',
-  'fill-opacity',
-  'fill-rule',
-  'stroke',
-  'stroke-width',
-  'stroke-linecap',
-  'stroke-linejoin',
-  'stroke-miterlimit',
-  'stroke-dasharray',
-  'stroke-dashoffset',
-  'stroke-opacity',
-  'paint-order',
-  'shape-rendering',
-  'image-rendering',
-  'color-interpolation',
-  'color-interpolation-filters',
-  'color-rendering',
-  'dominant-baseline',
-  'alignment-baseline',
-  'baseline-shift',
-  'text-anchor',
-  'stop-color',
-  'stop-opacity',
-  'flood-color',
-  'flood-opacity',
-  'lighting-color',
-  'marker',
-  'marker-start',
-  'marker-mid',
-  'marker-end',
-]);
-
-export function isInheritableProperty(property: string): boolean {
-  const p = String(property || '').trim();
-  if (!p) return false;
-  if (p.startsWith('--')) return true;
-  return INHERITED_PROPERTIES.has(p.toLowerCase());
 }
 
 // =============================================================================
