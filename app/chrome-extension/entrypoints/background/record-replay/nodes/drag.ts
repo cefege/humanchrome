@@ -1,29 +1,28 @@
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { handleCallTool } from '@/entrypoints/background/tools';
-import type { StepDrag } from '../types';
+import type { StepDrag } from '../legacy-types';
 import { locateElement } from '../selector-engine';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
 export const dragNode: NodeRuntime<StepDrag> = {
-  run: async (_ctx, step: StepDrag) => {
-    const s = step as StepDrag;
+  run: async (_ctx: ExecCtx, step: StepDrag) => {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tabs?.[0]?.id;
     let startRef: string | undefined;
     let endRef: string | undefined;
     try {
       if (typeof tabId === 'number') {
-        const locatedStart = await locateElement(tabId, (s as any).start);
-        const locatedEnd = await locateElement(tabId, (s as any).end);
-        startRef = (locatedStart as any)?.ref || (s as any).start.ref;
-        endRef = (locatedEnd as any)?.ref || (s as any).end.ref;
+        const locatedStart = await locateElement(tabId, step.start);
+        const locatedEnd = await locateElement(tabId, step.end);
+        startRef = locatedStart?.ref || step.start.ref;
+        endRef = locatedEnd?.ref || step.end.ref;
       }
     } catch {}
     let startCoordinates: { x: number; y: number } | undefined;
     let endCoordinates: { x: number; y: number } | undefined;
-    if ((!startRef || !endRef) && Array.isArray((s as any).path) && (s as any).path.length >= 2) {
-      startCoordinates = { x: Number((s as any).path[0].x), y: Number((s as any).path[0].y) };
-      const last = (s as any).path[(s as any).path.length - 1];
+    if ((!startRef || !endRef) && Array.isArray(step.path) && step.path.length >= 2) {
+      startCoordinates = { x: Number(step.path[0].x), y: Number(step.path[0].y) };
+      const last = step.path[step.path.length - 1];
       endCoordinates = { x: Number(last.x), y: Number(last.y) };
     }
     const res = await handleCallTool({
@@ -36,7 +35,7 @@ export const dragNode: NodeRuntime<StepDrag> = {
         coordinates: endCoordinates,
       },
     });
-    if ((res as any).isError) throw new Error('drag failed');
+    if ((res as { isError?: boolean }).isError) throw new Error('drag failed');
     return {} as ExecResult;
   },
 };

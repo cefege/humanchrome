@@ -1,16 +1,27 @@
-import type { Step } from '../types';
+import type { StepIf } from '../legacy-types';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
-export const ifNode: NodeRuntime<any> = {
-  validate: (step) => {
-    const s = step as any;
-    const hasBranches = Array.isArray(s.branches) && s.branches.length > 0;
-    const ok = hasBranches || !!s.condition;
+interface IfBranch {
+  id?: string;
+  label?: string;
+  expr?: string;
+}
+
+interface IfBranchesShape {
+  branches?: IfBranch[];
+  else?: string;
+}
+
+export const ifNode: NodeRuntime<StepIf> = {
+  validate: (step: StepIf) => {
+    const ext = step as StepIf & IfBranchesShape;
+    const hasBranches = Array.isArray(ext.branches) && ext.branches.length > 0;
+    const ok = hasBranches || !!step.condition;
     return ok ? { ok } : { ok, errors: ['Missing condition or branch'] };
   },
-  run: async (ctx: ExecCtx, step: Step) => {
-    const s: any = step;
-    if (Array.isArray(s.branches) && s.branches.length > 0) {
+  run: async (ctx: ExecCtx, step: StepIf) => {
+    const ext = step as StepIf & IfBranchesShape;
+    if (Array.isArray(ext.branches) && ext.branches.length > 0) {
       const evalExpr = (expr: string): boolean => {
         const code = String(expr || '').trim();
         if (!code) return false;
@@ -25,17 +36,21 @@ export const ifNode: NodeRuntime<any> = {
           return false;
         }
       };
-      for (const br of s.branches) {
-        if (br?.expr && evalExpr(String(br.expr)))
+      for (const br of ext.branches) {
+        if (br?.expr && evalExpr(String(br.expr))) {
           return { nextLabel: String(br.label || `case:${br.id || 'match'}`) } as ExecResult;
+        }
       }
-      if ('else' in s) return { nextLabel: String(s.else || 'default') } as ExecResult;
+      if ('else' in ext) return { nextLabel: String(ext.else || 'default') } as ExecResult;
       return { nextLabel: 'default' } as ExecResult;
     }
     // legacy condition: { var/equals | expression }
     try {
       let result = false;
-      const cond = s.condition;
+      const cond = step.condition as
+        | { expression?: string; var?: string; equals?: unknown }
+        | undefined
+        | null;
       if (cond && typeof cond.expression === 'string' && cond.expression.trim()) {
         const fn = new Function(
           'vars',
