@@ -237,14 +237,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
-### IMP-0015 · Add chrome_pace_get tool to read the current pacing profile (feat) · score: 2
-
-- **Proposed by**: feature-scout · 2026-05-06
-- **Status**: proposed
-- **Why**: chrome_pace sets the per-client throttle profile (off|human|careful|fast) but there is no getter. An agent that wants to temporarily escalate pace (e.g. switch to fast for a bulk read phase) and then restore the previous value must hard-code the original setting instead of reading it back — fragile if another agent on a different client changed it. chrome_pace_get completes the read/write pair and enables safe save-and-restore patterns.
-- **Cost**: S
-- **Value**: S
-  Simplest implementation: new tool with no required parameters; reads client-state pacing entry for the calling client. Returns { profile: string, mutatingDelayMs: number }. Touch: tools/browser/pace.ts (or dispatch handler), TOOL_NAMES, TOOL_SCHEMAS. Zero new infrastructure — client-state already stores the profile.
 
 ### IMP-0018 · Add record_replay_flow_delete tool to complete recording lifecycle (feat) · score: 2
 
@@ -275,6 +267,12 @@ IMP entry. Move to next iteration on the next tick.
 - **Status**: done
 - **Completed**: 2026-05-09
 - **Summary**: New `chrome_remove_injected_script` MCP tool that wraps the existing internal `handleCleanup(tabId)` path so agents can deliberately tear down a previously-installed user script without navigating the tab away. Params: `{tabId?: number}` — falls back to the active tab in the focused window when omitted. Returns `{removed: boolean, tabId}`. Idempotent: `removed:false` when the tab had no injection (callers don't need to track state). Error classification: missing active tab → TAB_NOT_FOUND; "no tab with id" during cleanup is treated as `removed:true` (the map entry is still gone — the tab raced closure between has-check and cleanup). No new manifest permissions. New `_seedInjectedTabForTest` test-only export so test seeding doesn't depend on `injectScriptTool`'s arg shape (mirrors the IMP-0085 `_resetPlatformCacheForTest` lesson). Code-simplifier pass applied before tests landed: trimmed JSDocs, moved param doc up to the class, removed redundant error-message prefixes. New tests at `tests/tools/browser/remove-injected-script.test.ts` (6 cases). Targeted suite + lazy-tool-registry shape guard 14/14, typecheck clean.
+
+### IMP-0015 · Add chrome_pace_get tool to read the current pacing profile (feat) · score: 2
+
+- **Status**: done
+- **Completed**: 2026-05-09
+- **Summary**: New `chrome_pace_get` MCP tool — read-only counterpart to `chrome_pace`. No required parameters. Returns `{clientId, profile: 'off' | 'human' | 'careful' | 'fast', minGapMs, jitterMs}` for the calling MCP client. When no profile has been set, returns the canonical `{profile: 'off', minGapMs: 0, jitterMs: 0}` default. Enables safe save-and-restore patterns (read current pace → temporarily switch to `fast` for a bulk read phase → restore). Reuses the existing `getClientPacing(clientId)` accessor in `client-state.ts` — zero new infrastructure. Error classification: missing clientId on the request context → INVALID_ARGS pointing the caller at the `X-Client-Id` REST header. Wired through the eager dispatcher. New tests at `tests/tools/browser/pace-get.test.ts` (7 cases: defaults, post-set roundtrip, explicit overrides, profile change, no-clientId rejection, cross-client isolation, repeated-read idempotency). Targeted suite + lazy-tool-registry shape guard 15/15, typecheck clean.
 
 ### IMP-0051 · chrome_performance_analyze_insight returns isError:false when no trace has been recorded (bug) · score: 4
 

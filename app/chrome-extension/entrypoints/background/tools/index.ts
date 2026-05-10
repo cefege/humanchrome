@@ -93,7 +93,7 @@ import { storageTool } from './browser/storage';
 import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
-import { paceTool } from './browser/pace';
+import { paceTool, paceGetTool } from './browser/pace';
 import { flowRunTool, listPublishedFlowsTool } from './record-replay';
 
 interface ToolInstance {
@@ -172,6 +172,7 @@ const eagerTools: ToolInstance[] = [
   assertTool,
   waitForTool,
   paceTool,
+  paceGetTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
 ];

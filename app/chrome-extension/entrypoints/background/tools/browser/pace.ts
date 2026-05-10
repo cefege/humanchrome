@@ -2,7 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
-import { setClientPacing, type PacingProfile } from '../../utils/client-state';
+import { setClientPacing, getClientPacing, type PacingProfile } from '../../utils/client-state';
 
 interface PaceToolParams {
   profile: PacingProfile;
@@ -78,4 +78,41 @@ class PaceTool extends BaseBrowserToolExecutor {
   }
 }
 
+/**
+ * Read-only counterpart of `chrome_pace`. Returns the current per-client
+ * pacing profile and the resolved gap/jitter that would be applied on the
+ * next mutating call. When no profile is set, returns `{profile: 'off'}`.
+ * No mutation, no client-state side effects.
+ */
+class PaceGetTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.PACE_GET;
+
+  async execute(): Promise<ToolResult> {
+    const ctx = getCurrentRequestContext();
+    const clientId = ctx?.clientId;
+    if (!clientId) {
+      return createErrorResponse(
+        'No client id available — pacing profiles are per-MCP-client. Set X-Client-Id on REST calls.',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+    const pacing = getClientPacing(clientId);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            clientId,
+            profile: pacing?.profile ?? 'off',
+            minGapMs: pacing?.minGapMs ?? 0,
+            jitterMs: pacing?.jitterMs ?? 0,
+          }),
+        },
+      ],
+      isError: false,
+    };
+  }
+}
+
 export const paceTool = new PaceTool();
+export const paceGetTool = new PaceGetTool();
