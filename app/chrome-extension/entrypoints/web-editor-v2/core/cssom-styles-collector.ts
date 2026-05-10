@@ -25,6 +25,14 @@ import { isInheritableProperty } from './cssom/inheritance';
 // IMP-0046 slice 2: shorthand expansion extracted to ./cssom/shorthand.
 export { SHORTHAND_TO_LONGHANDS, expandToLonghands } from './cssom/shorthand';
 import { expandToLonghands } from './cssom/shorthand';
+// IMP-0046 slice 3: stylesheet inspection helpers extracted to ./cssom/sheet-inspector.
+import {
+  isSheetApplicable,
+  describeStyleSheet,
+  safeReadCssRules,
+  evalMediaRule,
+  evalSupportsRule,
+} from './cssom/sheet-inspector';
 
 // =============================================================================
 // Public Types (UI-ready snapshot)
@@ -571,67 +579,6 @@ const CONTAINER_RULE = (globalThis as unknown as { CSSRule?: { CONTAINER_RULE?: 
   ?.CONTAINER_RULE;
 const SCOPE_RULE = (globalThis as unknown as { CSSRule?: { SCOPE_RULE?: number } }).CSSRule
   ?.SCOPE_RULE;
-
-function isSheetApplicable(sheet: CSSStyleSheet): boolean {
-  if ((sheet as { disabled?: boolean }).disabled) return false;
-
-  try {
-    const mediaText = sheet.media?.mediaText?.trim() ?? '';
-    if (!mediaText || mediaText.toLowerCase() === 'all') return true;
-    return window.matchMedia(mediaText).matches;
-  } catch {
-    return true;
-  }
-}
-
-function describeStyleSheet(sheet: CSSStyleSheet, fallbackIndex: number): CssRuleSource {
-  const href = typeof sheet.href === 'string' ? sheet.href : undefined;
-
-  if (href) {
-    const file = href.split('/').pop()?.split('?')[0] ?? href;
-    return { url: href, label: file };
-  }
-
-  const ownerNode = sheet.ownerNode as Node | null | undefined;
-  if (ownerNode && ownerNode.nodeType === Node.ELEMENT_NODE) {
-    const el = ownerNode as Element;
-    if (el.tagName === 'STYLE') return { label: `<style #${fallbackIndex}>` };
-    if (el.tagName === 'LINK') return { label: `<link #${fallbackIndex}>` };
-  }
-
-  return { label: `<constructed #${fallbackIndex}>` };
-}
-
-function safeReadCssRules(sheet: CSSStyleSheet): CSSRuleList | null {
-  try {
-    return sheet.cssRules;
-  } catch {
-    return null;
-  }
-}
-
-function evalMediaRule(rule: CSSMediaRule, warnings: string[]): boolean {
-  try {
-    const mediaText = rule.media?.mediaText?.trim() ?? '';
-    if (!mediaText || mediaText.toLowerCase() === 'all') return true;
-    return window.matchMedia(mediaText).matches;
-  } catch (e) {
-    warnings.push(`Failed to evaluate @media rule: ${String(e)}`);
-    return false;
-  }
-}
-
-function evalSupportsRule(rule: CSSSupportsRule, warnings: string[]): boolean {
-  try {
-    const cond = rule.conditionText?.trim() ?? '';
-    if (!cond) return true;
-    if (typeof CSS?.supports !== 'function') return true;
-    return CSS.supports(cond);
-  } catch (e) {
-    warnings.push(`Failed to evaluate @supports rule: ${String(e)}`);
-    return false;
-  }
-}
 
 function createRuleIndexForRoot(root: Document | ShadowRoot, rootId: number): RuleIndex {
   const warnings: string[] = [];
