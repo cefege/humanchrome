@@ -11,6 +11,28 @@ import { type Logger } from 'pino';
 const log = withContext({ component: 'claude-engine' });
 
 /**
+ * Dispatcher signature for the per-run tool-message emitter. Threaded
+ * into helpers so they don't capture loop-scoped state via closure.
+ */
+type ClaudeToolDispatcher = (
+  content: string,
+  metadata: Record<string, unknown>,
+  messageType: 'tool_use' | 'tool_result',
+  isStreaming: boolean,
+) => void;
+
+/**
+ * Per-run state threaded into `dispatchToolMessageRun` so the method
+ * stays unit-testable without reconstructing the in-loop closure.
+ */
+interface ClaudeDispatchScope {
+  sessionId: string;
+  requestId?: string;
+  streamedToolHashes: Set<string>;
+  emit: (event: RealtimeEvent) => void;
+}
+
+/**
  * Input bag for {@link ClaudeEngine.buildRunOptions}.
  *
  * Field semantics mirror {@link EngineInitOptions} except for the four
@@ -178,39 +200,22 @@ export class ClaudeEngine implements AgentEngine {
       ctx.emit({ type: 'message', data: message });
     };
 
-    /**
-     * Emit tool message with deduplication.
-     */
-    const dispatchToolMessage = (
-      content: string,
-      metadata: Record<string, unknown>,
-      messageType: 'tool_use' | 'tool_result',
-      isStreaming: boolean,
+    // Per-run dispatch scope: built once and threaded into the class
+    // method so the in-loop closure stays a thin wrapper. Mirrors the
+    // IMP-0049 slice 3 pattern in codex.ts.
+    const dispatchScope: ClaudeDispatchScope = {
+      sessionId,
+      requestId,
+      streamedToolHashes,
+      emit: ctx.emit,
+    };
+    const dispatchToolMessage: ClaudeToolDispatcher = (
+      content,
+      metadata,
+      messageType,
+      isStreaming,
     ): void => {
-      const trimmed = content.trim();
-      if (!trimmed) return;
-
-      const hash = this.encodeHash(
-        `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${sessionId}:${requestId || ''}`,
-      ).slice(0, 16);
-      if (streamedToolHashes.has(hash)) return;
-      streamedToolHashes.add(hash);
-
-      const message: AgentMessage = {
-        id: randomUUID(),
-        sessionId,
-        role: 'tool',
-        content: trimmed,
-        messageType,
-        cliSource: this.name,
-        requestId,
-        isStreaming,
-        isFinal: !isStreaming,
-        createdAt: new Date().toISOString(),
-        metadata: { cli_type: 'claude', ...metadata },
-      };
-
-      ctx.emit({ type: 'message', data: message });
+      this.dispatchToolMessageRun(dispatchScope, content, metadata, messageType, isStreaming);
     };
 
     /**
@@ -1402,6 +1407,52 @@ export class ClaudeEngine implements AgentEngine {
     }
 
     return { queryOptions, internalAbortController };
+  }
+
+  /**
+   * Build + emit one tool message into the realtime stream, with
+   * per-run deduplication. Dedup is content+metadata+sessionId+requestId
+   * scoped, so the same payload from two SDK events doesn't double-fire
+   * the UI. Slice 3 of IMP-0009 — extracts the closure body that the
+   * in-loop `dispatchToolMessage` wrapper now delegates to. Mirrors the
+   * IMP-0049 slice 3 pattern in codex.ts.
+   *
+   * Uses the FULL base64 hash, not a 16-char prefix. The previous slice
+   * collided for small metadata diffs — different `{k:1}` vs `{k:2}`
+   * payloads shared their first 16 base64 chars and the second message
+   * was silently dropped. Set lookup is still O(1) on the longer key.
+   */
+  private dispatchToolMessageRun(
+    scope: ClaudeDispatchScope,
+    content: string,
+    metadata: Record<string, unknown>,
+    messageType: 'tool_use' | 'tool_result',
+    isStreaming: boolean,
+  ): void {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+
+    const hash = this.encodeHash(
+      `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${scope.sessionId}:${scope.requestId || ''}`,
+    );
+    if (scope.streamedToolHashes.has(hash)) return;
+    scope.streamedToolHashes.add(hash);
+
+    const message: AgentMessage = {
+      id: randomUUID(),
+      sessionId: scope.sessionId,
+      role: 'tool',
+      content: trimmed,
+      messageType,
+      cliSource: this.name,
+      requestId: scope.requestId,
+      isStreaming,
+      isFinal: !isStreaming,
+      createdAt: new Date().toISOString(),
+      metadata: { cli_type: 'claude', ...metadata },
+    };
+
+    scope.emit({ type: 'message', data: message });
   }
 
   /**
