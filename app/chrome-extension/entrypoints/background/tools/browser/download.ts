@@ -1,6 +1,7 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { DEFAULT_HANDLE_DOWNLOAD_TIMEOUT_MS, MAX_TOOL_TIMEOUT_MS } from '../../utils/timeouts';
 
 interface HandleDownloadParams {
   filenameContains?: string;
@@ -25,7 +26,10 @@ class HandleDownloadTool extends BaseBrowserToolExecutor {
   async execute(args: HandleDownloadParams): Promise<ToolResult> {
     const filenameContains = String(args?.filenameContains || '').trim();
     const waitForComplete = args?.waitForComplete !== false;
-    const timeoutMs = Math.max(1000, Math.min(Number(args?.timeoutMs ?? 60000), 300000));
+    const timeoutMs = Math.max(
+      1000,
+      Math.min(Number(args?.timeoutMs ?? DEFAULT_HANDLE_DOWNLOAD_TIMEOUT_MS), MAX_TOOL_TIMEOUT_MS),
+    );
     const tabId = typeof args?.tabId === 'number' ? args.tabId : undefined;
 
     try {

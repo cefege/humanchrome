@@ -3,6 +3,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import { sendNativeRequest } from '@/entrypoints/background/native-host';
+import { DEFAULT_PERF_TRACE_MAX_DURATION_MS, MAX_TOOL_TIMEOUT_MS } from '../../utils/timeouts';
 
 type OwnerTag = 'performance';
 
@@ -218,7 +219,7 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
               // ignore
             }
           },
-          Math.max(1000, Math.min(durationMs, 60000)),
+          Math.max(1000, Math.min(durationMs, DEFAULT_PERF_TRACE_MAX_DURATION_MS)),
         );
       }
 
@@ -371,7 +372,13 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
       const fullPath = (result.saved && (result.saved as any).fullPath) || undefined;
       if (fullPath) {
         try {
-          const timeoutMs = Math.max(10000, Math.min((args as any)?.timeoutMs ?? 60000, 300000));
+          const timeoutMs = Math.max(
+            10_000,
+            Math.min(
+              (args as any)?.timeoutMs ?? DEFAULT_PERF_TRACE_MAX_DURATION_MS,
+              MAX_TOOL_TIMEOUT_MS,
+            ),
+          );
           const resp = await sendNativeRequest<any>(
             'file_operation',
             { action: 'analyzeTrace', traceFilePath: fullPath, insightName },
