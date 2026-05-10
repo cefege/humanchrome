@@ -19,66 +19,19 @@
  * conventional category block until then.
  */
 import { type Tool } from '@modelcontextprotocol/sdk/types.js';
-
-// ---------------------------------------------------------------------------
-// Shared schema fragments
-//
-// These are spread into individual tool inputSchemas so the canonical wording
-// for cross-cutting concepts (tab targeting, generic timeouts, ref/selector)
-// lives in exactly one place. Tools that need different semantics (e.g.
-// chrome_wait_for_tab requiring tabId) override the field inline after the
-// spread.
-// ---------------------------------------------------------------------------
-
-const TAB_ID_DESC =
-  "Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs.";
-
-const WINDOW_ID_DESC = 'Target window ID to pick the active tab when tabId is omitted.';
-
-const BACKGROUND_DESC =
-  'Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward.';
-
-const TAB_ID_PROP = { type: 'number', description: TAB_ID_DESC } as const;
-const WINDOW_ID_PROP = { type: 'number', description: WINDOW_ID_DESC } as const;
-const BACKGROUND_PROP = {
-  type: 'boolean',
-  description: BACKGROUND_DESC,
-  default: true,
-} as const;
-
-/** Standard tabId/windowId/background trio. Spread into properties. */
-const TAB_TARGETING = {
-  tabId: TAB_ID_PROP,
-  windowId: WINDOW_ID_PROP,
-  background: BACKGROUND_PROP,
-};
-
-/** tabId+windowId only (no background flag — for tools that don't focus). */
-const TAB_TARGETING_NO_BG = {
-  tabId: TAB_ID_PROP,
-  windowId: WINDOW_ID_PROP,
-};
-
-const REF_PROP = {
-  type: 'string',
-  description: 'Element ref from chrome_read_page (takes precedence over selector).',
-} as const;
-
-const SELECTOR_PROP = {
-  type: 'string',
-  description: 'CSS selector or XPath for the element.',
-} as const;
-
-const SELECTOR_TYPE_PROP = {
-  type: 'string',
-  enum: ['css', 'xpath'],
-  description: 'Type of selector (default: "css").',
-} as const;
-
-const FRAME_ID_PROP = {
-  type: 'number',
-  description: 'Target frame ID for iframe support.',
-} as const;
+// IMP-0021 slice 1: shared fragments now live in tool-schemas/fragments.ts so
+// per-category schema files (extracted in subsequent slices) can spread them
+// without depending on tools.ts.
+import {
+  TAB_ID_PROP,
+  WINDOW_ID_PROP,
+  TAB_TARGETING,
+  TAB_TARGETING_NO_BG,
+  REF_PROP,
+  SELECTOR_PROP,
+  SELECTOR_TYPE_PROP,
+  FRAME_ID_PROP,
+} from './tool-schemas/fragments';
 
 export const TOOL_NAMES = {
   BROWSER: {
