@@ -59,7 +59,7 @@
     "@fastify/cors": "^11.0.1",
     "@modelcontextprotocol/sdk": "^1.11.0",
     "better-sqlite3": "^12.9.0",
-    "chrome-devtools-frontend": "^1.0.1625079",
+    "chrome-devtools-frontend": "^1.0.1626840",
     "humanchrome-shared": "workspace:*",
     "commander": "^14.0.3",
     "drizzle-orm": "^0.45.2",
