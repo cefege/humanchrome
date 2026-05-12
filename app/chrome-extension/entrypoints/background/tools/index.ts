@@ -11,26 +11,21 @@ import { acquireTabLock } from '../utils/tab-lock';
 import { runWithContext } from '../utils/request-context';
 
 // =============================================================================
-// Tool registry — eager + lazy split (IMP-0056)
+// Tool registry — all eager (IMP-0086 reverts IMP-0056's lazy half)
 // =============================================================================
 //
-// Pre-IMP-0056 this file did `import * as browserTools from './browser'`,
-// which through the barrel star-export construction-time-evaluated EVERY
-// tool file at SW boot. That dragged ~80–120 KB of bundled code plus
-// per-instance allocations into the cold-start path even when most tools
-// were never called in the session.
-//
-// Now: light tools stay eager (they're tiny, cheap, and called every
-// session). Heavy tools — gif-recorder, performance, network-capture-
-// debugger, computer, read-page, screenshot, vector-search,
-// element-picker, intercept-response, javascript, userscript — are
-// loaded on first use via dynamic `import()` and memoized. The Map is
-// keyed by tool name; lookup falls through eager → lazy → not-found.
-//
-// Tests still import the singletons directly from `./browser/<file>`,
-// which is unaffected by this change. The `./browser/index.ts` barrel
-// stays in place for any future caller that wants the eager-everything
-// shape; this dispatcher just doesn't use it.
+// IMP-0056 split this into eager + lazy halves with `import('./browser/<x>')`
+// for ~14 heavy tools, claiming an ~80–120 KB cold-start saving. In practice
+// Rolldown hoists those dynamic imports back to static imports in the entry
+// chunk, AND it places the lazy chunks' `BaseBrowserToolExecutor` superclass
+// in the entry chunk while making the lazy chunks back-edge import it via
+// `../background.js`. ESM evaluation order then resolves `class X extends
+// Base` in the lazy chunks before the entry's `class Base { ... }` line —
+// TDZ → "Class extends value undefined" → MV3 SW registration fails (status
+// 15). Both the perf claim and the basic functionality were broken; reverting
+// to all-eager is the cheap fix. Re-introduce lazy loading later by moving
+// `BaseBrowserToolExecutor` into a leaf module (e.g. humanchrome-shared) so
+// it can sit in its own chunk and the back-edge disappears.
 // =============================================================================
 
 import { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './browser/common';
@@ -94,6 +89,24 @@ import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
+import { screenshotTool } from './browser/screenshot';
+import { vectorSearchTabsContentTool } from './browser/vector-search';
+import { elementPickerTool } from './browser/element-picker';
+import {
+  networkDebuggerStartTool,
+  networkDebuggerStopTool,
+} from './browser/network-capture-debugger';
+import { interceptResponseTool } from './browser/intercept-response';
+import { javascriptTool } from './browser/javascript';
+import { readPageTool } from './browser/read-page';
+import { computerTool } from './browser/computer';
+import { userscriptTool } from './browser/userscript';
+import {
+  performanceStartTraceTool,
+  performanceStopTraceTool,
+  performanceAnalyzeInsightTool,
+} from './browser/performance';
+import { gifRecorderTool } from './browser/gif-recorder';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -176,90 +189,35 @@ const eagerTools: ToolInstance[] = [
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
+  screenshotTool,
+  vectorSearchTabsContentTool,
+  elementPickerTool,
+  networkDebuggerStartTool,
+  networkDebuggerStopTool,
+  interceptResponseTool,
+  javascriptTool,
+  readPageTool,
+  computerTool,
+  userscriptTool,
+  performanceStartTraceTool,
+  performanceStopTraceTool,
+  performanceAnalyzeInsightTool,
+  gifRecorderTool,
 ];
 
 const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
 
-/**
- * Heavy tools — loaded on first use via dynamic import, then memoized.
- * Each entry returns a Promise that resolves to the singleton instance
- * exported by the corresponding module.
- *
- * The estimated savings (per IMP-0056): SW chunk shrinks by ~80–120 KB
- * in steady state when these tools aren't called. The chrome.scripting
- * / chrome.debugger listener constructors that some of these tools
- * register inside their class constructors also stop firing at boot.
- */
-type LazyLoader = () => Promise<ToolInstance>;
-
-const lazyLoaders: Record<string, LazyLoader> = {
-  [TOOL_NAMES.BROWSER.SCREENSHOT]: async () =>
-    (await import('./browser/screenshot')).screenshotTool,
-  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: async () =>
-    (await import('./browser/vector-search')).vectorSearchTabsContentTool,
-  [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: async () =>
-    (await import('./browser/element-picker')).elementPickerTool,
-  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START]: async () =>
-    (await import('./browser/network-capture-debugger')).networkDebuggerStartTool,
-  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP]: async () =>
-    (await import('./browser/network-capture-debugger')).networkDebuggerStopTool,
-  [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: async () =>
-    (await import('./browser/intercept-response')).interceptResponseTool,
-  [TOOL_NAMES.BROWSER.JAVASCRIPT]: async () =>
-    (await import('./browser/javascript')).javascriptTool,
-  [TOOL_NAMES.BROWSER.READ_PAGE]: async () => (await import('./browser/read-page')).readPageTool,
-  [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
-  [TOOL_NAMES.BROWSER.USERSCRIPT]: async () =>
-    (await import('./browser/userscript')).userscriptTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: async () =>
-    (await import('./browser/performance')).performanceStartTraceTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: async () =>
-    (await import('./browser/performance')).performanceStopTraceTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: async () =>
-    (await import('./browser/performance')).performanceAnalyzeInsightTool,
-  [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
-    (await import('./browser/gif-recorder')).gifRecorderTool,
-};
-
-const lazyResolved = new Map<string, ToolInstance>();
-const lazyInflight = new Map<string, Promise<ToolInstance>>();
-
-async function resolveLazyTool(name: string): Promise<ToolInstance | undefined> {
-  const cached = lazyResolved.get(name);
-  if (cached) return cached;
-  const inflight = lazyInflight.get(name);
-  if (inflight) return inflight;
-  const loader = lazyLoaders[name];
-  if (!loader) return undefined;
-  const promise = loader().then((tool) => {
-    lazyResolved.set(name, tool);
-    lazyInflight.delete(name);
-    return tool;
-  });
-  lazyInflight.set(name, promise);
-  return promise;
-}
-
-/**
- * Resolve a tool by name. Eager tools answer instantly; heavy tools
- * are imported on first use and memoized for subsequent calls.
- */
 async function getTool(name: string): Promise<ToolInstance | undefined> {
-  const eager = eagerToolsByName.get(name);
-  if (eager) return eager;
-  return resolveLazyTool(name);
+  return eagerToolsByName.get(name);
 }
 
-/** Test-only — drop the lazy memo so a test can re-exercise the loader. */
-export function _resetLazyToolCacheForTest(): void {
-  lazyResolved.clear();
-  lazyInflight.clear();
-}
-
-/** Test-only — list every name the dispatcher will resolve (eager + lazy). */
+/** Test-only — list every name the dispatcher will resolve. */
 export function _listRegisteredToolNamesForTest(): string[] {
-  return [...eagerToolsByName.keys(), ...Object.keys(lazyLoaders)];
+  return [...eagerToolsByName.keys()];
 }
+
+/** Test-only no-op — kept for back-compat with the IMP-0056 lazy era. */
+export function _resetLazyToolCacheForTest(): void {}
 
 export interface ToolCallParam {
   name: string;
