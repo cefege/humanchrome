@@ -14,7 +14,18 @@ export const DEFAULT_QUEUE_CONFIG: RunQueueConfig = {
   heartbeatIntervalMs: 5_000,
 };
 
-export type QueueItemStatus = 'queued' | 'running' | 'paused';
+export const QUEUE_ITEM_STATUSES = ['queued', 'running', 'paused'] as const;
+export type QueueItemStatus = (typeof QUEUE_ITEM_STATUSES)[number];
+
+export function isQueueItemStatus(value: unknown): value is QueueItemStatus {
+  return (QUEUE_ITEM_STATUSES as readonly string[]).includes(value as string);
+}
+
+/** Comparator for queue items: priority DESC, then createdAt ASC (FIFO within priority). */
+export function compareQueueItems(a: RunQueueItem, b: RunQueueItem): number {
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.createdAt - b.createdAt;
+}
 
 export interface Lease {
   ownerId: string;
