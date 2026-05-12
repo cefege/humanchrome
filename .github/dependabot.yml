@@ -17,6 +17,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # @types/chrome lives in 0.x-land where DefinitelyTyped reorgs ship
+      # as semver-minor (0.0.x → 0.1.y) but are functionally breaking. The
+      # per-workspace ignore at /app/chrome-extension does not apply when
+      # this root-level group rolls workspace deps together, so re-pin here.
+      - dependency-name: "@types/chrome"
 
   - package-ecosystem: npm
     directory: "/app/native-server"
@@ -37,6 +42,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Same reason as the root group: @types/chrome 0.x reorgs ship as
+      # semver-minor but are breaking. Pin here too — native-server also
+      # declares @types/chrome.
+      - dependency-name: "@types/chrome"
 
   - package-ecosystem: npm
     directory: "/app/chrome-extension"
