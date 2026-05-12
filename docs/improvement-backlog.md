@@ -228,6 +228,12 @@ IMP entry. Move to next iteration on the next tick.
 
 ## Done
 
+### IMP-0086 · Revert IMP-0056 lazy tool dispatcher — MV3 service worker fails to register (bug) · score: 5
+
+- **Status**: done
+- **Completed**: 2026-05-11
+- **Summary**: IMP-0056 split `tools/index.ts` into eager + lazy halves with `import('./browser/<x>')` for ~14 heavy tools, claiming an ~80–120 KB cold-start saving. In practice Rolldown (1.0.0-rc.17 via WXT 0.20.26) hoisted those dynamic imports back to static imports in the entry chunk (`gif-recorder`, `network-capture-debugger`, `intercept-response`, etc. show up in `import …from"./chunks/…"` at the top of `background.js`), so the boot-time bundle didn't actually shrink. Worse, Rolldown placed `BaseBrowserToolExecutor` in the entry chunk while making the lazy chunks back-edge import it via `import { … } from "../background.js"`. ESM evaluation order then resolved the lazy chunks' top-level `class X extends Base` before the entry reached `class Base { … }` — TDZ → "Class extends value undefined" → MV3 service worker registration fails with status code 15. Reproduced fresh from `main` (HEAD = 6df5464) on Chrome MV3; v1.0.1 release (commit 2d41084, predates IMP-0056's c1700b4) was the last green build. Bisect: c1700b4 (IMP-0056) is the offending commit. Fix: convert all 14 lazy loaders to eager `import` statements at the top of `tools/index.ts`, push them into `eagerTools`, drop `lazyLoaders` / `resolveLazyTool` / `lazyResolved` / `lazyInflight` / `_resetLazyToolCacheForTest` machinery (kept the export name as a no-op for back-compat), delete `tests/tools/lazy-tool-registry.test.ts` (its boot-time-silence assertions no longer model what's shipped), update CLAUDE.md to drop the eager/lazy split mention and the contract-test row. Bundle has zero back-edge imports from chunks to `../background.js`. Real lazy loading is recoverable later by moving `BaseBrowserToolExecutor` (and any sibling helpers it pulls in) into `humanchrome-shared` so it lives in a leaf module Rolldown can chunk independently of the entry — that work tracked separately.
+
 ### IMP-0035 · Type computer.ts params to eliminate 24 remaining as any casts in action dispatch (refactor) · score: 3
 
 - **Status**: done (premise stale — audit confirmed zero `as any` casts)

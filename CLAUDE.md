@@ -32,7 +32,7 @@ Every new MCP tool is exactly 5 file edits. Steps 2-4 each touch a registry; the
 
 3. **Barrel — append-only.** Add `export { newTool } from './<slug>';` to `tools/browser/index.ts`.
 
-4. **Dispatcher — append-only.** Edit `tools/index.ts`: add the import, push the singleton into `eagerTools`. For heavy bundles (anything pulling in tensorflow / sharp / ffmpeg-style deps, or wrapping `chrome.debugger`/CDP), register in `lazyLoaders` instead — the `lazy-tool-registry.test.ts` enforces the eager/lazy split.
+4. **Dispatcher — append-only.** Edit `tools/index.ts`: add the import, push the singleton into `eagerTools`. (IMP-0056's eager+lazy split was reverted in IMP-0086 — Rolldown hoisted the dynamic imports back to static AND made lazy chunks back-edge import `BaseBrowserToolExecutor` from `background.js`, which crashed the MV3 service worker at registration. All tools are eager again until `Base` is moved to a leaf module.)
 
 5. **Tests.** Create `tests/tools/browser/<slug>.test.ts`. 8-15 cases: arg validation, happy path per action, error classifications, missing-API/permission path. Vitest; mock `chrome.*` via `(globalThis.chrome as any).<api> = { ... }` in `beforeEach`. Canonical shapes: `idle.test.ts` (single-action), `drag-drop.test.ts` (MAIN-world shim), `keyboard-shortcuts.test.ts` (uses `_resetXForTest` helper).
 
@@ -40,7 +40,7 @@ After the 5 edits:
 
 - `cd packages/shared && npm run build` — regenerates `dist/` so the extension typechecks against the new TOOL_NAMES entry.
 - `cd app/chrome-extension && npx tsc --noEmit -p .` — must be clean.
-- `npx vitest run --reporter=dot tests/tools/browser/<slug>.test.ts tests/tools/lazy-tool-registry.test.ts` — both must pass.
+- `npx vitest run --reporter=dot tests/tools/browser/<slug>.test.ts` — must pass.
 - `cd app/native-server && node scripts/generate-tools-doc.mjs` — regenerates `docs/TOOLS.md`.
 - `cd app/native-server && npm test` only if bridge code was touched.
 
@@ -93,7 +93,6 @@ Not lint-enforced, but every PR follows them.
 
 These will fail your PR if you forget a registry update:
 
-- `app/chrome-extension/tests/tools/lazy-tool-registry.test.ts` — every `TOOL_NAMES.BROWSER` and `TOOL_NAMES.RECORD_REPLAY` value is reachable; heavy tools land in `lazyLoaders`, not `eagerTools`.
 - `app/native-server/src/scripts/tool-categories-coverage.test.ts` — every `TOOL_SCHEMAS` entry has a `TOOL_CATEGORIES` mapping; no stale labels.
 - `packages/shared/src/ipc-schemas.test.ts` — IPC schema shape coverage.
 - `app/chrome-extension/tests/record-replay/*.contract.test.ts` and `tests/record-replay-v3/*.contract.test.ts` — adapter-handler parity, legacy node coverage, runner-onError, etc.
