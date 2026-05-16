@@ -2,12 +2,13 @@
  * chrome_locator_handler tests (IMP-0101).
  *
  * The tool keeps a background-side `Map<tabId, Map<handlerId, RegisteredHandler>>`
- * and injects `inject-scripts/locator-handler.js` into the target tab. We stub
- * chrome.scripting.executeScript + chrome.tabs.sendMessage + chrome.tabs.query;
- * the inject-script's in-page behaviour (MutationObserver, IntersectionObserver-
- * style visibility checks, click/key dispatch) is covered by the inject-script
- * unit tests for the helpers it shares with click/keyboard tools and is
- * exercised in integration here only via canned sendMessage responses.
+ * and injects `inject-scripts/locator-handler.js` into the target tab. The
+ * inject + sendMessage path is tested indirectly elsewhere; here we spy on
+ * the `BaseBrowserToolExecutor` helpers (`injectContentScript` and
+ * `sendMessageToTab`) so each test exercises the tool's own logic — arg
+ * validation, per-tab/per-handler state, persistent replay, listener cleanup —
+ * without re-asserting how the base class wires `chrome.scripting.executeScript`
+ * to `chrome.tabs.sendMessage`. Same pattern as `keyboard-shortcuts.test.ts`.
  *
  * Each test resets the module so the per-session monotonic handlerId counter
  * starts from 1 — making the assertions human-readable.
@@ -15,8 +16,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-let executeScriptMock: ReturnType<typeof vi.fn>;
-let sendMessageMock: ReturnType<typeof vi.fn>;
+let injectMock: ReturnType<typeof vi.fn>;
+let sendMessageToTabMock: ReturnType<typeof vi.fn>;
 let queryMock: ReturnType<typeof vi.fn>;
 let tabsOnRemovedAddListener: ReturnType<typeof vi.fn>;
 let webNavOnDOMContentLoadedAddListener: ReturnType<typeof vi.fn>;
@@ -26,43 +27,6 @@ let onDOMContentLoadedHandler:
   | undefined;
 
 function installChromeMock() {
-  executeScriptMock = vi.fn().mockResolvedValue([{ result: undefined }]);
-  // Default sendMessage behaviour answers ping with pong and any register/
-  // list/remove/clear with success:true so tests focus on tool-level
-  // wiring. Per-test overrides via `sendMessageMock.mockImplementation*` win.
-  sendMessageMock = vi.fn(async (_tabId: number, msg: any) => {
-    if (msg?.action?.endsWith?.('_ping')) return { status: 'pong' };
-    if (msg?.action === 'locator_handler_register') {
-      return {
-        success: true,
-        handler: {
-          handlerId: msg.handlerId,
-          selector: msg.selector,
-          dismissSelector: msg.dismissSelector,
-          dismissAction: msg.dismissAction || 'click',
-          key: msg.key || null,
-          times: msg.times ?? null,
-          timesRemaining: msg.times ?? null,
-          persistent: !!msg.persistent,
-          dismissedCount: 0,
-          lastDismissedAt: null,
-          createdAt: Date.now(),
-        },
-      };
-    }
-    if (msg?.action === 'locator_handler_list') {
-      return { success: true, handlers: [], count: 0 };
-    }
-    if (msg?.action === 'locator_handler_remove') {
-      return { success: true, removed: true };
-    }
-    if (msg?.action === 'locator_handler_clear') {
-      return { success: true, cleared: 0 };
-    }
-    return { success: true };
-  });
-  queryMock = vi.fn().mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
-
   onRemovedHandler = undefined;
   onDOMContentLoadedHandler = undefined;
   tabsOnRemovedAddListener = vi.fn((cb: (tabId: number) => void) => {
@@ -74,11 +38,13 @@ function installChromeMock() {
     },
   );
 
-  (globalThis.chrome as any).scripting = { executeScript: executeScriptMock };
+  queryMock = vi.fn().mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
+
+  (globalThis.chrome as any).scripting = { executeScript: vi.fn().mockResolvedValue([]) };
   (globalThis.chrome as any).tabs = {
     ...(globalThis.chrome as any).tabs,
     query: queryMock,
-    sendMessage: sendMessageMock,
+    sendMessage: vi.fn().mockResolvedValue({ status: 'pong' }),
     onRemoved: {
       addListener: tabsOnRemovedAddListener,
       removeListener: vi.fn(),
@@ -92,9 +58,32 @@ function installChromeMock() {
   };
 }
 
+function installInstrumentation(mod: any) {
+  injectMock = vi.fn().mockResolvedValue(undefined);
+  // Default sendMessageToTab response shapes for each in-page message verb.
+  // Per-test overrides via mockResolvedValueOnce / mockImplementationOnce win.
+  sendMessageToTabMock = vi.fn(async (_tabId: number, msg: any) => {
+    if (msg?.action === 'locator_handler_register') return { success: true };
+    if (msg?.action === 'locator_handler_list') {
+      return { success: true, handlers: [], count: 0 };
+    }
+    if (msg?.action === 'locator_handler_remove') return { success: true, removed: true };
+    if (msg?.action === 'locator_handler_clear') return { success: true, cleared: 0 };
+    return { success: true };
+  });
+  vi.spyOn(mod.locatorHandlerTool as any, 'injectContentScript').mockImplementation(
+    injectMock as any,
+  );
+  vi.spyOn(mod.locatorHandlerTool as any, 'sendMessageToTab').mockImplementation(
+    sendMessageToTabMock as any,
+  );
+}
+
 async function loadModule() {
   vi.resetModules();
-  return await import('@/entrypoints/background/tools/browser/locator-handler');
+  const mod = await import('@/entrypoints/background/tools/browser/locator-handler');
+  installInstrumentation(mod);
+  return mod;
 }
 
 beforeEach(() => {
@@ -102,7 +91,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Module is reset per-load — nothing to undo here.
+  vi.restoreAllMocks();
 });
 
 function parseBody(res: any): any {
@@ -194,7 +183,7 @@ describe('chrome_locator_handler: register', () => {
     expect(body.handler.times).toBeNull();
 
     // The page register payload should match.
-    expect(sendMessageMock).toHaveBeenCalledWith(
+    expect(sendMessageToTabMock).toHaveBeenCalledWith(
       7,
       expect.objectContaining({
         action: 'locator_handler_register',
@@ -204,13 +193,13 @@ describe('chrome_locator_handler: register', () => {
         dismissAction: 'click',
       }),
     );
-    // Helper file should have been injected via chrome.scripting.executeScript
-    expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: { tabId: 7 },
-        files: ['inject-scripts/locator-handler.js'],
-        world: 'ISOLATED',
-      }),
+    // Helper file should have been injected.
+    expect(injectMock).toHaveBeenCalledWith(
+      7,
+      ['inject-scripts/locator-handler.js'],
+      false,
+      'ISOLATED',
+      false,
     );
   });
 
@@ -234,7 +223,7 @@ describe('chrome_locator_handler: register', () => {
     expect(body.handler.times).toBe(3);
     expect(body.handler.timesRemaining).toBe(3);
 
-    expect(sendMessageMock).toHaveBeenCalledWith(
+    expect(sendMessageToTabMock).toHaveBeenCalledWith(
       7,
       expect.objectContaining({
         action: 'locator_handler_register',
@@ -254,8 +243,12 @@ describe('chrome_locator_handler: register', () => {
       dismissSelector: '.close',
     });
     expect(queryMock).toHaveBeenCalledWith({ active: true, currentWindow: true });
-    expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { tabId: 7 } }),
+    expect(injectMock).toHaveBeenCalledWith(
+      7,
+      ['inject-scripts/locator-handler.js'],
+      false,
+      'ISOLATED',
+      false,
     );
   });
 });
@@ -267,7 +260,7 @@ describe('chrome_locator_handler: list', () => {
     const body = parseBody(res);
     expect(body.handlers).toEqual([]);
     expect(body.count).toBe(0);
-    expect(executeScriptMock).not.toHaveBeenCalled();
+    expect(injectMock).not.toHaveBeenCalled();
   });
 
   it('after register, list reflects live dismissedCount from the page', async () => {
@@ -279,8 +272,8 @@ describe('chrome_locator_handler: list', () => {
       tabId: 7,
     });
 
-    // Stub the next list call to report a dismissedCount of 2.
-    sendMessageMock.mockImplementationOnce(async (_t: number, msg: any) => {
+    // Make the next locator_handler_list call return a live count of 2.
+    sendMessageToTabMock.mockImplementationOnce(async (_t: number, msg: any) => {
       if (msg?.action === 'locator_handler_list') {
         return {
           success: true,
@@ -302,7 +295,7 @@ describe('chrome_locator_handler: list', () => {
           count: 1,
         };
       }
-      return { status: 'pong' };
+      return { success: true };
     });
 
     const res = await mod.locatorHandlerTool.execute({ action: 'list', tabId: 7 });
@@ -323,13 +316,13 @@ describe('chrome_locator_handler: list', () => {
       tabId: 7,
     });
 
-    sendMessageMock.mockClear();
-    executeScriptMock.mockClear();
+    sendMessageToTabMock.mockClear();
+    injectMock.mockClear();
 
-    // First list returns empty (simulating helper gone after navigation).
+    // First list call returns empty (simulating helper gone after navigation),
+    // subsequent list call returns the replayed handler.
     let listCount = 0;
-    sendMessageMock.mockImplementation(async (_t: number, msg: any) => {
-      if (msg?.action?.endsWith?.('_ping')) return { status: 'pong' };
+    sendMessageToTabMock.mockImplementation(async (_t: number, msg: any) => {
       if (msg?.action === 'locator_handler_register') return { success: true };
       if (msg?.action === 'locator_handler_list') {
         listCount += 1;
@@ -361,7 +354,7 @@ describe('chrome_locator_handler: list', () => {
     const body = parseBody(res);
     expect(body.count).toBe(1);
     // Replay should have invoked a register message in addition to the two list calls.
-    const registerCalls = sendMessageMock.mock.calls.filter(
+    const registerCalls = sendMessageToTabMock.mock.calls.filter(
       ([, m]) => m?.action === 'locator_handler_register',
     );
     expect(registerCalls.length).toBe(1);
@@ -394,7 +387,7 @@ describe('chrome_locator_handler: remove + clear', () => {
     expect(after.tabs).toEqual([]); // tab bucket drained
 
     // The remove payload should have been forwarded.
-    expect(sendMessageMock).toHaveBeenCalledWith(
+    expect(sendMessageToTabMock).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ action: 'locator_handler_remove', handlerId: 'lh_1' }),
     );
@@ -418,9 +411,9 @@ describe('chrome_locator_handler: remove + clear', () => {
     expect(before.tabs[0].handlerIds.sort()).toEqual(['lh_1', 'lh_2']);
 
     // Override the next clear response so the test asserts the merged max.
-    sendMessageMock.mockImplementationOnce(async (_t: number, msg: any) => {
+    sendMessageToTabMock.mockImplementationOnce(async (_t: number, msg: any) => {
       if (msg?.action === 'locator_handler_clear') return { success: true, cleared: 2 };
-      return { status: 'pong' };
+      return { success: true };
     });
 
     const res = await mod.locatorHandlerTool.execute({ action: 'clear', tabId: 7 });
@@ -482,19 +475,23 @@ describe('chrome_locator_handler: persistent re-injection on navigation', () => 
     });
     expect(onDOMContentLoadedHandler).toBeDefined();
 
-    sendMessageMock.mockClear();
-    executeScriptMock.mockClear();
+    sendMessageToTabMock.mockClear();
+    injectMock.mockClear();
 
     await onDOMContentLoadedHandler!({ tabId: 7, frameId: 0 });
 
     // After navigation the helper should have been re-injected and the
     // register payload re-sent.
-    const registerCalls = sendMessageMock.mock.calls.filter(
+    const registerCalls = sendMessageToTabMock.mock.calls.filter(
       ([, m]) => m?.action === 'locator_handler_register',
     );
     expect(registerCalls.length).toBe(1);
-    expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { tabId: 7 } }),
+    expect(injectMock).toHaveBeenCalledWith(
+      7,
+      ['inject-scripts/locator-handler.js'],
+      false,
+      'ISOLATED',
+      false,
     );
   });
 
@@ -507,13 +504,13 @@ describe('chrome_locator_handler: persistent re-injection on navigation', () => 
       persistent: true,
       tabId: 7,
     });
-    sendMessageMock.mockClear();
-    executeScriptMock.mockClear();
+    sendMessageToTabMock.mockClear();
+    injectMock.mockClear();
 
     await onDOMContentLoadedHandler!({ tabId: 7, frameId: 99 });
 
     // No replay for non-main-frame events.
-    const registerCalls = sendMessageMock.mock.calls.filter(
+    const registerCalls = sendMessageToTabMock.mock.calls.filter(
       ([, m]) => m?.action === 'locator_handler_register',
     );
     expect(registerCalls.length).toBe(0);
@@ -546,8 +543,8 @@ describe('chrome_locator_handler: error classification', () => {
     });
     expect(mod._getLocatorHandlerStateForTest().tabs[0].handlerIds).toEqual(['lh_1']);
 
-    // Next call: scripting injection rejects with the tab-closed signature.
-    executeScriptMock.mockRejectedValueOnce(new Error('No tab with id: 7'));
+    // Next call: injection rejects with the tab-closed signature.
+    injectMock.mockRejectedValueOnce(new Error('No tab with id: 7'));
 
     const res = await mod.locatorHandlerTool.execute({
       action: 'register',
@@ -575,8 +572,7 @@ describe('chrome_locator_handler: error classification', () => {
 
   it('surfaces in-page register failures as UNKNOWN', async () => {
     const mod = await loadModule();
-    sendMessageMock.mockImplementationOnce(async (_t: number, msg: any) => {
-      if (msg?.action?.endsWith?.('_ping')) return { status: 'pong' };
+    sendMessageToTabMock.mockImplementationOnce(async (_t: number, msg: any) => {
       if (msg?.action === 'locator_handler_register') {
         return { success: false, error: 'bad selector' };
       }

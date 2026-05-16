@@ -198,7 +198,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0101 · chrome_locator_handler — auto-dismiss sticky overlays (cookie banners, GDPR modals, newsletter popups) (feat) · score: 4
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: Real-world sites are saturated with cookie banners, GDPR consent modals, newsletter-subscribe popups, and "we use cookies" overlays that intercept clicks and break LLM flows. Playwright's `addLocatorHandler` lets you declaratively say "if this selector becomes visible, click that dismiss button before continuing." Massive ergonomic win for any flow against a public site. We have userscripts + inject-script + MutationObserver primitives — composing them into a first-class tool is small.
 - **Cost**: S (1-2 days)
 - **Value**: M

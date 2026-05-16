@@ -9,29 +9,22 @@ import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
  * a per-tab MutationObserver fires the dismiss action automatically whenever
  * the trigger selector becomes visible — agent code doesn't have to babysit.
  *
- * Actions:
- *   - register: install a handler. Returns {handlerId, handler}.
- *   - list:     enumerate handlers on a tab.
- *   - remove:   delete one handler by id.
- *   - clear:    drop every handler on a tab.
- *
  * `persistent: true` re-injects the helper + replays handlers after the tab
  * commits a new document via chrome.webNavigation.onDOMContentLoaded so
  * navigation doesn't silently disarm the handler.
  *
- * State model:
- *   tabHandlers : Map<tabId, Map<handlerId, RegisteredHandler>>
- *   ownerByTab  : Map<tabId, clientId>
- *
- * Cleanup hooks:
- *   - chrome.tabs.onRemoved drops the tab's state.
- *   - persistent handlers replay automatically after navigation.
- *
- * Click dispatch path: MAIN-world / ISOLATED-world synthetic pointer + click
- * event sequence. TODO(IMP-0097): swap to the shared `awaitActionable`
- * primitive once it lands — current behaviour gates on the cheap visibility
- * triad (display / visibility / opacity / non-zero bbox) only.
+ * TODO(IMP-0097): swap the in-page click dispatch to the shared
+ * `awaitActionable` primitive once it lands — current behaviour gates on
+ * the cheap visibility triad (display / visibility / opacity / bbox) only.
  */
+
+const HELPER_FILE = 'inject-scripts/locator-handler.js';
+const MSG = {
+  REGISTER: 'locator_handler_register',
+  LIST: 'locator_handler_list',
+  REMOVE: 'locator_handler_remove',
+  CLEAR: 'locator_handler_clear',
+} as const;
 
 type LocatorHandlerAction = 'register' | 'list' | 'remove' | 'clear';
 
@@ -218,7 +211,7 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
       createdAt: Date.now(),
     };
 
-    await this.installAndRegister(tabId, handler);
+    await this.sendRegister(tabId, handler);
 
     const bucket = getOrCreateTabBucket(tabId);
     bucket.set(handlerId, handler);
@@ -242,64 +235,37 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
       return jsonOk({ ok: true, action: 'list', handlers: [], count: 0, tabId });
     }
 
-    // Ask the live in-page state for the current dismissed counts. If the
-    // page has navigated and the helper is gone, we'll re-inject and replay
-    // every handler so the response always reflects the truth.
-    await this.injectContentScript(
-      tabId,
-      ['inject-scripts/locator-handler.js'],
-      false,
-      'ISOLATED',
-      false,
-    );
-    let live: InjectResult;
-    try {
-      live = await this.sendMessageToTab(tabId, { action: 'locator_handler_list' });
-    } catch {
-      live = { success: false, handlers: [] };
-    }
-    if (
-      !live ||
-      live.success !== true ||
-      !Array.isArray(live.handlers) ||
-      live.handlers.length === 0
-    ) {
-      // Page lost state (likely fresh navigation) — replay every persistent
-      // handler so the next list call reflects the desired set.
+    // Ask the live in-page state for the current dismissed counts.
+    await this.ensureHelperInjected(tabId);
+    let live = await this.tryListInPage(tabId);
+    const helperGone =
+      !live || live.success !== true || !Array.isArray(live.handlers) || live.handlers.length === 0;
+    if (helperGone) {
+      // Page lost state (likely fresh navigation). Inject once, then replay
+      // every handler in this tab so the next list reflects the desired set.
+      // Replaying issues N register messages but only one injection — the
+      // base class pings first and short-circuits when the helper is live.
       for (const handler of bucket.values()) {
         try {
-          await this.installAndRegister(tabId, handler);
+          await this.sendRegister(tabId, handler);
         } catch {
           // best-effort; partial replays are fine
         }
       }
-      try {
-        live = await this.sendMessageToTab(tabId, { action: 'locator_handler_list' });
-      } catch {
-        live = { success: false, handlers: [] };
-      }
+      live = await this.tryListInPage(tabId);
     }
 
-    // Index live entries by handlerId so we can attach dismissedCount /
-    // lastDismissedAt to the background's truth.
     const liveById = new Map<string, SerializedHandler>();
     if (Array.isArray(live?.handlers)) {
       for (const h of live!.handlers) liveById.set(h.handlerId, h);
     }
     const handlers: SerializedHandler[] = [];
     for (const handler of bucket.values()) {
-      const merged = liveById.get(handler.handlerId);
-      handlers.push(merged ? merged : serializeForResponse(handler));
+      handlers.push(liveById.get(handler.handlerId) ?? serializeForResponse(handler));
     }
     handlers.sort((a, b) => a.createdAt - b.createdAt);
 
-    return jsonOk({
-      ok: true,
-      action: 'list',
-      handlers,
-      count: handlers.length,
-      tabId,
-    });
+    return jsonOk({ ok: true, action: 'list', handlers, count: handlers.length, tabId });
   }
 
   private async actionRemove(tabId: number, args: LocatorHandlerParams): Promise<ToolResult> {
@@ -316,21 +282,12 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
     if (bucket && bucket.size === 0) tabHandlers.delete(tabId);
 
     // Best-effort tell the page to forget it too. If the page has navigated
-    // away the message will fail; we already cleared the background entry
-    // which is the canonical source for persistent replays.
+    // away the message will fail; the background entry is the canonical
+    // source for persistent replays so a missed in-page remove is harmless.
     let removedInPage = false;
     try {
-      await this.injectContentScript(
-        tabId,
-        ['inject-scripts/locator-handler.js'],
-        false,
-        'ISOLATED',
-        false,
-      );
-      const resp: InjectResult = await this.sendMessageToTab(tabId, {
-        action: 'locator_handler_remove',
-        handlerId,
-      });
+      await this.ensureHelperInjected(tabId);
+      const resp = await this.sendHelperMessage(tabId, { action: MSG.REMOVE, handlerId });
       removedInPage = !!resp?.removed;
     } catch {
       // ignore — bg state already updated
@@ -352,16 +309,8 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
 
     let clearedInPage = 0;
     try {
-      await this.injectContentScript(
-        tabId,
-        ['inject-scripts/locator-handler.js'],
-        false,
-        'ISOLATED',
-        false,
-      );
-      const resp: InjectResult = await this.sendMessageToTab(tabId, {
-        action: 'locator_handler_clear',
-      });
+      await this.ensureHelperInjected(tabId);
+      const resp = await this.sendHelperMessage(tabId, { action: MSG.CLEAR });
       clearedInPage = typeof resp?.cleared === 'number' ? resp.cleared : 0;
     } catch {
       // ignore — bg state already empty
@@ -376,20 +325,26 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
   }
 
   /**
-   * Inject the helper into the tab (idempotent — base class pings first)
-   * and forward a register message. Used both by direct register calls and
-   * by the persistent-replay path so behaviour stays identical.
+   * Inject the helper file (idempotent — the base class pings before
+   * re-injecting). Same 5-arg shape every call site needs.
    */
-  private async installAndRegister(tabId: number, handler: RegisteredHandler): Promise<void> {
-    await this.injectContentScript(
-      tabId,
-      ['inject-scripts/locator-handler.js'],
-      false,
-      'ISOLATED',
-      false,
-    );
-    const resp: InjectResult = await this.sendMessageToTab(tabId, {
-      action: 'locator_handler_register',
+  private async ensureHelperInjected(tabId: number): Promise<void> {
+    await this.injectContentScript(tabId, [HELPER_FILE], false, 'ISOLATED', false);
+  }
+
+  /** Wrap sendMessageToTab so the call sites stay declarative. */
+  private async sendHelperMessage(
+    tabId: number,
+    payload: Record<string, unknown>,
+  ): Promise<InjectResult> {
+    return (await this.sendMessageToTab(tabId, payload)) as InjectResult;
+  }
+
+  /** Forward a register payload; throw on `success:false` so callers branch on it. */
+  private async sendRegister(tabId: number, handler: RegisteredHandler): Promise<void> {
+    await this.ensureHelperInjected(tabId);
+    const resp = await this.sendHelperMessage(tabId, {
+      action: MSG.REGISTER,
       handlerId: handler.handlerId,
       selector: handler.selector,
       dismissSelector: handler.dismissSelector,
@@ -402,17 +357,27 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
       throw new Error(resp?.error || 'in-page register failed');
     }
   }
+
+  /** Best-effort live list read — swallows transport errors. */
+  private async tryListInPage(tabId: number): Promise<InjectResult> {
+    try {
+      return await this.sendHelperMessage(tabId, { action: MSG.LIST });
+    } catch {
+      return { success: false, handlers: [] };
+    }
+  }
 }
 
 function serializeForResponse(handler: RegisteredHandler): SerializedHandler {
+  const times = typeof handler.times === 'number' ? handler.times : null;
   return {
     handlerId: handler.handlerId,
     selector: handler.selector,
     dismissSelector: handler.dismissSelector,
     dismissAction: handler.dismissAction,
-    key: handler.key || null,
-    times: typeof handler.times === 'number' ? handler.times : null,
-    timesRemaining: typeof handler.times === 'number' ? handler.times : null,
+    key: handler.key ?? null,
+    times,
+    timesRemaining: times,
     persistent: handler.persistent,
     dismissedCount: 0,
     lastDismissedAt: null,
@@ -465,20 +430,21 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onDOMContentLoaded?.a
     if (details.frameId !== 0) return;
     const bucket = tabHandlers.get(details.tabId);
     if (!bucket || bucket.size === 0) return;
-    const persistent = [...bucket.values()].filter((h) => h.persistent);
-    if (persistent.length === 0) return;
+    // Partition in one pass so non-persistent handlers drop on navigation
+    // (by design — list/remove must not surface stale entries) regardless
+    // of whether there are persistent handlers to replay.
+    const persistent: RegisteredHandler[] = [];
+    for (const handler of [...bucket.values()]) {
+      if (handler.persistent) persistent.push(handler);
+      else bucket.delete(handler.handlerId);
+    }
+    if (bucket.size === 0) tabHandlers.delete(details.tabId);
     for (const handler of persistent) {
       try {
-        await locatorHandlerTool['installAndRegister'](details.tabId, handler);
+        await locatorHandlerTool['sendRegister'](details.tabId, handler);
       } catch {
         // Silent — the next tool call against this tab will surface the error.
       }
     }
-    // Non-persistent handlers do not survive navigation by design — drop them
-    // so list/remove don't surface stale entries.
-    for (const handler of bucket.values()) {
-      if (!handler.persistent) bucket.delete(handler.handlerId);
-    }
-    if (bucket.size === 0) tabHandlers.delete(details.tabId);
   });
 }

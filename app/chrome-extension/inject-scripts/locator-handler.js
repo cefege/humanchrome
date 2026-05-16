@@ -44,7 +44,6 @@
   let observer = null;
   let intervalTimer = null;
   let evalScheduled = false;
-  let cleanupRegistered = false;
 
   function isVisible(el) {
     try {
@@ -219,23 +218,17 @@
     }
   }
 
-  function registerCleanupOnce() {
-    if (cleanupRegistered) return;
-    cleanupRegistered = true;
-    // Cooperate with the inject-bridge cleanup signal so callers can fully
-    // remove the helper via chrome_remove_injected_script if they ever opt
-    // into that path. We're injected directly (not via the bridge) but the
-    // event is broadcast on `window` so it costs nothing to listen.
-    window.addEventListener('humanchrome:cleanup', () => {
-      handlers.clear();
-      teardownObserver();
-      try {
-        delete window.__LOCATOR_HANDLER_INITIALIZED__;
-      } catch {}
-    });
-  }
-
-  registerCleanupOnce();
+  // Cooperate with the inject-bridge cleanup signal so callers can fully
+  // remove the helper via chrome_remove_injected_script. We're injected
+  // directly (not via the bridge) but the event is broadcast on `window`
+  // so it costs nothing to listen.
+  window.addEventListener('humanchrome:cleanup', () => {
+    handlers.clear();
+    teardownObserver();
+    try {
+      delete window.__LOCATOR_HANDLER_INITIALIZED__;
+    } catch {}
+  });
 
   function serializeHandler(h) {
     const timesRemaining =
