@@ -161,6 +161,14 @@ Claim a tab as owned by the calling MCP client. Tabs the user opened manually (o
 | `tabId` | number | ✓ | Tab ID to claim for the calling client. |
 | `force` | boolean |  | When true, claim the tab even if another client currently owns it. The previous owner is reported in the response and audit-logged via `debugLog.warn`. Defaults to false — without `force`, claiming an owned-by-other tab returns TAB_NOT_OWNED. Only use when you know the previous owner is gone (stale session, crashed bridge) or when intentionally handing off between operator-driven sessions. |
 
+### `chrome_queue_inspect`
+
+Diagnostic snapshot of per-tab serialization queues (IMP-0087). Returns the current holder + waiters per tab with EWMA-based wait estimates. Pass `tabId` to scope to one tab; omit for every active queue. Returns `{tabs: [{tabId, depth, servedTotal, meanHoldMs, holder, waiters}]}` where holder is `null` when the queue exists with no current holder, and waiters[] reports `{clientId, position, waitedMs, expectedWaitMs, ticket}`. `expectedWaitMs` uses the per-tab EWMA of completed hold durations once warmed up, falling back to position × 250ms otherwise. Read-only; no `chrome.*` calls. Use when callers report slow tool calls or to verify the queue drains correctly after closing a stuck tab.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Optional tab to scope the snapshot to. Omit for every active queue. |
+
 ### `browser_close_my_tabs`
 
 Close every tab currently owned by the calling MCP client. Opt-in cleanup — disconnect releases ownership without closing tabs; call this tool to actually close them. Optional `keep` array preserves specific tabIds (any id not in the caller's owned set is silently dropped). Returns `{success, closed: number[], kept: number[], failed: [{tabId, reason}]}`. Partial success is normal: an already-closed tab reports `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays true. Honors the last-tab-in-window guard (opens a placeholder rather than killing the window). NOTE: `beforeunload` prompts are bypassed silently — Chrome's extension API offers no dialog-aware close. Errors with `INVALID_ARGS` if `keep` is not an array of finite numbers or no MCP clientId is bound to the call.

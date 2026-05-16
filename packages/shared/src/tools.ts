@@ -118,6 +118,7 @@ export const TOOL_NAMES = {
     PACE_GET: 'chrome_pace_get',
     CLAIM_TAB: 'browser_claim_tab',
     CLOSE_MY_TABS: 'browser_close_my_tabs',
+    QUEUE_INSPECT: 'chrome_queue_inspect',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2977,6 +2978,21 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.QUEUE_INSPECT,
+    description:
+      'Diagnostic snapshot of per-tab serialization queues (IMP-0087). Returns the current holder + waiters per tab with EWMA-based wait estimates. Pass `tabId` to scope to one tab; omit for every active queue. Returns `{tabs: [{tabId, depth, servedTotal, meanHoldMs, holder, waiters}]}` where holder is `null` when the queue exists with no current holder, and waiters[] reports `{clientId, position, waitedMs, expectedWaitMs, ticket}`. `expectedWaitMs` uses the per-tab EWMA of completed hold durations once warmed up, falling back to position × 250ms otherwise. Read-only; no `chrome.*` calls. Use when callers report slow tool calls or to verify the queue drains correctly after closing a stuck tab.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Optional tab to scope the snapshot to. Omit for every active queue.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.CLOSE_MY_TABS,
     description:
       "Close every tab currently owned by the calling MCP client. Opt-in cleanup — disconnect releases ownership without closing tabs; call this tool to actually close them. Optional `keep` array preserves specific tabIds (any id not in the caller's owned set is silently dropped). Returns `{success, closed: number[], kept: number[], failed: [{tabId, reason}]}`. Partial success is normal: an already-closed tab reports `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays true. Honors the last-tab-in-window guard (opens a placeholder rather than killing the window). NOTE: `beforeunload` prompts are bypassed silently — Chrome's extension API offers no dialog-aware close. Errors with `INVALID_ARGS` if `keep` is not an array of finite numbers or no MCP clientId is bound to the call.",
@@ -3136,6 +3152,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.PACE_GET]: 'Pacing',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
+  [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
