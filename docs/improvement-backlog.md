@@ -243,7 +243,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0089 · `force: true` override on `browser_claim_tab` to seize an owned tab (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: `browser_claim_tab` refuses to claim a tab owned by another client and returns `TAB_NOT_OWNED`. Safe default — but when the owning client is dead and `CLIENT_DISCONNECTED` never fires (native-host crash, transport hang, manual hand-off between operator-driven sessions), there's no escape hatch short of restarting the extension or waiting out the 30-min `STALE_AFTER_MS` GC. `force: true` is the explicit override.
 - **Cost**: S
 - **Value**: S

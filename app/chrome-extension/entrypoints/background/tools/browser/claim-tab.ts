@@ -3,9 +3,11 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 import { claimTabForClient, findTabOwner } from '../../utils/client-state';
+import { debugLog } from '../../utils/debug-log';
 
 interface ClaimTabParams {
   tabId?: number;
+  force?: boolean;
 }
 
 /**
@@ -17,8 +19,9 @@ interface ClaimTabParams {
  * client's owned set so subsequent calls without an explicit `tabId`
  * can target it.
  *
- * Refuses to take a tab currently owned by a different client — callers
- * must coordinate (or use the `force: true` follow-up once it exists).
+ * Refuses to take a tab currently owned by a different client unless
+ * `force: true` is passed. Forced seizures are audit-logged via
+ * `debugLog.warn` so the contention stays visible.
  */
 class ClaimTabTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.CLAIM_TAB;
@@ -51,15 +54,29 @@ class ClaimTabTool extends BaseBrowserToolExecutor {
     }
 
     const owner = findTabOwner(tabId);
-    if (owner && owner !== clientId) {
+    const force = args?.force === true;
+
+    if (owner && owner !== clientId && !force) {
       return createErrorResponse(
-        `Tab ${tabId} is owned by client ${owner}; coordinate with them or wait until they release it.`,
+        `Tab ${tabId} is owned by client ${owner}; coordinate with them, wait until they release it, or retry with force:true.`,
         ToolErrorCode.TAB_NOT_OWNED,
         { tabId, owner },
       );
     }
 
     const previousOwner = claimTabForClient(clientId, tabId, tab.windowId);
+
+    if (force && previousOwner && previousOwner !== clientId) {
+      debugLog.warn('browser_claim_tab forced seizure', {
+        data: {
+          event: 'claim_tab.force_seizure',
+          tabId,
+          windowId: tab.windowId,
+          previousOwner,
+          newOwner: clientId,
+        },
+      });
+    }
 
     return {
       content: [
