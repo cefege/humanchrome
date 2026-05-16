@@ -825,7 +825,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.WEB_FETCHER,
-    description: 'Fetch content from a web page',
+    description: 'Fetch content from a web page (raw HTML, plain text, or reader-mode Markdown)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -837,18 +837,23 @@ export const TOOL_SCHEMAS: Tool[] = [
         htmlContent: {
           type: 'boolean',
           description:
-            'Get the visible HTML content of the page. If true, textContent will be ignored (default: false)',
+            'Get the visible HTML content of the page. If true, textContent and markdownContent are ignored (default: false)',
         },
         textContent: {
           type: 'boolean',
           description:
-            'Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true)',
+            'Get the visible text content of the page with metadata. Ignored if htmlContent or markdownContent is true (default: true)',
+        },
+        markdownContent: {
+          type: 'boolean',
+          description:
+            'Run reader-mode extraction (Mozilla Readability) and return the article as Markdown (Turndown + GFM, supports tables/fenced code/task lists). Ignored if htmlContent is true; overrides textContent default. (default: false)',
         },
 
         selector: {
           type: 'string',
           description:
-            'CSS selector to get content from a specific element. If provided, only content from this element will be returned',
+            'CSS selector to get content from a specific element. If provided, only content from this element will be returned. Has no effect on markdownContent (reader-mode always extracts the main article).',
         },
         savePath: {
           type: 'string',

@@ -24,9 +24,41 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Merge a Readability-backed in-page response (text or markdown branch)
+ * into the dispatcher's accumulating result. The two branches share
+ * identical projection rules: copy the named content field, normalize
+ * `article` to a fixed 5-field shape, pass `metadata` and `fallback`
+ * through. On failure, surface `<key>Error` so callers can distinguish
+ * which branch failed.
+ */
+function applyReadabilityResponse(
+  result: Record<string, unknown>,
+  response: any,
+  key: 'textContent' | 'markdownContent',
+): void {
+  if (!response?.success) {
+    result[`${key}Error`] = response?.error;
+    return;
+  }
+  result[key] = response[key];
+  if (response.fallback) result.fallback = true;
+  if (response.article) {
+    result.article = {
+      title: response.article.title,
+      byline: response.article.byline,
+      siteName: response.article.siteName,
+      excerpt: response.article.excerpt,
+      lang: response.article.lang,
+    };
+  }
+  if (response.metadata) result.metadata = response.metadata;
+}
+
 interface WebFetcherToolParams {
   htmlContent?: boolean;
   textContent?: boolean;
+  markdownContent?: boolean;
   url?: string;
   selector?: string;
   tabId?: number;
@@ -41,7 +73,8 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
 
   async execute(args: WebFetcherToolParams): Promise<ToolResult> {
     const htmlContent = args.htmlContent === true;
-    const textContent = htmlContent ? false : args.textContent !== false;
+    const markdownContent = !htmlContent && args.markdownContent === true;
+    const textContent = htmlContent || markdownContent ? false : args.textContent !== false;
     const url = args.url;
     const selector = args.selector;
     const explicitTabId = args.tabId;
@@ -49,17 +82,18 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     const windowId = args.windowId;
 
     // Precondition: a non-MHTML savePath needs *something* to write. If the
-    // caller explicitly disabled both extraction modes, fail loud here
+    // caller explicitly disabled every extraction mode, fail loud here
     // rather than waste a tab round-trip and an IPC call only to discover
     // there's nothing to save.
     if (
       args.savePath &&
       !args.savePath.endsWith('.mhtml') &&
       args.htmlContent === false &&
-      args.textContent === false
+      args.textContent === false &&
+      args.markdownContent !== true
     ) {
       return createErrorResponse(
-        'savePath given but both htmlContent and textContent are disabled — nothing to save. Enable one, or use savePath ending in .mhtml for a Chrome-bundled snapshot.',
+        'savePath given but htmlContent, textContent, and markdownContent are all disabled — nothing to save. Enable one, or use savePath ending in .mhtml for a Chrome-bundled snapshot.',
       );
     }
 
@@ -110,7 +144,16 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
       // ── Extract content ─────────────────────────────────────────────
       const result: any = { success: true, url: tab.url, title: tab.title };
 
-      await this.injectContentScript(tab.id, ['inject-scripts/web-fetcher-helper.js']);
+      // Turndown is loaded only on the markdown path to keep the per-call
+      // inject footprint small for the common text/HTML branches.
+      const injectFiles = markdownContent
+        ? [
+            'inject-scripts/turndown-bundle.js',
+            'inject-scripts/turndown-gfm-bundle.js',
+            'inject-scripts/web-fetcher-helper.js',
+          ]
+        : ['inject-scripts/web-fetcher-helper.js'];
+      await this.injectContentScript(tab.id, injectFiles);
 
       if (htmlContent) {
         const htmlResponse = await this.sendMessageToTab(tab.id, {
@@ -133,22 +176,14 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
           action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_TEXT_CONTENT,
           selector,
         });
+        applyReadabilityResponse(result, textResponse, 'textContent');
+      }
 
-        if (textResponse.success) {
-          result.textContent = textResponse.textContent;
-          if (textResponse.article) {
-            result.article = {
-              title: textResponse.article.title,
-              byline: textResponse.article.byline,
-              siteName: textResponse.article.siteName,
-              excerpt: textResponse.article.excerpt,
-              lang: textResponse.article.lang,
-            };
-          }
-          if (textResponse.metadata) result.metadata = textResponse.metadata;
-        } else {
-          result.textContentError = textResponse.error;
-        }
+      if (markdownContent) {
+        const markdownResponse = await this.sendMessageToTab(tab.id, {
+          action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_MARKDOWN_CONTENT,
+        });
+        applyReadabilityResponse(result, markdownResponse, 'markdownContent');
       }
 
       // ── Save to disk ────────────────────────────────────────────────
@@ -248,9 +283,11 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     savePath: string,
     result: any,
   ): Promise<ToolResult> {
-    const contentToSave = result.htmlContent || result.textContent || '';
+    const contentToSave = result.htmlContent || result.markdownContent || result.textContent || '';
     if (!contentToSave) {
-      return createErrorResponse('No content to save — enable htmlContent or textContent');
+      return createErrorResponse(
+        'No content to save — enable htmlContent, markdownContent, or textContent',
+      );
     }
 
     // Save HTML

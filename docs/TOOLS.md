@@ -222,7 +222,7 @@ List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entr
 
 ### `chrome_get_web_content`
 
-Fetch content from a web page
+Fetch content from a web page (raw HTML, plain text, or reader-mode Markdown)
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -230,9 +230,10 @@ Fetch content from a web page
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `background` | boolean |  | Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward. |
-| `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent will be ignored (default: false) |
-| `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent is true (default: true) |
-| `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned |
+| `htmlContent` | boolean |  | Get the visible HTML content of the page. If true, textContent and markdownContent are ignored (default: false) |
+| `textContent` | boolean |  | Get the visible text content of the page with metadata. Ignored if htmlContent or markdownContent is true (default: true) |
+| `markdownContent` | boolean |  | Run reader-mode extraction (Mozilla Readability) and return the article as Markdown (Turndown + GFM, supports tables/fenced code/task lists). Ignored if htmlContent is true; overrides textContent default. (default: false) |
+| `selector` | string |  | CSS selector to get content from a specific element. If provided, only content from this element will be returned. Has no effect on markdownContent (reader-mode always extracts the main article). |
 | `savePath` | string |  | Absolute file path to save the content to. When provided, content is written to disk via the native bridge instead of being returned in the response. Returns {saved: true, filePath, size} on success. |
 | `raw` | boolean |  | When false, sanitize HTML by removing scripts, styles, and SVGs. Default: true (raw — preserves everything so the page opens and renders like the original). |
 
