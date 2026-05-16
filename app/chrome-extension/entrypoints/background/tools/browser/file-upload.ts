@@ -131,19 +131,20 @@ class FileUploadTool extends BaseBrowserToolExecutor {
             files,
           });
 
-          // Trigger change event to ensure the page reacts to the file upload
-          await cdpSessionManager.sendCommand(tabId, 'Runtime.evaluate', {
-            expression: `
-              (function() {
-                const element = document.querySelector('${selector.replace(/'/g, "\\'")}');
-                if (element) {
-                  const event = new Event('change', { bubbles: true });
-                  element.dispatchEvent(event);
-                  return true;
-                }
-                return false;
-              })()
-            `,
+          // Trigger change event so the page reacts to the file upload.
+          // Resolve the existing nodeId to a Runtime objectId and dispatch
+          // via Runtime.callFunctionOn — the user-controlled selector never
+          // crosses an eval boundary, eliminating the parse-error class of
+          // bugs (selectors with single/double quotes, backslashes, newlines)
+          // and the prompt-injection surface in Runtime.evaluate MAIN world.
+          const { object } = (await cdpSessionManager.sendCommand(tabId, 'DOM.resolveNode', {
+            nodeId,
+          })) as { object: { objectId: string } };
+
+          await cdpSessionManager.sendCommand(tabId, 'Runtime.callFunctionOn', {
+            objectId: object.objectId,
+            functionDeclaration:
+              "function(){this.dispatchEvent(new Event('change',{bubbles:true}))}",
           });
         }),
       );

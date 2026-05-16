@@ -165,7 +165,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0096 · chrome_file_upload synthesized change-event silently drops when selector contains quotes (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: After DOM.setFileInputFiles attaches the file, chrome_file_upload synthesizes a change event by interpolating the raw selector into a Runtime.evaluate string with only naive single-quote escaping. Selectors with backslashes, double-quotes, or escaped attribute values fail to parse — files attach but the page never sees the change event, so React/Vue form handlers never fire. Agents see a success envelope and never retry. Bonus: code-injection surface via Runtime.evaluate.
 - **Cost**: S
 - **Value**: S
