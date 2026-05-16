@@ -129,6 +129,7 @@ export const TOOL_MESSAGE_TYPES = {
   // Web content fetching
   WEB_FETCHER_GET_HTML_CONTENT: 'getHtmlContent',
   WEB_FETCHER_GET_TEXT_CONTENT: 'getTextContent',
+  WEB_FETCHER_GET_MARKDOWN_CONTENT: 'getMarkdownContent',
 
   // User interactions
   CLICK_ELEMENT: 'clickElement',

@@ -27,6 +27,7 @@ async function blobToBase64(blob: Blob): Promise<string> {
 interface WebFetcherToolParams {
   htmlContent?: boolean;
   textContent?: boolean;
+  markdownContent?: boolean;
   url?: string;
   selector?: string;
   tabId?: number;
@@ -41,7 +42,8 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
 
   async execute(args: WebFetcherToolParams): Promise<ToolResult> {
     const htmlContent = args.htmlContent === true;
-    const textContent = htmlContent ? false : args.textContent !== false;
+    const markdownContent = !htmlContent && args.markdownContent === true;
+    const textContent = htmlContent || markdownContent ? false : args.textContent !== false;
     const url = args.url;
     const selector = args.selector;
     const explicitTabId = args.tabId;
@@ -49,17 +51,18 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     const windowId = args.windowId;
 
     // Precondition: a non-MHTML savePath needs *something* to write. If the
-    // caller explicitly disabled both extraction modes, fail loud here
+    // caller explicitly disabled every extraction mode, fail loud here
     // rather than waste a tab round-trip and an IPC call only to discover
     // there's nothing to save.
     if (
       args.savePath &&
       !args.savePath.endsWith('.mhtml') &&
       args.htmlContent === false &&
-      args.textContent === false
+      args.textContent === false &&
+      args.markdownContent !== true
     ) {
       return createErrorResponse(
-        'savePath given but both htmlContent and textContent are disabled — nothing to save. Enable one, or use savePath ending in .mhtml for a Chrome-bundled snapshot.',
+        'savePath given but htmlContent, textContent, and markdownContent are all disabled — nothing to save. Enable one, or use savePath ending in .mhtml for a Chrome-bundled snapshot.',
       );
     }
 
@@ -110,7 +113,16 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
       // ── Extract content ─────────────────────────────────────────────
       const result: any = { success: true, url: tab.url, title: tab.title };
 
-      await this.injectContentScript(tab.id, ['inject-scripts/web-fetcher-helper.js']);
+      // Turndown is loaded only on the markdown path to keep the per-call
+      // inject footprint small for the common text/HTML branches.
+      const injectFiles = markdownContent
+        ? [
+            'inject-scripts/turndown-bundle.js',
+            'inject-scripts/turndown-gfm-bundle.js',
+            'inject-scripts/web-fetcher-helper.js',
+          ]
+        : ['inject-scripts/web-fetcher-helper.js'];
+      await this.injectContentScript(tab.id, injectFiles);
 
       if (htmlContent) {
         const htmlResponse = await this.sendMessageToTab(tab.id, {
@@ -148,6 +160,29 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
           if (textResponse.metadata) result.metadata = textResponse.metadata;
         } else {
           result.textContentError = textResponse.error;
+        }
+      }
+
+      if (markdownContent) {
+        const markdownResponse = await this.sendMessageToTab(tab.id, {
+          action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_MARKDOWN_CONTENT,
+        });
+
+        if (markdownResponse.success) {
+          result.markdownContent = markdownResponse.markdownContent;
+          if (markdownResponse.fallback) result.fallback = true;
+          if (markdownResponse.article) {
+            result.article = {
+              title: markdownResponse.article.title,
+              byline: markdownResponse.article.byline,
+              siteName: markdownResponse.article.siteName,
+              excerpt: markdownResponse.article.excerpt,
+              lang: markdownResponse.article.lang,
+            };
+          }
+          if (markdownResponse.metadata) result.metadata = markdownResponse.metadata;
+        } else {
+          result.markdownContentError = markdownResponse.error;
         }
       }
 
@@ -248,9 +283,11 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
     savePath: string,
     result: any,
   ): Promise<ToolResult> {
-    const contentToSave = result.htmlContent || result.textContent || '';
+    const contentToSave = result.htmlContent || result.markdownContent || result.textContent || '';
     if (!contentToSave) {
-      return createErrorResponse('No content to save — enable htmlContent or textContent');
+      return createErrorResponse(
+        'No content to save — enable htmlContent, markdownContent, or textContent',
+      );
     }
 
     // Save HTML

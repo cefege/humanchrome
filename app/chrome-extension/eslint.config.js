@@ -33,6 +33,11 @@ export default defineConfig([
       'libs/**',
       'workers/**',
       'public/libs/**',
+      // Vendored Turndown bundles (third-party minified output) — these
+      // are committed verbatim so the extension build doesn't need a
+      // network step; their stylistic shape isn't ours to police.
+      'inject-scripts/turndown-bundle.js',
+      'inject-scripts/turndown-gfm-bundle.js',
     ],
   },
   js.configs.recommended,

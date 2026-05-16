@@ -29,6 +29,7 @@ interface ChromeOverrides {
   tabId?: number;
   htmlResponse?: any;
   textResponse?: any;
+  markdownResponse?: any;
   mhtmlBlob?: Blob | undefined;
   mhtmlThrows?: Error;
 }
@@ -53,6 +54,9 @@ function installChrome(overrides: ChromeOverrides = {}) {
     }
     if (msg.action === 'getTextContent') {
       return overrides.textResponse ?? { success: true, textContent: 'Hi' };
+    }
+    if (msg.action === 'getMarkdownContent') {
+      return overrides.markdownResponse ?? { success: true, markdownContent: '# Hi\n\nbody' };
     }
     return { success: true };
   });
@@ -232,6 +236,117 @@ describe('web_fetcher — content extraction modes', () => {
     expect(res.isError).toBe(false);
     const text = (res.content[0] as any).text;
     expect(JSON.parse(text).textContent).toBe('Hello world');
+  });
+});
+
+describe('web_fetcher — markdown extraction', () => {
+  it('returns markdown when markdownContent is true', async () => {
+    installChrome({
+      markdownResponse: {
+        success: true,
+        markdownContent: '# Hello\n\nWorld',
+        article: { title: 'Hello', byline: null, siteName: 'Ex', excerpt: 'W', lang: 'en' },
+        metadata: {
+          title: 'Hello',
+          description: '',
+          author: '',
+          keywords: '',
+          published: '',
+          siteName: '',
+        },
+      },
+    });
+
+    const { webFetcherTool } = await loadTool();
+    const res = await webFetcherTool.execute({ tabId: 5, markdownContent: true } as any);
+
+    expect(res.isError).toBe(false);
+    const body = JSON.parse((res.content[0] as any).text);
+    expect(body.markdownContent).toBe('# Hello\n\nWorld');
+    expect(body.textContent).toBeUndefined();
+    expect(body.htmlContent).toBeUndefined();
+    expect(body.article).toEqual({
+      title: 'Hello',
+      byline: null,
+      siteName: 'Ex',
+      excerpt: 'W',
+      lang: 'en',
+    });
+  });
+
+  it('markdownContent=true posts getMarkdownContent action (not getTextContent)', async () => {
+    const { sendMessage } = installChrome();
+    const { webFetcherTool } = await loadTool();
+    await webFetcherTool.execute({ tabId: 5, markdownContent: true } as any);
+
+    const actions = sendMessage.mock.calls
+      .map((c) => (c[1] as any).action)
+      .filter((a: string) => !a.endsWith('_ping'));
+    expect(actions).toContain('getMarkdownContent');
+    expect(actions).not.toContain('getTextContent');
+  });
+
+  it('htmlContent=true overrides markdownContent=true', async () => {
+    const { sendMessage } = installChrome();
+    const { webFetcherTool } = await loadTool();
+    await webFetcherTool.execute({
+      tabId: 5,
+      htmlContent: true,
+      markdownContent: true,
+    } as any);
+
+    const actions = sendMessage.mock.calls
+      .map((c) => (c[1] as any).action)
+      .filter((a: string) => !a.endsWith('_ping'));
+    expect(actions).toContain('getHtmlContent');
+    expect(actions).not.toContain('getMarkdownContent');
+  });
+
+  it('falls back gracefully when Readability returns no article', async () => {
+    installChrome({
+      markdownResponse: { success: true, markdownContent: '', fallback: true },
+    });
+    const { webFetcherTool } = await loadTool();
+    const res = await webFetcherTool.execute({ tabId: 5, markdownContent: true } as any);
+
+    expect(res.isError).toBe(false);
+    const body = JSON.parse((res.content[0] as any).text);
+    expect(body.markdownContent).toBe('');
+    expect(body.fallback).toBe(true);
+  });
+
+  it('surfaces helper errors at the boundary', async () => {
+    installChrome({
+      markdownResponse: { success: false, error: 'TurndownService not loaded' },
+    });
+    const { webFetcherTool } = await loadTool();
+    const res = await webFetcherTool.execute({ tabId: 5, markdownContent: true } as any);
+
+    expect(res.isError).toBe(true);
+    expect((res.content[0] as any).text).toMatch(/TurndownService not loaded/);
+  });
+
+  it('savePath precondition allows markdownContent', async () => {
+    installChrome({
+      markdownResponse: { success: true, markdownContent: '# Hi' },
+    });
+    stubs.sendNativeRequest.mockResolvedValue({
+      success: true,
+      filePath: '/tmp/page.md',
+      size: 4,
+    });
+    const { webFetcherTool } = await loadTool();
+    const res = await webFetcherTool.execute({
+      tabId: 5,
+      savePath: '/tmp/page.md',
+      markdownContent: true,
+      htmlContent: false,
+      textContent: false,
+    } as any);
+
+    expect(res.isError).toBe(false);
+    const call = stubs.sendNativeRequest.mock.calls[0];
+    expect(call[1].textData).toBe('# Hi');
   });
 });
 

@@ -2763,6 +2763,69 @@ if (window.__WEB_FETCHER_HELPER_INITIALIZED__) {
       }
     }
 
+    // Get reader-mode Markdown — Readability extracts the main article,
+    // Turndown (+GFM) converts the sanitized HTML to Markdown. Both globals
+    // are seeded by turndown-bundle.js + turndown-gfm-bundle.js, which the
+    // background injects before this helper on the markdown path.
+    else if (request.action === 'getMarkdownContent') {
+      try {
+        if (typeof TurndownService === 'undefined') {
+          sendResponse({
+            success: false,
+            error:
+              'TurndownService not loaded — markdown bundles must be injected before web-fetcher-helper',
+          });
+          return true;
+        }
+        const documentClone = document.cloneNode(true);
+        const reader = new Readability(documentClone);
+        const article = reader.parse();
+
+        if (!article || !article.content) {
+          sendResponse({
+            success: true,
+            markdownContent: '',
+            fallback: true,
+          });
+          return true;
+        }
+
+        const td = new TurndownService({
+          headingStyle: 'atx',
+          codeBlockStyle: 'fenced',
+          emDelimiter: '_',
+          bulletListMarker: '-',
+          hr: '---',
+          linkStyle: 'inlined',
+        });
+        if (typeof turndownPluginGfm !== 'undefined' && turndownPluginGfm.gfm) {
+          td.use(turndownPluginGfm.gfm);
+        }
+        const markdownContent = td.turndown(article.content);
+
+        sendResponse({
+          success: true,
+          markdownContent: markdownContent,
+          article: {
+            title: article.title,
+            byline: article.byline,
+            siteName: article.siteName,
+            excerpt: article.excerpt,
+            lang: article.lang,
+          },
+          metadata: extractPageMetadata(),
+        });
+      } catch (error) {
+        console.error('Error extracting markdown content:', error);
+        sendResponse({
+          success: false,
+          error: `Failed to extract markdown content: ${error.message}`,
+        });
+      }
+
+      return true; // Async response
+    }
+
     // Get text content
     else if (request.action === 'getTextContent') {
       try {
