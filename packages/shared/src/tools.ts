@@ -1602,7 +1602,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.AWAIT_ELEMENT,
     description:
-      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS / XPath / Playwright-style role/label/placeholder/alt/title/testid/text) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.',
+      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS / XPath / Playwright-style role/label/placeholder/alt/title/testid/text) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Success envelope mirrors the post-wait DOM truth: `state:"present"` success returns `{found:true, absent:false, matched:{ref,center}}`; `state:"absent"` success returns `{found:false, absent:true, matched:null}`. Both carry `{success:true, state, elapsedMs}`. A TIMEOUT error envelope (no `found`/`absent` fields) is returned with `{selector, state, timeoutMs, elapsedMs}` after timeoutMs.',
     inputSchema: {
       type: 'object',
       properties: {

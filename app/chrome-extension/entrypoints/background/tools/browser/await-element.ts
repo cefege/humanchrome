@@ -162,16 +162,24 @@ class AwaitElementTool extends BaseBrowserToolExecutor {
         return createErrorResponse(`chrome_await_element failed: ${reason || 'unknown error'}`);
       }
 
+      // `found` mirrors the post-wait DOM truth, not the wait's success:
+      //   state="present" success → the element exists now    → found:true
+      //   state="absent"  success → the element is gone now   → found:false
+      // The TIMEOUT branch above carries no `found` (the goal was never reached).
+      // `absent:true` is the positive twin of `found:true` for absent-mode
+      // callers conditioning on a single boolean field.
+      const isPresentSuccess = state === 'present';
       return {
         content: [
           {
             type: 'text',
             text: JSON.stringify({
               success: true,
-              found: true,
+              found: isPresentSuccess,
+              absent: !isPresentSuccess,
               selector: ref ? undefined : selector,
               selectorType: ref ? undefined : selectorType,
-              ref: ref || resp?.matched?.ref,
+              ref: isPresentSuccess ? ref || resp?.matched?.ref : ref || undefined,
               state,
               elapsedMs,
               matched: resp.matched || null,
