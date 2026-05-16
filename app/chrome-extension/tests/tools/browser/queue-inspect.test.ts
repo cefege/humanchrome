@@ -96,7 +96,8 @@ describe('chrome_queue_inspect', () => {
 
   it('output is JSON-parseable', async () => {
     const res = await queueInspectTool.execute({});
-    expect(() => JSON.parse(res.content[0].text!)).not.toThrow();
+    const block = res.content[0] as { type: string; text: string };
+    expect(() => JSON.parse(block.text)).not.toThrow();
     expect(res.isError).toBe(false);
   });
 });
