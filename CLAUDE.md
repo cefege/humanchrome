@@ -85,6 +85,7 @@ Not lint-enforced, but every PR follows them.
 - **Single-window default.** humanchrome runs in one Chrome window by default. Tools needing a `windowId` should resolve via `chrome_get_windows_and_tabs` (or the `getActiveTabOrThrowInWindow` helper on `BaseBrowserToolExecutor`) rather than spawning new windows.
 - **Conventional Commits with IMP id + Co-Author footer.** Subject: `<type>(<scope>): <imperative> (IMP-NNNN)`. Body ends with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. Commitlint enforces type/scope.
 - **Response-body cap is 1 MiB.** When proxying response bodies (network-capture, intercept-response), cap at `1 * 1024 * 1024` bytes and surface truncation as `responseBodyTruncation: { truncated, originalSize, limit, unit:"bytes" }`.
+- **Per-client tab ownership.** The dispatcher (`tools/index.ts`) resolves the target tab from the calling client's owned set (`utils/client-state.ts`); it never falls back to the globally-active tab. Mutating tools without an explicit `tabId` get a fresh background tab auto-spawned and claimed for the client — opt out by setting `static readonly autoSpawnTab = false` on tools that don't need a tab (`pace`, `pace_get`) or that scan the whole browser (`get_windows_and_tabs`, `claim-tab`). Targeting a tab owned by another client returns `TAB_NOT_OWNED`.
 - **CI flake to ignore.** `app/native-server/src/server/preHandler.test.ts` has a 5s-timeout flake under parallel jest load; re-run in isolation before treating as a regression.
 
 ---

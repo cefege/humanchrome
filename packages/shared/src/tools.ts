@@ -116,6 +116,7 @@ export const TOOL_NAMES = {
     DOWNLOAD_CANCEL: 'chrome_download_cancel',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     PACE_GET: 'chrome_pace_get',
+    CLAIM_TAB: 'browser_claim_tab',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2955,6 +2956,21 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.CLAIM_TAB,
+    description:
+      'Claim a tab as owned by the calling MCP client. Tabs the user opened manually (or that another client released on disconnect) start out unowned and are invisible to the implicit tab-resolution path; claim them here to bring them into your owned set so subsequent tool calls without an explicit `tabId` can target them. Returns `{tabId, previousOwner: string|null}`. Errors with `INVALID_ARGS` if `tabId` is missing, `TAB_NOT_FOUND` if the tab does not exist, and `TAB_NOT_OWNED` if the tab is currently owned by a different client (use `chrome_get_windows_and_tabs` to discover ownership).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Tab ID to claim for the calling client.',
+        },
+      },
+      required: ['tabId'],
+    },
+  },
+  {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
     description:
       'Delete a recorded flow by ID. Closes the lifecycle gap left by `record_replay_list_published` + `record_replay_flow_run` so iterative record-test-refine sessions can clean up stale versions without opening the extension UI. Always unpublishes first (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. Returns `{deleted: true, unpublished, flowId}` on success — `unpublished` reports whether the flow was published before deletion. Errors with `INVALID_ARGS` if `flowId` is missing or the flow does not exist.',
@@ -3095,6 +3111,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.PACE_GET]: 'Pacing',
+  [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

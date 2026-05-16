@@ -14,7 +14,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as process from 'process';
 import { withContext } from '../util/logger';
+import { normalizeSessionName } from './session-name';
 
 const log = withContext({ component: 'mcp-stdio' });
 
@@ -60,6 +62,29 @@ export const getStdioMcpServer = () => {
   return stdioMcpServer;
 };
 
+/**
+ * Resolve a stable sessionName for this stdio process. The stdio server runs
+ * as a subprocess of the calling CLI (Claude Code, Codex, etc.), so the
+ * CLI's working directory is a good default — `~/projects/acme-api` →
+ * "acme-api". Override via `HUMANCHROME_SESSION` env when the default isn't
+ * appropriate (e.g. two CLIs sharing a CWD).
+ *
+ * Returns the normalized name, or `null` if neither source yields a usable
+ * value (caller falls back to UUID at the server end).
+ */
+const resolveSessionName = (): string | null => {
+  const envName = process.env.HUMANCHROME_SESSION;
+  if (envName) {
+    const norm = normalizeSessionName(envName);
+    if (norm) return norm;
+  }
+  try {
+    return normalizeSessionName(path.basename(process.cwd()));
+  } catch {
+    return null;
+  }
+};
+
 export const ensureMcpClient = async () => {
   try {
     if (mcpClient) {
@@ -71,8 +96,18 @@ export const ensureMcpClient = async () => {
 
     const config = loadConfig();
     mcpClient = new Client({ name: 'Mcp Chrome Proxy', version: '1.0.0' }, { capabilities: {} });
-    const transport = new StreamableHTTPClientTransport(new URL(config.url), {});
+    const sessionName = resolveSessionName();
+    // Send the canonical name on the initial connect handshake so the bridge
+    // can persist ownership across this stdio process's restarts.
+    const requestInit: RequestInit | undefined = sessionName
+      ? { headers: { 'X-Humanchrome-Session': sessionName } }
+      : undefined;
+    const transportOpts = requestInit ? { requestInit } : {};
+    const transport = new StreamableHTTPClientTransport(new URL(config.url), transportOpts);
     await mcpClient.connect(transport);
+    if (sessionName) {
+      log.info({ sessionName }, 'stdio proxy connected with sessionName');
+    }
     return mcpClient;
   } catch (error) {
     mcpClient?.close();

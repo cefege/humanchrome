@@ -5,6 +5,7 @@ import { handleCallTool } from './tools';
 import { listPublished, getFlow } from './record-replay/flow-store';
 import { acquireKeepalive } from './keepalive-manager';
 import { debugLog } from './utils/debug-log';
+import { loadPersistedClientState, releaseClient } from './utils/client-state';
 
 const log = debugLog.with({ tool: 'native-host' });
 
@@ -437,6 +438,16 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
             },
           });
         }
+      } else if (message.type === NativeMessageType.CLIENT_DISCONNECTED) {
+        // The bridge tells us when an MCP client's transport closes. Drop
+        // that client's owned tabs back to the unowned pool so they become
+        // claimable by any other client. Tabs themselves stay open — the
+        // user keeps the browser.
+        const clientId: string | undefined = message.clientId ?? message.payload?.clientId;
+        if (clientId) {
+          const released = releaseClient(clientId);
+          log.info('client released', { data: { clientId, releasedTabs: released } });
+        }
       } else if (message.type === 'rr_list_published_flows' && message.requestId) {
         const requestId = message.requestId;
         try {
@@ -552,6 +563,35 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
 }
 
 /**
+ * Derive a stable synthetic clientId for a UI-originated `chrome.runtime`
+ * call. The MCP wire uses real UUIDs / session names; UI surfaces get
+ * `__ui:popup` / `__ui:sidepanel` / `__ui:options` so they have their own
+ * ownership lane and can't collide with anything on the wire. The `__`
+ * prefix is reserved by `normalizeSessionName` so bridge clients can never
+ * claim one of these names.
+ */
+function stampUiClientId(sender: chrome.runtime.MessageSender | undefined): string {
+  const url = sender?.url || '';
+  if (url.includes('/popup/') || url.endsWith('/popup.html') || url.includes('popup.html'))
+    return '__ui:popup';
+  if (
+    url.includes('/sidepanel/') ||
+    url.endsWith('/sidepanel.html') ||
+    url.includes('sidepanel.html')
+  )
+    return '__ui:sidepanel';
+  if (url.includes('/options/') || url.endsWith('/options.html') || url.includes('options.html'))
+    return '__ui:options';
+  if (
+    url.includes('/quickpanel/') ||
+    url.endsWith('/quickpanel.html') ||
+    url.includes('quickpanel.html')
+  )
+    return '__ui:quickpanel';
+  return '__ui:unknown';
+}
+
+/**
  * Initialize native host listeners and load initial state
  */
 export const initNativeHostListener = () => {
@@ -565,6 +605,15 @@ export const initNativeHostListener = () => {
         data: { err: error instanceof Error ? error.message : String(error) },
       });
     });
+
+  // Restore per-client ownership map from chrome.storage.session so a SW
+  // restart doesn't reset every client's owned-tab set. Tabs that no
+  // longer exist are dropped during the cross-check.
+  void loadPersistedClientState().catch((err) => {
+    log.warn('client-state restore failed', {
+      data: { err: err instanceof Error ? err.message : String(err) },
+    });
+  });
 
   // Auto-connect on SW activation (covers SW restart after idle termination)
   void ensureNativeConnected('sw_startup').catch(() => {});
@@ -580,9 +629,12 @@ export const initNativeHostListener = () => {
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    // Allow UI to call tools directly
+    // Allow UI to call tools directly. Stamp with a synthetic clientId so
+    // popup/sidepanel/options each get their own ownership lane and don't
+    // collide with MCP clients or with each other.
     if (message && message.type === 'call_tool' && message.name) {
-      handleCallTool({ name: message.name, args: message.args })
+      const uiClientId = stampUiClientId(_sender);
+      handleCallTool({ name: message.name, args: message.args }, undefined, uiClientId)
         .then((res) => sendResponse({ success: true, result: res }))
         .catch((err) =>
           sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) }),

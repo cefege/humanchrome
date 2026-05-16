@@ -19,6 +19,14 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    * keyboard, navigate, computer, upload).
    */
   static readonly mutates: boolean = false;
+  /**
+   * When true (default), the dispatcher auto-spawns a fresh tab and claims
+   * it for the calling client if no explicit `tabId` was passed and the
+   * client has no usable owned tab. Set to `false` on tools that don't
+   * need a tab (`pace`, `pace_get`) or that operate across all windows
+   * (`get_windows_and_tabs`). Only effective when `mutates` is also true.
+   */
+  static readonly autoSpawnTab: boolean = true;
   abstract execute(args: any): Promise<ToolResult>;
 
   /**

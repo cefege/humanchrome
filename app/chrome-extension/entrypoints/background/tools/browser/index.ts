@@ -73,3 +73,4 @@ export { debugDumpTool } from './debug-dump';
 export { assertTool } from './assert';
 export { waitForTool } from './wait-for';
 export { paceTool, paceGetTool } from './pace';
+export { claimTabTool } from './claim-tab';
