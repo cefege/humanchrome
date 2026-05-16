@@ -2876,7 +2876,6 @@ if (window.__WEB_FETCHER_HELPER_INITIALIZED__) {
                 siteName: article.siteName,
                 excerpt: article.excerpt,
                 lang: article.lang,
-                content: article.content, // HTML content
               },
               metadata: metadata,
             });

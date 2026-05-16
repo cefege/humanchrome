@@ -24,6 +24,37 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Merge a Readability-backed in-page response (text or markdown branch)
+ * into the dispatcher's accumulating result. The two branches share
+ * identical projection rules: copy the named content field, normalize
+ * `article` to a fixed 5-field shape, pass `metadata` and `fallback`
+ * through. On failure, surface `<key>Error` so callers can distinguish
+ * which branch failed.
+ */
+function applyReadabilityResponse(
+  result: Record<string, unknown>,
+  response: any,
+  key: 'textContent' | 'markdownContent',
+): void {
+  if (!response?.success) {
+    result[`${key}Error`] = response?.error;
+    return;
+  }
+  result[key] = response[key];
+  if (response.fallback) result.fallback = true;
+  if (response.article) {
+    result.article = {
+      title: response.article.title,
+      byline: response.article.byline,
+      siteName: response.article.siteName,
+      excerpt: response.article.excerpt,
+      lang: response.article.lang,
+    };
+  }
+  if (response.metadata) result.metadata = response.metadata;
+}
+
 interface WebFetcherToolParams {
   htmlContent?: boolean;
   textContent?: boolean;
@@ -145,45 +176,14 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
           action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_TEXT_CONTENT,
           selector,
         });
-
-        if (textResponse.success) {
-          result.textContent = textResponse.textContent;
-          if (textResponse.article) {
-            result.article = {
-              title: textResponse.article.title,
-              byline: textResponse.article.byline,
-              siteName: textResponse.article.siteName,
-              excerpt: textResponse.article.excerpt,
-              lang: textResponse.article.lang,
-            };
-          }
-          if (textResponse.metadata) result.metadata = textResponse.metadata;
-        } else {
-          result.textContentError = textResponse.error;
-        }
+        applyReadabilityResponse(result, textResponse, 'textContent');
       }
 
       if (markdownContent) {
         const markdownResponse = await this.sendMessageToTab(tab.id, {
           action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_MARKDOWN_CONTENT,
         });
-
-        if (markdownResponse.success) {
-          result.markdownContent = markdownResponse.markdownContent;
-          if (markdownResponse.fallback) result.fallback = true;
-          if (markdownResponse.article) {
-            result.article = {
-              title: markdownResponse.article.title,
-              byline: markdownResponse.article.byline,
-              siteName: markdownResponse.article.siteName,
-              excerpt: markdownResponse.article.excerpt,
-              lang: markdownResponse.article.lang,
-            };
-          }
-          if (markdownResponse.metadata) result.metadata = markdownResponse.metadata;
-        } else {
-          result.markdownContentError = markdownResponse.error;
-        }
+        applyReadabilityResponse(result, markdownResponse, 'markdownContent');
       }
 
       // ── Save to disk ────────────────────────────────────────────────

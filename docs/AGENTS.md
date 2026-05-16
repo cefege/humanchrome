@@ -20,20 +20,22 @@ When a tool fails, the response sets `isError: true` and the first text content 
 
 Defined in `packages/shared/src/error-codes.ts` as `ToolErrorCode`:
 
-| Code                    | When it fires                                                                                          | Right recovery                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `TAB_NOT_FOUND`         | Caller passed an invalid `tabId`, or no active tab is available.                                       | Check `chrome_get_windows_and_tabs`; pass an explicit `tabId`.             |
-| `TAB_CLOSED`            | Tab was closed during the call.                                                                        | Open a new tab via `chrome_navigate`.                                      |
-| `TARGET_NAVIGATED_AWAY` | Page navigated mid-call between the tool's snapshot and dispatch.                                      | Re-read the page (`chrome_read_page`) and retry with fresh refs/selectors. |
-| `INJECTION_FAILED`      | Chrome refused to inject a content script (restricted URL like `chrome://`, devtools://, store pages). | Don't retry the same URL. Tell the user the page can't be automated.       |
-| `INJECTION_TIMEOUT`     | Content script didn't respond to ping.                                                                 | Retry once; if persistent, the page is likely hostile to automation.       |
-| `CDP_BUSY`              | DevTools or another debugger client owns the CDP session.                                              | Ask user to close DevTools, then retry.                                    |
-| `CDP_DETACHED`          | CDP session dropped mid-call.                                                                          | Retry once.                                                                |
-| `TAB_LOCK_TIMEOUT`      | Another mutating call on the same tab held the lock past the 10s timeout.                              | Wait, or check for a stuck mutating call via `chrome_debug_dump`.          |
-| `TIMEOUT`               | A bounded wait expired (network request, JS execution, etc.).                                          | Increase `timeoutMs` (where the tool exposes it) and retry.                |
-| `INVALID_ARGS`          | Required field missing or shape wrong.                                                                 | Fix the args. `details.arg` names the offending field when known.          |
-| `PERMISSION_DENIED`     | Chrome refused (e.g. extension lacks a permission).                                                    | Don't retry; surface to user.                                              |
-| `UNKNOWN`               | Unclassified failure. Look at `error.message`.                                                         | Use `chrome_debug_dump` to triage; see §2.                                 |
+| Code                    | When it fires                                                                                                                | Right recovery                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TAB_NOT_FOUND`         | Caller passed an invalid `tabId`, or no active tab is available.                                                             | Check `chrome_get_windows_and_tabs`; pass an explicit `tabId`.                                                     |
+| `TAB_CLOSED`            | Tab was closed during the call.                                                                                              | Open a new tab via `chrome_navigate`.                                                                              |
+| `TARGET_NAVIGATED_AWAY` | Page navigated mid-call between the tool's snapshot and dispatch.                                                            | Re-read the page (`chrome_read_page`) and retry with fresh refs/selectors.                                         |
+| `INJECTION_FAILED`      | Chrome refused to inject a content script (restricted URL like `chrome://`, devtools://, store pages).                       | Don't retry the same URL. Tell the user the page can't be automated.                                               |
+| `INJECTION_TIMEOUT`     | Content script didn't respond to ping.                                                                                       | Retry once; if persistent, the page is likely hostile to automation.                                               |
+| `CDP_BUSY`              | DevTools or another debugger client owns the CDP session.                                                                    | Ask user to close DevTools, then retry.                                                                            |
+| `CDP_DETACHED`          | CDP session dropped mid-call.                                                                                                | Retry once.                                                                                                        |
+| `TAB_LOCK_TIMEOUT`      | Another mutating call on the same tab held the lock past the per-call timeout (default 60s; tunable via `tabLockTimeoutMs`). | Wait, or check for a stuck mutating call via `chrome_debug_dump`.                                                  |
+| `QUEUE_FULL`            | Per-tab queue at `MAX_TAB_QUEUE_DEPTH` (16) waiters; refused before enqueue.                                                 | Back off and retry, or pin a different `tabId`. Inspect via `chrome_queue_inspect`.                                |
+| `TAB_NOT_OWNED`         | Caller targeted a tab owned by another MCP client.                                                                           | Use `chrome_get_windows_and_tabs` to see ownership, or claim via `browser_claim_tab` (optionally `{force: true}`). |
+| `TIMEOUT`               | A bounded wait expired (network request, JS execution, etc.).                                                                | Increase `timeoutMs` (where the tool exposes it) and retry.                                                        |
+| `INVALID_ARGS`          | Required field missing or shape wrong.                                                                                       | Fix the args. `details.arg` names the offending field when known.                                                  |
+| `PERMISSION_DENIED`     | Chrome refused (e.g. extension lacks a permission).                                                                          | Don't retry; surface to user.                                                                                      |
+| `UNKNOWN`               | Unclassified failure. Look at `error.message`.                                                                               | Use `chrome_debug_dump` to triage; see §2.                                                                         |
 
 The serializer is `serializeToolError` in `packages/shared/src/error-codes.ts`. Tagged-error class is `ToolError` in the same file. Extension-side wrapper is `createErrorResponse(message, code?, details?)` in `app/chrome-extension/common/tool-handler.ts`.
 
@@ -80,25 +82,38 @@ Tool responses don't carry the server-side `requestId` directly. To correlate af
 
 ## 3. Per-client tab semantics
 
-Each connected MCP session is its own client. The bridge tracks each client's **preferred tab** — the last tab the client successfully acted on.
+Each connected MCP session is its own client. The bridge tracks each client's **owned tabs** — the set of tabs that client opened or explicitly claimed (IMP-0086). Reads can target any tab; mutating tools can only target tabs the client owns.
 
-### Resolution priority
+### Resolution priority (mutating tools)
 
-1. Explicit `tabId` argument wins.
-2. Otherwise, this client's preferred tab is used (if it still exists).
-3. Otherwise, falls back to the globally-active tab.
+1. Explicit `tabId` argument — must be in the caller's owned set or unowned. If owned by another client, the call errors with `TAB_NOT_OWNED`.
+2. The client's `activeTabId` (most-recently-acted-on owned tab) when it still exists.
+3. Most-recently-touched tab in the client's owned set that still exists.
+4. **Auto-spawn** — a fresh `about:blank` background tab is created and added to the client's owned set. The dispatcher never falls back to the globally-active tab.
+
+Read-only tools skip the ownership check entirely.
 
 ### Why this matters
 
-If two MCP clients are connected (e.g. Claude Code + curl), neither one collides with the other on implicit calls. Within one client, the preferred tab follows the last successful navigate/click/etc., so a sequence like `chrome_navigate → chrome_read_page → chrome_click_element` all hits the same tab without repeating `tabId`.
+If two MCP clients are connected (e.g. Claude Code + curl), neither one collides with the other on implicit calls. Within one client, ownership follows successful navigate/click/etc. calls, so a sequence like `chrome_navigate → chrome_read_page → chrome_click_element` stays on the same tab without repeating `tabId`.
+
+### Claiming and releasing tabs
+
+- `browser_claim_tab({tabId})` adopts an unowned tab (one the user opened manually, or one another client released). Pass `{tabId, force: true}` to seize a tab owned by another client (audit-logged to the bridge stderr).
+- On MCP client disconnect, the bridge sends `CLIENT_DISCONNECTED` and the extension calls `releaseClient(clientId)`. The client's owned tabs become unowned — they are NOT closed; the user keeps the browser.
+- `browser_close_my_tabs({keep?: number[]})` is the opt-in cleanup for callers (CI runs, one-shot scripts) that want to dismiss their tabs before disconnecting.
 
 ### Pass `tabId` explicitly when
 
-- You're driving multiple tabs in parallel from one client.
+- You're driving multiple owned tabs in parallel from one client.
 - You just opened a new tab and want to confirm the dispatcher uses it.
 - A previous call returned `TAB_CLOSED` and you want to switch targets.
 
-Use `chrome_get_windows_and_tabs` to enumerate ids. Tab-state module: `app/chrome-extension/entrypoints/background/utils/client-state.ts`.
+### Session identity
+
+The bridge derives a stable `clientId` from one of (in priority order): a `_meta.humanchrome.session` value on MCP `initialize`, an `X-Humanchrome-Session: <name>` header on HTTP/SSE, or for stdio the `HUMANCHROME_SESSION` env var (falling back to `path.basename(cwd)`). A reconnecting client that supplies the same session name reclaims its prior owned set (persisted across SW restarts via `chrome.storage.session`).
+
+Use `chrome_get_windows_and_tabs` to enumerate ids; each tab carries an `owner: clientId | null` field. Tab-state module: `app/chrome-extension/entrypoints/background/utils/client-state.ts`.
 
 ---
 
@@ -141,7 +156,7 @@ For `chrome_javascript`: branch on the top-level `truncated` field; widen by pas
 
 ## 5. Per-tab serialization
 
-Mutating tools targeting the same tab serialize FIFO. Reads pass through.
+Mutating tools targeting the same tab serialize through a per-tab queue (IMP-0087). Reads pass through.
 
 ### Mutating tools
 
@@ -152,13 +167,20 @@ Mutating tools targeting the same tab serialize FIFO. Reads pass through.
 - Two parallel mutating calls on the same tab → second waits for first to complete, then runs.
 - Different tabs run in parallel.
 - A reader (e.g. `chrome_read_page`) does not block and is not blocked.
-- If the queue can't drain within 10 seconds, the waiting call returns `TAB_LOCK_TIMEOUT`. There is **no tool-args knob to tighten this** — it's a foot-gun if exposed.
+- **Round-robin fairness**: when multiple clients contend on one tab, the queue rotates between distinct `clientId`s so a runaway loop in one client can't starve a polite one.
+- **Bounded depth**: per-tab waiter cap is `MAX_TAB_QUEUE_DEPTH` (16). Beyond that, new acquirers receive `QUEUE_FULL` synchronously instead of being enqueued.
+- **Per-call timeout opt-in**: callers can pass `tabLockTimeoutMs` on any mutating tool to override the default 60 s (clamped to `[100, 300_000]`). Long-running tools (perf trace, GIF recorder, intercept-response) may also set a class-level default.
+- If the queue can't drain within the effective timeout, the waiting call returns `TAB_LOCK_TIMEOUT`.
 
-Implementation: `app/chrome-extension/entrypoints/background/utils/tab-lock.ts`.
+### Inspecting contention
+
+`chrome_queue_inspect({tabId?: number})` returns a snapshot per active tab: holder + waiters with `clientId`, `position`, `waitedMs`, `expectedWaitMs` (EWMA-based). Pass no args for every active queue. Use this when calls feel slow or you suspect a stuck holder.
+
+Implementation: `app/chrome-extension/entrypoints/background/utils/tab-queue.ts` (with `tab-lock.ts` as a re-export shim for back-compat).
 
 ### What this means for you
 
-Don't add your own retry-on-busy loop for "another tool is acting on this tab" — the bridge handles it. Treat `TAB_LOCK_TIMEOUT` as a real failure (something is stuck; check `chrome_debug_dump`).
+Don't add your own retry-on-busy loop for "another tool is acting on this tab" — the bridge handles it. Treat `TAB_LOCK_TIMEOUT` and `QUEUE_FULL` as signals to back off; `chrome_queue_inspect` and `chrome_debug_dump` together are usually enough to localize a stuck holder.
 
 ---
 
