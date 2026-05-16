@@ -70,6 +70,12 @@ updates:
       # as semver-minor (0.0.x → 0.1.y) but are functionally breaking.
       # Ignore all bumps; pin manually when the chrome.* type rework is scheduled.
       - dependency-name: "@types/chrome"
+      # unplugin-vue-components shows a 0.28.x → 32.0.0 jump on npm that does
+      # not match the legitimate upstream antfu/unplugin-vue-components
+      # release line (current real major is 28.x). Strong typosquat /
+      # unauthorized-republish smell. Ignore until a human verifies the
+      # publisher and decides whether to move to the genuine 28.x line.
+      - dependency-name: "unplugin-vue-components"
 
   - package-ecosystem: npm
     directory: "/packages/shared"
