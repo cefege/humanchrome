@@ -99,7 +99,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0091 · Plumb `clientId` into humanchrome's IPC schemas (refactor) · score: 4
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: `clientId` is now load-bearing for tab ownership but the envelope is built ad-hoc with no schema enforcement. `CALL_TOOL` and the new `CLIENT_DISCONNECTED` frames slip through `UnknownTypedMessageSchema` — a typo (`clientid`, `client_id`) or omission on either side would silently degrade isolation back to the pre-IMP-0086 bug. Both producer and consumer read `clientId` from `any`-typed envelopes — no compile-time guarantee.
 - **Cost**: M
 - **Value**: M

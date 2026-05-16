@@ -68,18 +68,41 @@ export type FileOperationPayload = z.infer<typeof FileOperationPayloadSchema>;
 // ---------------------------------------------------------------------------
 
 /**
+ * MCP client identity stamped on every CALL_TOOL and CLIENT_DISCONNECTED
+ * envelope (load-bearing for per-client tab ownership — IMP-0086 / IMP-0091).
+ *
+ * Permissive on shape so we don't have to schema-bump every time a new lane
+ * is added (UUID fallback, normalized sessionName, `__ui:<surface>`,
+ * potentially `__cron:` / others later). The producers are the gatekeepers:
+ * `normalizeSessionName` (stdio + HTTP transports) and `stampUiClientId`
+ * (extension UI surfaces) constrain what actually appears on the wire.
+ * This schema just rejects garbage — whitespace, empty string, anything
+ * longer than 128 chars, or non-alphanumeric/sep characters.
+ */
+export const ClientIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_.:-]+$/);
+
+/**
  * Common base — every wire message is an object with at least one of:
  * `type` (directive from extension) or `responseToRequestId` (response to a
  * request the host previously sent).
  *
  * `z.looseObject` keeps unknown keys so a slightly-newer extension build can
  * include extra metadata without us rejecting the whole frame.
+ *
+ * `clientId` is **optional at the base level**: directive frames that don't
+ * carry MCP context (START, STOP, PING_FROM_EXTENSION, RESPONSE) legitimately
+ * omit it. Per-type schemas tighten it to required where load-bearing
+ * (CALL_TOOL, CLIENT_DISCONNECTED).
  */
 const NativeMessageBaseSchema = z.looseObject({
   type: z.string().optional(),
   requestId: z.string().optional(),
   responseToRequestId: z.string().optional(),
-  clientId: z.string().optional(),
+  clientId: ClientIdSchema.optional(),
   payload: z.unknown().optional(),
   error: z.unknown().optional(),
 });
@@ -122,6 +145,46 @@ export const FileOperationMessageSchema = NativeMessageBaseSchema.extend({
 });
 
 /**
+ * `call_tool` — bridge dispatches an MCP tool call to the extension. Wire
+ * frame is built by `buildCallToolEnvelope` in the bridge (`native-messaging-host.ts`)
+ * and consumed by the extension's `nativePort.onMessage` handler. Both
+ * `requestId` and `clientId` are load-bearing: requestId correlates the
+ * eventual response, clientId drives per-client tab ownership (IMP-0086).
+ *
+ * NOTE: a parallel `chrome.runtime.sendMessage({type:'call_tool', ...})`
+ * path from extension UI surfaces (popup, sidepanel, options) is a
+ * *different transport* and does NOT pass through this schema. That path
+ * is handled directly by `chrome.runtime.onMessage` in the extension and
+ * gets its `clientId` stamped by `stampUiClientId`.
+ */
+export const CallToolPayloadSchema = z.looseObject({
+  name: z.string().min(1),
+  args: z.unknown().optional(),
+});
+
+export const CallToolMessageSchema = NativeMessageBaseSchema.extend({
+  type: z.literal(NativeMessageType.CALL_TOOL),
+  requestId: z.string().min(1),
+  clientId: ClientIdSchema,
+  payload: CallToolPayloadSchema,
+});
+
+/**
+ * `client_disconnected` — bridge tells the extension that an MCP session
+ * has closed so the extension can `releaseClient(clientId)` and drop that
+ * client's owned tabs back to the unowned pool. Tabs themselves stay open.
+ *
+ * `payload.clientId` is tolerated for forward-compat with any pre-IMP-0086
+ * dev build that stuffed it inside the payload, but the top-level
+ * `clientId` is the trusted source.
+ */
+export const ClientDisconnectedMessageSchema = NativeMessageBaseSchema.extend({
+  type: z.literal(NativeMessageType.CLIENT_DISCONNECTED),
+  clientId: ClientIdSchema,
+  payload: z.looseObject({ clientId: z.string().optional() }).optional(),
+});
+
+/**
  * Generic response-shaped message. These don't carry a `type` (they're
  * correlated by `responseToRequestId`) and the resolver branches on
  * presence of `error` vs `payload` itself.
@@ -151,11 +214,85 @@ export const NativeMessageSchema = z.union([
   StopServerMessageSchema,
   PingFromExtensionMessageSchema,
   FileOperationMessageSchema,
+  CallToolMessageSchema,
+  ClientDisconnectedMessageSchema,
   ResponseMessageSchema,
   UnknownTypedMessageSchema,
 ]);
 
 export type NativeMessageInput = z.infer<typeof NativeMessageSchema>;
+export type NativeMessageFrame = z.infer<typeof NativeMessageSchema>;
+export type CallToolMessage = z.infer<typeof CallToolMessageSchema>;
+export type CallToolPayload = z.infer<typeof CallToolPayloadSchema>;
+export type ClientDisconnectedMessage = z.infer<typeof ClientDisconnectedMessageSchema>;
+export type ClientId = z.infer<typeof ClientIdSchema>;
+
+/**
+ * Parse + narrow helper for consumers. Returns a discriminated result so the
+ * caller doesn't have to know the Zod surface. On `ok: false`, `error` is a
+ * short human-readable summary suitable for logging at warn level.
+ *
+ * Performs a strict per-type re-parse for known load-bearing message types
+ * (CALL_TOOL, CLIENT_DISCONNECTED) so a malformed frame can't sneak through
+ * the union's forward-compat `UnknownTypedMessageSchema` catch-all.
+ */
+export function parseNativeMessage(
+  raw: unknown,
+): { ok: true; data: NativeMessageFrame } | { ok: false; error: string } {
+  const result = NativeMessageSchema.safeParse(raw);
+  if (!result.success) return { ok: false, error: result.error.message };
+  const data = result.data;
+  if (data?.type === NativeMessageType.CALL_TOOL) {
+    const strict = CallToolMessageSchema.safeParse(raw);
+    if (!strict.success) return { ok: false, error: strict.error.message };
+    return { ok: true, data: strict.data };
+  }
+  if (data?.type === NativeMessageType.CLIENT_DISCONNECTED) {
+    const strict = ClientDisconnectedMessageSchema.safeParse(raw);
+    if (!strict.success) return { ok: false, error: strict.error.message };
+    return { ok: true, data: strict.data };
+  }
+  return { ok: true, data };
+}
+
+export function isCallToolMessage(m: NativeMessageFrame): m is CallToolMessage {
+  return m?.type === NativeMessageType.CALL_TOOL;
+}
+
+export function isClientDisconnectedMessage(m: NativeMessageFrame): m is ClientDisconnectedMessage {
+  return m?.type === NativeMessageType.CLIENT_DISCONNECTED;
+}
+
+/**
+ * Build a schema-valid CALL_TOOL envelope. Throws synchronously if any
+ * required field is missing or malformed — caller bug, not a network bug.
+ */
+export function buildCallToolEnvelope(input: {
+  name: string;
+  args?: unknown;
+  requestId: string;
+  clientId: string;
+}): CallToolMessage {
+  const envelope = {
+    type: NativeMessageType.CALL_TOOL,
+    requestId: input.requestId,
+    clientId: input.clientId,
+    payload: { name: input.name, args: input.args },
+  };
+  return CallToolMessageSchema.parse(envelope);
+}
+
+/**
+ * Build a schema-valid CLIENT_DISCONNECTED envelope.
+ */
+export function buildClientDisconnectedEnvelope(input: {
+  clientId: string;
+}): ClientDisconnectedMessage {
+  return ClientDisconnectedMessageSchema.parse({
+    type: NativeMessageType.CLIENT_DISCONNECTED,
+    clientId: input.clientId,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // REST `/api/tools/:name` body

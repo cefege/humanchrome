@@ -23,7 +23,7 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { NativeMessageType } from 'humanchrome-shared';
+import { buildClientDisconnectedEnvelope, NativeMessageType } from 'humanchrome-shared';
 import { createMcpServer } from '../mcp/mcp-server';
 import { normalizeSessionName } from '../mcp/session-name';
 import { withContext } from '../util/logger';
@@ -321,10 +321,7 @@ export class Server {
    */
   private notifyClientDisconnected(clientId: string): void {
     try {
-      nativeMessagingHostInstance.sendMessage({
-        type: NativeMessageType.CLIENT_DISCONNECTED,
-        clientId,
-      });
+      nativeMessagingHostInstance.sendMessage(buildClientDisconnectedEnvelope({ clientId }));
     } catch (err) {
       withContext({ component: 'mcp' }).warn(
         { err: err instanceof Error ? err.message : String(err), clientId },

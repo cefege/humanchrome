@@ -1,4 +1,9 @@
-import { NativeMessageType } from 'humanchrome-shared';
+import {
+  NativeMessageType,
+  parseNativeMessage,
+  isCallToolMessage,
+  isClientDisconnectedMessage,
+} from 'humanchrome-shared';
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import { NATIVE_HOST, STORAGE_KEYS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '@/common/constants';
 import { handleCallTool } from './tools';
@@ -402,7 +407,13 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
   try {
     nativePort = chrome.runtime.connectNative(HOST_NAME);
 
-    nativePort.onMessage.addListener(async (message) => {
+    nativePort.onMessage.addListener(async (rawMessage) => {
+      const parsed = parseNativeMessage(rawMessage);
+      if (!parsed.ok) {
+        log.warn('rejected malformed native frame', { data: { error: parsed.error } });
+        return;
+      }
+      const message = parsed.data as any;
       if (message.type === NativeMessageType.PROCESS_DATA && message.requestId) {
         const requestId = message.requestId;
         const requestPayload = message.payload;
@@ -415,11 +426,12 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
             data: requestPayload,
           },
         });
-      } else if (message.type === NativeMessageType.CALL_TOOL && message.requestId) {
+      } else if (isCallToolMessage(message)) {
         const requestId = message.requestId;
-        const clientId: string | undefined = message.clientId;
+        const clientId = message.clientId;
+        const payload = { name: message.payload.name, args: message.payload.args ?? {} };
         try {
-          const result = await handleCallTool(message.payload, requestId, clientId);
+          const result = await handleCallTool(payload, requestId, clientId);
           nativePort?.postMessage({
             responseToRequestId: requestId,
             payload: {
@@ -438,16 +450,15 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
             },
           });
         }
-      } else if (message.type === NativeMessageType.CLIENT_DISCONNECTED) {
+      } else if (isClientDisconnectedMessage(message)) {
         // The bridge tells us when an MCP client's transport closes. Drop
         // that client's owned tabs back to the unowned pool so they become
         // claimable by any other client. Tabs themselves stay open — the
-        // user keeps the browser.
-        const clientId: string | undefined = message.clientId ?? message.payload?.clientId;
-        if (clientId) {
-          const released = releaseClient(clientId);
-          log.info('client released', { data: { clientId, releasedTabs: released } });
-        }
+        // user keeps the browser. Schema guarantees clientId is present.
+        const released = releaseClient(message.clientId);
+        log.info('client released', {
+          data: { clientId: message.clientId, releasedTabs: released },
+        });
       } else if (message.type === 'rr_list_published_flows' && message.requestId) {
         const requestId = message.requestId;
         try {

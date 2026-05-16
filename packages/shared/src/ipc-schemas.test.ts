@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCallToolEnvelope,
+  buildClientDisconnectedEnvelope,
+  CallToolMessageSchema,
+  ClientDisconnectedMessageSchema,
+  ClientIdSchema,
   FileOperationPayloadSchema,
+  isCallToolMessage,
+  isClientDisconnectedMessage,
   JsonValueSchema,
   NativeMessageSchema,
+  parseNativeMessage,
   StartServerMessageSchema,
   StopServerMessageSchema,
   PingFromExtensionMessageSchema,
@@ -318,11 +326,233 @@ describe('Round-trip parity (parse outputs structurally equal inputs for valid f
       payload: { action: 'prepareFile' as const, fileUrl: 'https://x' },
     },
     { responseToRequestId: 'req-99', payload: { ok: true } },
+    {
+      type: NativeMessageType.CALL_TOOL,
+      requestId: 'r2',
+      clientId: 'acme-api',
+      payload: { name: 'chrome_click_element', args: { selector: '#x' } },
+    },
+    { type: NativeMessageType.CLIENT_DISCONNECTED, clientId: 'acme-api' },
+    {
+      responseToRequestId: 'r2',
+      clientId: 'acme-api',
+      payload: { status: 'success', data: {} },
+    },
   ];
 
   it.each(roundTrip)('round-trips frame: %j', (frame) => {
     const out = NativeMessageSchema.parse(frame);
     // structural equality (passthrough preserves keys; parse may add stripped output)
     expect(out).toEqual(expect.objectContaining(frame as Record<string, unknown>));
+  });
+});
+
+describe('ClientIdSchema (IMP-0091)', () => {
+  it('accepts a UUID', () => {
+    expect(ClientIdSchema.parse('550e8400-e29b-41d4-a716-446655440000')).toBe(
+      '550e8400-e29b-41d4-a716-446655440000',
+    );
+  });
+
+  it('accepts a normalized sessionName', () => {
+    expect(ClientIdSchema.parse('acme-api')).toBe('acme-api');
+    expect(ClientIdSchema.parse('a_b.c-1')).toBe('a_b.c-1');
+  });
+
+  it('accepts a synthetic UI id', () => {
+    expect(ClientIdSchema.parse('__ui:popup')).toBe('__ui:popup');
+  });
+
+  it('rejects empty string', () => {
+    expect(() => ClientIdSchema.parse('')).toThrow();
+  });
+
+  it('rejects whitespace', () => {
+    expect(() => ClientIdSchema.parse('foo bar')).toThrow();
+  });
+
+  it('rejects strings longer than 128 chars', () => {
+    expect(() => ClientIdSchema.parse('x'.repeat(129))).toThrow();
+  });
+
+  it('rejects characters outside the allowed alphabet', () => {
+    expect(() => ClientIdSchema.parse('foo/bar')).toThrow();
+    expect(() => ClientIdSchema.parse('foo*bar')).toThrow();
+  });
+});
+
+describe('CallToolMessageSchema (IMP-0091)', () => {
+  it('accepts a minimal valid frame', () => {
+    const out = CallToolMessageSchema.parse({
+      type: NativeMessageType.CALL_TOOL,
+      requestId: 'r1',
+      clientId: 'alice',
+      payload: { name: 'chrome_click_element' },
+    });
+    expect(out.payload.name).toBe('chrome_click_element');
+  });
+
+  it('accepts args of any JSON shape', () => {
+    expect(() =>
+      CallToolMessageSchema.parse({
+        type: NativeMessageType.CALL_TOOL,
+        requestId: 'r1',
+        clientId: 'alice',
+        payload: { name: 'chrome_navigate', args: { url: 'https://x', meta: { n: 1 } } },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects when clientId is missing', () => {
+    expect(() =>
+      CallToolMessageSchema.parse({
+        type: NativeMessageType.CALL_TOOL,
+        requestId: 'r1',
+        payload: { name: 'chrome_click_element' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects when requestId is missing', () => {
+    expect(() =>
+      CallToolMessageSchema.parse({
+        type: NativeMessageType.CALL_TOOL,
+        clientId: 'alice',
+        payload: { name: 'chrome_click_element' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects when payload.name is missing', () => {
+    expect(() =>
+      CallToolMessageSchema.parse({
+        type: NativeMessageType.CALL_TOOL,
+        requestId: 'r1',
+        clientId: 'alice',
+        payload: {},
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty payload.name', () => {
+    expect(() =>
+      CallToolMessageSchema.parse({
+        type: NativeMessageType.CALL_TOOL,
+        requestId: 'r1',
+        clientId: 'alice',
+        payload: { name: '' },
+      }),
+    ).toThrow();
+  });
+});
+
+describe('ClientDisconnectedMessageSchema (IMP-0091)', () => {
+  it('accepts a minimal frame', () => {
+    const out = ClientDisconnectedMessageSchema.parse({
+      type: NativeMessageType.CLIENT_DISCONNECTED,
+      clientId: 'alice',
+    });
+    expect(out.clientId).toBe('alice');
+  });
+
+  it('rejects when clientId is missing', () => {
+    expect(() =>
+      ClientDisconnectedMessageSchema.parse({ type: NativeMessageType.CLIENT_DISCONNECTED }),
+    ).toThrow();
+  });
+
+  it('rejects a wrong type literal', () => {
+    expect(() =>
+      ClientDisconnectedMessageSchema.parse({ type: 'something_else', clientId: 'alice' }),
+    ).toThrow();
+  });
+
+  it('preserves a legacy payload.clientId for forward-compat', () => {
+    const out = ClientDisconnectedMessageSchema.parse({
+      type: NativeMessageType.CLIENT_DISCONNECTED,
+      clientId: 'alice',
+      payload: { clientId: 'legacy-alice' },
+    });
+    expect(out.payload?.clientId).toBe('legacy-alice');
+  });
+});
+
+describe('NativeMessageSchema union routing (IMP-0091)', () => {
+  it('routes a CALL_TOOL frame to CallToolMessageSchema (narrows payload.name)', () => {
+    const out = NativeMessageSchema.parse({
+      type: NativeMessageType.CALL_TOOL,
+      requestId: 'r1',
+      clientId: 'alice',
+      payload: { name: 'chrome_click_element', args: { selector: '#x' } },
+    });
+    expect(isCallToolMessage(out)).toBe(true);
+    if (isCallToolMessage(out)) {
+      // Compile-time check: payload.name is reachable without casts.
+      expect(out.payload.name).toBe('chrome_click_element');
+    }
+  });
+
+  it('routes a CLIENT_DISCONNECTED frame to its schema', () => {
+    const out = NativeMessageSchema.parse({
+      type: NativeMessageType.CLIENT_DISCONNECTED,
+      clientId: 'alice',
+    });
+    expect(isClientDisconnectedMessage(out)).toBe(true);
+  });
+});
+
+describe('parseNativeMessage (IMP-0091)', () => {
+  it('returns ok:true for a valid frame', () => {
+    const result = parseNativeMessage({
+      type: NativeMessageType.CALL_TOOL,
+      requestId: 'r1',
+      clientId: 'alice',
+      payload: { name: 'chrome_click_element' },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(isCallToolMessage(result.data)).toBe(true);
+  });
+
+  it('returns ok:false with an error message for an invalid frame', () => {
+    const result = parseNativeMessage({ type: NativeMessageType.CALL_TOOL, requestId: 'r1' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
+  });
+});
+
+describe('buildCallToolEnvelope (IMP-0091)', () => {
+  it('produces a schema-valid CALL_TOOL frame', () => {
+    const env = buildCallToolEnvelope({
+      name: 'chrome_click_element',
+      args: { selector: '#x' },
+      requestId: 'r1',
+      clientId: 'alice',
+    });
+    expect(env.type).toBe(NativeMessageType.CALL_TOOL);
+    expect(env.requestId).toBe('r1');
+    expect(env.clientId).toBe('alice');
+    expect(env.payload.name).toBe('chrome_click_element');
+  });
+
+  it('throws when clientId is malformed', () => {
+    expect(() =>
+      buildCallToolEnvelope({
+        name: 'chrome_click_element',
+        requestId: 'r1',
+        clientId: 'has space',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('buildClientDisconnectedEnvelope (IMP-0091)', () => {
+  it('produces a schema-valid frame', () => {
+    const env = buildClientDisconnectedEnvelope({ clientId: 'alice' });
+    expect(env.type).toBe(NativeMessageType.CLIENT_DISCONNECTED);
+    expect(env.clientId).toBe('alice');
+  });
+
+  it('throws when clientId is empty', () => {
+    expect(() => buildClientDisconnectedEnvelope({ clientId: '' })).toThrow();
   });
 });

@@ -1,7 +1,7 @@
 import { stdin, stdout } from 'process';
 import { Server } from './server';
 import { v4 as uuidv4 } from 'uuid';
-import { NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
+import { buildCallToolEnvelope, NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
 import { withContext } from './util/logger';
@@ -262,13 +262,36 @@ export class NativeMessagingHost {
 
       this.pendingRequests.set(id, { resolve, reject, timeoutId });
 
-      const envelope: any = {
-        type: messageType,
-        payload: messagePayload,
-        requestId: id,
-      };
-      if (clientId) envelope.clientId = clientId;
-      this.sendMessage(envelope);
+      try {
+        let envelope: Record<string, unknown>;
+        if (messageType === NativeMessageType.CALL_TOOL) {
+          if (!clientId) {
+            throw new Error('CALL_TOOL envelopes require a clientId');
+          }
+          const payloadShape = (messagePayload ?? {}) as { name?: unknown; args?: unknown };
+          if (typeof payloadShape.name !== 'string' || payloadShape.name.length === 0) {
+            throw new Error('CALL_TOOL envelopes require payload.name (non-empty string)');
+          }
+          envelope = buildCallToolEnvelope({
+            name: payloadShape.name,
+            args: payloadShape.args,
+            requestId: id,
+            clientId,
+          }) as unknown as Record<string, unknown>;
+        } else {
+          envelope = {
+            type: messageType,
+            payload: messagePayload,
+            requestId: id,
+          };
+          if (clientId) envelope.clientId = clientId;
+        }
+        this.sendMessage(envelope);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        this.pendingRequests.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
