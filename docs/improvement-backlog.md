@@ -49,6 +49,50 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0092 · ClickTool reports success: true after coordinate-click hit empty space (no event dispatched) (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: Coordinate-mode clicks on empty space (elementFromPoint returns null) silently return success:true even though no mouse event was dispatched. Agents see no error, retry never fires, and downstream waits time out because the modal/button never received the synthetic click. Common when a scrim flashes over a button mid-click or when the click target scrolled off-screen between coordinate calculation and dispatch.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Call `chrome_click` with `coordinates: {x: 100, y: 100}` on a page where (100,100) has no element (e.g. a transparent area). Result is `{success: true, message: "Element clicked successfully", elementInfo: {warning: "No element found at the specified coordinates"}, navigationOccurred: false}`. Nothing actually clicked.
+- **Fix sketch**: In `app/chrome-extension/inject-scripts/click-helper.js` line 111-117, when `elementFromPoint` returns null in coord-mode, return `{error: "No element at coordinates (x, y)"}` instead of building a `warning`-only `elementInfo`. The early-return on line 219/229 in `simulateClick`/`simulateDoubleClick` already short-circuits dispatch — surface that as an error so `sendMessageToTab` in `base-browser.ts:145-147` re-throws and ClickTool returns an error envelope. Optional: keep the soft-fail behavior behind an opt-in `allowMissingTarget: true` arg.
+- **Notes**: The selector/ref paths both check visibility / DOM presence and error correctly; only the coordinate branch is broken. Same shape applies to right-click button==2 + the double-click setTimeout follow-up in `dispatchClickSequence`.
+
+### IMP-0093 · chrome_intercept_response returns full response bodies — violates documented 1 MiB cap (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: CLAUDE.md / docs/AGENTS.md document a hard 1 MiB cap on proxied response bodies, surfaced as responseBodyTruncation. chrome_intercept_response ignores this cap entirely: it passes the raw body string from Network.getResponseBody straight into the response envelope. A single matched 50 MB JSON response blows past MCP transport limits and OOMs the bridge. chrome_network_capture debugger backend honors the cap correctly — only intercept-response is leaking.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Run chrome_intercept_response with urlPattern matching a URL whose response body is >1 MiB. The returned envelope contains the full uncapped body string; responseBodyTruncation field is absent. Compare with chrome_network_capture flush envelope on the same request: responseBodyTruncation.truncated:true is present.
+- **Fix sketch**: app/chrome-extension/entrypoints/background/tools/browser/intercept-response.ts lines 351-409 — after Network.getResponseBody resolves, pipe body.body through the same truncateString helper + MAX_RESPONSE_BODY_BYTES from utils/timeouts.ts:45 that network-capture-debugger.ts:471-485 uses, and add a responseBodyTruncation field to the envelope and to the CompletedMatch interface lines 60-66. Same change applies to the multi-match path. Parse JSON only when not truncated.
+- **Notes**: Tools that call intercept-response indirectly (chrome_wait_for response_match) opt out via returnBody:false and are unaffected — only direct body-consuming callers trip the leak.
+
+### IMP-0094 · chrome_intercept_response hangs until timeout when CDP detaches mid-flight (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: intercept-response attaches the debugger and waits for Network.responseReceived but never installs a chrome.debugger.onDetach listener. If the user opens DevTools, another tool detaches CDP, or the tab navigates and Chrome auto-detaches the session, the listener stops receiving events but the Promise never resolves. The tool blocks for the full timeoutMs (default 15s, max 120s) and returns a misleading TIMEOUT envelope. network-capture-debugger.ts:88 installs an onDetach handler correctly — intercept-response is the outlier.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Start chrome_intercept_response with timeoutMs:60000 against a URL the page will fetch in 5s. While waiting, open DevTools on the same tab to force-detach the extension debugger. The tool sits idle for the full 55 remaining seconds and returns TIMEOUT, even though the user clearly broke the CDP session.
+- **Fix sketch**: app/chrome-extension/entrypoints/background/tools/browser/intercept-response.ts — add chrome.debugger.onDetach.addListener inside the Promise body that, when source.tabId===tabId, clears the timer, runs cleanup, and resolves with a CDP_BUSY or DETACHED error envelope. Mirror the cleanup pattern at network-capture-debugger.ts:88 / handleDebuggerDetach.
+- **Notes**: Related: when Page navigates mid-call the requestIds for matches from the OLD document can still be in pendingByRequestId, never to receive Network.loadingFinished. A Page.frameNavigated listener for the main frame could drop those and short-circuit the timeout.
+
+### IMP-0097 · Shared actionability primitive — visible/stable/enabled/hit-test before every action (feat) · score: 5
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: Ground-truth audit found the ref path (the AI-default after `chrome_read_page`) skips visibility, hit-test, and disabled checks entirely (`click-helper.js:33-77`); visibility is only enforced on the selector path (`:151`); there is zero `requestAnimationFrame` usage in any click path (no bbox-stability anywhere); `pointer-events:none` is surfaced in read-page output but never enforced before click; strict mode is inconsistent — fast-path raw CSS (`click-helper.js:119`) silently picks the first match while `ensureRefForSelector` errors on multi-match. This is the largest single reliability gap in the codebase; one shared primitive fixes flakiness across every interaction tool.
+- **Cost**: M (2-3 days)
+- **Value**: L
+- **Files**: new `app/chrome-extension/inject-scripts/actionability.js`; consumers `inject-scripts/click-helper.js` (all three paths: ref/selector/coords), `inject-scripts/fill-helper.js`, `entrypoints/background/tools/browser/drag-drop.ts` (MAIN-world shim), `entrypoints/background/tools/browser/computer.ts` per-action handlers under `actions/handlers/`, `entrypoints/background/tools/browser/focus.ts`. New `tests/inject-scripts/actionability.test.ts` plus per-tool integration fixtures (animated/sticky-header/disabled-button pages). New `ToolErrorCode.NOT_ACTIONABLE` in `packages/shared/src/error-codes.ts` + `docs/AGENTS.md` § 1.
+- **Sketch**: Export `awaitActionable(el, {checks, timeoutMs, force}) → Promise<{ok, failures: string[]}>`. Checks: `visible` (display/visibility/opacity/empty-bbox/in-viewport/`pointer-events:none`), `enabled` (`disabled` attr + `aria-disabled` + nearest `fieldset[disabled]`), `editable` (enabled + not `readonly`), `stable` (same `getBoundingClientRect` for 2 consecutive `requestAnimationFrame`s — bail after ~6 frames), `hit-test` (`elementFromPoint(clickPoint) === el || el.contains(elementFromPoint(clickPoint))` where clickPoint defaults to element center; respects `position` override). Auto-`scrollIntoView({block:'center'})` if rect outside viewport before stability check. Per-action check matrix mirroring Playwright (click/dblclick/tap/check: visible+stable+enabled+hit-test; hover/dragTo: visible+stable+hit-test; fill/clear/selectOption: visible+enabled+editable; focus/blur/press/dispatchEvent: visible). Every action gets a `force: true` opt-out that skips the suite (still scrollIntoView). On failure return `NOT_ACTIONABLE` with `details: {failures: ['not_visible'|'occluded_by:#cookie-banner'|'disabled'|'unstable_bbox'|...]}` so the caller knows what to fix. Default per-action timeout 5s; per-call `actionabilityTimeoutMs` override.
+- **Notes**: Foundation for IMP-0098 — locator quality is wasted if we then click before the element settles. Land first. Coordinate with bug IMP-0092 (false success on coords-over-nothing): the actionability suite makes that bug structurally impossible.
+
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
@@ -106,6 +150,61 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: `packages/shared/src/ipc-schemas.ts`, `app/native-server/src/native-messaging-host.ts`, `app/native-server/src/server/index.ts`, `app/chrome-extension/entrypoints/background/native-host.ts`, ipc-schemas tests.
 - **Sketch**: Add explicit `CallToolMessageSchema` requiring `clientId`, and a new `ClientDisconnectedMessageSchema`. Typed union discriminator over message types. Schema-built envelope helpers on producer side (`buildCallToolEnvelope`, `buildClientDisconnectedEnvelope`). Schema-parsed envelope on consumer side. Future regressions in clientId plumbing fail at the IPC boundary instead of silently breaking tab isolation.
 - **Notes**: Long-form plan at `~/.claude/plans/imp0091clientidinipcschemas.md`. Touches the wire boundary — land after the upstack settles.
+
+### IMP-0095 · chrome_await_element returns found:true after waiting for state=absent (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: When awaiting state=absent and the element actually disappears, the envelope returns found:true even though the whole point of the wait was the element being NOT FOUND. Agents conditioning on found:false to know an element was successfully waited-away cannot distinguish present-from-absent. Worse, the response shape carries an undefined ref field for the absent path so ref ?? resp.matched.ref is undefined — masking the success of the underlying poll.
+- **Cost**: S
+- **Value**: S
+- **Repro**: Inject a <div id="modal"> on the page, then chrome_await_element with selector:"#modal", state:"absent", timeoutMs:5000. Remove the div externally. The envelope returns success:true, found:true, matched:null. Expected: found:false (or some clear absent:true) to communicate the wait succeeded because the element vanished.
+- **Fix sketch**: app/chrome-extension/entrypoints/background/tools/browser/await-element.ts lines 119-134 — set found = (state === "present") so absent-mode success surfaces as found:false. Document in the schema (packages/shared/src/tools.ts await_element entry) what found means under each state. The wait-helper.js side at lines 205-237 is already correct (returns success:true regardless of state); only the tool wrapper mis-shapes the envelope.
+- **Notes**: Pure shape bug, no behavior change in the underlying poller. Low value because absent-mode is uncommon but absolutely surprising when hit. Bundles well with adding a dedicated absent:true field.
+
+### IMP-0096 · chrome_file_upload synthesized change-event silently drops when selector contains quotes (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: After DOM.setFileInputFiles attaches the file, chrome_file_upload synthesizes a change event by interpolating the raw selector into a Runtime.evaluate string with only naive single-quote escaping. Selectors with backslashes, double-quotes, or escaped attribute values fail to parse — files attach but the page never sees the change event, so React/Vue form handlers never fire. Agents see a success envelope and never retry. Bonus: code-injection surface via Runtime.evaluate.
+- **Cost**: S
+- **Value**: S
+- **Repro**: Call chrome_file_upload with a selector whose attribute value contains a literal single-quote, e.g. an input named "o" + apostrophe + "brien". DOM.setFileInputFiles still attaches the files via the CDP nodeId, but the synthesized change event never fires because the Runtime.evaluate expression fails to parse. React/Vue form handlers tied to onChange never run.
+- **Fix sketch**: app/chrome-extension/entrypoints/background/tools/browser/file-upload.ts lines 134-147 — drop the document.querySelector re-resolution entirely. The DOM.querySelector call at line 94 already returned the nodeId. Use chained CDP calls: DOM.resolveNode against nodeId to get an objectId, then Runtime.callFunctionOn with that objectId and functionDeclaration: function(){this.dispatchEvent(new Event('change',{bubbles:true}))}. No user-controlled selector ever crosses the eval boundary, the parse-error class of bugs disappears, and we save one selector-resolution round-trip on the page side.
+- **Notes**: Naive single-quote-only escaping does not handle backslashes, double-quotes, newlines, or template-literal interpolation in the selector — any of which silently break the change-event dispatch. Also a code-injection surface via Runtime.evaluate MAIN world if the selector originates from a prompt-injected page string.
+
+### IMP-0098 · Playwright-style locator engine — role/text/label/placeholder/alt/title/testid + uniform strict mode (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: Selector surface today is `css` / `xpath` / `ref` only. Audit confirmed `shared/selector/strategies/` already exists with testid/aria/text/css-unique/css-path/anchor-relpath skeletons + a stability/fingerprint runtime — but there are no first-class `getByRole`/`getByText`/`getByLabel`/`getByPlaceholder`/`getByAltText`/`getByTitle` resolvers as either generators or runtime branches. With these added and strict mode unified across all selector paths, LLM agents can author resilient selectors like `role:button[name="Submit"]` instead of `body > div:nth-child(3) > button.css-1234`. Single biggest UX/reliability lever after actionability.
+- **Cost**: L (4-5 days)
+- **Value**: L
+- **Files**: new strategies under `app/chrome-extension/shared/selector/strategies/`: `role.ts`, `label.ts`, `placeholder.ts`, `alt-text.ts`, `title.ts`; extend `testid.ts` for configurable attribute list (per-client extension storage, default `['data-testid','data-cy','data-test','data-qa']`); new `app/chrome-extension/shared/selector/accessible-name.ts` (W3C accname-1.2 subset); runtime resolver in `shared/selector/locator.ts:355+` (extend `tryCandidate`); tool param schemas in `packages/shared/src/tools.ts` adding `selectorType` values `role`/`label`/`placeholder`/`alt`/`title`/`testid`/`text` to: click_element, fill_or_select, await_element, wait_for, focus, drag_drop, computer; strict-mode unification at `inject-scripts/click-helper.js:119` (raw-CSS fast-path routes through `querySelectorWithUniquenessCheck`). Tests: per-strategy unit (especially accessible-name edge cases — `aria-labelledby` chains, `<label for>`/wrapping, image alt for buttons, `aria-label` precedence); integration against fixture pages with role-able buttons, labelled inputs, testid-tagged elements.
+- **Sketch**: Each strategy exposes `generate(el): Candidate[]` (recorder use — feeds IMP-0099) and `resolve(value, scope): Element[]` (runtime use). Parser maps prefixed strings: `role:button[name="Submit",exact=true]` → role strategy with name filter; `label:Email` → label strategy. Composite still works: `iframe#payment |> role:button[name="Pay"]`. Strict mode: every resolution path errors with `INVALID_ARGS` + `details: {matchCount, samples: [...]}` if >1 match and neither `index` nor `multi: true` supplied. Add uniform `index` param everywhere (default behavior = "the only match — error if >1"; explicit `index: N` picks the Nth). Accessible-name compute: subset of W3C accname-1.2 — handles aria-labelledby, aria-label, label[for], wrapping label, alt, title, contents (in that order); skip CSS pseudo-content rules.
+- **Notes**: Hard prereq for IMP-0099. Filtering DSL (`.filter({hasText})`) and locator chaining deliberately deferred — refId path covers most use cases. Add later if real demand surfaces. Strict-mode unification is part of this scope (not separate).
+
+### IMP-0100 · Proactive dialog handler — auto-handle alert/confirm/prompt via Page.javascriptDialogOpening (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: Audit confirmed `chrome_handle_dialog` (`tools/browser/dialog.ts:19-58`) calls `Page.handleJavaScriptDialog` once and detaches — `Page.javascriptDialogOpening` is never subscribed (zero grep hits across `entrypoints/background`). Today if a click triggers an `alert()`, the page blocks synchronously until the agent notices the dialog and explicitly calls `chrome_handle_dialog`. In LLM flows where the agent doesn't know an alert will fire, this hangs the tab until timeout. Playwright auto-dismisses unhandled dialogs by default; we should at least let callers register a default.
+- **Cost**: S (1 day)
+- **Value**: M
+- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/dialog.ts` (add `register_default` / `unregister_default` / `list_defaults` actions); `app/chrome-extension/utils/cdp-session-manager.ts` (persistent attach for the lifetime of the policy); `packages/shared/src/tools.ts` (schema). Tests: extend `tests/tools/browser/dialog.test.ts`.
+- **Sketch**: New action `register_default({tabId, behavior: 'accept'|'dismiss'|'prompt_with_text', promptText?})`. Subscribes `Page.javascriptDialogOpening` via debugger attach refcounted through cdpSessionManager; on event, calls `Page.handleJavaScriptDialog` with the configured behavior + records to a per-tab `lastDialog` buffer readable via `list_defaults`. `unregister_default({tabId})` releases the attach. Per-tab — different tabs can have different policies. Released on tab close + client disconnect (hook into existing per-client tab ownership cleanup).
+- **Notes**: Standalone — no deps on A/B/G. Persistent attach surfaces the "Chrome is being controlled" banner; document in tool description.
+
+### IMP-0101 · chrome_locator_handler — auto-dismiss sticky overlays (cookie banners, GDPR modals, newsletter popups) (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: Real-world sites are saturated with cookie banners, GDPR consent modals, newsletter-subscribe popups, and "we use cookies" overlays that intercept clicks and break LLM flows. Playwright's `addLocatorHandler` lets you declaratively say "if this selector becomes visible, click that dismiss button before continuing." Massive ergonomic win for any flow against a public site. We have userscripts + inject-script + MutationObserver primitives — composing them into a first-class tool is small.
+- **Cost**: S (1-2 days)
+- **Value**: M
+- **Files**: new `app/chrome-extension/entrypoints/background/tools/browser/locator-handler.ts` (5-file recipe — schema in `packages/shared/src/tools.ts`, barrel export, dispatcher entry, test); new `app/chrome-extension/inject-scripts/locator-handler.js` (MAIN-world MutationObserver + IntersectionObserver). Tests: `tests/tools/browser/locator-handler.test.ts`.
+- **Sketch**: Tool actions: `register({selector, dismissSelector, dismissAction: 'click'|'press', key?, tabId, persistent?: boolean, times?})`; `list`; `remove({handlerId})`; `clear({tabId})`. Inject script installs MutationObserver on `document.body`; when registered selector becomes visible (IntersectionObserver — non-empty bbox + not display:none/visibility:hidden), runs dismissAction on dismissSelector. Per-handler `times` limit defaults to unlimited; `persistent: true` survives navigation (re-injects via `chrome.webNavigation.onDOMContentLoaded` for that tab). Reuse IMP-0097 `awaitActionable` before dispatching dismiss click. `list` returns `{handlerId, selector, dismissedCount, lastDismissedAt}` per handler.
+- **Notes**: Standalone (soft-prereq on IMP-0097 for the actionability check — works without it but less reliable). Independent ergonomic win. Particularly valuable paired with the pacing `careful` profile when running against LinkedIn/news sites.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
@@ -228,6 +327,17 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
+### IMP-0099 · Recorder consumes shared locator engine — emit role/text/testid candidates instead of nth-of-type CSS (refactor) · score: 3
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: `inject-scripts/recorder.js:28-158` runs its own inline `SelectorEngine.buildTarget` emitting fixed `attr > css-unique > nth-of-type > aria-string > text` order with primary chosen by `attr > css` only (text/role never primary). Meanwhile the replayer (`shared/selector/locator.ts`) already has a fallback ladder. Result: recorded flows pick the most brittle selector as primary, succeed on replay only via the runtime fallback. With IMP-0098 landed, the recorder should emit the same priority order the replayer expects so new recordings are resilient on the first try.
+- **Cost**: M (3-4 days)
+- **Value**: M
+- **Files**: `app/chrome-extension/inject-scripts/recorder.js:28-158` (`SelectorEngine` rewrite — delegate to `shared/selector/generator.ts`); `app/chrome-extension/shared/selector/generator.ts` (ensure `generateExtendedSelectorTarget` returns Candidate[] in priority order); recorder bootstrap may need dual-build for content-script context (recorder.js is inline-loaded vanilla JS, shared lib is TS/ESM). Tests: new `tests/inject-scripts/recorder.test.ts` (fixture pages with role-able buttons, labelled inputs, testid-tagged elements); flow round-trip tests via `tests/record-replay/*`.
+- **Sketch**: Replace `_uniqueClassSelector` / `_choosePrimary` with calls into the shared generator. Generator returns ordered list: testid > role+name > label > placeholder > alt > title > text (when length ≤ 64 chars and content not user-typed) > css-unique > anchor-relpath > css-path. Recorder writes ALL candidates in order; primary = candidates[0]; `target.ref` still set for same-snapshot replay. Backwards-compat: old flows keep replaying — runtime's `compareSelectorCandidates` already sorts by stability+weight regardless of recorded order. Content-script bundling: use WXT's content-script entry if available; otherwise emit a vanilla-JS bundle of `shared/selector/` for inline loading.
+- **Notes**: Gated on IMP-0098. Recorder UI unchanged. Out of scope here: recorder doesn't capture hover/drag/file-upload/submit/assert today (`recorder.js` only handles click/dblclick/fill/scroll/key/navigate/openTab/switchTab/switchFrame) — separate IMP if needed.
+
 ### IMP-0087 · Same-tab queueing — fairness, depth cap, per-call timeout, inspect tool (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
@@ -251,6 +361,17 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: `packages/shared/src/tools.ts` (schema), `app/chrome-extension/entrypoints/background/tools/browser/claim-tab.ts` (gate + audit log), `app/chrome-extension/tests/tools/browser/claim-tab.test.ts`, `docs/TOOLS.md` (regen).
 - **Sketch**: Add `force?: boolean` to the schema with a description that warns against habitual use. When true, the tool skips the existing `TAB_NOT_OWNED` short-circuit and delegates straight to `claimTabForClient`, which already evicts the prior owner. Emit a `console.warn`-level audit line including `{tabId, oldOwner, newOwner}` so contention stays visible. Dispatcher's per-call ownership gate is **not** touched — callers must claim with `force:true`, then issue mutating calls (two-step is the audit trail).
 - **Notes**: Long-form plan at `~/.claude/plans/imp0089claimtabforce.md`. Smallest of the IMP-0086 follow-ups; recommended first up.
+
+### IMP-0102 · Add `load_state` and `url` kinds to chrome_wait_for (feat) · score: 2
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: `chrome_wait_for` covers element / network_idle / response_match / js but is missing two Playwright primitives that come up constantly: `waitForLoadState('load'|'domcontentloaded')` and `waitForURL(pattern)`. First is needed when a flow depends on full-page resource load (not just network idle, e.g. waiting for late `<img>`/`<script>` to finish before a screenshot). Second is the canonical "wait for SPA to push /checkout to history" pattern. Cheap to add with `chrome.webNavigation` events.
+- **Cost**: S (1 day)
+- **Value**: S
+- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/wait-for.ts` (two new `kind` branches); `packages/shared/src/tools.ts` (schema additions for `state` and `pattern` params). Tests: extend `tests/tools/browser/wait-for.test.ts`.
+- **Sketch**: `kind: 'load_state'` with `state: 'load'|'domcontentloaded'|'complete'`. Subscribe `chrome.webNavigation.onCompleted` (for `load`/`complete`) or `onDOMContentLoaded` (for `domcontentloaded`) filtered to target frameId+tabId; resolve when next event fires OR inject a one-shot readyState check for synchronous resolve if already loaded. `kind: 'url'` with `pattern` (string substring or `/regex/flags` matching existing intercept-response pattern syntax). Subscribe `chrome.webNavigation.onHistoryStateUpdated` + `onCommitted` filtered to tabId; resolve when URL matches. Both clamp to `[0, 120000]` ms like existing waits.
+- **Notes**: Standalone. Filler item between bigger pieces — good first-PR for someone new to the codebase.
 
 ## Done
 
