@@ -48,7 +48,7 @@
     "@types/node": "^25.8.0",
     "@typescript-eslint/parser": "^8.59.3",
     "tsup": "^8.5.1",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.6"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
