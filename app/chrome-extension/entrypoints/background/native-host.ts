@@ -10,7 +10,8 @@ import { handleCallTool } from './tools';
 import { listPublished, getFlow } from './record-replay/flow-store';
 import { acquireKeepalive } from './keepalive-manager';
 import { debugLog } from './utils/debug-log';
-import { loadPersistedClientState, releaseClient } from './utils/client-state';
+import { loadPersistedClientState, releaseClient, getClientState } from './utils/client-state';
+import { releaseDialogDefaultsForTabs } from './tools/browser/dialog';
 
 const log = debugLog.with({ tool: 'native-host' });
 
@@ -455,9 +456,28 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         // that client's owned tabs back to the unowned pool so they become
         // claimable by any other client. Tabs themselves stay open — the
         // user keeps the browser. Schema guarantees clientId is present.
+        // Before releasing, snapshot owned tabs so we can also tear down
+        // any persistent dialog-default CDP attaches this client opened
+        // (IMP-0100). The dialog policies are per-tab, so we only release
+        // policies on tabs THIS client owned.
+        const ownedTabIds = Array.from(getClientState(message.clientId)?.ownedTabs ?? []);
         const released = releaseClient(message.clientId);
+        let releasedDialogDefaults: number[] = [];
+        if (ownedTabIds.length > 0) {
+          try {
+            releasedDialogDefaults = await releaseDialogDefaultsForTabs(ownedTabIds);
+          } catch (err) {
+            log.warn('dialog default release failed during client disconnect', {
+              data: { err: err instanceof Error ? err.message : String(err) },
+            });
+          }
+        }
         log.info('client released', {
-          data: { clientId: message.clientId, releasedTabs: released },
+          data: {
+            clientId: message.clientId,
+            releasedTabs: released,
+            releasedDialogDefaults,
+          },
         });
       } else if (message.type === 'rr_list_published_flows' && message.requestId) {
         const requestId = message.requestId;

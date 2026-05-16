@@ -393,12 +393,22 @@ Wait for a DOM element to be present or absent on the page using a MutationObser
 
 ### `chrome_handle_dialog`
 
-Handle JavaScript dialogs (alert/confirm/prompt) via CDP
+Handle JavaScript dialogs (alert/confirm/prompt) via CDP.
+
+Actions:
+- "handle_dialog" (default; legacy callers can omit action): one-shot answer to a dialog that is currently open. Requires `behavior` ("accept" or "dismiss"). Backward-compatible with the original two-field call (action="accept"/"dismiss" still works).
+- "register_default": install a per-tab auto-handler that subscribes Page.javascriptDialogOpening via a refcounted CDP attach. Subsequent alert/confirm/prompt calls on this tab are auto-answered with `defaultBehavior` ("accept" | "dismiss" | "prompt_with_text"). Calling register_default again on the same tab REPLACES the prior policy.
+- "unregister_default": release the policy and the CDP attach for the tab.
+- "list_defaults": read-only — returns the registered policies plus each tab's recent auto-handled dialog log (last 50 entries). Filter to one tab with `tabId`.
+
+IMPORTANT: register_default holds a persistent chrome.debugger attach for the lifetime of the policy, so the "Chrome is being controlled by automated software" banner will be visible on the affected tab until unregister_default. The policy is also released on tab close and on MCP client disconnect.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action` | string | ✓ | accept \| dismiss |
-| `promptText` | string |  | Optional prompt text when accepting a prompt |
+| `action` | `handle_dialog` \| `register_default` \| `unregister_default` \| `list_defaults` |  | Action to perform. Omit (or pass "handle_dialog") for the legacy one-shot behavior. |
+| `behavior` | `accept` \| `dismiss` |  | For action="handle_dialog": "accept" or "dismiss" the currently open dialog. |
+| `defaultBehavior` | `accept` \| `dismiss` \| `prompt_with_text` |  | For action="register_default": how to auto-answer future dialogs on this tab. "prompt_with_text" requires `promptText` and only differs from "accept" for prompt() calls. |
+| `promptText` | string |  | Prompt input text. For action="handle_dialog" with behavior="accept", forwarded to prompt(). For action="register_default" with defaultBehavior="prompt_with_text", required — used as the auto-answer for every prompt() on this tab. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 

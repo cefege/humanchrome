@@ -375,6 +375,12 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0100 · Proactive dialog handler — auto-handle alert/confirm/prompt via Page.javascriptDialogOpening (feat) · score: 5
+
+- **Status**: done (2026-05-16)
+- **Completed**: 2026-05-16
+- **Summary**: `chrome_handle_dialog` extended from a single one-shot handler into a multi-action tool. New actions: `register_default({tabId, defaultBehavior, promptText?})` subscribes `Page.javascriptDialogOpening` via a persistent CDP attach (refcounted through `cdpSessionManager` with owner tag `dialog-default`); incoming dialogs are auto-answered with the configured behavior (`accept` | `dismiss` | `prompt_with_text`) and appended to a per-tab buffer capped at 50 entries (oldest dropped). `unregister_default({tabId})` releases the attach + listener. `list_defaults({tabId?})` returns registered policies plus each tab's recent dialog log (read-only). Re-registering on the same tab replaces the prior policy without erroring. Cleanup hooks: `chrome.tabs.onRemoved` clears policies for closed tabs; the bridge's `CLIENT_DISCONNECTED` path in `native-host.ts` calls `releaseDialogDefaultsForTabs` with the disconnecting client's owned tabs (so policies don't outlive their session); `chrome.debugger.onDetach` fires a warning and clears the policy if Chrome detaches externally (DevTools opened, etc.). Legacy `action: 'accept'|'dismiss'` two-field call still works for backward compatibility. Tool description warns about the "Chrome is being controlled" banner that the persistent CDP attach surfaces. Schema in `packages/shared/src/tools.ts` extended with the new action enum + `defaultBehavior` / `behavior` fields. New tests at `tests/tools/browser/dialog.test.ts` (21 cases) cover legacy compat, register/unregister/list, log cap, CDP_BUSY classification, replace-on-re-register, and the cleanup hook contract.
+
 ### IMP-0035 · Type computer.ts params to eliminate 24 remaining as any casts in action dispatch (refactor) · score: 3
 
 - **Status**: done (premise stale — audit confirmed zero `as any` casts)
