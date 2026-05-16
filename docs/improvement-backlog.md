@@ -63,7 +63,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0093 · chrome_intercept_response returns full response bodies — violates documented 1 MiB cap (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: CLAUDE.md / docs/AGENTS.md document a hard 1 MiB cap on proxied response bodies, surfaced as responseBodyTruncation. chrome_intercept_response ignores this cap entirely: it passes the raw body string from Network.getResponseBody straight into the response envelope. A single matched 50 MB JSON response blows past MCP transport limits and OOMs the bridge. chrome_network_capture debugger backend honors the cap correctly — only intercept-response is leaking.
 - **Cost**: S
 - **Value**: M
@@ -74,7 +74,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0094 · chrome_intercept_response hangs until timeout when CDP detaches mid-flight (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: intercept-response attaches the debugger and waits for Network.responseReceived but never installs a chrome.debugger.onDetach listener. If the user opens DevTools, another tool detaches CDP, or the tab navigates and Chrome auto-detaches the session, the listener stops receiving events but the Promise never resolves. The tool blocks for the full timeoutMs (default 15s, max 120s) and returns a misleading TIMEOUT envelope. network-capture-debugger.ts:88 installs an onDetach handler correctly — intercept-response is the outlier.
 - **Cost**: S
 - **Value**: M

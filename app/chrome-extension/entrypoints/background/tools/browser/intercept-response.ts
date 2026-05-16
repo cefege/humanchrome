@@ -2,6 +2,8 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { truncateString, type TruncateUnit } from '@/utils/truncate';
+import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
 
 /**
  * One-shot interception of the next network response on a tab whose URL
@@ -20,6 +22,17 @@ import { cdpSessionManager } from '@/utils/cdp-session-manager';
  *      Wait for Network.loadingFinished, then call Network.getResponseBody.
  *   5. Resolve with parsed body. Detach (refcount-safe).
  *   6. On timeout, reject; same detach path.
+ *   7. On forced CDP detach (DevTools opens / another tool detaches /
+ *      Chrome auto-detaches on navigation), short-circuit the wait and
+ *      resolve with CDP_DETACHED instead of letting `timeoutMs` lapse
+ *      into a misleading TIMEOUT. (IMP-0094)
+ *
+ * Body cap:
+ *   Response bodies are capped at MAX_RESPONSE_BODY_BYTES (1 MiB) — same
+ *   contract as chrome_network_capture. When truncated, the envelope
+ *   carries a `responseBodyTruncation` block (`{truncated, originalSize,
+ *   limit, rawAvailable, unit:'bytes'}`) and JSON parsing is skipped.
+ *   (IMP-0093)
  *
  * Pattern syntax:
  *   "voyager/api/messaging" → simple substring match
@@ -63,6 +76,20 @@ interface CompletedMatch extends PendingMatch {
   bodyParsed?: boolean;
   body?: unknown;
   bodyOmitted?: boolean;
+  /**
+   * Structured truncation marker, present only when the response body
+   * exceeded MAX_RESPONSE_BODY_BYTES (1 MiB). Mirrors the envelope used by
+   * chrome_network_capture's debugger backend so cross-tool callers can
+   * branch on `responseBodyTruncation.truncated` consistently. When
+   * truncated, `body` holds the capped string (JSON parsing is skipped).
+   */
+  responseBodyTruncation?: {
+    truncated: boolean;
+    originalSize: number;
+    limit: number;
+    rawAvailable: boolean;
+    unit: TruncateUnit;
+  };
 }
 
 function compilePattern(pattern: string): (url: string) => boolean {
@@ -96,6 +123,48 @@ function tryParseJson(body: string, mimeType: string): { json?: unknown; parsed:
   } catch {
     return { parsed: false };
   }
+}
+
+/**
+ * Cap a response body at MAX_RESPONSE_BODY_BYTES and shape the result for a
+ * `CompletedMatch`. Mirrors network-capture-debugger.ts so the truncation
+ * contract (`responseBodyTruncation` envelope) is identical across both
+ * tools. When the body is truncated we deliberately skip JSON parsing: a
+ * sliced-mid-array JSON string would fail JSON.parse anyway, and surfacing
+ * the raw capped string with a `truncated: true` flag is more useful to
+ * callers than a "bodyParsed: false" they have to investigate.
+ */
+function shapeBody(
+  rawBody: string,
+  base64Encoded: boolean,
+  mimeType: string,
+): {
+  base64Encoded: boolean;
+  bodyParsed: boolean;
+  body: unknown;
+  responseBodyTruncation?: CompletedMatch['responseBodyTruncation'];
+} {
+  const cap = truncateString(rawBody || '', MAX_RESPONSE_BODY_BYTES);
+  if (cap.truncated) {
+    return {
+      base64Encoded,
+      bodyParsed: false,
+      body: cap.data,
+      responseBodyTruncation: {
+        truncated: true,
+        originalSize: cap.originalSize,
+        limit: cap.limit,
+        rawAvailable: cap.rawAvailable,
+        unit: 'bytes',
+      },
+    };
+  }
+  const parsed = tryParseJson(cap.data, mimeType);
+  return {
+    base64Encoded,
+    bodyParsed: parsed.parsed,
+    body: parsed.parsed ? parsed.json : cap.data,
+  };
 }
 
 class InterceptResponseTool extends BaseBrowserToolExecutor {
@@ -138,6 +207,11 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
     let listener:
       | ((source: chrome.debugger.Debuggee, method: string, params?: unknown) => void)
       | null = null;
+    // IMP-0094: install our own onDetach listener so a forced CDP detach
+    // (DevTools opens, another tool detaches the session, tab navigates and
+    // Chrome auto-detaches) short-circuits the wait. Without this the tool
+    // sat idle until `timeoutMs` and returned a misleading TIMEOUT envelope.
+    let detachListener: ((source: chrome.debugger.Debuggee, reason: string) => void) | null = null;
 
     const cleanup = async (): Promise<void> => {
       if (listener) {
@@ -147,6 +221,14 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
           // ignore
         }
         listener = null;
+      }
+      if (detachListener) {
+        try {
+          chrome.debugger.onDetach.removeListener(detachListener);
+        } catch {
+          // ignore
+        }
+        detachListener = null;
       }
       if (attached) {
         try {
@@ -353,12 +435,9 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
                   'Network.getResponseBody',
                   { requestId: match.requestId },
                 )) as { body: string; base64Encoded: boolean };
-                const parsed = tryParseJson(body.body, match.mimeType);
                 completed.push({
                   ...match,
-                  base64Encoded: body.base64Encoded,
-                  bodyParsed: parsed.parsed,
-                  body: parsed.parsed ? parsed.json : body.body,
+                  ...shapeBody(body.body, body.base64Encoded, match.mimeType),
                 });
               } catch {
                 // Skip this match — body unavailable (e.g. request was
@@ -380,7 +459,7 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
               const body = (await cdpSessionManager.sendCommand(tabId!, 'Network.getResponseBody', {
                 requestId: pending!.requestId,
               })) as { body: string; base64Encoded: boolean };
-              const parsed = tryParseJson(body.body, pending!.mimeType);
+              const shaped = shapeBody(body.body, body.base64Encoded, pending!.mimeType);
               await cleanup();
               finish({
                 content: [
@@ -390,9 +469,7 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
                       ok: true,
                       tabId,
                       ...pending,
-                      base64Encoded: body.base64Encoded,
-                      bodyParsed: parsed.parsed,
-                      body: parsed.parsed ? parsed.json : body.body,
+                      ...shaped,
                     }),
                   },
                 ],
@@ -437,6 +514,34 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
       };
 
       chrome.debugger.onEvent.addListener(listener);
+
+      // IMP-0094: if Chrome forcibly detaches the CDP session (DevTools opens,
+      // another tool calls detach, tab navigates and the auto-detach kicks
+      // in) we'd otherwise sit here waiting for events that will never
+      // arrive. Resolve immediately with CDP_DETACHED so the caller can
+      // retry instead of swallowing `timeoutMs` of dead air.
+      detachListener = (source, reason) => {
+        if (source.tabId !== tabId) return;
+        clearTimeout(timer);
+        (async () => {
+          await cleanup();
+          // Multi-mode: if we already collected some matches, return them
+          // rather than failing the whole call — partial data is more
+          // useful than nothing for paginated flows that got disrupted.
+          if (multi && completed.length > 0) {
+            finish(buildMultiResult());
+            return;
+          }
+          finish(
+            createErrorResponse(
+              `CDP session detached from tab ${tabId} before response matched "${args.urlPattern}" (reason: ${reason || 'unknown'})`,
+              ToolErrorCode.CDP_DETACHED,
+              { tabId, reason: reason || 'unknown' },
+            ),
+          );
+        })();
+      };
+      chrome.debugger.onDetach.addListener(detachListener);
 
       // Attach + Network.enable. Errors here resolve the promise immediately.
       (async () => {

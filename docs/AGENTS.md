@@ -135,12 +135,13 @@ Helper: `app/chrome-extension/utils/truncate.ts` (`truncateString`, `truncateArr
 
 ### Tools that honor it
 
-| Tool                     | Field                                  | Unit                 | `raw:true` honored?                     |
-| ------------------------ | -------------------------------------- | -------------------- | --------------------------------------- |
-| `chrome_read_page`       | `truncation` (on the fallback path)    | `elements` (cap 150) | yes                                     |
-| `chrome_console`         | `truncation` (both modes)              | `messages`           | yes (snapshot mode only)                |
-| `chrome_network_capture` | `responseBodyTruncation` (per-request) | `bytes` (cap 1 MiB)  | no — limit is structural                |
-| `chrome_javascript`      | `truncated: bool` (separate shape)     | bytes                | partial — use `maxOutputBytes` to widen |
+| Tool                        | Field                                  | Unit                 | `raw:true` honored?                     |
+| --------------------------- | -------------------------------------- | -------------------- | --------------------------------------- |
+| `chrome_read_page`          | `truncation` (on the fallback path)    | `elements` (cap 150) | yes                                     |
+| `chrome_console`            | `truncation` (both modes)              | `messages`           | yes (snapshot mode only)                |
+| `chrome_network_capture`    | `responseBodyTruncation` (per-request) | `bytes` (cap 1 MiB)  | no — limit is structural                |
+| `chrome_intercept_response` | `responseBodyTruncation` (per-match)   | `bytes` (cap 1 MiB)  | no — limit is structural                |
+| `chrome_javascript`         | `truncated: bool` (separate shape)     | bytes                | partial — use `maxOutputBytes` to widen |
 
 ### Pattern
 
