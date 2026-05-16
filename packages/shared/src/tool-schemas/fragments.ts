@@ -43,13 +43,38 @@ export const REF_PROP = {
 
 export const SELECTOR_PROP = {
   type: 'string',
-  description: 'CSS selector or XPath for the element.',
+  description:
+    'Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `|>` between the frame selector and inner selector: `iframe#payment |> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate.',
 } as const;
 
 export const SELECTOR_TYPE_PROP = {
   type: 'string',
-  enum: ['css', 'xpath'],
-  description: 'Type of selector (default: "css").',
+  enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'alt', 'title', 'testid', 'text'],
+  description:
+    'Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.).',
+} as const;
+
+/**
+ * Strict-mode index hint (IMP-0098). When omitted and the selector matches
+ * multiple elements, the tool errors with INVALID_ARGS +
+ * `details: {matchCount, samples: [...]}` instead of silently picking one.
+ */
+export const SELECTOR_INDEX_PROP = {
+  type: 'number',
+  description:
+    'Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match.',
+  minimum: 0,
+} as const;
+
+/**
+ * Opt-out of strict mode. When true, the first match wins and multi-match is
+ * not an error. Most callers should leave this off — strict mode is the safer
+ * default for LLM-authored automation.
+ */
+export const SELECTOR_MULTI_PROP = {
+  type: 'boolean',
+  description:
+    'Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick.',
 } as const;
 
 export const FRAME_ID_PROP = {

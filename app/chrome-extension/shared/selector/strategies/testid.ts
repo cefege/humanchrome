@@ -3,6 +3,10 @@
  *
  * Generates selectors based on stable attributes like data-testid, data-cy,
  * as well as semantic attributes like name, title, and alt.
+ *
+ * IMP-0098: extended with a runtime `resolve()` method that mirrors
+ * Playwright's `getByTestId`. The set of recognized attribute names is
+ * configurable per-client via extension storage (see `getTestIdAttributes`).
  */
 
 import type { SelectorCandidate, SelectorStrategy } from '../types';
@@ -30,6 +34,64 @@ const ATTR_TAG_PREFERENCES: Record<string, Set<string>> = {
   alt: ALT_ATTRIBUTE_TAGS,
   title: TITLE_ATTRIBUTE_TAGS,
 };
+
+/**
+ * Default test-id attribute list — matches Playwright's default plus the
+ * common Cypress/Storybook conventions agents have asked for.
+ */
+export const DEFAULT_TESTID_ATTRIBUTES = [
+  'data-testid',
+  'data-cy',
+  'data-test',
+  'data-qa',
+] as const;
+
+const TESTID_ATTRIBUTES_STORAGE_KEY = 'humanchrome.selector.testIdAttributes';
+
+// =============================================================================
+// Configuration (per-client extension storage)
+// =============================================================================
+
+/**
+ * Override the active test-id attribute list. Persists to `chrome.storage.local`
+ * so per-client preference survives a service-worker restart.
+ *
+ * Falls back to `DEFAULT_TESTID_ATTRIBUTES` if storage is unavailable or the
+ * supplied list is empty.
+ */
+export async function setTestIdAttributes(
+  attrs: ReadonlyArray<string>,
+): Promise<ReadonlyArray<string>> {
+  const cleaned = attrs.map((a) => String(a).trim()).filter(Boolean);
+  if (cleaned.length === 0) return DEFAULT_TESTID_ATTRIBUTES;
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return cleaned;
+  try {
+    await chrome.storage.local.set({ [TESTID_ATTRIBUTES_STORAGE_KEY]: cleaned });
+  } catch {
+    // Ignore storage failures — the call still returned the in-memory list.
+  }
+  return cleaned;
+}
+
+/**
+ * Read the active test-id attribute list. Used by callers that need to
+ * snapshot the current configuration (e.g. recorder generation).
+ */
+export async function getTestIdAttributes(): Promise<ReadonlyArray<string>> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return DEFAULT_TESTID_ATTRIBUTES;
+  }
+  try {
+    const raw = await chrome.storage.local.get([TESTID_ATTRIBUTES_STORAGE_KEY]);
+    const list = raw?.[TESTID_ATTRIBUTES_STORAGE_KEY];
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((v) => String(v));
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_TESTID_ATTRIBUTES;
+}
 
 // =============================================================================
 // Helpers
@@ -76,10 +138,59 @@ function shouldTryTagPrefix(attr: string, tag: string, element: Element): boolea
 }
 
 // =============================================================================
+// Runtime resolver
+// =============================================================================
+
+function cssEscapeBasic(v: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(v);
+  return v.replace(/(["\\])/g, '\\$1');
+}
+
+/**
+ * Resolve elements whose configured test-id attribute equals `value`.
+ *
+ * @param value Attribute value to match (exact).
+ * @param scope ParentNode root for the search.
+ * @param attrs Optional explicit attribute list. When omitted, defaults to
+ *              `DEFAULT_TESTID_ATTRIBUTES`. Pass an array from
+ *              `getTestIdAttributes()` to honor per-client configuration.
+ */
+export function resolveByTestId(
+  value: string,
+  scope: ParentNode,
+  attrs: ReadonlyArray<string> = DEFAULT_TESTID_ATTRIBUTES,
+): Element[] {
+  const target = String(value || '').trim();
+  if (!target) return [];
+  const escaped = cssEscapeBasic(target);
+  const out: Element[] = [];
+  const seen = new Set<Element>();
+  for (const attr of attrs) {
+    const a = String(attr).trim();
+    if (!a) continue;
+    let matches: NodeListOf<Element> | undefined;
+    try {
+      matches = scope.querySelectorAll(`[${a}="${escaped}"]`);
+    } catch {
+      continue;
+    }
+    if (!matches) continue;
+    for (const el of Array.from(matches)) {
+      if (seen.has(el)) continue;
+      seen.add(el);
+      out.push(el);
+    }
+  }
+  return out;
+}
+
+// =============================================================================
 // Strategy Export
 // =============================================================================
 
-export const testIdStrategy: SelectorStrategy = {
+export const testIdStrategy: SelectorStrategy & {
+  resolve: (value: string, scope: ParentNode, extras?: { attribute?: string }) => Element[];
+} = {
   id: 'testid',
 
   generate(ctx) {
@@ -120,5 +231,11 @@ export const testIdStrategy: SelectorStrategy = {
     }
 
     return out;
+  },
+
+  resolve(value, scope, extras) {
+    const attr = extras?.attribute?.trim();
+    if (attr) return resolveByTestId(value, scope, [attr]);
+    return resolveByTestId(value, scope, DEFAULT_TESTID_ATTRIBUTES);
   },
 };

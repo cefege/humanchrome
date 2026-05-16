@@ -30,6 +30,8 @@ import {
   REF_PROP,
   SELECTOR_PROP,
   SELECTOR_TYPE_PROP,
+  SELECTOR_INDEX_PROP,
+  SELECTOR_MULTI_PROP,
   FRAME_ID_PROP,
 } from './tool-schemas/fragments';
 
@@ -119,6 +121,7 @@ export const TOOL_NAMES = {
     CLAIM_TAB: 'browser_claim_tab',
     CLOSE_MY_TABS: 'browser_close_my_tabs',
     QUEUE_INSPECT: 'chrome_queue_inspect',
+    LOCATOR_HANDLER: 'chrome_locator_handler',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -475,8 +478,12 @@ export const TOOL_SCHEMAS: Tool[] = [
         // For action=fill
         selector: {
           type: 'string',
-          description: 'CSS selector for fill (alternative to ref).',
+          description:
+            'Selector for fill (alternative to ref). Same kinds as chrome_click_element: CSS / XPath / Playwright-style `role:`/`label:`/`placeholder:`/`alt:`/`title:`/`testid:`/`text:`.',
         },
+        selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         value: {
           oneOf: [{ type: 'string' }, { type: 'boolean' }, { type: 'number' }],
           description: 'Value to set for action=fill (string | boolean | number)',
@@ -1429,12 +1436,14 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLICK,
     description:
-      'Click on an element in a web page. Supports multiple targeting methods: CSS selector, XPath, element ref (from chrome_read_page), or viewport coordinates. More focused than chrome_computer for simple click operations.',
+      'Click on an element in a web page. Supports multiple targeting methods: CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), element ref (from chrome_read_page), or viewport coordinates. Strict mode (IMP-0098): when a selector matches multiple elements without an explicit `index` or `multi:true`, the call errors with INVALID_ARGS and details: {matchCount, samples}.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: SELECTOR_PROP,
         selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         ref: REF_PROP,
         coordinates: {
           type: 'object',
@@ -1481,12 +1490,14 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.FILL,
     description:
-      'Fill or select a form element on a web page. Supports input, textarea, select, checkbox, and radio elements. Use CSS selector, XPath, or element ref to target the element.',
+      'Fill or select a form element on a web page. Supports input, textarea, select, checkbox, and radio elements. Use CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), or element ref to target the element. Strict mode (IMP-0098): multi-match errors unless `index` or `multi:true` is supplied.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: SELECTOR_PROP,
         selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         ref: REF_PROP,
         value: {
           type: ['string', 'number', 'boolean'],
@@ -1591,12 +1602,14 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.AWAIT_ELEMENT,
     description:
-      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS or XPath) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.',
+      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS / XPath / Playwright-style role/label/placeholder/alt/title/testid/text) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: SELECTOR_PROP,
         selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         ref: {
           type: 'string',
           description:
@@ -2089,9 +2102,11 @@ export const TOOL_SCHEMAS: Tool[] = [
         selector: {
           type: 'string',
           description:
-            'For kind="element": CSS selector or XPath. Either selector or ref must be provided.',
+            'For kind="element": CSS selector, XPath, or Playwright-style locator. Either selector or ref must be provided.',
         },
         selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         ref: {
           type: 'string',
           description: 'For kind="element": ref from chrome_read_page.',
@@ -2509,15 +2524,14 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.FOCUS,
     description:
-      'Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1).',
+      'Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1). Selector accepts the same Playwright-style locator shapes as chrome_click_element (IMP-0098).',
     inputSchema: {
       type: 'object',
       properties: {
-        selector: {
-          type: 'string',
-          description:
-            'CSS selector for the target element. Required if `ref` is omitted; mutually exclusive with `ref`.',
-        },
+        selector: SELECTOR_PROP,
+        selectorType: SELECTOR_TYPE_PROP,
+        index: SELECTOR_INDEX_PROP,
+        multi: SELECTOR_MULTI_PROP,
         ref: {
           type: 'string',
           description:
@@ -2858,8 +2872,15 @@ export const TOOL_SCHEMAS: Tool[] = [
       properties: {
         fromSelector: {
           type: 'string',
-          description: 'CSS selector for the drag source. Mutually exclusive with `fromRef`.',
+          description:
+            'Selector for the drag source. Accepts CSS, XPath (via `selectorType="xpath"`), or Playwright-style prefixed forms (`role:button[name="Card"]`, `label:Email`, etc.). Mutually exclusive with `fromRef`.',
         },
+        fromSelectorType: {
+          ...SELECTOR_TYPE_PROP,
+          description:
+            'Optional selector kind for `fromSelector`. Defaults to `css`. See chrome_click_element for the full list.',
+        },
+        fromIndex: SELECTOR_INDEX_PROP,
         fromRef: {
           type: 'string',
           description:
@@ -2867,12 +2888,19 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         toSelector: {
           type: 'string',
-          description: 'CSS selector for the drop target. Mutually exclusive with `toRef`.',
+          description:
+            'Selector for the drop target — same kinds as `fromSelector`. Mutually exclusive with `toRef`.',
         },
+        toSelectorType: {
+          ...SELECTOR_TYPE_PROP,
+          description: 'Optional selector kind for `toSelector`. Defaults to `css`.',
+        },
+        toIndex: SELECTOR_INDEX_PROP,
         toRef: {
           type: 'string',
           description: 'Element ref for the drop target. Mutually exclusive with `toSelector`.',
         },
+        multi: SELECTOR_MULTI_PROP,
         steps: {
           type: 'number',
           description:
@@ -3029,6 +3057,65 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['flowId'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.LOCATOR_HANDLER,
+    description:
+      'Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter popups, "we use cookies" interstitials) that intercept clicks and break LLM flows. Inspired by Playwright\'s `addLocatorHandler`. Register a {selector, dismissSelector} pair — whenever the trigger selector becomes visible (non-zero bbox + not display:none / visibility:hidden / opacity:0), the helper dispatches the dismiss action automatically. Agent code doesn\'t have to babysit overlays; subsequent clicks land on the intended element. Actions: `register` ({selector, dismissSelector, dismissAction?, key?, persistent?, times?, tabId?}) — installs a per-tab MutationObserver and returns `{handlerId, handler}`; `list` ({tabId?}) — enumerates installed handlers with live `dismissedCount` and `lastDismissedAt`; `remove` ({handlerId, tabId?}) — drops one handler by id; `clear` ({tabId?}) — drops every handler on the tab. `dismissAction` defaults to `click` (synthesizes pointerdown→mousedown→pointerup→mouseup→click sequence). `dismissAction: "press"` requires a `key` (e.g. `Escape`) and fires keydown→keypress→keyup. `times` caps total dismissals (default unlimited) — handler auto-removes when the limit hits. `persistent: true` re-arms the handler after page navigation via `chrome.webNavigation.onDOMContentLoaded`; non-persistent handlers drop on navigation. Pair with the pacing `careful` profile for LinkedIn / news / paywalled sites.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['register', 'list', 'remove', 'clear'],
+          description: 'Operation to perform.',
+        },
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector for the overlay element to watch. The handler fires the dismiss action whenever any element matching this selector becomes visible. Required for `register`.',
+        },
+        dismissSelector: {
+          type: 'string',
+          description:
+            'CSS selector for the element to click (or press a key on) once the trigger appears — typically the "Accept", "Close", or "Dismiss" button inside the overlay. Required for `register`. Re-queried on every fire so re-rendered overlays still match.',
+        },
+        dismissAction: {
+          type: 'string',
+          enum: ['click', 'press'],
+          description:
+            'How to dismiss the overlay. `click` (default) dispatches the full pointerdown→mousedown→pointerup→mouseup→click sequence on `dismissSelector`. `press` dispatches keydown→keypress→keyup with `key` (defaults to `Escape`) and requires `key` to be set.',
+        },
+        key: {
+          type: 'string',
+          description:
+            'Key name to dispatch when `dismissAction: "press"`. Standard KeyboardEvent.key values like `Escape`, `Enter`, `Tab`. Required when `dismissAction: "press"`.',
+        },
+        times: {
+          type: 'number',
+          description:
+            'Optional cap on total dismissals. Handler auto-removes once the limit is reached. Must be a positive integer. Default: unlimited.',
+        },
+        persistent: {
+          type: 'boolean',
+          description:
+            'When true (default false), re-arm the handler after page navigation via `chrome.webNavigation.onDOMContentLoaded`. Non-persistent handlers vanish on navigation — useful for one-shot dismissal during a single page session.',
+        },
+        handlerId: {
+          type: 'string',
+          description: 'Handler ID returned from `register`. Required for `remove`.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Falls back to the active tab when omitted.',
+        },
+        windowId: {
+          type: 'number',
+          description: 'Target window for active-tab lookup when `tabId` is omitted.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 /**
@@ -3158,6 +3245,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',
+  [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

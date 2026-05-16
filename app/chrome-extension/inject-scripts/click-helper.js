@@ -1,4 +1,3 @@
-/* eslint-disable */
 // click-helper.js
 // This script is injected into the page to handle click operations
 
@@ -116,7 +115,46 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
           };
         }
       } else {
-        element = document.querySelector(selector);
+        // IMP-0098: route raw-CSS through the shared strict-mode uniqueness
+        // check (exposed by accessibility-tree-helper.js as
+        // `window.__hcQuerySelectorUnique`). When multi-match without an
+        // explicit `index`/`multi`, surface samples so the caller can re-
+        // target without re-reading the page. Falls back to plain
+        // querySelector when the shared probe is unavailable (helper not
+        // injected — caller error, but preserve old behavior).
+        const uniqueProbe =
+          typeof window.__hcQuerySelectorUnique === 'function'
+            ? window.__hcQuerySelectorUnique
+            : null;
+        const allowMultipleStrict = !!(options && options.allowMultiple);
+        if (uniqueProbe && !allowMultipleStrict) {
+          const probe = uniqueProbe(selector, false);
+          if (probe.error) {
+            return { error: probe.error };
+          }
+          if (probe.matchCount === 0) {
+            return { error: `Element with selector "${selector}" not found` };
+          }
+          if (probe.matchCount > 1) {
+            let samples = [];
+            try {
+              const all = document.querySelectorAll(selector);
+              samples = Array.from(all)
+                .slice(0, 5)
+                .map((node) => ({
+                  tag: node.tagName ? node.tagName.toLowerCase() : '',
+                  text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+                }));
+            } catch {}
+            return {
+              error: `Selector "${selector}" matched ${probe.matchCount === 2 ? '2 or more' : probe.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+              strict: { matchCount: probe.matchCount, samples },
+            };
+          }
+          element = probe.element;
+        } else {
+          element = document.querySelector(selector);
+        }
         if (!element) {
           return {
             error: `Element with selector "${selector}" not found`,

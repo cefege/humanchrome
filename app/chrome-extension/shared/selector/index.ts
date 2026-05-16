@@ -20,12 +20,43 @@ export { computeSelectorStability, withStability, compareSelectorCandidates } fr
 
 // Selector strategies
 export { DEFAULT_SELECTOR_STRATEGIES } from './strategies';
+export { altTextStrategy, resolveByAltText } from './strategies/alt-text';
 export { anchorRelpathStrategy } from './strategies/anchor-relpath';
 export { ariaStrategy } from './strategies/aria';
 export { cssPathStrategy } from './strategies/css-path';
 export { cssUniqueStrategy } from './strategies/css-unique';
-export { testIdStrategy } from './strategies/testid';
+export { labelStrategy, resolveByLabel } from './strategies/label';
+export { placeholderStrategy, resolveByPlaceholder } from './strategies/placeholder';
+export {
+  roleStrategy,
+  getElementRole,
+  getImplicitRole,
+  resolveByRole,
+  parseRoleSelector,
+} from './strategies/role';
+export {
+  testIdStrategy,
+  resolveByTestId,
+  setTestIdAttributes,
+  getTestIdAttributes,
+  DEFAULT_TESTID_ATTRIBUTES,
+} from './strategies/testid';
 export { textStrategy } from './strategies/text';
+export { titleStrategy, resolveByTitle } from './strategies/title';
+
+// Accessible-name compute (W3C accname-1.2 subset)
+export {
+  computeAccessibleName,
+  matchesAccessibleName,
+  type NameMatchMode,
+} from './accessible-name';
+
+// Prefixed selector parsing
+export {
+  parsePrefixedSelector,
+  type ParsedPrefixedSelector,
+  type PrefixedSelectorKind,
+} from './prefixed-parser';
 
 // Selector generation
 export {

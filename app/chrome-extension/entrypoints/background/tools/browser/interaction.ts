@@ -4,9 +4,15 @@ import {
   ToolResult,
 } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
+import {
+  STRUCTURED_SELECTOR_KINDS,
+  resolveSelectorToRef,
+  type SelectorType,
+} from './_selector-resolve';
+import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
 
 interface Coordinates {
   x: number;
@@ -14,8 +20,8 @@ interface Coordinates {
 }
 
 interface ClickToolParams {
-  selector?: string; // CSS selector or XPath for the element to click
-  selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
+  selector?: string; // Selector for the element to click
+  selectorType?: SelectorType; // Type of selector (default: 'css')
   ref?: string; // Element ref from accessibility tree (window.__claudeElementMap)
   coordinates?: Coordinates; // Coordinates to click at (x, y relative to viewport)
   waitForNavigation?: boolean; // Whether to wait for navigation to complete after click
@@ -28,6 +34,10 @@ interface ClickToolParams {
   modifiers?: { altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean };
   tabId?: number; // target existing tab id
   windowId?: number; // when no tabId, pick active tab from this window
+  /** IMP-0098: zero-based match index when multiple elements satisfy the selector. */
+  index?: number;
+  /** IMP-0098: opt out of strict-mode multi-match error (first match wins). */
+  multi?: boolean;
 }
 
 /**
@@ -84,54 +94,98 @@ class ClickTool extends BaseBrowserToolExecutor {
       let finalRef = args.ref;
       let finalSelector = selector;
 
-      // If selector is XPath, convert to ref first
-      if (selector && selectorType === 'xpath') {
-        await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-        try {
-          const resolved = await this.sendMessageToTab(
-            tab.id,
-            {
-              action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR,
-              selector,
-              isXPath: true,
-            },
-            frameId,
-          );
-          if (resolved && resolved.success && resolved.ref) {
-            finalRef = resolved.ref;
-            finalSelector = undefined; // Use ref instead of selector
-          } else {
-            return createErrorResponse(
-              `Failed to resolve XPath selector: ${resolved?.error || 'unknown error'}`,
-            );
-          }
-        } catch (error) {
-          return createErrorResponse(
-            `Error resolving XPath: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+      // IMP-0098: XPath + new Playwright-style selectors resolve via the
+      // accessibility-tree-helper, which produces a ref the click-helper
+      // can act on without re-running the resolver. Also auto-detect
+      // prefixed selectors when caller passed selectorType='css'.
+      const prefixDetected =
+        selector && selectorType === 'css' ? parsePrefixedSelector(selector).kind !== 'css' : false;
+      const needsResolve =
+        selector &&
+        (selectorType === 'xpath' ||
+          STRUCTURED_SELECTOR_KINDS.includes(selectorType as SelectorType) ||
+          prefixDetected);
+
+      if (needsResolve) {
+        const resolved = await resolveSelectorToRef(this, {
+          tabId: tab.id,
+          frameId,
+          selector: selector ?? '',
+          selectorType,
+          index: args.index,
+          multi: args.multi,
+        });
+        if (!resolved.ok) return resolved.error;
+        finalRef = resolved.ref;
+        finalSelector = undefined;
       }
 
       await this.assertSameDocument(snapshot);
 
-      // Send click message to content script
-      const result = await this.sendMessageToTab(
-        tab.id,
-        {
-          action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
-          selector: finalSelector,
-          coordinates,
-          ref: finalRef,
-          waitForNavigation,
-          timeout: timeoutMs,
-          double: args.double === true,
-          button,
-          bubbles,
-          cancelable,
-          modifiers,
-        },
-        frameId,
-      );
+      // Send click message to content script. Wrap in try/catch because
+      // sendMessageToTab throws when response.error is set — but for IMP-0098
+      // we want to inspect `response.strict` BEFORE the wrap converts it to
+      // a ToolError.
+      interface ClickHelperResponse {
+        success?: boolean;
+        message?: string;
+        elementInfo?: Record<string, unknown>;
+        navigationOccurred?: boolean;
+        error?: string;
+        strict?: { matchCount: number; samples?: Array<{ tag?: string; text?: string }> };
+      }
+      let result: ClickHelperResponse;
+      try {
+        if (typeof frameId === 'number') {
+          result = await chrome.tabs.sendMessage(
+            tab.id,
+            {
+              action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
+              selector: finalSelector,
+              coordinates,
+              ref: finalRef,
+              waitForNavigation,
+              timeout: timeoutMs,
+              double: args.double === true,
+              button,
+              bubbles,
+              cancelable,
+              modifiers,
+              allowMultiple: args.multi === true,
+            },
+            { frameId },
+          );
+        } else {
+          result = await chrome.tabs.sendMessage(tab.id, {
+            action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
+            selector: finalSelector,
+            coordinates,
+            ref: finalRef,
+            waitForNavigation,
+            timeout: timeoutMs,
+            double: args.double === true,
+            button,
+            bubbles,
+            cancelable,
+            modifiers,
+            allowMultiple: args.multi === true,
+          });
+        }
+      } catch (err) {
+        return createErrorResponseFromThrown(err);
+      }
+
+      // Helper returned strict-mode violation envelope?
+      if (result && result.error && result.strict) {
+        return createErrorResponse(result.error, ToolErrorCode.INVALID_ARGS, {
+          matchCount: result.strict.matchCount,
+          samples: result.strict.samples ?? [],
+        });
+      }
+      // Generic error envelope (no strict info).
+      if (result && result.error) {
+        return createErrorResponse(result.error);
+      }
 
       // Determine actual click method used
       let clickMethod: string;
@@ -171,13 +225,15 @@ export const clickTool = new ClickTool();
 
 interface FillToolParams {
   selector?: string;
-  selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
+  selectorType?: SelectorType; // Type of selector (default: 'css')
   ref?: string; // Element ref from accessibility tree
   // Accept string | number | boolean for broader form input coverage
   value: string | number | boolean;
   frameId?: number;
   tabId?: number; // target existing tab id
   windowId?: number; // when no tabId, pick active tab from this window
+  index?: number;
+  multi?: boolean;
 }
 
 /**
@@ -214,32 +270,24 @@ class FillTool extends BaseBrowserToolExecutor {
       let finalRef = ref;
       let finalSelector = selector;
 
-      // If selector is XPath, convert to ref first
-      if (selector && selectorType === 'xpath') {
-        await this.injectContentScript(tab.id, ['inject-scripts/accessibility-tree-helper.js']);
-        try {
-          const resolved = await this.sendMessageToTab(
-            tab.id,
-            {
-              action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR,
-              selector,
-              isXPath: true,
-            },
-            frameId,
-          );
-          if (resolved && resolved.success && resolved.ref) {
-            finalRef = resolved.ref;
-            finalSelector = undefined; // Use ref instead of selector
-          } else {
-            return createErrorResponse(
-              `Failed to resolve XPath selector: ${resolved?.error || 'unknown error'}`,
-            );
-          }
-        } catch (error) {
-          return createErrorResponse(
-            `Error resolving XPath: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+      // IMP-0098: XPath + structured Playwright-style selectors resolve to a
+      // ref before the fill-helper takes over.
+      const needsResolve =
+        selector &&
+        (selectorType === 'xpath' ||
+          STRUCTURED_SELECTOR_KINDS.includes(selectorType as SelectorType));
+      if (needsResolve) {
+        const resolved = await resolveSelectorToRef(this, {
+          tabId: tab.id,
+          frameId,
+          selector: selector ?? '',
+          selectorType,
+          index: args.index,
+          multi: args.multi,
+        });
+        if (!resolved.ok) return resolved.error;
+        finalRef = resolved.ref;
+        finalSelector = undefined;
       }
 
       await this.injectContentScript(tab.id, ['inject-scripts/fill-helper.js']);

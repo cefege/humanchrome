@@ -130,6 +130,45 @@ export function computeSelectorStability(candidate: SelectorCandidate): Selector
     return { score: clamp01(score), signals };
   }
 
+  // role — accessibility + accessible name (very stable)
+  if (candidate.type === 'role') {
+    const hasName = typeof candidate.name === 'string' && candidate.name.trim().length > 0;
+    const signals: SelectorStabilitySignals = { usesAria: true };
+    let score = hasName ? 0.88 : 0.6;
+    score -= lengthPenalty(candidate.value);
+    return { score: clamp01(score), signals };
+  }
+
+  // testid — explicit test attribute (extremely stable)
+  if (candidate.type === 'testid') {
+    const signals: SelectorStabilitySignals = { usesTestId: true };
+    let score = 0.95;
+    score -= lengthPenalty(candidate.value);
+    return { score: clamp01(score), signals };
+  }
+
+  // label / placeholder / alt / title — semantic attributes (stable)
+  if (
+    candidate.type === 'label' ||
+    candidate.type === 'placeholder' ||
+    candidate.type === 'alt' ||
+    candidate.type === 'title'
+  ) {
+    const signals: SelectorStabilitySignals = { usesAttributes: true };
+    // label > placeholder > alt > title in stability — labels are stickiest.
+    const baseScore =
+      candidate.type === 'label'
+        ? 0.82
+        : candidate.type === 'placeholder'
+          ? 0.7
+          : candidate.type === 'alt'
+            ? 0.75
+            : 0.6;
+    let score = baseScore;
+    score -= lengthPenalty(candidate.value);
+    return { score: clamp01(score), signals };
+  }
+
   // text
   const text = String(candidate.value || '').trim();
   const signals: SelectorStabilitySignals = { usesText: true };
@@ -149,10 +188,20 @@ export function withStability(candidate: SelectorCandidate): SelectorCandidate {
 
 function typePriority(type: SelectorType): number {
   switch (type) {
+    case 'testid':
+      return 8; // strongest — explicit test attribute
     case 'attr':
       return 5;
     case 'css':
       return 4;
+    case 'role':
+      return 7; // strong — role + accessible name
+    case 'label':
+      return 6; // strong — form labels are sticky
+    case 'placeholder':
+    case 'alt':
+    case 'title':
+      return 3; // moderate — attribute-based
     case 'aria':
       return 3;
     case 'xpath':

@@ -10,11 +10,14 @@ import { ERROR_MESSAGES } from '@/common/constants';
 import { interceptResponseTool } from './intercept-response';
 import { DEFAULT_WAIT_FOR_TIMEOUT_MS } from '../../utils/timeouts';
 
+import { STRUCTURED_SELECTOR_KINDS, type SelectorType } from './_selector-resolve';
+import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
+
 interface WaitForToolParams {
   kind: 'element' | 'network_idle' | 'response_match' | 'js';
   timeoutMs?: number;
   selector?: string;
-  selectorType?: 'css' | 'xpath';
+  selectorType?: SelectorType;
   ref?: string;
   state?: 'present' | 'absent';
   quietMs?: number;
@@ -24,6 +27,8 @@ interface WaitForToolParams {
   tabId?: number;
   windowId?: number;
   frameId?: number;
+  index?: number;
+  multi?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = DEFAULT_WAIT_FOR_TIMEOUT_MS;
@@ -120,15 +125,44 @@ class WaitForTool extends BaseBrowserToolExecutor {
             ToolErrorCode.INVALID_ARGS,
           );
         }
+        const requestedType = (args.selectorType ?? 'css') as SelectorType;
+        let selectorType: SelectorType = requestedType;
+        let extras: Record<string, unknown> = {};
+        if (typeof args.selector === 'string') {
+          if (STRUCTURED_SELECTOR_KINDS.includes(requestedType)) {
+            if (requestedType === 'role') {
+              const parsed = parsePrefixedSelector(`role:${args.selector}`);
+              extras = { role: parsed.role, name: parsed.name, exact: parsed.exact };
+            } else if (requestedType === 'testid') {
+              extras = { text: args.selector };
+            } else {
+              extras = { text: args.selector };
+            }
+          } else if (requestedType === 'css') {
+            // Auto-detect prefixed selectors.
+            const parsed = parsePrefixedSelector(args.selector);
+            if (parsed.kind !== 'css' && parsed.kind !== 'xpath') {
+              selectorType = parsed.kind as SelectorType;
+              extras =
+                parsed.kind === 'role'
+                  ? { role: parsed.role, name: parsed.name, exact: parsed.exact }
+                  : { text: parsed.value, exact: parsed.exact };
+            }
+          }
+        }
+
         const resp = await this.sendMessageToTab(
           tab.id,
           {
             action: TOOL_MESSAGE_TYPES.WAIT_FOR_ELEMENT,
             selector: args.selector,
-            selectorType: args.selectorType ?? 'css',
+            selectorType,
             ref: args.ref,
             state: args.state ?? 'present',
             timeout: timeoutMs,
+            index: args.index,
+            multi: args.multi,
+            ...extras,
           },
           args.frameId,
         );

@@ -2,14 +2,25 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import {
+  resolveSelectorToRef,
+  STRUCTURED_SELECTOR_KINDS,
+  type SelectorType,
+} from './_selector-resolve';
+import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
 
 interface DragDropParams {
   tabId?: number;
   windowId?: number;
   fromSelector?: string;
+  fromSelectorType?: SelectorType;
+  fromIndex?: number;
   fromRef?: string;
   toSelector?: string;
+  toSelectorType?: SelectorType;
+  toIndex?: number;
   toRef?: string;
+  multi?: boolean;
   frameId?: number;
   steps?: number;
 }
@@ -74,6 +85,97 @@ class DragDropTool extends BaseBrowserToolExecutor {
     }
 
     try {
+      // IMP-0098: Structured selectors (`role:`, `label:`, etc.) and prefixed
+      // CSS strings can't run inside the MAIN-world shim because the
+      // accessible-name compute lives in the accessibility-tree-helper which
+      // is injected ISOLATED. We resolve structured/prefixed selectors via
+      // RESOLVE_REF (ISOLATED → CSS selector string) and feed that back into
+      // the MAIN shim's plain `document.querySelector` path.
+      const resolveEndpoint = async (
+        sel: string | undefined,
+        kind: SelectorType | undefined,
+        ref: string | undefined,
+        index: number | undefined,
+        label: 'from' | 'to',
+      ): Promise<
+        { ok: true; selector?: string; ref?: string } | { ok: false; error: ToolResult }
+      > => {
+        if (ref) return { ok: true, ref };
+        if (!sel) return { ok: true };
+        const needsResolve =
+          kind === 'xpath' ||
+          (kind && STRUCTURED_SELECTOR_KINDS.includes(kind)) ||
+          parsePrefixedSelector(sel).kind !== 'css';
+        if (!needsResolve) return { ok: true, selector: sel };
+
+        const resolved = await resolveSelectorToRef(this, {
+          tabId,
+          frameId: args.frameId,
+          selector: sel,
+          selectorType: kind ?? 'css',
+          index,
+          multi: args.multi,
+        });
+        if (!resolved.ok) {
+          return {
+            ok: false,
+            error: createErrorResponse(
+              `drag-drop ${label}: ${(resolved.error.content[0] as { text: string }).text}`,
+              ToolErrorCode.INVALID_ARGS,
+              { side: label },
+            ),
+          };
+        }
+        // Ask the page-side helper to surface a CSS selector for the ref so
+        // the MAIN-world shim can re-locate the element (refs across worlds
+        // are unreliable).
+        try {
+          interface ResolveRefResp {
+            success?: boolean;
+            selector?: string;
+          }
+          const refDetails =
+            typeof args.frameId === 'number'
+              ? ((await chrome.tabs.sendMessage(
+                  tabId,
+                  { action: 'resolveRef', ref: resolved.ref },
+                  { frameId: args.frameId },
+                )) as ResolveRefResp)
+              : ((await chrome.tabs.sendMessage(tabId, {
+                  action: 'resolveRef',
+                  ref: resolved.ref,
+                })) as ResolveRefResp);
+          if (refDetails && refDetails.success && refDetails.selector) {
+            return { ok: true, selector: refDetails.selector };
+          }
+        } catch {
+          /* ignore — fall through to ref attempt */
+        }
+        return { ok: true, ref: resolved.ref };
+      };
+
+      const fromResolved = await resolveEndpoint(
+        args.fromSelector,
+        args.fromSelectorType,
+        args.fromRef,
+        args.fromIndex,
+        'from',
+      );
+      if (!fromResolved.ok) return fromResolved.error;
+      const toResolved = await resolveEndpoint(
+        args.toSelector,
+        args.toSelectorType,
+        args.toRef,
+        args.toIndex,
+        'to',
+      );
+      if (!toResolved.ok) return toResolved.error;
+
+      const finalFromSelector = fromResolved.selector ?? args.fromSelector ?? null;
+      const finalFromRef = fromResolved.ref ?? args.fromRef ?? null;
+      const finalToSelector = toResolved.selector ?? args.toSelector ?? null;
+      const finalToRef = toResolved.ref ?? args.toRef ?? null;
+
       const target: { tabId: number; frameIds?: number[] } = { tabId };
       if (typeof args.frameId === 'number') target.frameIds = [args.frameId];
       const injected = await chrome.scripting.executeScript({
@@ -81,10 +183,12 @@ class DragDropTool extends BaseBrowserToolExecutor {
         world: 'MAIN',
         func: dragDropShim,
         args: [
-          args.fromSelector ?? null,
-          args.fromRef ?? null,
-          args.toSelector ?? null,
-          args.toRef ?? null,
+          // Prefer the resolved CSS selector; fall back to the original
+          // selector + ref pair so the existing shim contract is intact.
+          finalFromSelector,
+          finalFromRef,
+          finalToSelector,
+          finalToRef,
           steps,
         ],
       });

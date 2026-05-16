@@ -176,7 +176,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0098 · Playwright-style locator engine — role/text/label/placeholder/alt/title/testid + uniform strict mode (feat) · score: 4
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: Selector surface today is `css` / `xpath` / `ref` only. Audit confirmed `shared/selector/strategies/` already exists with testid/aria/text/css-unique/css-path/anchor-relpath skeletons + a stability/fingerprint runtime — but there are no first-class `getByRole`/`getByText`/`getByLabel`/`getByPlaceholder`/`getByAltText`/`getByTitle` resolvers as either generators or runtime branches. With these added and strict mode unified across all selector paths, LLM agents can author resilient selectors like `role:button[name="Submit"]` instead of `body > div:nth-child(3) > button.css-1234`. Single biggest UX/reliability lever after actionability.
 - **Cost**: L (4-5 days)
 - **Value**: L

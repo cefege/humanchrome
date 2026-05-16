@@ -298,7 +298,10 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `repeat` | number |  | For action=key: number of times to repeat the key sequence (integer 1-100, default 1). |
 | `modifiers` | object |  | Modifier keys for click actions (left_click/right_click/double_click/triple_click). |
 | `region` | object |  | For action=zoom: rectangular region to capture (x0,y0)-(x1,y1) in viewport pixels (or screenshot-space if a recent screenshot context exists). |
-| `selector` | string |  | CSS selector for fill (alternative to ref). |
+| `selector` | string |  | Selector for fill (alternative to ref). Same kinds as chrome_click_element: CSS / XPath / Playwright-style `role:`/`label:`/`placeholder:`/`alt:`/`title:`/`testid:`/`text:`. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `value` | string \| boolean \| number |  | Value to set for action=fill (string \| boolean \| number) |
 | `elements` | array<object> |  | For action=fill_form: list of elements to fill (ref + value) |
 | `width` | number |  | For action=resize_page: viewport width |
@@ -309,12 +312,14 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 
 ### `chrome_click_element`
 
-Click on an element in a web page. Supports multiple targeting methods: CSS selector, XPath, element ref (from chrome_read_page), or viewport coordinates. More focused than chrome_computer for simple click operations.
+Click on an element in a web page. Supports multiple targeting methods: CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), element ref (from chrome_read_page), or viewport coordinates. Strict mode (IMP-0098): when a selector matches multiple elements without an explicit `index` or `multi:true`, the call errors with INVALID_ARGS and details: {matchCount, samples}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | string |  | CSS selector or XPath for the element. |
-| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | Element ref from chrome_read_page (takes precedence over selector). |
 | `coordinates` | object |  | Viewport coordinates to click at. |
 | `double` | boolean |  | Perform double click when true (default: false). |
@@ -328,12 +333,14 @@ Click on an element in a web page. Supports multiple targeting methods: CSS sele
 
 ### `chrome_fill_or_select`
 
-Fill or select a form element on a web page. Supports input, textarea, select, checkbox, and radio elements. Use CSS selector, XPath, or element ref to target the element.
+Fill or select a form element on a web page. Supports input, textarea, select, checkbox, and radio elements. Use CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), or element ref to target the element. Strict mode (IMP-0098): multi-match errors unless `index` or `multi:true` is supplied.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | string |  | CSS selector or XPath for the element. |
-| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | Element ref from chrome_read_page (takes precedence over selector). |
 | `value` | string \| number \| boolean | ✓ | Value to fill. For text inputs: string. For checkboxes/radios: boolean. For selects: option value or text. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
@@ -359,8 +366,8 @@ Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape)
 |-------|------|----------|-------------|
 | `keys` | string |  | Keys or key combinations to simulate. Examples: "Enter", "Tab", "Ctrl+C", "Shift+Tab", "Hello World". Optional when `shortcut` is supplied; when both are present, `shortcut` wins. |
 | `shortcut` | `copy` \| `paste` \| `cut` \| `undo` \| `redo` \| `save` \| `select_all` \| `find` \| `refresh` \| `back` \| `forward` \| `new_tab` \| `close_tab` |  | High-level named shortcut. Resolves at dispatch time to the platform-correct key chord (e.g. `copy` → "Meta+c" on macOS, "Ctrl+c" elsewhere). Use this instead of `keys` to avoid hard-coding Ctrl-vs-Meta in prompts. |
-| `selector` | string |  | CSS selector or XPath for the element. |
-| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
 | `delay` | number |  | Delay between keystrokes in milliseconds (default: 50). |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
@@ -368,12 +375,14 @@ Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape)
 
 ### `chrome_await_element`
 
-Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS or XPath) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.
+Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS / XPath / Playwright-style role/label/placeholder/alt/title/testid/text) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Returns {found:true, elapsedMs} on success, or a TIMEOUT error with {selector, state, timeoutMs, elapsedMs} after timeoutMs.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | string |  | CSS selector or XPath for the element. |
-| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | Element ref from chrome_read_page. Takes precedence over selector. For state="absent", waits until the referenced element is detached or the ref no longer resolves. |
 | `state` | `present` \| `absent` |  | Target state to wait for: "present" (default) waits for a matching element to appear, "absent" waits for it to disappear. |
 | `timeoutMs` | number |  | Timeout in milliseconds (default: 15000, max: 120000). Returns a TIMEOUT error when the goal state is not reached in time. |
@@ -411,8 +420,10 @@ Wait for one of: a DOM element to appear/disappear, the network to go idle, a sp
 |-------|------|----------|-------------|
 | `kind` | `element` \| `network_idle` \| `response_match` \| `js` | ✓ | Which wait condition to use. Required. |
 | `timeoutMs` | number |  | Wall-clock budget. Default 15000, max 120000. On timeout the tool returns a TIMEOUT error envelope. |
-| `selector` | string |  | For kind="element": CSS selector or XPath. Either selector or ref must be provided. |
-| `selectorType` | `css` \| `xpath` |  | Type of selector (default: "css"). |
+| `selector` | string |  | For kind="element": CSS selector, XPath, or Playwright-style locator. Either selector or ref must be provided. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | For kind="element": ref from chrome_read_page. |
 | `state` | `present` \| `absent` |  | For kind="element": "present" (default) or "absent". |
 | `quietMs` | number |  | For kind="network_idle": consider the network idle once this many ms have elapsed without a new resource entry. Default 500. |
@@ -425,11 +436,14 @@ Wait for one of: a DOM element to appear/disappear, the network to go idle, a sp
 
 ### `chrome_focus`
 
-Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1).
+Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1). Selector accepts the same Playwright-style locator shapes as chrome_click_element (IMP-0098).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | string |  | CSS selector for the target element. Required if `ref` is omitted; mutually exclusive with `ref`. |
+| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
+| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Required if `selector` is omitted; mutually exclusive with `selector`. |
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
@@ -469,14 +483,36 @@ Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + 
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `fromSelector` | string |  | CSS selector for the drag source. Mutually exclusive with `fromRef`. |
+| `fromSelector` | string |  | Selector for the drag source. Accepts CSS, XPath (via `selectorType="xpath"`), or Playwright-style prefixed forms (`role:button[name="Card"]`, `label:Email`, etc.). Mutually exclusive with `fromRef`. |
+| `fromSelectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Optional selector kind for `fromSelector`. Defaults to `css`. See chrome_click_element for the full list. |
+| `fromIndex` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
 | `fromRef` | string |  | Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`. |
-| `toSelector` | string |  | CSS selector for the drop target. Mutually exclusive with `toRef`. |
+| `toSelector` | string |  | Selector for the drop target — same kinds as `fromSelector`. Mutually exclusive with `toRef`. |
+| `toSelectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Optional selector kind for `toSelector`. Defaults to `css`. |
+| `toIndex` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
 | `toRef` | string |  | Element ref for the drop target. Mutually exclusive with `toSelector`. |
+| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `steps` | number |  | Number of intermediate pointermove + dragover events between the two centers. Clamped to [1, 50]. Default 5. |
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 | `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. |
+
+### `chrome_locator_handler`
+
+Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter popups, "we use cookies" interstitials) that intercept clicks and break LLM flows. Inspired by Playwright's `addLocatorHandler`. Register a {selector, dismissSelector} pair — whenever the trigger selector becomes visible (non-zero bbox + not display:none / visibility:hidden / opacity:0), the helper dispatches the dismiss action automatically. Agent code doesn't have to babysit overlays; subsequent clicks land on the intended element. Actions: `register` ({selector, dismissSelector, dismissAction?, key?, persistent?, times?, tabId?}) — installs a per-tab MutationObserver and returns `{handlerId, handler}`; `list` ({tabId?}) — enumerates installed handlers with live `dismissedCount` and `lastDismissedAt`; `remove` ({handlerId, tabId?}) — drops one handler by id; `clear` ({tabId?}) — drops every handler on the tab. `dismissAction` defaults to `click` (synthesizes pointerdown→mousedown→pointerup→mouseup→click sequence). `dismissAction: "press"` requires a `key` (e.g. `Escape`) and fires keydown→keypress→keyup. `times` caps total dismissals (default unlimited) — handler auto-removes when the limit hits. `persistent: true` re-arms the handler after page navigation via `chrome.webNavigation.onDOMContentLoaded`; non-persistent handlers drop on navigation. Pair with the pacing `careful` profile for LinkedIn / news / paywalled sites.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `register` \| `list` \| `remove` \| `clear` | ✓ | Operation to perform. |
+| `selector` | string |  | CSS selector for the overlay element to watch. The handler fires the dismiss action whenever any element matching this selector becomes visible. Required for `register`. |
+| `dismissSelector` | string |  | CSS selector for the element to click (or press a key on) once the trigger appears — typically the "Accept", "Close", or "Dismiss" button inside the overlay. Required for `register`. Re-queried on every fire so re-rendered overlays still match. |
+| `dismissAction` | `click` \| `press` |  | How to dismiss the overlay. `click` (default) dispatches the full pointerdown→mousedown→pointerup→mouseup→click sequence on `dismissSelector`. `press` dispatches keydown→keypress→keyup with `key` (defaults to `Escape`) and requires `key` to be set. |
+| `key` | string |  | Key name to dispatch when `dismissAction: "press"`. Standard KeyboardEvent.key values like `Escape`, `Enter`, `Tab`. Required when `dismissAction: "press"`. |
+| `times` | number |  | Optional cap on total dismissals. Handler auto-removes once the limit is reached. Must be a positive integer. Default: unlimited. |
+| `persistent` | boolean |  | When true (default false), re-arm the handler after page navigation via `chrome.webNavigation.onDOMContentLoaded`. Non-persistent handlers vanish on navigation — useful for one-shot dismissal during a single page session. |
+| `handlerId` | string |  | Handler ID returned from `register`. Required for `remove`. |
+| `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
+| `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 
 ## Scripting
 

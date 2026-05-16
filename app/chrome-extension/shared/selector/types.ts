@@ -18,7 +18,18 @@ export interface Point {
   y: number;
 }
 
-export type SelectorType = 'css' | 'xpath' | 'attr' | 'aria' | 'text';
+export type SelectorType =
+  | 'css'
+  | 'xpath'
+  | 'attr'
+  | 'aria'
+  | 'text'
+  | 'role'
+  | 'label'
+  | 'placeholder'
+  | 'alt'
+  | 'title'
+  | 'testid';
 export type SelectorCandidateSource = 'recorded' | 'user' | 'generated';
 
 export interface SelectorStabilitySignals {
@@ -60,11 +71,29 @@ export interface SelectorCandidateBase {
 
 export type TextMatchMode = 'exact' | 'contains';
 
+/**
+ * Match mode for accessible-name comparison on `role` / `label` / `text`
+ * candidates. Matches the Playwright getByRole `{ exact: true }` semantics
+ * (case-sensitive equality after whitespace normalization) when truthy.
+ */
+export type NameExactMode = boolean;
+
 export type SelectorCandidate =
   | (SelectorCandidateBase & { type: 'css' | 'attr' })
   | (SelectorCandidateBase & { type: 'xpath' })
   | (SelectorCandidateBase & { type: 'text'; match?: TextMatchMode; tagNameHint?: string })
-  | (SelectorCandidateBase & { type: 'aria'; role?: string; name?: string });
+  | (SelectorCandidateBase & { type: 'aria'; role?: string; name?: string })
+  | (SelectorCandidateBase & {
+      type: 'role';
+      role: string;
+      name?: string;
+      exact?: NameExactMode;
+    })
+  | (SelectorCandidateBase & { type: 'label'; text: string; exact?: NameExactMode })
+  | (SelectorCandidateBase & { type: 'placeholder'; text: string; exact?: NameExactMode })
+  | (SelectorCandidateBase & { type: 'alt'; text: string; exact?: NameExactMode })
+  | (SelectorCandidateBase & { type: 'title'; text: string; exact?: NameExactMode })
+  | (SelectorCandidateBase & { type: 'testid'; attribute?: string });
 
 export interface SelectorTarget {
   /**

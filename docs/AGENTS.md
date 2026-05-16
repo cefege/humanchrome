@@ -20,22 +20,22 @@ When a tool fails, the response sets `isError: true` and the first text content 
 
 Defined in `packages/shared/src/error-codes.ts` as `ToolErrorCode`:
 
-| Code                    | When it fires                                                                                                                | Right recovery                                                                                                     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `TAB_NOT_FOUND`         | Caller passed an invalid `tabId`, or no active tab is available.                                                             | Check `chrome_get_windows_and_tabs`; pass an explicit `tabId`.                                                     |
-| `TAB_CLOSED`            | Tab was closed during the call.                                                                                              | Open a new tab via `chrome_navigate`.                                                                              |
-| `TARGET_NAVIGATED_AWAY` | Page navigated mid-call between the tool's snapshot and dispatch.                                                            | Re-read the page (`chrome_read_page`) and retry with fresh refs/selectors.                                         |
-| `INJECTION_FAILED`      | Chrome refused to inject a content script (restricted URL like `chrome://`, devtools://, store pages).                       | Don't retry the same URL. Tell the user the page can't be automated.                                               |
-| `INJECTION_TIMEOUT`     | Content script didn't respond to ping.                                                                                       | Retry once; if persistent, the page is likely hostile to automation.                                               |
-| `CDP_BUSY`              | DevTools or another debugger client owns the CDP session.                                                                    | Ask user to close DevTools, then retry.                                                                            |
-| `CDP_DETACHED`          | CDP session dropped mid-call.                                                                                                | Retry once.                                                                                                        |
-| `TAB_LOCK_TIMEOUT`      | Another mutating call on the same tab held the lock past the per-call timeout (default 60s; tunable via `tabLockTimeoutMs`). | Wait, or check for a stuck mutating call via `chrome_debug_dump`.                                                  |
-| `QUEUE_FULL`            | Per-tab queue at `MAX_TAB_QUEUE_DEPTH` (16) waiters; refused before enqueue.                                                 | Back off and retry, or pin a different `tabId`. Inspect via `chrome_queue_inspect`.                                |
-| `TAB_NOT_OWNED`         | Caller targeted a tab owned by another MCP client.                                                                           | Use `chrome_get_windows_and_tabs` to see ownership, or claim via `browser_claim_tab` (optionally `{force: true}`). |
-| `TIMEOUT`               | A bounded wait expired (network request, JS execution, etc.).                                                                | Increase `timeoutMs` (where the tool exposes it) and retry.                                                        |
-| `INVALID_ARGS`          | Required field missing or shape wrong.                                                                                       | Fix the args. `details.arg` names the offending field when known.                                                  |
-| `PERMISSION_DENIED`     | Chrome refused (e.g. extension lacks a permission).                                                                          | Don't retry; surface to user.                                                                                      |
-| `UNKNOWN`               | Unclassified failure. Look at `error.message`.                                                                               | Use `chrome_debug_dump` to triage; see §2.                                                                         |
+| Code                    | When it fires                                                                                                                                               | Right recovery                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `TAB_NOT_FOUND`         | Caller passed an invalid `tabId`, or no active tab is available.                                                                                            | Check `chrome_get_windows_and_tabs`; pass an explicit `tabId`.                                                                           |
+| `TAB_CLOSED`            | Tab was closed during the call.                                                                                                                             | Open a new tab via `chrome_navigate`.                                                                                                    |
+| `TARGET_NAVIGATED_AWAY` | Page navigated mid-call between the tool's snapshot and dispatch.                                                                                           | Re-read the page (`chrome_read_page`) and retry with fresh refs/selectors.                                                               |
+| `INJECTION_FAILED`      | Chrome refused to inject a content script (restricted URL like `chrome://`, devtools://, store pages).                                                      | Don't retry the same URL. Tell the user the page can't be automated.                                                                     |
+| `INJECTION_TIMEOUT`     | Content script didn't respond to ping.                                                                                                                      | Retry once; if persistent, the page is likely hostile to automation.                                                                     |
+| `CDP_BUSY`              | DevTools or another debugger client owns the CDP session.                                                                                                   | Ask user to close DevTools, then retry.                                                                                                  |
+| `CDP_DETACHED`          | CDP session dropped mid-call.                                                                                                                               | Retry once.                                                                                                                              |
+| `TAB_LOCK_TIMEOUT`      | Another mutating call on the same tab held the lock past the per-call timeout (default 60s; tunable via `tabLockTimeoutMs`).                                | Wait, or check for a stuck mutating call via `chrome_debug_dump`.                                                                        |
+| `QUEUE_FULL`            | Per-tab queue at `MAX_TAB_QUEUE_DEPTH` (16) waiters; refused before enqueue.                                                                                | Back off and retry, or pin a different `tabId`. Inspect via `chrome_queue_inspect`.                                                      |
+| `TAB_NOT_OWNED`         | Caller targeted a tab owned by another MCP client.                                                                                                          | Use `chrome_get_windows_and_tabs` to see ownership, or claim via `browser_claim_tab` (optionally `{force: true}`).                       |
+| `TIMEOUT`               | A bounded wait expired (network request, JS execution, etc.).                                                                                               | Increase `timeoutMs` (where the tool exposes it) and retry.                                                                              |
+| `INVALID_ARGS`          | Required field missing or shape wrong. Also fires on selector strict-mode violations (multi-match) with `details: {matchCount, samples: [...]}` (IMP-0098). | Fix the args. `details.arg` names the offending field when known. For strict-mode: add `index` or `multi: true`, or refine the selector. |
+| `PERMISSION_DENIED`     | Chrome refused (e.g. extension lacks a permission).                                                                                                         | Don't retry; surface to user.                                                                                                            |
+| `UNKNOWN`               | Unclassified failure. Look at `error.message`.                                                                                                              | Use `chrome_debug_dump` to triage; see §2.                                                                                               |
 
 The serializer is `serializeToolError` in `packages/shared/src/error-codes.ts`. Tagged-error class is `ToolError` in the same file. Extension-side wrapper is `createErrorResponse(message, code?, details?)` in `app/chrome-extension/common/tool-handler.ts`.
 
@@ -268,6 +268,48 @@ await Promise.all([chrome_read_page({ tabId: tabA }), chrome_read_page({ tabId: 
 
 ---
 
+## 8. Playwright-style locators + strict mode (IMP-0098)
+
+`chrome_click_element`, `chrome_fill_or_select`, `chrome_await_element`, `chrome_wait_for`, `chrome_focus`, `chrome_drag_drop`, and `chrome_computer` accept the same selector shapes Playwright exposes via `getBy*`:
+
+| selectorType  | Selector value                     | Resolution                                           |
+| ------------- | ---------------------------------- | ---------------------------------------------------- |
+| `css`         | `body > .foo`                      | `document.querySelector` (default)                   |
+| `xpath`       | `//button[1]`                      | XPath via `document.evaluate`                        |
+| `role`        | `button[name="Submit",exact=true]` | Implicit/explicit ARIA role + accessible-name filter |
+| `label`       | `Email`                            | Form labels (label[for], wrapping, aria-label)       |
+| `placeholder` | `Search`                           | `<input>` / `<textarea>` `placeholder`               |
+| `alt`         | `Logo`                             | `<img>`/`<area>` `alt`                               |
+| `title`       | `Close`                            | `title` attribute                                    |
+| `testid`      | `submit-btn`                       | `data-testid` / `data-cy` / `data-test` / `data-qa`  |
+| `text`        | `Login`                            | Visible text content (case-insensitive contains)     |
+
+You can also use prefixed strings via `selector` alone (selectorType defaults to `css` and the prefix is auto-detected):
+
+```ts
+chrome_click_element({ selector: 'role:button[name="Submit"]' });
+chrome_click_element({ selector: 'label:Email' });
+chrome_click_element({ selector: 'testid:submit-btn' });
+```
+
+Composite (iframe traversal) still uses `|>`:
+
+```ts
+chrome_click_element({ selector: 'iframe#payment |> role:button[name="Pay"]' });
+```
+
+### Strict mode
+
+Every selector resolution path is strict by default: if more than one element matches and you have not passed `index` or `multi: true`, the call errors with `INVALID_ARGS` and `details: { matchCount, samples: [{tag, text}, ...] }`. Use the samples to disambiguate, then either:
+
+- Refine the selector (`role:button[name="Save Changes"]` instead of `role:button`).
+- Pass `index: N` to pick the N-th match (zero-based).
+- Pass `multi: true` to accept the first match (opt out of strict mode).
+
+The accessible-name compute is a subset of W3C accname-1.2: `aria-labelledby` chains, `aria-label`, `label[for]`, wrapping `<label>`, `alt`, `title`, name-from-content. CSS pseudo-content (`::before` / `::after`) is deliberately skipped.
+
+---
+
 ## Summary
 
 - Errors are JSON-encoded inside `text` content; branch on `error.code`.
@@ -276,3 +318,4 @@ await Promise.all([chrome_read_page({ tabId: tabA }), chrome_read_page({ tabId: 
 - Truncation is uniform: check `truncation.truncated` and `truncation.rawAvailable`, retry with `raw: true` if applicable.
 - Mutating same-tab calls serialize automatically; don't roll your own retry loop.
 - Mid-call navigation is detected and reported as `TARGET_NAVIGATED_AWAY`; recover by re-reading the page.
+- Playwright-style locators (`role:`, `label:`, `placeholder:`, `alt:`, `title:`, `testid:`, `text:`) are supported across the click/fill/await/wait/focus/drag/computer surface; strict mode errors on multi-match — pass `index` or `multi: true` to opt out.

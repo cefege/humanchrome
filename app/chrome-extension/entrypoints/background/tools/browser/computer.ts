@@ -106,7 +106,18 @@ export interface ComputerParams {
   duration?: number; // seconds for wait
   // For fill / fill_form
   selector?: string;
-  selectorType?: 'css' | 'xpath'; // Type of selector (default: 'css')
+  selectorType?:
+    | 'css'
+    | 'xpath'
+    | 'role'
+    | 'label'
+    | 'placeholder'
+    | 'alt'
+    | 'title'
+    | 'testid'
+    | 'text'; // Type of selector (default: 'css')
+  index?: number;
+  multi?: boolean;
   // Accept string | number | boolean to match FillToolParams; the schema
   // exposes the union so the LLM can pass the right shape per element.
   value?: string | number | boolean;

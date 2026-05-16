@@ -102,6 +102,7 @@ import { paceTool, paceGetTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
 import { closeMyTabsTool } from './browser/close-my-tabs';
 import { queueInspectTool } from './browser/queue-inspect';
+import { locatorHandlerTool } from './browser/locator-handler';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -184,6 +185,7 @@ const eagerTools: ToolInstance[] = [
   claimTabTool,
   closeMyTabsTool,
   queueInspectTool,
+  locatorHandlerTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,

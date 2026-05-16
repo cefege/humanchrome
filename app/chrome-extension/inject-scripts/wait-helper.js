@@ -145,7 +145,21 @@
     });
   }
 
-  function resolveBySelector(selector, selectorType) {
+  /**
+   * Resolve a selector. Supports:
+   *   - 'css' (default)
+   *   - 'xpath'
+   *   - 'role' / 'label' / 'placeholder' / 'alt' / 'title' / 'testid'
+   *     when the accessibility-tree-helper has been injected first (exposes
+   *     `window.__hcResolveByKind`). Without that helper, structured
+   *     selectors degrade to CSS so existing flows don't break.
+   *
+   * IMP-0098: extended payload — `extras` carries role/name/text/exact/index
+   * for structured selector kinds. The shape mirrors the message-helper
+   * payload in accessibility-tree-helper.js for symmetry.
+   */
+  function resolveBySelector(selector, selectorType, extras) {
+    extras = extras || {};
     try {
       if (selectorType === 'xpath') {
         const result = document.evaluate(
@@ -157,6 +171,25 @@
         );
         const node = result && result.singleNodeValue;
         return node instanceof Element ? node : null;
+      }
+      const structured = ['role', 'label', 'placeholder', 'alt', 'title', 'testid'];
+      if (selectorType && structured.indexOf(selectorType) !== -1) {
+        if (typeof window.__hcResolveByKind === 'function') {
+          const req = {
+            role: extras.role,
+            name: extras.name,
+            text: extras.text || selector,
+            exact: !!extras.exact,
+            attribute: extras.attribute,
+            selector,
+            index: typeof extras.index === 'number' ? extras.index : undefined,
+          };
+          const result = window.__hcResolveByKind(selectorType, req);
+          if (result && result.element instanceof Element) return result.element;
+        }
+        // Fallback — best-effort CSS only when the structured resolver
+        // hasn't been injected. Surfaces missing-helper as "not found".
+        return null;
       }
       return document.querySelector(selector);
     } catch {
@@ -184,6 +217,7 @@
     ref,
     state = 'present',
     timeout = 15000,
+    extras,
   }) {
     return new Promise((resolve) => {
       const start = Date.now();
@@ -197,8 +231,12 @@
           return el ? el : null;
         }
         if (selector) {
-          return resolveBySelector(selector, selectorType);
+          return resolveBySelector(selector, selectorType, extras);
         }
+        // Structured selector kinds can match without a CSS-shaped `selector`
+        // string when role/name was supplied directly in extras.
+        if (extras && extras.role) return resolveBySelector('', 'role', extras);
+        if (extras && extras.text && extras.kind) return resolveBySelector('', extras.kind, extras);
         return null;
       };
 
@@ -457,15 +495,34 @@
       if (request && request.action === 'waitForElement') {
         const selector =
           typeof request.selector === 'string' ? String(request.selector).trim() : '';
-        const selectorType = request.selectorType === 'xpath' ? 'xpath' : 'css';
+        const rawType = String(request.selectorType || 'css');
+        const structured = ['role', 'label', 'placeholder', 'alt', 'title', 'testid'];
+        let selectorType;
+        if (rawType === 'xpath') selectorType = 'xpath';
+        else if (structured.indexOf(rawType) !== -1) selectorType = rawType;
+        else selectorType = 'css';
         const ref = typeof request.ref === 'string' ? String(request.ref).trim() : '';
         const state = request.state === 'absent' ? 'absent' : 'present';
         const timeout = Number(request.timeout || 15000);
-        if (!selector && !ref) {
+        // IMP-0098: structured kinds can supply payload via top-level fields
+        // (role/name/text/exact/attribute/index) — forward via `extras`.
+        const extras =
+          selectorType !== 'css' && selectorType !== 'xpath'
+            ? {
+                kind: selectorType,
+                role: request.role,
+                name: request.name,
+                text: request.text,
+                exact: !!request.exact,
+                attribute: request.attribute,
+                index: typeof request.index === 'number' ? request.index : undefined,
+              }
+            : undefined;
+        if (!selector && !ref && !(extras && (extras.role || extras.text))) {
           sendResponse({ success: false, error: 'selector or ref is required' });
           return true;
         }
-        waitForElement({ selector, selectorType, ref, state, timeout }).then((res) =>
+        waitForElement({ selector, selectorType, ref, state, timeout, extras }).then((res) =>
           sendResponse(res),
         );
         return true; // async

@@ -12,6 +12,71 @@ import {
   type SelectorTarget,
 } from './types';
 import { compareSelectorCandidates, withStability } from './stability';
+import { parsePrefixedSelector, type ParsedPrefixedSelector } from './prefixed-parser';
+
+function prefixedToCandidate(p: ParsedPrefixedSelector): SelectorCandidate | null {
+  switch (p.kind) {
+    case 'role':
+      if (!p.role) return null;
+      return {
+        type: 'role',
+        role: p.role,
+        name: p.name,
+        exact: p.exact,
+        value: p.value,
+        source: 'user',
+        strategy: 'role',
+      };
+    case 'label':
+      return {
+        type: 'label',
+        text: p.value,
+        exact: p.exact,
+        value: p.value,
+        source: 'user',
+        strategy: 'label',
+      };
+    case 'placeholder':
+      return {
+        type: 'placeholder',
+        text: p.value,
+        exact: p.exact,
+        value: p.value,
+        source: 'user',
+        strategy: 'placeholder',
+      };
+    case 'alt':
+      return {
+        type: 'alt',
+        text: p.value,
+        exact: p.exact,
+        value: p.value,
+        source: 'user',
+        strategy: 'alt',
+      };
+    case 'title':
+      return {
+        type: 'title',
+        text: p.value,
+        exact: p.exact,
+        value: p.value,
+        source: 'user',
+        strategy: 'title',
+      };
+    case 'testid':
+      return { type: 'testid', value: p.value, source: 'user', strategy: 'testid' };
+    case 'text':
+      return {
+        type: 'text',
+        value: p.value,
+        match: p.exact ? 'exact' : 'contains',
+        source: 'user',
+        strategy: 'text',
+      };
+    default:
+      return null;
+  }
+}
 
 interface EnsureRefForSelectorRequest {
   action: typeof TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR;
@@ -21,11 +86,43 @@ interface EnsureRefForSelectorRequest {
   isXPath?: boolean;
   tagName?: string;
   allowMultiple?: boolean;
+  /**
+   * Optional structured-selector dispatch (IMP-0098). When set, the helper
+   * uses the supplied kind to resolve via the matching strategy rather than
+   * treating `selector` as raw CSS.
+   *
+   *   selectorKind: 'role'        → resolve(name, role, exact)
+   *   selectorKind: 'label'       → resolve(text, exact)
+   *   selectorKind: 'placeholder' → resolve(text, exact)
+   *   selectorKind: 'alt'         → resolve(text, exact)
+   *   selectorKind: 'title'       → resolve(text, exact)
+   *   selectorKind: 'testid'      → resolve(value, [attribute])
+   */
+  selectorKind?: 'role' | 'label' | 'placeholder' | 'alt' | 'title' | 'testid';
+  role?: string;
+  name?: string;
+  exact?: boolean;
+  attribute?: string;
+  /** Zero-based index to pick when multiple matches are allowed. */
+  index?: number;
 }
 
 type EnsureRefForSelectorResponse =
-  | { success: true; ref: string; center: Point; href?: string }
-  | { success: false; error?: string; cancelled?: boolean };
+  | {
+      success: true;
+      ref: string;
+      center: Point;
+      href?: string;
+      /** Total match count when the helper computed one (strict-mode metadata). */
+      matchCount?: number;
+    }
+  | {
+      success: false;
+      error?: string;
+      cancelled?: boolean;
+      /** Set when the failure was caused by multiple matches in strict mode. */
+      strict?: { matchCount: number; samples?: Array<{ tag?: string; text?: string }> };
+    };
 
 interface ResolveRefRequest {
   action: typeof TOOL_MESSAGE_TYPES.RESOLVE_REF;
@@ -80,12 +177,31 @@ function parseEnsureRefResponse(value: unknown): EnsureRefForSelectorResponse | 
   if (value.success) {
     if (typeof value.ref !== 'string' || !isPoint(value.center)) return null;
     const href = typeof value.href === 'string' ? value.href : undefined;
-    return { success: true, ref: value.ref, center: value.center, href };
+    const matchCount =
+      typeof value.matchCount === 'number' && Number.isFinite(value.matchCount)
+        ? value.matchCount
+        : undefined;
+    return { success: true, ref: value.ref, center: value.center, href, matchCount };
   }
 
   const error = typeof value.error === 'string' ? value.error : undefined;
   const cancelled = typeof value.cancelled === 'boolean' ? value.cancelled : undefined;
-  return { success: false, error, cancelled };
+  // Strict-mode envelope — surfaced when the helper found >1 matches with
+  // allowMultiple=false. Carries matchCount + samples so the caller can
+  // disambiguate without re-fetching.
+  let strict: { matchCount: number; samples?: Array<{ tag?: string; text?: string }> } | undefined;
+  if (isRecord(value.strict) && typeof value.strict.matchCount === 'number') {
+    const samplesRaw = Array.isArray(value.strict.samples) ? value.strict.samples : [];
+    const samples = samplesRaw
+      .filter(isRecord)
+      .map((s) => ({
+        tag: typeof s.tag === 'string' ? s.tag : undefined,
+        text: typeof s.text === 'string' ? s.text : undefined,
+      }))
+      .slice(0, 5);
+    strict = { matchCount: value.strict.matchCount, samples };
+  }
+  return { success: false, error, cancelled, strict };
 }
 
 function parseResolveRefResponse(value: unknown): ResolveRefResponse | null {
@@ -218,7 +334,7 @@ export class SelectorLocator {
     tabId: number,
     request: EnsureRefForSelectorRequest,
     frameId: number | undefined,
-  ): Promise<{ ref: string; center: Point; href?: string } | null> {
+  ): Promise<{ ref: string; center: Point; href?: string; matchCount?: number } | null> {
     const selector = request.selector ?? '';
     const responseRaw = await this.transport.sendMessage(
       tabId,
@@ -226,8 +342,37 @@ export class SelectorLocator {
       isCompositeSelector(selector) ? undefined : { frameId },
     );
     const parsed = parseEnsureRefResponse(responseRaw);
-    if (!parsed || !parsed.success) return null;
-    return { ref: parsed.ref, center: parsed.center, href: parsed.href };
+    if (!parsed || !parsed.success) {
+      // Stash the latest failure shape so locate() can surface strict-mode
+      // metadata to the caller without changing the public return type.
+      this.lastEnsureFailure = parsed && !parsed.success ? parsed : null;
+      return null;
+    }
+    this.lastEnsureFailure = null;
+    return {
+      ref: parsed.ref,
+      center: parsed.center,
+      href: parsed.href,
+      matchCount: parsed.matchCount,
+    };
+  }
+
+  /** Most-recent ensureRef failure (used to surface strict-mode metadata). */
+  private lastEnsureFailure: Extract<EnsureRefForSelectorResponse, { success: false }> | null =
+    null;
+
+  /**
+   * Expose the most recent ensureRef failure for callers (typically tool
+   * code) that need to wrap it into a structured error envelope. Cleared
+   * automatically after a successful resolution.
+   */
+  public consumeLastEnsureFailure(): Extract<
+    EnsureRefForSelectorResponse,
+    { success: false }
+  > | null {
+    const f = this.lastEnsureFailure;
+    this.lastEnsureFailure = null;
+    return f;
   }
 
   private async resolveRef(
@@ -282,37 +427,107 @@ export class SelectorLocator {
       if (byRef) return byRef;
     }
 
-    // 1) Fast path: try target.selector first (assumed CSS / composite CSS)
+    // 1) Fast path: try target.selector first (CSS / composite / prefixed).
     if (typeof target.selector === 'string' && target.selector.trim()) {
       const sel = target.selector.trim();
-      const ensured = await this.ensureRef(
-        tabId,
-        { action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR, selector: sel, allowMultiple },
-        options.frameId,
-      );
-      if (ensured) {
-        const mappedFrameId = await this.mapHrefToFrameId(tabId, ensured.href);
-        const resolvedFrameId = mappedFrameId ?? options.frameId;
 
-        const fingerprintOk =
-          !fingerprintToVerify ||
-          (await this.verifyElementFingerprint(
+      // Prefixed selector? Re-route through the structured candidate path.
+      // We split composite first so `iframe#x |> role:button[name="Y"]` keeps
+      // the iframe traversal and only the inner segment gets prefix parsing.
+      const composite = splitCompositeSelector(sel);
+      const innerForPrefixCheck = composite ? composite.innerSelector.trim() : sel;
+      const parsedPrefix = parsePrefixedSelector(innerForPrefixCheck);
+
+      if (parsedPrefix.kind !== 'css' && parsedPrefix.kind !== 'xpath') {
+        const inlineCandidate = prefixedToCandidate(parsedPrefix);
+        if (inlineCandidate) {
+          const resolvedViaPrefix = await this.tryCandidate(
             tabId,
-            ensured.ref,
-            fingerprintToVerify,
-            resolvedFrameId,
-          ));
-
-        if (fingerprintOk) {
-          return {
-            ref: ensured.ref,
-            center: ensured.center,
-            frameId: resolvedFrameId,
-            resolvedBy: 'css',
-            selectorUsed: sel,
-          };
+            target,
+            inlineCandidate,
+            composite ? composite.frameSelector : undefined,
+            options.frameId,
+            allowMultiple,
+          );
+          if (resolvedViaPrefix) {
+            const okFp =
+              !fingerprintToVerify ||
+              (await this.verifyElementFingerprint(
+                tabId,
+                resolvedViaPrefix.ref,
+                fingerprintToVerify,
+                resolvedViaPrefix.frameId ?? options.frameId,
+              ));
+            if (okFp) return resolvedViaPrefix;
+          }
         }
-        // Fingerprint mismatch — fall through to the candidate list.
+      } else if (parsedPrefix.kind === 'xpath') {
+        // xpath:... prefix — re-dispatch with isXPath=true (composite kept).
+        const xpathSel = composite
+          ? composeCompositeSelector(composite.frameSelector, parsedPrefix.value)
+          : parsedPrefix.value;
+        const ensured = await this.ensureRef(
+          tabId,
+          {
+            action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR,
+            selector: xpathSel,
+            isXPath: true,
+            allowMultiple,
+          },
+          options.frameId,
+        );
+        if (ensured) {
+          const mappedFrameId = await this.mapHrefToFrameId(tabId, ensured.href);
+          const resolvedFrameId = mappedFrameId ?? options.frameId;
+          const fingerprintOk =
+            !fingerprintToVerify ||
+            (await this.verifyElementFingerprint(
+              tabId,
+              ensured.ref,
+              fingerprintToVerify,
+              resolvedFrameId,
+            ));
+          if (fingerprintOk) {
+            return {
+              ref: ensured.ref,
+              center: ensured.center,
+              frameId: resolvedFrameId,
+              resolvedBy: 'xpath',
+              selectorUsed: xpathSel,
+            };
+          }
+        }
+      } else {
+        // Plain CSS — original fast-path behavior.
+        const ensured = await this.ensureRef(
+          tabId,
+          { action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR, selector: sel, allowMultiple },
+          options.frameId,
+        );
+        if (ensured) {
+          const mappedFrameId = await this.mapHrefToFrameId(tabId, ensured.href);
+          const resolvedFrameId = mappedFrameId ?? options.frameId;
+
+          const fingerprintOk =
+            !fingerprintToVerify ||
+            (await this.verifyElementFingerprint(
+              tabId,
+              ensured.ref,
+              fingerprintToVerify,
+              resolvedFrameId,
+            ));
+
+          if (fingerprintOk) {
+            return {
+              ref: ensured.ref,
+              center: ensured.center,
+              frameId: resolvedFrameId,
+              resolvedBy: 'css',
+              selectorUsed: sel,
+            };
+          }
+          // Fingerprint mismatch — fall through to the candidate list.
+        }
       }
     }
 
@@ -448,6 +663,61 @@ export class SelectorLocator {
         };
       }
       return null;
+    }
+
+    // role / label / placeholder / alt / title / testid — Playwright-style
+    // selectors (IMP-0098). Each delegates to the page-side helper which
+    // runs the matching strategy against the live DOM.
+    if (
+      candidate.type === 'role' ||
+      candidate.type === 'label' ||
+      candidate.type === 'placeholder' ||
+      candidate.type === 'alt' ||
+      candidate.type === 'title' ||
+      candidate.type === 'testid'
+    ) {
+      const baseRequest: EnsureRefForSelectorRequest = {
+        action: TOOL_MESSAGE_TYPES.ENSURE_REF_FOR_SELECTOR,
+        selectorKind: candidate.type,
+        allowMultiple,
+      };
+
+      if (candidate.type === 'role') {
+        baseRequest.role = candidate.role;
+        baseRequest.name = candidate.name;
+        baseRequest.exact = candidate.exact;
+        baseRequest.selector = candidate.value;
+      } else if (candidate.type === 'testid') {
+        baseRequest.attribute = candidate.attribute;
+        baseRequest.selector = candidate.value;
+        // Keep `text` populated so the helper has the search value even when
+        // it ignores `selector` (testid resolution looks at attribute values,
+        // not CSS).
+        baseRequest.text = candidate.value;
+      } else {
+        baseRequest.text = candidate.text;
+        baseRequest.exact = candidate.exact;
+        baseRequest.selector = candidate.text;
+      }
+
+      // Iframe composite — keep the frame prefix on `selector` so the helper's
+      // existing composite split picks the right contentWindow.
+      if (frameSelector) {
+        const inner = baseRequest.selector ?? '';
+        baseRequest.selector = composeCompositeSelector(frameSelector, inner);
+      }
+
+      const ensured = await this.ensureRef(tabId, baseRequest, frameId);
+      if (!ensured) return null;
+
+      const mappedFrameId = await this.mapHrefToFrameId(tabId, ensured.href);
+      return {
+        ref: ensured.ref,
+        center: ensured.center,
+        frameId: mappedFrameId ?? frameId,
+        resolvedBy: candidate.type,
+        selectorUsed: baseRequest.selector ?? baseRequest.text ?? candidate.value,
+      };
     }
 
     // text

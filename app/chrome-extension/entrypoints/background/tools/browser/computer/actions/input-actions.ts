@@ -76,6 +76,8 @@ export async function handleFill(
     tabId: params.tabId,
     windowId: params.windowId,
     frameId: params.frameId,
+    index: params.index,
+    multi: params.multi,
   });
 }
 

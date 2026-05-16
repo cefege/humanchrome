@@ -456,6 +456,557 @@
     }
   }
 
+  // ============================================================================
+  // IMP-0098: Playwright-style locator resolvers (role / label / placeholder /
+  // alt / title / testid). Mirrors `shared/selector/strategies/*.ts` so the
+  // page-side runtime stays consistent with the TS-side generators.
+  //
+  // Hand-rolled (no aria-query dep). Implements a subset of W3C accname-1.2
+  // for accessible-name compute. Skipped: CSS pseudo-content (::before /
+  // ::after). See `shared/selector/accessible-name.ts` for the canonical spec
+  // references — this file mirrors that logic.
+  // ============================================================================
+
+  const ACCNAME_MAX_LENGTH = 1024;
+  const NAME_FROM_CONTENT_ROLES = new Set([
+    'button',
+    'cell',
+    'checkbox',
+    'columnheader',
+    'gridcell',
+    'heading',
+    'link',
+    'menuitem',
+    'menuitemcheckbox',
+    'menuitemradio',
+    'option',
+    'radio',
+    'row',
+    'rowheader',
+    'switch',
+    'tab',
+    'tooltip',
+    'treeitem',
+  ]);
+  const NAME_FROM_CONTENT_TAGS = new Set([
+    'a',
+    'button',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'summary',
+    'option',
+  ]);
+  const LABELLABLE_TAGS = new Set([
+    'input',
+    'textarea',
+    'select',
+    'button',
+    'output',
+    'progress',
+    'meter',
+  ]);
+  const TEXTBOX_INPUT_TYPES = new Set(['text', 'email', 'tel', 'url', 'password']);
+  const TESTID_DEFAULT_ATTRS = ['data-testid', 'data-cy', 'data-test', 'data-qa'];
+
+  function accnameNormalize(s) {
+    return String(s || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function accnameIsHidden(el) {
+    if (!el) return true;
+    if (el.getAttribute('aria-hidden') === 'true') return true;
+    if (el.hasAttribute('hidden')) return true;
+    return false;
+  }
+
+  function computeFromLabelledBy(el, ids, visited) {
+    const root = el.ownerDocument;
+    if (!root) return null;
+    const parts = [];
+    for (const id of ids) {
+      const t = String(id || '').trim();
+      if (!t) continue;
+      const ref = root.getElementById(t);
+      if (!ref || visited.has(ref)) continue;
+      const name = computeAccessibleName_v2(ref, { visited, includeHidden: true });
+      if (name) parts.push(name);
+    }
+    const out = parts.join(' ').trim();
+    return out || null;
+  }
+
+  function nativeHostLabel(el) {
+    const tag = el.tagName.toLowerCase();
+    const id = el.id;
+    if (id && el.ownerDocument) {
+      let escaped = id;
+      try {
+        escaped =
+          el.ownerDocument.defaultView &&
+          el.ownerDocument.defaultView.CSS &&
+          el.ownerDocument.defaultView.CSS.escape
+            ? el.ownerDocument.defaultView.CSS.escape(id)
+            : id;
+      } catch {}
+      const lab = el.ownerDocument.querySelector(`label[for="${escaped}"]`);
+      if (lab) {
+        const t = accnameNormalize(lab.textContent || '');
+        if (t) return t;
+      }
+    }
+    if (LABELLABLE_TAGS.has(tag)) {
+      let p = el.parentElement;
+      while (p) {
+        if (p.tagName && p.tagName.toLowerCase() === 'label') {
+          const clone = p.cloneNode(true);
+          clone
+            .querySelectorAll('input, textarea, select, button, output, progress, meter')
+            .forEach((c) => c.remove());
+          const t = accnameNormalize(clone.textContent || '');
+          if (t) return t;
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
+    if (tag === 'input') {
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      if (type === 'submit' || type === 'button' || type === 'reset') {
+        const v = el.getAttribute('value');
+        if (v) return accnameNormalize(v);
+        if (type === 'submit') return 'Submit';
+        if (type === 'reset') return 'Reset';
+      }
+      if (type === 'image') {
+        const alt = el.getAttribute('alt');
+        if (alt) return accnameNormalize(alt);
+      }
+    }
+    if (tag === 'img' || tag === 'area') {
+      const alt = el.getAttribute('alt');
+      if (alt !== null) return accnameNormalize(alt);
+    }
+    if (tag === 'fieldset') {
+      const legend = el.querySelector(':scope > legend');
+      if (legend) {
+        const t = accnameNormalize(legend.textContent || '');
+        if (t) return t;
+      }
+    }
+    if (tag === 'table') {
+      const caption = el.querySelector(':scope > caption');
+      if (caption) {
+        const t = accnameNormalize(caption.textContent || '');
+        if (t) return t;
+      }
+    }
+    if (tag === 'summary') {
+      const t = accnameNormalize(el.textContent || '');
+      if (t) return t;
+    }
+    return null;
+  }
+
+  function nameFromContent(el, visited) {
+    const parts = [];
+    const kids = Array.from(el.childNodes);
+    for (const child of kids) {
+      if (child.nodeType === 3) {
+        parts.push(child.textContent || '');
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
+      if (accnameIsHidden(child)) continue;
+      const childName = computeAccessibleName_v2(child, { visited });
+      if (childName) parts.push(childName);
+      else {
+        const t = child.textContent || '';
+        if (t) parts.push(t);
+      }
+    }
+    return accnameNormalize(parts.join(' '));
+  }
+
+  function computeAccessibleName_v2(el, options) {
+    options = options || {};
+    if (!el || !el.tagName) return '';
+    const visited = options.visited || new WeakSet();
+    if (visited.has(el)) return '';
+    visited.add(el);
+    if (!options.includeHidden && accnameIsHidden(el)) return '';
+
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb) {
+      const ids = lb.split(/\s+/);
+      const fromLb = computeFromLabelledBy(el, ids, visited);
+      if (fromLb) return fromLb.slice(0, ACCNAME_MAX_LENGTH);
+    }
+    const aria = el.getAttribute('aria-label');
+    if (aria) {
+      const t = accnameNormalize(aria);
+      if (t) return t.slice(0, ACCNAME_MAX_LENGTH);
+    }
+    const native = nativeHostLabel(el);
+    if (native) return native.slice(0, ACCNAME_MAX_LENGTH);
+
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const tag = el.tagName.toLowerCase();
+    const allowsContent =
+      (role && NAME_FROM_CONTENT_ROLES.has(role)) || NAME_FROM_CONTENT_TAGS.has(tag);
+    if (allowsContent) {
+      const c = nameFromContent(el, visited);
+      if (c) return c.slice(0, ACCNAME_MAX_LENGTH);
+    }
+    const title = el.getAttribute('title');
+    if (title) {
+      const t = accnameNormalize(title);
+      if (t) return t.slice(0, ACCNAME_MAX_LENGTH);
+    }
+    return '';
+  }
+
+  function matchesName(computed, target, exact) {
+    const a = accnameNormalize(computed);
+    const b = accnameNormalize(target);
+    if (!a || !b) return false;
+    if (exact) return a === b;
+    return a.toLowerCase().includes(b.toLowerCase());
+  }
+
+  function getImplicitRoleJs(el) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    switch (tag) {
+      case 'a':
+      case 'area':
+        return el.hasAttribute('href') ? 'link' : undefined;
+      case 'button':
+      case 'summary':
+        return 'button';
+      case 'input':
+        if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image')
+          return 'button';
+        if (type === 'checkbox') return 'checkbox';
+        if (type === 'radio') return 'radio';
+        if (type === 'search') return 'searchbox';
+        if (type === 'range') return 'slider';
+        if (type === 'number') return 'spinbutton';
+        if (type === 'hidden' || type === 'file' || type === 'color') return undefined;
+        if (el.hasAttribute('list')) return 'combobox';
+        if (TEXTBOX_INPUT_TYPES.has(type) || type === '') return 'textbox';
+        return 'textbox';
+      case 'textarea':
+        return 'textbox';
+      case 'select':
+        if (el.hasAttribute('multiple')) return 'listbox';
+        if (Number(el.getAttribute('size') || '0') > 1) return 'listbox';
+        return 'combobox';
+      case 'option':
+        return 'option';
+      case 'h1':
+      case 'h2':
+      case 'h3':
+      case 'h4':
+      case 'h5':
+      case 'h6':
+        return 'heading';
+      case 'img':
+        return el.getAttribute('alt') === '' ? undefined : 'img';
+      case 'ul':
+      case 'ol':
+      case 'dl':
+        return 'list';
+      case 'li':
+        return 'listitem';
+      case 'nav':
+        return 'navigation';
+      case 'main':
+        return 'main';
+      case 'header': {
+        let p = el.parentElement;
+        while (p) {
+          const t = p.tagName.toLowerCase();
+          if (t === 'article' || t === 'aside' || t === 'main' || t === 'nav' || t === 'section')
+            return undefined;
+          p = p.parentElement;
+        }
+        return 'banner';
+      }
+      case 'footer': {
+        let p = el.parentElement;
+        while (p) {
+          const t = p.tagName.toLowerCase();
+          if (t === 'article' || t === 'aside' || t === 'main' || t === 'nav' || t === 'section')
+            return undefined;
+          p = p.parentElement;
+        }
+        return 'contentinfo';
+      }
+      case 'section':
+        return computeAccessibleName_v2(el) ? 'region' : undefined;
+      case 'article':
+        return 'article';
+      case 'aside':
+        return 'complementary';
+      case 'form':
+        return computeAccessibleName_v2(el) ? 'form' : undefined;
+      case 'table':
+        return 'table';
+      case 'tr':
+        return 'row';
+      case 'td':
+        return 'cell';
+      case 'th': {
+        const scope = (el.getAttribute('scope') || '').toLowerCase();
+        if (scope === 'row') return 'rowheader';
+        if (scope === 'col') return 'columnheader';
+        const parent = el.parentElement;
+        if (
+          parent &&
+          parent.parentElement &&
+          parent.parentElement.tagName.toLowerCase() === 'thead'
+        )
+          return 'columnheader';
+        return 'cell';
+      }
+      case 'dialog':
+        return 'dialog';
+      case 'hr':
+        return 'separator';
+      case 'progress':
+        return 'progressbar';
+      case 'meter':
+        return 'meter';
+      default:
+        return undefined;
+    }
+  }
+
+  function getElementRoleJs(el) {
+    const explicit = el.getAttribute('role');
+    if (explicit) {
+      const first = explicit.split(/\s+/)[0];
+      if (first) return first.toLowerCase();
+    }
+    return getImplicitRoleJs(el);
+  }
+
+  function deepWalkAllElements(scope, callback) {
+    const stack = [scope];
+    const visited = new WeakSet();
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || visited.has(node)) continue;
+      visited.add(node);
+      if (node instanceof Element && node !== scope) {
+        callback(node);
+      } else if (node === scope && node instanceof Element) {
+        // Include scope root itself (only when scope is an Element).
+        callback(node);
+      }
+      try {
+        const kids = node.children || (node.shadowRoot ? node.shadowRoot.children : []);
+        if (kids) for (let i = 0; i < kids.length; i++) stack.push(kids[i]);
+      } catch {}
+      try {
+        const sr = node.shadowRoot;
+        if (sr && sr.children)
+          for (let i = 0; i < sr.children.length; i++) stack.push(sr.children[i]);
+      } catch {}
+    }
+  }
+
+  function resolveByRoleJs(role, name, exact) {
+    const want = String(role || '')
+      .trim()
+      .toLowerCase();
+    if (!want) return [];
+    const out = [];
+    deepWalkAllElements(document.documentElement, (el) => {
+      const r = getElementRoleJs(el);
+      if (r !== want) return;
+      if (name) {
+        const computed = computeAccessibleName_v2(el);
+        if (!matchesName(computed, name, exact)) return;
+      }
+      out.push(el);
+    });
+    return out;
+  }
+
+  function resolveByLabelJs(text, exact) {
+    const target = String(text || '').trim();
+    if (!target) return [];
+    const out = [];
+    deepWalkAllElements(document.documentElement, (el) => {
+      const tag = el.tagName.toLowerCase();
+      if (!LABELLABLE_TAGS.has(tag)) return;
+      if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'hidden') return;
+      const name = computeAccessibleName_v2(el);
+      if (name && matchesName(name, target, exact)) out.push(el);
+    });
+    return out;
+  }
+
+  function resolveByPlaceholderJs(text, exact) {
+    const target = String(text || '').trim();
+    if (!target) return [];
+    const out = [];
+    const candidates = document.querySelectorAll('input[placeholder], textarea[placeholder]');
+    for (let i = 0; i < candidates.length; i++) {
+      const v = candidates[i].getAttribute('placeholder') || '';
+      if (matchesName(v, target, exact)) out.push(candidates[i]);
+    }
+    return out;
+  }
+
+  function resolveByAltJs(text, exact) {
+    const target = String(text || '').trim();
+    if (!target) return [];
+    const out = [];
+    const candidates = document.querySelectorAll('img[alt], area[alt], input[type="image"][alt]');
+    for (let i = 0; i < candidates.length; i++) {
+      const v = candidates[i].getAttribute('alt') || '';
+      if (matchesName(v, target, exact)) out.push(candidates[i]);
+    }
+    return out;
+  }
+
+  function resolveByTitleJs(text, exact) {
+    const target = String(text || '').trim();
+    if (!target) return [];
+    const out = [];
+    const candidates = document.querySelectorAll('[title]');
+    for (let i = 0; i < candidates.length; i++) {
+      const v = candidates[i].getAttribute('title') || '';
+      if (matchesName(v, target, exact)) out.push(candidates[i]);
+    }
+    return out;
+  }
+
+  function resolveByTestIdJs(value, attribute) {
+    const target = String(value || '').trim();
+    if (!target) return [];
+    const attrs = attribute ? [attribute] : TESTID_DEFAULT_ATTRS;
+    const out = [];
+    const seen = new Set();
+    let escaped = target;
+    try {
+      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+        escaped = CSS.escape(target);
+    } catch {}
+    for (const a of attrs) {
+      const trimmed = String(a).trim();
+      if (!trimmed) continue;
+      let matches;
+      try {
+        matches = document.querySelectorAll(`[${trimmed}="${escaped}"]`);
+      } catch {
+        continue;
+      }
+      for (let i = 0; i < matches.length; i++) {
+        if (!seen.has(matches[i])) {
+          seen.add(matches[i]);
+          out.push(matches[i]);
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Resolve a Playwright-style structured selector and return uniqueness
+   * info shaped like querySelectorWithUniquenessCheck. Returns:
+   *   { element, matchCount, samples }
+   * `samples` is populated when matchCount >= 2 (strict-mode metadata).
+   */
+  function resolveByKind(kind, request) {
+    let elements = [];
+    try {
+      if (kind === 'role') {
+        elements = resolveByRoleJs(request.role, request.name, !!request.exact);
+      } else if (kind === 'label') {
+        elements = resolveByLabelJs(request.text, !!request.exact);
+      } else if (kind === 'placeholder') {
+        elements = resolveByPlaceholderJs(request.text, !!request.exact);
+      } else if (kind === 'alt') {
+        elements = resolveByAltJs(request.text, !!request.exact);
+      } else if (kind === 'title') {
+        elements = resolveByTitleJs(request.text, !!request.exact);
+      } else if (kind === 'testid') {
+        elements = resolveByTestIdJs(request.text || request.selector, request.attribute);
+      }
+    } catch (e) {
+      return {
+        element: null,
+        matchCount: 0,
+        samples: [],
+        error: String(e && e.message ? e.message : e),
+      };
+    }
+    const indexHint =
+      typeof request.index === 'number' && Number.isFinite(request.index) && request.index >= 0
+        ? Math.floor(request.index)
+        : -1;
+    let chosen = null;
+    if (indexHint >= 0) {
+      chosen = elements[indexHint] || null;
+    } else if (elements.length > 0) {
+      chosen = elements[0];
+    }
+    const samples = elements.slice(0, 5).map((el) => ({
+      tag: el.tagName ? el.tagName.toLowerCase() : '',
+      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    }));
+    return { element: chosen, matchCount: elements.length, samples };
+  }
+
+  // Exposed on window so the tests + recorder can reuse the same logic.
+  window.__hcResolveByKind = resolveByKind;
+  window.__hcComputeAccessibleName = computeAccessibleName_v2;
+  window.__hcGetElementRole = getElementRoleJs;
+  // IMP-0098: expose CSS uniqueness probe so other injected helpers
+  // (click-helper.js) can route through the same strict-mode path.
+  window.__hcQuerySelectorUnique = querySelectorWithUniquenessCheck;
+  window.__hcQueryXPathUnique = queryXPathWithUniquenessCheck;
+
+  /**
+   * Ensure a ref id exists for the given element, mint a new one if not.
+   * Mirrors the inline pattern used elsewhere in this helper but extracted
+   * so the new IMP-0098 resolver path can reuse it.
+   */
+  function ensureRefForElement(el) {
+    if (!el) return null;
+    if (!window.__claudeElementMap) window.__claudeElementMap = {};
+    if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
+    for (const k in window.__claudeElementMap) {
+      if (window.__claudeElementMap[k].deref && window.__claudeElementMap[k].deref() === el) {
+        return k;
+      }
+    }
+    const id = `ref_${++window.__claudeRefCounter}`;
+    window.__claudeElementMap[id] = new WeakRef(el);
+    return id;
+  }
+
+  /** Human-friendly description of a structured selector for error messages. */
+  function describeStructuredSelector(kind, request) {
+    if (kind === 'role') {
+      const role = request.role || '?';
+      if (request.name)
+        return `role:${role}[name="${request.name}"${request.exact ? ',exact=true' : ''}]`;
+      return `role:${role}`;
+    }
+    if (kind === 'testid') return `testid:${request.text || request.selector || ''}`;
+    return `${kind}:${request.text || ''}`;
+  }
+
   /**
    * Whether to include element in tree under config
    * @param {Element} el
@@ -1048,6 +1599,59 @@
           // Composite selector support: "frameSelector |> innerSelector"
           const maybeSel = String(request.selector || '').trim();
           const allowMultiple = !!request.allowMultiple;
+          // IMP-0098: Playwright-style structured selectors. When the caller
+          // sets `selectorKind`, the resolution path is type-specific and
+          // bypasses the CSS / XPath / text paths below. Composite handling
+          // for these kinds is forwarded via the existing iframe bridge
+          // (see below) — the bridge ferries selectorKind + payload through.
+          const kind = request.selectorKind;
+          const isStructuredKind =
+            kind && ['role', 'label', 'placeholder', 'alt', 'title', 'testid'].includes(kind);
+          if (isStructuredKind && !maybeSel.includes('|>')) {
+            const result =
+              typeof window.__hcResolveByKind === 'function'
+                ? window.__hcResolveByKind(kind, request)
+                : { element: null, matchCount: 0, samples: [], error: 'resolver not initialized' };
+            if (result.error) {
+              sendResponse({ success: false, error: result.error });
+              return true;
+            }
+            if (!result.matchCount) {
+              sendResponse({
+                success: false,
+                error: `selector not found: ${describeStructuredSelector(kind, request)}`,
+              });
+              return true;
+            }
+            if (!allowMultiple && result.matchCount > 1 && typeof request.index !== 'number') {
+              sendResponse({
+                success: false,
+                error: `Selector "${describeStructuredSelector(kind, request)}" matched ${result.matchCount === 2 ? '2 or more' : result.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+                strict: { matchCount: result.matchCount, samples: result.samples || [] },
+              });
+              return true;
+            }
+            const elementToReturn = result.element;
+            if (!elementToReturn) {
+              sendResponse({
+                success: false,
+                error: `selector not found: ${describeStructuredSelector(kind, request)}`,
+              });
+              return true;
+            }
+            const refId = ensureRefForElement(elementToReturn);
+            const rect = elementToReturn.getBoundingClientRect();
+            sendResponse({
+              success: true,
+              ref: refId,
+              matchCount: result.matchCount,
+              center: {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+              },
+            });
+            return true;
+          }
           if (maybeSel.includes('|>')) {
             try {
               const parts = maybeSel
@@ -1154,6 +1758,16 @@
                     isXPath: !!request.isXPath,
                     tagName: String(request.tagName || ''),
                     allowMultiple: !!request.allowMultiple,
+                    // IMP-0098: forward Playwright-style structured selector
+                    // through the iframe bridge so composite selectors keep
+                    // working with role / label / placeholder / etc.
+                    selectorKind: request.selectorKind,
+                    role: request.role,
+                    name: request.name,
+                    text: request.text,
+                    exact: request.exact,
+                    attribute: request.attribute,
+                    index: request.index,
                   },
                   '*',
                 );
@@ -1264,7 +1878,8 @@
             if (!allowMultiple && result.matchCount > 1) {
               sendResponse({
                 success: false,
-                error: `Selector "${sel}" matched multiple elements. Please refine the selector to match only one element.`,
+                error: `Selector "${sel}" matched ${result.matchCount === 2 ? '2 or more' : result.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+                strict: { matchCount: result.matchCount, samples: [] },
               });
               return true;
             }
@@ -1284,9 +1899,21 @@
               return true;
             }
             if (!allowMultiple && result.matchCount > 1) {
+              // IMP-0098: surface samples to make multi-match errors actionable.
+              let samples = [];
+              try {
+                const allMatches = document.querySelectorAll(sel);
+                samples = Array.from(allMatches)
+                  .slice(0, 5)
+                  .map((node) => ({
+                    tag: node.tagName ? node.tagName.toLowerCase() : '',
+                    text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+                  }));
+              } catch {}
               sendResponse({
                 success: false,
-                error: `Selector "${sel}" matched multiple elements. Please refine the selector to match only one element.`,
+                error: `Selector "${sel}" matched ${result.matchCount === 2 ? '2 or more' : result.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+                strict: { matchCount: result.matchCount, samples },
               });
               return true;
             }
@@ -1705,6 +2332,61 @@
               .trim()
               .toUpperCase();
             let el = null;
+            // IMP-0098: Structured selector kinds across iframe bridge.
+            if (data.selectorKind && typeof window.__hcResolveByKind === 'function') {
+              const allowMultiple = !!data.allowMultiple;
+              const result = window.__hcResolveByKind(data.selectorKind, data);
+              if (result.error) {
+                respond({ success: false, error: result.error });
+                return;
+              }
+              if (!result.matchCount) {
+                respond({
+                  success: false,
+                  error: `selector not found inside frame: ${data.selectorKind}`,
+                });
+                return;
+              }
+              if (!allowMultiple && result.matchCount > 1 && typeof data.index !== 'number') {
+                respond({
+                  success: false,
+                  error: `${data.selectorKind} selector matched ${result.matchCount} elements inside frame`,
+                  strict: { matchCount: result.matchCount, samples: result.samples || [] },
+                });
+                return;
+              }
+              el = result.element;
+              if (!el) {
+                respond({
+                  success: false,
+                  error: `selector not found inside frame: ${data.selectorKind}`,
+                });
+                return;
+              }
+              if (!window.__claudeElementMap) window.__claudeElementMap = {};
+              if (!window.__claudeRefCounter) window.__claudeRefCounter = 0;
+              const refId = (function () {
+                for (const k in window.__claudeElementMap) {
+                  const w = window.__claudeElementMap[k];
+                  if (w && typeof w.deref === 'function' && w.deref() === el) return k;
+                }
+                const id = `ref_${++window.__claudeRefCounter}`;
+                window.__claudeElementMap[id] = new WeakRef(el);
+                return id;
+              })();
+              const rect = el.getBoundingClientRect();
+              respond({
+                success: true,
+                ref: refId,
+                matchCount: result.matchCount,
+                center: {
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2),
+                },
+                href: String(location && location.href ? location.href : ''),
+              });
+              return;
+            }
             if (useText && sel) {
               const normalize = (s) =>
                 String(s || '')
