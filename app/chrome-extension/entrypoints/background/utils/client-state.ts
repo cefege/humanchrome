@@ -413,6 +413,41 @@ export function recordClientWindow(clientId: string | undefined, windowId: numbe
 }
 
 /**
+ * Pick a windowId for the calling client. Explicit caller-supplied id wins;
+ * otherwise the client's `lastWindowId` recency hint; otherwise `undefined`
+ * (caller falls back to Chrome's last-focused selection).
+ *
+ * Synchronous — liveness of the returned windowId is verified by callers
+ * that act on it (and by `chrome.windows.onRemoved`).
+ */
+export function resolveOwnedWindowIdForClient(
+  clientId: string | undefined,
+  explicitWindowId?: number,
+): number | undefined {
+  if (typeof explicitWindowId === 'number' && Number.isFinite(explicitWindowId)) {
+    return explicitWindowId;
+  }
+  if (!clientId) return undefined;
+  const state = STATE.get(clientId);
+  return state?.lastWindowId;
+}
+
+/**
+ * Clear a stale `lastWindowId` for a single client. Called by the dispatcher
+ * when an auto-spawn probe (`chrome.windows.get`) discovers the recorded
+ * window has died between the last touch and now.
+ */
+export function clearLastWindowForClient(clientId: string | undefined, windowId: number): void {
+  if (!clientId) return;
+  const state = STATE.get(clientId);
+  if (!state) return;
+  if (state.lastWindowId === windowId) {
+    state.lastWindowId = undefined;
+    schedulePersist();
+  }
+}
+
+/**
  * Read-only accessor for diagnostics and `chrome_get_windows_and_tabs`.
  */
 export function getClientState(clientId: string | undefined): ClientState | undefined {
@@ -447,6 +482,23 @@ export function _handleTabRemovedForTests(tabId: number): void {
   if (touched) schedulePersist();
 }
 
+/**
+ * Test helper — runs the same eviction logic the `chrome.windows.onRemoved`
+ * listener registered at module load runs. Per-tab evictions happen via the
+ * companion `chrome.tabs.onRemoved` path; this helper only nulls the
+ * `lastWindowId` hint so the next auto-spawn doesn't pass a dead windowId.
+ */
+export function _handleWindowRemovedForTests(windowId: number): void {
+  let touched = false;
+  for (const s of STATE.values()) {
+    if (s.lastWindowId === windowId) {
+      s.lastWindowId = undefined;
+      touched = true;
+    }
+  }
+  if (touched) schedulePersist();
+}
+
 // =============================================================================
 // chrome.tabs.onRemoved — evict closed tabs from every client's owned set
 // =============================================================================
@@ -458,6 +510,25 @@ try {
       if (s.ownedTabs.delete(closedTabId)) touched = true;
       if (s.activeTabId === closedTabId) {
         s.activeTabId = undefined;
+        touched = true;
+      }
+    }
+    if (touched) schedulePersist();
+  });
+} catch {
+  // non-extension test context — listener is best-effort
+}
+
+// =============================================================================
+// chrome.windows.onRemoved — null stale lastWindowId hints when a window dies
+// =============================================================================
+
+try {
+  chrome.windows?.onRemoved?.addListener((closedWindowId) => {
+    let touched = false;
+    for (const s of STATE.values()) {
+      if (s.lastWindowId === closedWindowId) {
+        s.lastWindowId = undefined;
         touched = true;
       }
     }

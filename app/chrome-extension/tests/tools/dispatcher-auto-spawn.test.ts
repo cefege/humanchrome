@@ -24,11 +24,14 @@ import {
 } from '@/entrypoints/background/utils/client-state';
 
 const createTabMock = vi.fn();
+const windowsGetMock = vi.fn();
 
 beforeEach(() => {
   _resetClientStateForTests();
   createTabMock.mockReset();
   createTabMock.mockResolvedValue({ id: 9001, windowId: 1 });
+  windowsGetMock.mockReset();
+  windowsGetMock.mockImplementation(async (id: number) => ({ id }));
   (globalThis.chrome as any) = {
     storage: { session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
     tabs: {
@@ -38,7 +41,7 @@ beforeEach(() => {
       query: vi.fn(async () => []),
       update: vi.fn(async () => undefined),
     },
-    windows: { update: vi.fn(async () => undefined) },
+    windows: { get: windowsGetMock, update: vi.fn(async () => undefined) },
     runtime: { lastError: undefined },
   };
 });
@@ -145,5 +148,91 @@ describe('handleCallTool — ownership + auto-spawn', () => {
       undefined,
     );
     expect(createTabMock).not.toHaveBeenCalled();
+  });
+
+  it("auto-spawn passes windowId from the client's lastWindowId (IMP-0090)", async () => {
+    // Seed alice with a lastWindowId pointing at window 55 but no usable
+    // owned tab (so the dispatcher must auto-spawn). chrome.windows.get
+    // resolves cleanly so the probe doesn't strip the windowId.
+    claimTabForClient('alice', 9001, 55);
+    // Drop the tab from the owned set so resolveTargetTab returns undefined
+    // but the lastWindowId hint stays.
+    const { _handleTabRemovedForTests } =
+      await import('@/entrypoints/background/utils/client-state');
+    _handleTabRemovedForTests(9001);
+
+    createTabMock.mockResolvedValueOnce({ id: 9100, windowId: 55 });
+    await handleCallTool(
+      { name: 'chrome_click_element', args: { selector: '#button' } },
+      'req-w1',
+      'alice',
+    );
+    expect(createTabMock).toHaveBeenCalledWith({
+      url: 'about:blank',
+      active: false,
+      windowId: 55,
+    });
+  });
+
+  it('auto-spawn omits windowId when the client has no lastWindowId', async () => {
+    await handleCallTool(
+      { name: 'chrome_click_element', args: { selector: '#button' } },
+      'req-w2',
+      'alice',
+    );
+    expect(createTabMock).toHaveBeenCalledWith({ url: 'about:blank', active: false });
+  });
+
+  it('auto-spawn drops a stale windowId when chrome.windows.get throws "No window with id"', async () => {
+    const cs = await import('@/entrypoints/background/utils/client-state');
+    cs.claimTabForClient('alice', 7001, 77);
+    cs._handleTabRemovedForTests(7001);
+
+    windowsGetMock.mockRejectedValueOnce(new Error('No window with id 77'));
+    createTabMock.mockResolvedValueOnce({ id: 7100, windowId: 1 });
+
+    await handleCallTool(
+      { name: 'chrome_click_element', args: { selector: '#button' } },
+      'req-w3',
+      'alice',
+    );
+    // No windowId on the create — the probe stripped it.
+    expect(createTabMock).toHaveBeenCalledWith({ url: 'about:blank', active: false });
+    // The stale lastWindowId (77) was cleared; the new tab's windowId (1)
+    // becomes the fresh recency hint via claimTabForClient.
+    expect(cs.getClientState('alice')?.lastWindowId).toBe(1);
+  });
+
+  it('injects args.windowId from lastWindowId for non-spawning mutating tools', async () => {
+    // chrome_window create is a mutating tool that reads args.windowId.
+    // It sets autoSpawnTab=false so no auto-spawn fires.
+    claimTabForClient('alice', 2001, 88);
+    // Stub windows.create so the tool can return.
+    (globalThis.chrome as any).windows.create = vi.fn(async () => ({ id: 999 }));
+
+    await handleCallTool({ name: 'chrome_window', args: { action: 'focus' } }, 'req-w4', 'alice');
+    // chrome_window's focus path calls windows.update(windowId, {focused:true}).
+    // The injection should make windowId = 88 visible to the tool, which
+    // forwards it to chrome.windows.update.
+    expect((globalThis.chrome as any).windows.update).toHaveBeenCalledWith(
+      88,
+      expect.objectContaining({ focused: true }),
+    );
+  });
+
+  it("does NOT inject windowId for chrome_window action='close' (carve-out)", async () => {
+    claimTabForClient('alice', 3001, 88);
+    (globalThis.chrome as any).windows.remove = vi.fn(async () => undefined);
+
+    const res = await handleCallTool(
+      { name: 'chrome_window', args: { action: 'close' } },
+      'req-w5',
+      'alice',
+    );
+    const body = parseBody(res);
+    // Tool surfaces its own INVALID_ARGS when windowId is missing — we
+    // deliberately did NOT inject lastWindowId.
+    expect(body.error?.code).toBe('INVALID_ARGS');
+    expect((globalThis.chrome as any).windows.remove).not.toHaveBeenCalled();
   });
 });

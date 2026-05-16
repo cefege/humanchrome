@@ -87,7 +87,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0090 · Cross-window arbitration for per-client ownership (feat) · score: 4
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: IMP-0086's `autoSpawnOwnedTab` calls `chrome.tabs.create({ active: false })` with no `windowId`, so a new tab lands in whichever window Chrome considers "last focused" — usually the user's, not the client's. A client driving W1 silently loses its workspace into W2 the moment the user clicks anywhere in W2. `NavigateBatchTool`'s `getLastFocused` fallback drifts the same way. When the user closes a window the client was using, `lastWindowId` becomes stale and the next auto-spawn throws `"No window with id …"`.
 - **Cost**: S
 - **Value**: M
