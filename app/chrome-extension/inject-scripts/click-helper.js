@@ -108,10 +108,15 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
             clickPosition: { x: clickX, y: clickY },
           };
         } else {
-          elementInfo = {
-            clickMethod: 'coordinates',
-            clickPosition: { x: clickX, y: clickY },
-            warning: 'No element found at the specified coordinates',
+          // IMP-0092: elementFromPoint(null) means no event will fire. Surface
+          // as an error envelope (not success+warning) so callers can retry or
+          // fall back instead of waiting on a click that never happened.
+          return {
+            error: `No element at coordinates (${clickX}, ${clickY})`,
+            elementInfo: {
+              clickMethod: 'coordinates',
+              clickPosition: { x: clickX, y: clickY },
+            },
           };
         }
       } else {
@@ -225,8 +230,23 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
           dispatchClickSequence(element, clickX, clickY, options, false);
         }
       } else {
-        if (double) simulateDoubleClick(clickX, clickY, options);
-        else simulateClick(clickX, clickY, options);
+        // IMP-0092: even when the upstream elementFromPoint succeeded, the page
+        // can shift between that check and dispatch (animations, scrolling,
+        // late-loading overlays). simulateClick/simulateDoubleClick re-resolve
+        // the element under the cursor and return false when nothing is there;
+        // surface that as an error so callers don't think a no-op succeeded.
+        const dispatched = double
+          ? simulateDoubleClick(clickX, clickY, options)
+          : simulateClick(clickX, clickY, options);
+        if (!dispatched) {
+          return {
+            error: `No element at coordinates (${clickX}, ${clickY})`,
+            elementInfo: {
+              clickMethod: 'coordinates',
+              clickPosition: { x: clickX, y: clickY },
+            },
+          };
+        }
       }
 
       // Wait for navigation if needed
@@ -249,23 +269,32 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
   }
 
   /**
-   * Simulate a mouse click at specific coordinates
+   * Simulate a mouse click at specific coordinates.
+   * Returns true when events were dispatched, false when there was no element
+   * at the point (IMP-0092: callers must surface the no-dispatch path as an
+   * error instead of returning success).
    * @param {number} x - X coordinate relative to the viewport
    * @param {number} y - Y coordinate relative to the viewport
+   * @returns {boolean}
    */
   function simulateClick(x, y, options = {}) {
     const element = document.elementFromPoint(x, y);
-    if (!element) return;
+    if (!element) return false;
     dispatchClickSequence(element, x, y, options, false);
+    return true;
   }
 
   /**
-   * Simulate a double click sequence at specific coordinates
+   * Simulate a double click sequence at specific coordinates.
+   * Returns true when events were dispatched, false when there was no element
+   * at the point.
+   * @returns {boolean}
    */
   function simulateDoubleClick(x, y, options = {}) {
     const element = document.elementFromPoint(x, y);
-    if (!element) return;
+    if (!element) return false;
     dispatchClickSequence(element, x, y, options, true);
+    return true;
   }
 
   /**

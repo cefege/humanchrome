@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0092 · ClickTool reports success: true after coordinate-click hit empty space (no event dispatched) (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: Coordinate-mode clicks on empty space (elementFromPoint returns null) silently return success:true even though no mouse event was dispatched. Agents see no error, retry never fires, and downstream waits time out because the modal/button never received the synthetic click. Common when a scrim flashes over a button mid-click or when the click target scrolled off-screen between coordinate calculation and dispatch.
 - **Cost**: S
 - **Value**: M
