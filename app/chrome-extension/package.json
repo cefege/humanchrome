@@ -29,24 +29,24 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.0",
-    "@vue-flow/background": "^1.3.2",
-    "@vue-flow/core": "^1.47.0",
     "@huggingface/transformers": "^4.2.0",
-    "humanchrome-shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vue-flow/background": "^1.3.2",
+    "@vue-flow/core": "^1.48.2",
     "date-fns": "^4.1.0",
-    "elkjs": "^0.11.0",
+    "elkjs": "^0.11.1",
     "gifenc": "^1.0.3",
     "hnswlib-wasm-static": "0.8.5",
+    "humanchrome-shared": "workspace:*",
     "markstream-vue": "0.0.13",
     "vue": "^3.5.34",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.106",
+    "@iconify-json/lucide": "^1.2.108",
     "@tailwindcss/vite": "^4.3.0",
     "@types/chrome": "^0.0.318",
-    "@wxt-dev/module-vue": "^1.0.2",
+    "@wxt-dev/module-vue": "^1.0.3",
     "dotenv": "^17.4.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
@@ -54,8 +54,8 @@
     "unplugin-icons": "^23.0.1",
     "unplugin-vue-components": "^0.28.0",
     "vite-plugin-static-copy": "^4.1.0",
-    "vitest": "^2.1.8",
-    "vue-tsc": "^3.2.8",
+    "vitest": "^2.1.9",
+    "vue-tsc": "^3.2.9",
     "wxt": "^0.20.26"
   }
 }
