@@ -11,7 +11,8 @@ import {
   resolveOwnedWindowIdForClient,
   type ResolveResult,
 } from '../utils/client-state';
-import { acquireTabLock } from '../utils/tab-lock';
+import { acquireTabLockWithMeta } from '../utils/tab-queue';
+import { DEFAULT_TAB_LOCK_TIMEOUT_MS, MAX_TOOL_TIMEOUT_MS } from '../utils/timeouts';
 import { runWithContext } from '../utils/request-context';
 
 // =============================================================================
@@ -100,6 +101,7 @@ import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
 import { closeMyTabsTool } from './browser/close-my-tabs';
+import { queueInspectTool } from './browser/queue-inspect';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -181,6 +183,7 @@ const eagerTools: ToolInstance[] = [
   paceGetTool,
   claimTabTool,
   closeMyTabsTool,
+  queueInspectTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
@@ -425,6 +428,20 @@ export const handleCallTool = async (
     ? windowId
     : resolveOwnedWindowIdForClient(clientId, windowId);
 
+  // Per-call tab-lock timeout override (IMP-0087). Strip from forwarded
+  // args so tools don't see the meta-arg; clamp to a sane range.
+  let callerTabLockTimeoutMs: number | undefined;
+  if (
+    param.args &&
+    typeof param.args === 'object' &&
+    typeof (param.args as Record<string, unknown>).tabLockTimeoutMs === 'number'
+  ) {
+    const raw = (param.args as Record<string, number>).tabLockTimeoutMs;
+    if (Number.isFinite(raw)) {
+      callerTabLockTimeoutMs = Math.max(100, Math.min(raw, MAX_TOOL_TIMEOUT_MS));
+    }
+  }
+
   // Surface the resolved tab/window into args so the tool sees them even
   // when the caller omitted them. Tool internals stay unchanged.
   if (param.args && typeof param.args === 'object') {
@@ -436,6 +453,10 @@ export const handleCallTool = async (
     }
     if (resolvedWindowId !== undefined && next.windowId !== resolvedWindowId) {
       next.windowId = resolvedWindowId;
+      mutated = true;
+    }
+    if ('tabLockTimeoutMs' in next) {
+      delete next.tabLockTimeoutMs;
       mutated = true;
     }
     if (mutated) param = { ...param, args: next };
@@ -512,11 +533,27 @@ export const handleCallTool = async (
 
   if (!mutates || typeof tabId !== 'number') return run();
 
+  const staticTimeout = (tool.constructor as { tabLockTimeoutMs?: number }).tabLockTimeoutMs;
+  const effectiveTimeoutMs = callerTabLockTimeoutMs ?? staticTimeout ?? DEFAULT_TAB_LOCK_TIMEOUT_MS;
+
   let release: (() => void) | undefined;
   try {
-    release = await acquireTabLock(tabId);
+    const acquired = await acquireTabLockWithMeta(tabId, {
+      timeoutMs: effectiveTimeoutMs,
+      clientId,
+    });
+    release = acquired.release;
+    if (acquired.waitedMs > 5 || acquired.queuedAtPosition > 1) {
+      log.debug('tab queue waited', {
+        data: {
+          waitedMs: acquired.waitedMs,
+          queuedAtPosition: acquired.queuedAtPosition,
+          timeoutMs: effectiveTimeoutMs,
+        },
+      });
+    }
   } catch (err) {
-    log.warn('tab lock timeout');
+    log.warn('tab queue acquire failed');
     return createErrorResponseFromThrown(err);
   }
   try {

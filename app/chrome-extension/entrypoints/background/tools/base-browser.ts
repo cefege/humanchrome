@@ -27,6 +27,16 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    * (`get_windows_and_tabs`). Only effective when `mutates` is also true.
    */
   static readonly autoSpawnTab: boolean = true;
+  /**
+   * Per-call cap on time spent waiting for the per-tab queue. `undefined`
+   * means "use `DEFAULT_TAB_LOCK_TIMEOUT_MS`." The dispatcher's resolution
+   * order is: caller `args.tabLockTimeoutMs` (clamped to
+   * `[100, MAX_TOOL_TIMEOUT_MS]`) → this static → default. Override on
+   * tools that legitimately occupy the tab for a long time (performance
+   * traces, downloads, GIF recording, intercept-response) so callers
+   * stacked behind them don't surface spurious `TAB_LOCK_TIMEOUT`.
+   */
+  static readonly tabLockTimeoutMs: number | undefined = undefined;
   abstract execute(args: any): Promise<ToolResult>;
 
   /**

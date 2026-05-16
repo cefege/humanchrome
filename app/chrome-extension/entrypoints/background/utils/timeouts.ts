@@ -43,3 +43,12 @@ export const DEFAULT_PERF_TRACE_MAX_DURATION_MS = 60_000;
 
 /** Hard cap on captured-response-body size, surfaced as the truncation contract in docs/AGENTS.md. */
 export const MAX_RESPONSE_BODY_BYTES = 1 * 1024 * 1024;
+
+/**
+ * Per-tab queue depth cap (IMP-0087). Beyond this, new acquirers receive
+ * `QUEUE_FULL` synchronously instead of being enqueued. 16 is generous for
+ * legitimate burst workloads; the goal is to surface runaway loops before
+ * they accumulate `N × DEFAULT_TAB_LOCK_TIMEOUT_MS` of pending work behind
+ * a stuck holder.
+ */
+export const MAX_TAB_QUEUE_DEPTH = 16;

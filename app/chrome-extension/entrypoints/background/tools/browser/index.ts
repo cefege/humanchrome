@@ -75,3 +75,4 @@ export { waitForTool } from './wait-for';
 export { paceTool, paceGetTool } from './pace';
 export { claimTabTool } from './claim-tab';
 export { closeMyTabsTool } from './close-my-tabs';
+export { queueInspectTool } from './queue-inspect';

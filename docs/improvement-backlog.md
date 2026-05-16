@@ -231,7 +231,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0087 · Same-tab queueing — fairness, depth cap, per-call timeout, inspect tool (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: After IMP-0086 same-tab contention is rare but opaque when it does happen. `utils/tab-lock.ts` is a single anonymous `Promise<void>` chain per `tabId` — no waiter accounting, no fairness, no upper bound on queue depth, no way to inspect contention from outside. A misbehaving client looping on a shared tab starves a polite one behind it (pure FIFO), and a per-call timeout cannot be tuned without changing the global default.
 - **Cost**: L
 - **Value**: M

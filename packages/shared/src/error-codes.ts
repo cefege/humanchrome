@@ -23,6 +23,13 @@ export enum ToolErrorCode {
   CDP_DETACHED = 'CDP_DETACHED',
   /** Per-tab serialization lock could not be acquired before timeout. */
   TAB_LOCK_TIMEOUT = 'TAB_LOCK_TIMEOUT',
+  /**
+   * Tab queue depth exceeded MAX_TAB_QUEUE_DEPTH waiters. Caller should back
+   * off and retry later, or pin a different `tabId`. Returned without
+   * enqueuing so runaways surface before they accumulate `N × timeoutMs` of
+   * pending work.
+   */
+  QUEUE_FULL = 'QUEUE_FULL',
   /** Caller targeted a tab already owned by another MCP client. */
   TAB_NOT_OWNED = 'TAB_NOT_OWNED',
   /** Generic timeout (network request, page-load wait, etc.). */
