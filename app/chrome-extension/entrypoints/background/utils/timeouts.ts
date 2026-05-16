@@ -24,8 +24,13 @@ export const DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS = 15_000;
 /** Default timeout for the unified `chrome_wait_for` tool. */
 export const DEFAULT_WAIT_FOR_TIMEOUT_MS = 15_000;
 
-/** Default timeout for per-tab mutating-call locks (see acquireTabLock). */
-export const DEFAULT_TAB_LOCK_TIMEOUT_MS = 10_000;
+/**
+ * Default timeout for per-tab mutating-call locks (see acquireTabLock).
+ * Bumped from 10s to 60s alongside multi-client tab isolation: same-tab
+ * contention should be rare under the new ownership model, but when two
+ * holders of the same tab do collide a brief queue beats a hard error.
+ */
+export const DEFAULT_TAB_LOCK_TIMEOUT_MS = 60_000;
 
 /** Default ceiling for the download-wait timeout (chrome_handle_download). */
 export const DEFAULT_HANDLE_DOWNLOAD_TIMEOUT_MS = 60_000;

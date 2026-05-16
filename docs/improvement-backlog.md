@@ -94,6 +94,16 @@ opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
 IMP entry. Move to next iteration on the next tick.
 =========================================================================== -->
 
+### IMP-0086 · Multi-client tab isolation — ownership, auto-spawn, stable sessionName, UI clientId stamping (feat) · score: 8
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: in-progress
+- **Why**: Two concurrent MCP clients (Claude Code + curl, two CLIs, etc.) silently collide on the globally-active tab when either calls a tool without an explicit `tabId`. The dispatcher's old `resolveTabIdForClient` returned `undefined` for a fresh client, falling through to whatever Chrome currently shows — so Client B's first action lands on Client A's tab and every subsequent call interleaves with Client A's session there. Same problem affects popup/sidepanel/options calls, which carried no `clientId` at all.
+- **Cost**: L
+- **Value**: L
+- **Files**: `app/chrome-extension/entrypoints/background/utils/client-state.ts`, `app/chrome-extension/entrypoints/background/tools/index.ts`, `app/chrome-extension/entrypoints/background/tools/base-browser.ts`, `app/chrome-extension/entrypoints/background/tools/browser/claim-tab.ts` (new), `app/chrome-extension/entrypoints/background/tools/browser/window.ts`, `app/chrome-extension/entrypoints/background/native-host.ts`, `app/chrome-extension/entrypoints/background/utils/timeouts.ts`, `app/native-server/src/mcp/session-name.ts` (new), `app/native-server/src/mcp/mcp-server-stdio.ts`, `app/native-server/src/server/index.ts`, `packages/shared/src/{error-codes,types,tools}.ts`.
+- **Sketch**: Replace single-`lastTabId` with `Set<number> ownedTabs` + persistence to `chrome.storage.session`. Dispatcher resolves explicit-then-active-then-most-recent-owned; mutating call with no usable owned tab → `chrome.tabs.create({active:false})` auto-spawn (opt-out via `static autoSpawnTab=false`). Cross-client targeting → `TAB_NOT_OWNED`. UI surfaces get synthetic `__ui:<surface>` clientIds. Caller-supplied sessionName via `X-Humanchrome-Session` header (stdio derives from CWD/env) becomes the canonical clientId so reconnects reclaim their owned set. Bridge `transport.onclose` → `CLIENT_DISCONNECTED` native msg → extension `releaseClient` (tabs become unowned, not closed). New `browser_claim_tab` tool exposes the claim primitive; `chrome_get_windows_and_tabs` surfaces `owner` per tab.
+
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08

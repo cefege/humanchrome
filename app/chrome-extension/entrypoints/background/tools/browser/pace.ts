@@ -24,6 +24,7 @@ const VALID_PROFILES: PacingProfile[] = ['off', 'human', 'careful', 'fast'];
  */
 class PaceTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.PACE;
+  static readonly autoSpawnTab = false;
 
   async execute(args: PaceToolParams): Promise<ToolResult> {
     const ctx = getCurrentRequestContext();
@@ -86,6 +87,7 @@ class PaceTool extends BaseBrowserToolExecutor {
  */
 class PaceGetTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.PACE_GET;
+  static readonly autoSpawnTab = false;
 
   async execute(): Promise<ToolResult> {
     const ctx = getCurrentRequestContext();

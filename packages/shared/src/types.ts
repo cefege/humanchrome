@@ -18,6 +18,12 @@ export enum NativeMessageType {
   ENSURE_NATIVE = 'ensure_native',
   PING_NATIVE = 'ping_native',
   DISCONNECT_NATIVE = 'disconnect_native',
+  /**
+   * Bridge → extension notification that an MCP client's transport closed.
+   * Carries `clientId` so the extension can release that client's owned tabs
+   * back to the unowned pool (without closing them).
+   */
+  CLIENT_DISCONNECTED = 'client_disconnected',
 }
 
 export interface NativeMessage<P = any, E = any> {

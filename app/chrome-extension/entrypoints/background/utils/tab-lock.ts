@@ -25,7 +25,7 @@ const queues = new Map<number, Promise<void>>();
 const DEFAULT_TIMEOUT_MS = DEFAULT_TAB_LOCK_TIMEOUT_MS;
 
 export interface AcquireOptions {
-  /** Cap on time spent waiting for prior holders. Default 10s. */
+  /** Cap on time spent waiting for prior holders. Default 60s. */
   timeoutMs?: number;
 }
 

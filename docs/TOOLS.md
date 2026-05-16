@@ -152,6 +152,14 @@ Manage Chrome browser windows. Wraps `chrome.windows.{create,update,remove}`. Ac
 | `width` | number |  | Window width in pixels (create / update). |
 | `height` | number |  | Window height in pixels (create / update). |
 
+### `browser_claim_tab`
+
+Claim a tab as owned by the calling MCP client. Tabs the user opened manually (or that another client released on disconnect) start out unowned and are invisible to the implicit tab-resolution path; claim them here to bring them into your owned set so subsequent tool calls without an explicit `tabId` can target them. Returns `{tabId, previousOwner: string|null}`. Errors with `INVALID_ARGS` if `tabId` is missing, `TAB_NOT_FOUND` if the tab does not exist, and `TAB_NOT_OWNED` if the tab is currently owned by a different client (use `chrome_get_windows_and_tabs` to discover ownership).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number | ✓ | Tab ID to claim for the calling client. |
+
 ## Reading
 
 ### `chrome_read_page`

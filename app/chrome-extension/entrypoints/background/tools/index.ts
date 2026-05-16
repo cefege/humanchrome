@@ -2,10 +2,12 @@ import { createErrorResponse, createErrorResponseFromThrown } from '@/common/too
 import { ToolErrorCode, TOOL_NAMES } from 'humanchrome-shared';
 import { debugLog } from '../utils/debug-log';
 import {
-  recordClientTab,
-  resolveTabIdForClient,
-  resolveWindowIdForClient,
+  claimTabForClient,
   consumePacingDelay,
+  recordClientTab,
+  recordClientWindow,
+  resolveOwnedTabIdForClient,
+  type ResolveResult,
 } from '../utils/client-state';
 import { acquireTabLock } from '../utils/tab-lock';
 import { runWithContext } from '../utils/request-context';
@@ -94,6 +96,7 @@ import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
+import { claimTabTool } from './browser/claim-tab';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -173,6 +176,7 @@ const eagerTools: ToolInstance[] = [
   waitForTool,
   paceTool,
   paceGetTool,
+  claimTabTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
@@ -267,20 +271,18 @@ export interface ToolCallParam {
 }
 
 /**
- * Resolve target tab for this call: caller's explicit tabId beats this
- * client's preferred tab (last successful call). When neither is set the
- * tool falls back to the active tab via its own getActiveTabOrThrow path.
+ * Resolve target tab for this call against per-client ownership.
+ *
+ * Priority:
+ *   1. Explicit `tabId` from caller — auto-claims if unowned, conflict if
+ *      owned by another client (mutating tools only; reads are accepted).
+ *   2. Client's `activeTabId` if still owned.
+ *   3. Most recently added entry in `ownedTabs`.
+ *   4. Returns `{}` — caller (dispatcher) decides whether to auto-spawn.
  */
-function resolveTargetTabId(args: any, clientId: string | undefined): number | undefined {
+function resolveTargetTab(args: any, clientId: string | undefined, isRead: boolean): ResolveResult {
   const explicit = typeof args?.tabId === 'number' ? (args.tabId as number) : undefined;
-  if (explicit !== undefined) return explicit;
-  return resolveTabIdForClient(clientId);
-}
-
-function resolveTargetWindowId(args: any, clientId: string | undefined): number | undefined {
-  const explicit = typeof args?.windowId === 'number' ? (args.windowId as number) : undefined;
-  if (explicit !== undefined) return explicit;
-  return resolveWindowIdForClient(clientId);
+  return resolveOwnedTabIdForClient(clientId, explicit, { isRead });
 }
 
 /**
@@ -315,48 +317,96 @@ const extractWindowIdFromResult = (result: any) =>
   extractFromResult(result, [(p) => p?.windowId, (p) => p?.tab?.windowId]);
 
 /**
+ * Try to create a fresh tab the calling client will own. Used when a
+ * mutating tool has no explicit `tabId` and the client has no usable
+ * owned tab. The tab opens in the background (`active: false`) so the
+ * user's current focus isn't disturbed. Returns the new tabId or
+ * `undefined` on failure (caller falls through to its own active-tab
+ * path as a last resort).
+ */
+async function autoSpawnOwnedTab(clientId: string | undefined): Promise<number | undefined> {
+  if (!clientId) return undefined;
+  if (typeof chrome === 'undefined' || !chrome.tabs?.create) return undefined;
+  try {
+    const created = await chrome.tabs.create({ url: 'about:blank', active: false });
+    if (typeof created?.id !== 'number') return undefined;
+    claimTabForClient(clientId, created.id, created.windowId);
+    return created.id;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Handle tool execution.
  *
  * @param param      Tool name and args from the MCP caller.
  * @param requestId  Optional correlation id from the native-messaging envelope.
- * @param clientId   Optional MCP-session id. When set, callers without an
- *   explicit `tabId` get this client's last-used tab — eliminating cross-talk
- *   between concurrent MCP clients.
+ * @param clientId   Optional MCP-session id. When set, the dispatcher resolves
+ *   the target tab against this client's owned-tab set — eliminating cross-talk
+ *   between concurrent MCP clients. Mutating tools without a usable owned tab
+ *   get a fresh background tab auto-spawned and owned by this client.
  */
 export const handleCallTool = async (
   param: ToolCallParam,
   requestId?: string,
   clientId?: string,
 ) => {
-  const tabId = resolveTargetTabId(param.args, clientId);
-  const windowId = resolveTargetWindowId(param.args, clientId);
-  // Surface the resolved tab/window into args so the tool sees them even when
-  // the caller omitted them. Tool internals stay unchanged.
-  if (
-    param.args &&
-    typeof param.args === 'object' &&
-    ((tabId !== undefined && param.args.tabId !== tabId) ||
-      (windowId !== undefined && param.args.windowId !== windowId))
-  ) {
-    const next: Record<string, unknown> = { ...param.args };
-    if (tabId !== undefined) next.tabId = tabId;
-    if (windowId !== undefined) next.windowId = windowId;
-    param = { ...param, args: next };
-  }
   const startedAt = Date.now();
-  // Bind a child logger so every line for this dispatch carries the same
-  // correlation fields. The same `requestId` lands in the bridge's stderr
-  // pino output via the native messaging envelope.
-  const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
-  log.info('tool call start');
-
   const tool = await getTool(param.name);
+  // Logger child first so the not-found path still carries correlation fields.
+  const earlyLog = debugLog.with({ requestId, clientId, tool: param.name });
   if (!tool) {
-    log.warn('tool not found');
+    earlyLog.warn('tool not found');
     return createErrorResponse(`Tool ${param.name} not found`, ToolErrorCode.INVALID_ARGS, {
       tool: param.name,
     });
   }
+
+  const mutates = (tool.constructor as { mutates?: boolean })?.mutates === true;
+  const autoSpawn = (tool.constructor as { autoSpawnTab?: boolean })?.autoSpawnTab !== false;
+
+  // Resolve target tab against ownership BEFORE injecting into args.
+  const resolved = resolveTargetTab(param.args, clientId, !mutates);
+  if (resolved.conflict) {
+    earlyLog.warn('tab not owned', {
+      data: { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
+    });
+    return createErrorResponse(
+      `Tab ${resolved.conflict.tabId} is owned by client ${resolved.conflict.owner}`,
+      ToolErrorCode.TAB_NOT_OWNED,
+      { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
+    );
+  }
+  let tabId = resolved.tabId;
+
+  // If a mutating tool has no resolved owned tab and didn't opt out of
+  // auto-spawn (and the caller didn't supply a url for tools like navigate
+  // that open their own tab), spawn a fresh tab for this client. This is
+  // the key isolation invariant: anonymous mutating calls never land on
+  // another client's tab.
+  const callerSuppliesUrl = typeof param.args?.url === 'string' && param.args.url.length > 0;
+  if (tabId === undefined && mutates && autoSpawn && clientId !== undefined && !callerSuppliesUrl) {
+    tabId = await autoSpawnOwnedTab(clientId);
+  }
+
+  const windowId =
+    typeof param.args?.windowId === 'number' ? (param.args.windowId as number) : undefined;
+
+  // Surface the resolved tab into args so the tool sees it even when the
+  // caller omitted it. Tool internals stay unchanged.
+  if (
+    param.args &&
+    typeof param.args === 'object' &&
+    tabId !== undefined &&
+    param.args.tabId !== tabId
+  ) {
+    const next: Record<string, unknown> = { ...param.args, tabId };
+    param = { ...param, args: next };
+  }
+
+  const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
+  log.info('tool call start');
 
   const run = async () => {
     try {
@@ -371,10 +421,9 @@ export const handleCallTool = async (
       if (ok) {
         // Tools like chrome_navigate pick a tab themselves when the caller
         // omits one — read the tab back out of the response so the client's
-        // preferred-tab pointer follows the tab the tool actually used.
-        // Skip the sniff when the caller already pinned a tab; tool responses
-        // can be tens of KB (read-page) and JSON-parsing them per call adds
-        // up on hot paths.
+        // ownership pointer follows the tab the tool actually used. Skip the
+        // sniff when the caller already pinned a tab; tool responses can be
+        // tens of KB (read-page) and JSON-parsing per call adds up.
         const sniffedTab = tabId === undefined ? extractTabIdFromResult(result) : undefined;
         const sniffedWindow =
           windowId === undefined ? extractWindowIdFromResult(result) : undefined;
@@ -382,6 +431,8 @@ export const handleCallTool = async (
         const effectiveWindowId = windowId ?? sniffedWindow;
         if (typeof effectiveTabId === 'number') {
           recordClientTab(clientId, effectiveTabId, effectiveWindowId);
+        } else if (typeof effectiveWindowId === 'number') {
+          recordClientWindow(clientId, effectiveWindowId);
         }
         log.debug('client tab recorded', {
           tabId: effectiveTabId,
@@ -407,9 +458,6 @@ export const handleCallTool = async (
       return createErrorResponseFromThrown(error);
     }
   };
-
-  // Mutating tools serialize per-tab; reads and implicit-tab calls pass through.
-  const mutates = (tool.constructor as { mutates?: boolean })?.mutates === true;
 
   // Per-client pacing throttle (set via chrome_pace). Sleep before any
   // mutating dispatch so anti-bot platforms see human-like rhythm. Reads

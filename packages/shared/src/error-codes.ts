@@ -23,6 +23,8 @@ export enum ToolErrorCode {
   CDP_DETACHED = 'CDP_DETACHED',
   /** Per-tab serialization lock could not be acquired before timeout. */
   TAB_LOCK_TIMEOUT = 'TAB_LOCK_TIMEOUT',
+  /** Caller targeted a tab already owned by another MCP client. */
+  TAB_NOT_OWNED = 'TAB_NOT_OWNED',
   /** Generic timeout (network request, page-load wait, etc.). */
   TIMEOUT = 'TIMEOUT',
   /** Caller passed invalid or missing arguments. */

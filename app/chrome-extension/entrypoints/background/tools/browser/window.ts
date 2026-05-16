@@ -1,9 +1,12 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
+import { findTabOwner } from '../../utils/client-state';
 
 class WindowTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS;
+  // Whole-browser listing; never auto-spawn a tab for this.
+  static readonly autoSpawnTab = false;
   async execute(): Promise<ToolResult> {
     try {
       const windows = await chrome.windows.getAll({ populate: true });
@@ -13,12 +16,17 @@ class WindowTool extends BaseBrowserToolExecutor {
         const tabs =
           window.tabs?.map((tab) => {
             tabCount++;
+            const tabId = tab.id || 0;
             return {
-              tabId: tab.id || 0,
+              tabId,
               url: tab.url || '',
               title: tab.title || '',
               active: tab.active || false,
               status: tab.status || 'unloaded',
+              // Surface ownership so callers can discover unowned tabs to
+              // claim, or notice that a tab they want is currently another
+              // client's responsibility.
+              owner: tabId ? findTabOwner(tabId) : null,
             };
           }) || [];
 
