@@ -3,10 +3,12 @@ import { ToolErrorCode, TOOL_NAMES } from 'humanchrome-shared';
 import { debugLog } from '../utils/debug-log';
 import {
   claimTabForClient,
+  clearLastWindowForClient,
   consumePacingDelay,
   recordClientTab,
   recordClientWindow,
   resolveOwnedTabIdForClient,
+  resolveOwnedWindowIdForClient,
   type ResolveResult,
 } from '../utils/client-state';
 import { acquireTabLock } from '../utils/tab-lock';
@@ -329,8 +331,25 @@ const extractWindowIdFromResult = (result: any) =>
 async function autoSpawnOwnedTab(clientId: string | undefined): Promise<number | undefined> {
   if (!clientId) return undefined;
   if (typeof chrome === 'undefined' || !chrome.tabs?.create) return undefined;
+
+  // Prefer the client's last-known window so multi-window sessions stay
+  // coherent. Probe with chrome.windows.get first so we don't pass a dead
+  // windowId to chrome.tabs.create — that would throw and lose us the
+  // implicit fallback to Chrome's last-focused window.
+  let preferredWindowId = resolveOwnedWindowIdForClient(clientId);
+  if (preferredWindowId !== undefined && chrome.windows?.get) {
+    try {
+      await chrome.windows.get(preferredWindowId);
+    } catch {
+      clearLastWindowForClient(clientId, preferredWindowId);
+      preferredWindowId = undefined;
+    }
+  }
+
   try {
-    const created = await chrome.tabs.create({ url: 'about:blank', active: false });
+    const createArgs: chrome.tabs.CreateProperties = { url: 'about:blank', active: false };
+    if (preferredWindowId !== undefined) createArgs.windowId = preferredWindowId;
+    const created = await chrome.tabs.create(createArgs);
     if (typeof created?.id !== 'number') return undefined;
     claimTabForClient(clientId, created.id, created.windowId);
     return created.id;
@@ -392,20 +411,36 @@ export const handleCallTool = async (
     tabId = await autoSpawnOwnedTab(clientId);
   }
 
-  const windowId =
+  let windowId =
     typeof param.args?.windowId === 'number' ? (param.args.windowId as number) : undefined;
 
-  // Surface the resolved tab into args so the tool sees it even when the
-  // caller omitted it. Tool internals stay unchanged.
-  if (
-    param.args &&
-    typeof param.args === 'object' &&
-    tabId !== undefined &&
-    param.args.tabId !== tabId
-  ) {
-    const next: Record<string, unknown> = { ...param.args, tabId };
-    param = { ...param, args: next };
+  // Mirror tab injection for `windowId`: if the caller omitted one, fall
+  // back to the client's `lastWindowId` so multi-window sessions don't
+  // scatter across whichever window Chrome happens to have focused.
+  // Carve-out: `chrome_window action: 'close'` must stay explicit —
+  // implicit-close-by-last-window would be too destructive.
+  const isWindowCloseAction =
+    param.name === TOOL_NAMES.BROWSER.WINDOW_MANAGE && param.args?.action === 'close';
+  const resolvedWindowId = isWindowCloseAction
+    ? windowId
+    : resolveOwnedWindowIdForClient(clientId, windowId);
+
+  // Surface the resolved tab/window into args so the tool sees them even
+  // when the caller omitted them. Tool internals stay unchanged.
+  if (param.args && typeof param.args === 'object') {
+    const next: Record<string, unknown> = { ...param.args };
+    let mutated = false;
+    if (tabId !== undefined && next.tabId !== tabId) {
+      next.tabId = tabId;
+      mutated = true;
+    }
+    if (resolvedWindowId !== undefined && next.windowId !== resolvedWindowId) {
+      next.windowId = resolvedWindowId;
+      mutated = true;
+    }
+    if (mutated) param = { ...param, args: next };
   }
+  windowId = resolvedWindowId;
 
   const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
   log.info('tool call start');

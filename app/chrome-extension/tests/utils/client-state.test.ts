@@ -9,8 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   _handleTabRemovedForTests,
+  _handleWindowRemovedForTests,
   _resetClientStateForTests,
   claimTabForClient,
+  clearLastWindowForClient,
   findTabOwner,
   getClientState,
   loadPersistedClientState,
@@ -18,6 +20,7 @@ import {
   releaseClient,
   releaseTabFromClient,
   resolveOwnedTabIdForClient,
+  resolveOwnedWindowIdForClient,
 } from '@/entrypoints/background/utils/client-state';
 
 type SessionStore = Record<string, unknown>;
@@ -189,5 +192,53 @@ describe('loadPersistedClientState', () => {
     };
     await loadPersistedClientState();
     expect(getClientState('ghost')).toBeUndefined();
+  });
+});
+
+describe('resolveOwnedWindowIdForClient (IMP-0090)', () => {
+  it("returns the client's lastWindowId when no explicit id is supplied", () => {
+    claimTabForClient('alice', 100, 42);
+    expect(resolveOwnedWindowIdForClient('alice')).toBe(42);
+  });
+
+  it('prefers an explicit windowId over the recency hint', () => {
+    claimTabForClient('alice', 100, 42);
+    expect(resolveOwnedWindowIdForClient('alice', 99)).toBe(99);
+  });
+
+  it('returns undefined for an unknown client', () => {
+    expect(resolveOwnedWindowIdForClient('nobody')).toBeUndefined();
+  });
+
+  it('returns undefined for an undefined clientId (legacy callers)', () => {
+    expect(resolveOwnedWindowIdForClient(undefined)).toBeUndefined();
+  });
+});
+
+describe('clearLastWindowForClient (IMP-0090)', () => {
+  it("nulls only the matching client's lastWindowId when it equals the argument", () => {
+    claimTabForClient('alice', 100, 7);
+    claimTabForClient('bob', 200, 7);
+    clearLastWindowForClient('alice', 7);
+    expect(getClientState('alice')?.lastWindowId).toBeUndefined();
+    expect(getClientState('bob')?.lastWindowId).toBe(7);
+  });
+
+  it('is a no-op when the windowId does not match', () => {
+    claimTabForClient('alice', 100, 7);
+    clearLastWindowForClient('alice', 999);
+    expect(getClientState('alice')?.lastWindowId).toBe(7);
+  });
+});
+
+describe('_handleWindowRemovedForTests (IMP-0090)', () => {
+  it('clears lastWindowId on every client pointing at the closed window', () => {
+    claimTabForClient('alice', 100, 33);
+    claimTabForClient('bob', 200, 33);
+    claimTabForClient('carol', 300, 44);
+    _handleWindowRemovedForTests(33);
+    expect(getClientState('alice')?.lastWindowId).toBeUndefined();
+    expect(getClientState('bob')?.lastWindowId).toBeUndefined();
+    expect(getClientState('carol')?.lastWindowId).toBe(44);
   });
 });
