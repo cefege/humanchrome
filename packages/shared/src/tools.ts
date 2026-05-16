@@ -516,6 +516,16 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'number',
           description: 'Seconds to wait for action=wait (max 30s)',
         },
+        force: {
+          type: 'boolean',
+          description:
+            'IMP-0097: skip the actionability suite for click/dblclick/triple_click/drag/hover/fill/fill_form/key/type actions. scrollIntoView still runs. Default false.',
+        },
+        actionabilityTimeoutMs: {
+          type: 'number',
+          description:
+            'IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000.',
+        },
       },
       required: ['action'],
     },
@@ -1481,6 +1491,16 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'number',
           description: 'Timeout in milliseconds for waiting (default: 5000).',
         },
+        force: {
+          type: 'boolean',
+          description:
+            'IMP-0097: skip the actionability suite (visible/stable/enabled/hit-test). scrollIntoView still runs. Default false. Use sparingly — only when the suite is producing a false positive (e.g. pseudo-element targets the hit-test cannot resolve).',
+        },
+        actionabilityTimeoutMs: {
+          type: 'number',
+          description:
+            'IMP-0097: per-call cap on time spent waiting for actionability to pass, in milliseconds. Default 5000 (matches Playwright). Raise on pages with long settle (heavy SPA hydration), lower to fail fast on a known-bad target.',
+        },
         ...TAB_TARGETING_NO_BG,
         frameId: FRAME_ID_PROP,
       },
@@ -1503,6 +1523,16 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: ['string', 'number', 'boolean'],
           description:
             'Value to fill. For text inputs: string. For checkboxes/radios: boolean. For selects: option value or text.',
+        },
+        force: {
+          type: 'boolean',
+          description:
+            'IMP-0097: skip the actionability suite (visible/enabled/editable). scrollIntoView still runs. Default false.',
+        },
+        actionabilityTimeoutMs: {
+          type: 'number',
+          description:
+            'IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000.',
         },
         ...TAB_TARGETING_NO_BG,
         frameId: FRAME_ID_PROP,
@@ -2574,6 +2604,16 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'number',
           description: 'Optional frame to scope the lookup to. Defaults to the main frame.',
         },
+        force: {
+          type: 'boolean',
+          description:
+            'IMP-0097: skip the visibility check. scrollIntoView still runs. Default false.',
+        },
+        actionabilityTimeoutMs: {
+          type: 'number',
+          description:
+            'IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000. (Focus runs only the visibility check synchronously today; this field is reserved for the future async-friendly variant.)',
+        },
       },
       required: [],
     },
@@ -2942,6 +2982,16 @@ export const TOOL_SCHEMAS: Tool[] = [
         frameId: {
           type: 'number',
           description: 'Optional frame to scope the operation to. Defaults to the main frame.',
+        },
+        force: {
+          type: 'boolean',
+          description:
+            'IMP-0097: skip the actionability suite (visible/stable/hit-test) on both source and target. scrollIntoView still runs. Default false.',
+        },
+        actionabilityTimeoutMs: {
+          type: 'number',
+          description:
+            'IMP-0097: per-call cap on the actionability wait for each endpoint, in milliseconds. Default 5000.',
         },
       },
       required: [],

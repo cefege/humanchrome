@@ -1,11 +1,20 @@
-/* eslint-disable */
 // fill-helper.js
-// This script is injected into the page to handle form filling operations
+// This script is injected into the page to handle form filling operations.
+// Pre-action checks (visible + enabled + editable) flow through the shared
+// `awaitActionable` primitive in inject-scripts/actionability.js — same
+// matrix Playwright applies before fill/clear/selectOption. Failures
+// surface as `notActionable: true` so the background tool can classify
+// them into `ToolErrorCode.NOT_ACTIONABLE`.
 
 if (window.__FILL_HELPER_INITIALIZED__) {
   // Already initialized, skip
 } else {
   window.__FILL_HELPER_INITIALIZED__ = true;
+
+  // Per-action check matrix. Mirrors Playwright: fill/clear/selectOption
+  // run visible+enabled+editable. Stability and hit-test are unnecessary
+  // — fill writes via the native setter, not via pointer events.
+  const FILL_CHECKS = ['visible', 'enabled', 'editable'];
 
   /**
    * Set `el.value` (or `.checked`) in a way that React's controlled-component
@@ -46,9 +55,14 @@ if (window.__FILL_HELPER_INITIALIZED__) {
    * Fill an input element with the specified value
    * @param {string} selector - CSS selector for the element to fill
    * @param {string} value - Value to fill into the element
+   * @param {string|null} ref - element ref from chrome_read_page
+   * @param {{force?:boolean, actionabilityTimeoutMs?:number}} [opts]
    * @returns {Promise<Object>} - Result of the fill operation
    */
-  async function fillElement(selector, value, ref = null) {
+  async function fillElement(selector, value, ref = null, opts = {}) {
+    const force = opts && opts.force === true;
+    const actionabilityTimeoutMs =
+      opts && typeof opts.actionabilityTimeoutMs === 'number' ? opts.actionabilityTimeoutMs : 5000;
     try {
       // Find the element
       let element = null;
@@ -76,14 +90,16 @@ if (window.__FILL_HELPER_INITIALIZED__) {
         };
       }
 
-      // Get element information
+      // Get element information. `isVisible` will be re-asserted via the
+      // shared actionability suite below once we've narrowed to the final
+      // (possibly post-shadow-root) target.
       const rect = element.getBoundingClientRect();
       const elementInfo = {
         tagName: element.tagName,
         id: element.id,
         className: element.className,
         type: element.type || null,
-        isVisible: isElementVisible(element),
+        isVisible: true,
         rect: {
           x: rect.x,
           y: rect.y,
@@ -95,14 +111,6 @@ if (window.__FILL_HELPER_INITIALIZED__) {
           left: rect.left,
         },
       };
-
-      // Check if element is visible
-      if (!elementInfo.isVisible) {
-        return {
-          error: `Element with selector "${selector}" is not visible`,
-          elementInfo,
-        };
-      }
 
       // Check if element is an input, textarea, or select
       const validTags = ['INPUT', 'TEXTAREA', 'SELECT'];
@@ -185,9 +193,20 @@ if (window.__FILL_HELPER_INITIALIZED__) {
         };
       }
 
-      // Scroll element into view
-      element.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Shared actionability suite — visible+enabled+editable. Replaces the
+      // legacy isElementVisible early-exit and the standalone scrollIntoView
+      // wait (the primitive scrolls internally before evaluating checks).
+      const actResult = await runActionability(element, {
+        checks: FILL_CHECKS,
+        timeoutMs: actionabilityTimeoutMs,
+        force,
+      });
+      if (!actResult.ok) {
+        elementInfo.isVisible = !actResult.failures.includes('not_visible');
+        return notActionableError(actResult.failures, selector || (ref ? `ref:${ref}` : ''), {
+          elementInfo,
+        });
+      }
 
       // Focus the element
       element.focus();
@@ -332,6 +351,36 @@ if (window.__FILL_HELPER_INITIALIZED__) {
   }
 
   /**
+   * Run the shared actionability primitive. Falls back to permissive when
+   * actionability.js wasn't loaded — production callers always inject it
+   * alongside fill-helper.
+   */
+  function runActionability(el, opts) {
+    const api = window.__actionability;
+    if (!api || typeof api.awaitActionable !== 'function') {
+      console.warn('[fill-helper] actionability primitive not loaded; skipping pre-action checks');
+      return Promise.resolve({ ok: true });
+    }
+    return api.awaitActionable(el, opts);
+  }
+
+  /** Structured envelope the background tool maps to NOT_ACTIONABLE. */
+  function notActionableError(failures, selectorRef, extra) {
+    const list = Array.isArray(failures) ? failures : [];
+    const msg =
+      list.length === 0
+        ? 'Element is not actionable'
+        : `Element is not actionable: ${list.join(', ')}`;
+    return {
+      error: msg,
+      notActionable: true,
+      failures: list,
+      selectorOrRef: selectorRef,
+      ...(extra || {}),
+    };
+  }
+
+  /**
    * Check if an element is visible
    * @param {Element} element - The element to check
    * @returns {boolean} - Whether the element is visible
@@ -372,7 +421,10 @@ if (window.__FILL_HELPER_INITIALIZED__) {
   // Listen for messages from the extension
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'fillElement') {
-      fillElement(request.selector, request.value, request.ref)
+      fillElement(request.selector, request.value, request.ref, {
+        force: request.force === true,
+        actionabilityTimeoutMs: request.actionabilityTimeoutMs,
+      })
         .then(sendResponse)
         .catch((error) => {
           sendResponse({

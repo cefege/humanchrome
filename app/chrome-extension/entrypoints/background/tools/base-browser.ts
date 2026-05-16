@@ -143,6 +143,13 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
           : await chrome.tabs.sendMessage(tabId, tagged);
 
       if (response && response.error) {
+        // IMP-0097: structured actionability failures travel as
+        // `{error, notActionable: true, failures: [...]}` so the calling
+        // tool can map them to `NOT_ACTIONABLE` with details. Don't throw
+        // — return the envelope as-is and let the caller branch.
+        if (response.notActionable === true) {
+          return response;
+        }
         throw new Error(String(response.error));
       }
 

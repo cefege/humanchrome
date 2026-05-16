@@ -70,6 +70,8 @@ export async function handleClick(
       timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
       button: params.action === 'right_click' ? 'right' : 'left',
       modifiers: params.modifiers,
+      force: params.force,
+      actionabilityTimeoutMs: params.actionabilityTimeoutMs,
     });
   }
   if (params.selector) {
@@ -81,6 +83,8 @@ export async function handleClick(
       timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
       button: params.action === 'right_click' ? 'right' : 'left',
       modifiers: params.modifiers,
+      force: params.force,
+      actionabilityTimeoutMs: params.actionabilityTimeoutMs,
     });
   }
   if (!params.coordinates) {
@@ -101,6 +105,8 @@ export async function handleClick(
     timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
     button: params.action === 'right_click' ? 'right' : 'left',
     modifiers: params.modifiers,
+    force: params.force,
+    actionabilityTimeoutMs: params.actionabilityTimeoutMs,
   });
   if (!domResult.isError) return domResult;
 

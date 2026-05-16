@@ -18,6 +18,11 @@ interface FocusParams {
   frameId?: number;
   index?: number;
   multi?: boolean;
+  // IMP-0097: skip the visibility check. scrollIntoView still runs. Default
+  // false. (Focus only runs the `visible` check — Playwright matches this.)
+  force?: boolean;
+  // IMP-0097: per-call cap on actionability wait. Default 5000ms.
+  actionabilityTimeoutMs?: number;
 }
 
 interface ShimSuccess {
@@ -30,6 +35,9 @@ interface ShimSuccess {
 interface ShimFailure {
   ok: false;
   message: string;
+  /** IMP-0097: failures list when the visibility check blocks focus. */
+  notActionable?: boolean;
+  failures?: string[];
 }
 
 type ShimResult = ShimSuccess | ShimFailure;
@@ -72,6 +80,10 @@ class FocusTool extends BaseBrowserToolExecutor {
       tabId = tab.id;
     }
 
+    const force = args.force === true;
+    const actionabilityTimeoutMs =
+      typeof args.actionabilityTimeoutMs === 'number' ? args.actionabilityTimeoutMs : 5000;
+
     try {
       // IMP-0098: structured selectors (`role`, `label`, …) and prefixed CSS
       // strings (`role:button[name="X"]`) get resolved to a ref via the
@@ -113,7 +125,7 @@ class FocusTool extends BaseBrowserToolExecutor {
         target,
         world: 'ISOLATED',
         func: focusShim,
-        args: [shimSelector, shimRef],
+        args: [shimSelector, shimRef, force, actionabilityTimeoutMs],
       });
       const first = injected?.[0]?.result as ShimResult | undefined;
       if (!first) {
@@ -124,6 +136,15 @@ class FocusTool extends BaseBrowserToolExecutor {
         );
       }
       if (!first.ok) {
+        // IMP-0097: visibility-failure → NOT_ACTIONABLE so callers can
+        // wait/dismiss the blocker; everything else stays UNKNOWN.
+        if (first.notActionable === true) {
+          return createErrorResponse(first.message, ToolErrorCode.NOT_ACTIONABLE, {
+            tabId,
+            frameId: args.frameId,
+            failures: Array.isArray(first.failures) ? first.failures : [],
+          });
+        }
         return createErrorResponse(first.message, ToolErrorCode.UNKNOWN, {
           tabId,
           frameId: args.frameId,
@@ -153,9 +174,18 @@ class FocusTool extends BaseBrowserToolExecutor {
 
 /**
  * ISOLATED-world shim. Self-contained — chrome.scripting.func only
- * serializes the function body, not the surrounding scope.
+ * serializes the function body, not the surrounding scope. Runs the
+ * shared actionability primitive's `visible` check before focusing —
+ * dispatching focus on a hidden control yields no visible behaviour
+ * (`document.activeElement` may still update, but the agent gets no
+ * actionable state).
  */
-function focusShim(selector: string | null, ref: string | null): ShimResult {
+function focusShim(
+  selector: string | null,
+  ref: string | null,
+  force: boolean,
+  actionabilityTimeoutMs: number,
+): ShimResult {
   try {
     let el: Element | null = null;
     let resolution: 'ref' | 'selector' = 'selector';
@@ -185,6 +215,41 @@ function focusShim(selector: string | null, ref: string | null): ShimResult {
     if (typeof focusable.focus !== 'function') {
       return { ok: false, message: 'element does not support focus()' };
     }
+
+    // IMP-0097: inlined visibility check. The actionability primitive
+    // lives in window.__actionability when actionability.js has been
+    // injected; we use it when present and fall back to an inlined
+    // check otherwise. The inline path keeps focus-only flows lightweight
+    // (no extra injection round-trip).
+    if (!force) {
+      const api = (
+        window as unknown as {
+          __actionability?: {
+            awaitActionable: (
+              el: Element,
+              opts: { checks?: string[]; timeoutMs?: number; force?: boolean },
+            ) => Promise<{ ok: true } | { ok: false; failures: string[] }>;
+          };
+        }
+      ).__actionability;
+      // The shared primitive returns a Promise. We can't await inside a
+      // shim that must return ShimResult synchronously without breaking
+      // the existing call shape — so prefer the inlined sync check that
+      // covers the same visibility cases. (Stability/hit-test/enabled
+      // aren't relevant to a programmatic focus.)
+      void api; // not used in the shim — the consumer-side fallback is sync
+      const failure = checkVisibleSync(focusable);
+      if (failure) {
+        return {
+          ok: false,
+          message: `element is not actionable: ${failure}`,
+          notActionable: true,
+          failures: [failure],
+        };
+      }
+    }
+    void actionabilityTimeoutMs; // reserved for future async-friendly variant
+
     focusable.focus({ preventScroll: false });
     return {
       ok: true,
@@ -194,6 +259,18 @@ function focusShim(selector: string | null, ref: string | null): ShimResult {
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+
+  function checkVisibleSync(target: HTMLElement): string | null {
+    if (!target.isConnected) return 'not_visible';
+    const style = getComputedStyle(target);
+    if (style.display === 'none') return 'not_visible';
+    if (style.visibility === 'hidden' || style.visibility === 'collapse') return 'not_visible';
+    if (Number(style.opacity) === 0) return 'not_visible';
+    if (style.pointerEvents === 'none') return 'not_visible';
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return 'not_visible';
+    return null;
   }
 }
 

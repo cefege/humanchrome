@@ -31,6 +31,8 @@ export async function handleType(
         ref: params.ref,
         waitForNavigation: false,
         timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
+        force: params.force,
+        actionabilityTimeoutMs: params.actionabilityTimeoutMs,
       });
     }
     await CDPHelper.attach(tabId);
@@ -78,6 +80,8 @@ export async function handleFill(
     frameId: params.frameId,
     index: params.index,
     multi: params.multi,
+    force: params.force,
+    actionabilityTimeoutMs: params.actionabilityTimeoutMs,
   });
 }
 
@@ -103,6 +107,8 @@ export async function handleFillForm(
         tabId: params.tabId,
         windowId: params.windowId,
         frameId: params.frameId,
+        force: params.force,
+        actionabilityTimeoutMs: params.actionabilityTimeoutMs,
       });
       const ok = !r.isError;
       results.push({ ref: item.ref, ok, error: ok ? undefined : 'failed' });
@@ -155,6 +161,8 @@ export async function handleKey(
         ref: params.ref,
         waitForNavigation: false,
         timeoutMs: TIMEOUTS.DEFAULT_WAIT * 5,
+        force: params.force,
+        actionabilityTimeoutMs: params.actionabilityTimeoutMs,
       });
     }
     await CDPHelper.attach(tabId);

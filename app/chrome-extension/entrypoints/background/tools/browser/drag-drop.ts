@@ -23,6 +23,11 @@ interface DragDropParams {
   multi?: boolean;
   frameId?: number;
   steps?: number;
+  // IMP-0097: skip the visible+stable+hit-test suite on both source and
+  // target. scrollIntoView still runs. Default false.
+  force?: boolean;
+  // IMP-0097: per-call cap on actionability wait. Default 5000ms.
+  actionabilityTimeoutMs?: number;
 }
 
 interface ShimSuccess {
@@ -35,7 +40,16 @@ interface ShimSuccess {
 interface ShimFailure {
   ok: false;
   message: string;
-  reason?: 'from_not_found' | 'to_not_found' | 'from_hidden' | 'to_hidden' | 'other';
+  reason?:
+    | 'from_not_found'
+    | 'to_not_found'
+    | 'from_hidden'
+    | 'to_hidden'
+    | 'from_not_actionable'
+    | 'to_not_actionable'
+    | 'other';
+  /** IMP-0097: failure tokens when reason ends in `_not_actionable`. */
+  failures?: string[];
 }
 
 type ShimResult = ShimSuccess | ShimFailure;
@@ -83,6 +97,10 @@ class DragDropTool extends BaseBrowserToolExecutor {
       }
       tabId = tab.id;
     }
+
+    const force = args.force === true;
+    const actionabilityTimeoutMs =
+      typeof args.actionabilityTimeoutMs === 'number' ? args.actionabilityTimeoutMs : 5000;
 
     try {
       // IMP-0098: Structured selectors (`role:`, `label:`, etc.) and prefixed
@@ -190,6 +208,8 @@ class DragDropTool extends BaseBrowserToolExecutor {
           finalToSelector,
           finalToRef,
           steps,
+          force,
+          actionabilityTimeoutMs,
         ],
       });
       const first = injected?.[0]?.result as ShimResult | undefined;
@@ -201,20 +221,28 @@ class DragDropTool extends BaseBrowserToolExecutor {
         );
       }
       if (!first.ok) {
-        // Hidden / not-visible / not-found errors are recoverable agent-level
-        // signals — classify as INVALID_ARGS so callers can branch without
-        // re-raising.
-        const code =
+        // Per-reason classification:
+        //  - hidden / not-found targets    → INVALID_ARGS (caller fixes the locator)
+        //  - actionability failures (suite) → NOT_ACTIONABLE (caller waits/scrolls/dismisses)
+        //  - everything else                → UNKNOWN
+        let code: ToolErrorCode;
+        if (first.reason === 'from_not_actionable' || first.reason === 'to_not_actionable') {
+          code = ToolErrorCode.NOT_ACTIONABLE;
+        } else if (
           first.reason === 'from_not_found' ||
           first.reason === 'to_not_found' ||
           first.reason === 'from_hidden' ||
           first.reason === 'to_hidden'
-            ? ToolErrorCode.INVALID_ARGS
-            : ToolErrorCode.UNKNOWN;
+        ) {
+          code = ToolErrorCode.INVALID_ARGS;
+        } else {
+          code = ToolErrorCode.UNKNOWN;
+        }
         return createErrorResponse(first.message, code, {
           tabId,
           frameId: args.frameId,
           reason: first.reason,
+          ...(first.failures ? { failures: first.failures } : {}),
         });
       }
       return jsonOk({
@@ -243,14 +271,18 @@ class DragDropTool extends BaseBrowserToolExecutor {
  * MAIN-world shim. Self-contained — no closure capture. Synthesizes the
  * full HTML5 drag-and-drop + Pointer-Events chain so both event-aware
  * pages (Trello, kanban) and HTML5-DnD-only pages get the right signals.
+ * Both source and target run through an inlined actionability suite
+ * (visible+stable+hit-test) before dispatch — see IMP-0097.
  */
-function dragDropShim(
+async function dragDropShim(
   fromSelector: string | null,
   fromRef: string | null,
   toSelector: string | null,
   toRef: string | null,
   steps: number,
-): ShimResult {
+  force: boolean,
+  actionabilityTimeoutMs: number,
+): Promise<ShimResult> {
   try {
     interface ElementMapWindow {
       __claudeElementMap?: Record<string, WeakRef<Element>>;
@@ -302,18 +334,140 @@ function dragDropShim(
     const fromEl = fromResolved as HTMLElement;
     const toEl = toResolved as HTMLElement;
 
-    const isVisible = (el: HTMLElement): boolean => {
-      if (el === document.body) return true;
-      if (!el.offsetParent && getComputedStyle(el).position !== 'fixed') return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
+    // Inlined actionability suite. MAIN-world shims are serialized as
+    // standalone functions (no closure capture), so we can't reach into
+    // window.__actionability — duplicate the visible/stable/hit-test
+    // logic here. Drag specifically runs visible+stable+hit-test on
+    // BOTH endpoints (Playwright matches this).
+    const scrollIfNeeded = (el: HTMLElement): void => {
+      try {
+        const r = el.getBoundingClientRect();
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) {
+          el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+        }
+      } catch {
+        // ignore
+      }
+    };
+    scrollIfNeeded(fromEl);
+    scrollIfNeeded(toEl);
+
+    const checkVisible = (el: HTMLElement): string | null => {
+      if (!el.isConnected) return 'not_visible';
+      const style = getComputedStyle(el);
+      if (style.display === 'none') return 'not_visible';
+      if (style.visibility === 'hidden' || style.visibility === 'collapse') return 'not_visible';
+      if (Number(style.opacity) === 0) return 'not_visible';
+      if (style.pointerEvents === 'none') return 'not_visible';
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return 'not_visible';
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) return 'not_visible';
+      return null;
     };
 
-    if (!isVisible(fromEl)) {
-      return { ok: false, message: 'from element is not visible', reason: 'from_hidden' };
+    const checkStable = (el: HTMLElement): Promise<string | null> => {
+      return new Promise((resolveStability) => {
+        let frames = 0;
+        let prev = el.getBoundingClientRect();
+        const tick = () => {
+          const cur = el.getBoundingClientRect();
+          if (
+            prev.x === cur.x &&
+            prev.y === cur.y &&
+            prev.width === cur.width &&
+            prev.height === cur.height
+          ) {
+            resolveStability(null);
+            return;
+          }
+          prev = cur;
+          frames += 1;
+          if (frames >= 6) {
+            resolveStability('unstable_bbox');
+            return;
+          }
+          const raf =
+            typeof window.requestAnimationFrame === 'function'
+              ? window.requestAnimationFrame
+              : (cb: FrameRequestCallback) => window.setTimeout(cb, 16);
+          raf(tick);
+        };
+        tick();
+      });
+    };
+
+    const describeOccluder = (el: Element): string => {
+      const tag = (el.tagName || 'unknown').toLowerCase();
+      if (el.id) return `${tag}#${el.id}`;
+      if (typeof el.className === 'string' && el.className.trim().length > 0) {
+        const first = el.className.trim().split(/\s+/)[0];
+        if (first) return `${tag}.${first}`;
+      }
+      return tag;
+    };
+
+    const checkHit = (el: HTMLElement): string | null => {
+      if (typeof document.elementFromPoint !== 'function') return null;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const topmost = document.elementFromPoint(cx, cy);
+      if (!topmost) return 'no_element_at_point';
+      if (topmost === el) return null;
+      if (el.contains(topmost)) return null;
+      if (topmost.contains(el)) return null;
+      return `occluded_by:${describeOccluder(topmost)}`;
+    };
+
+    const runActionability = async (
+      el: HTMLElement,
+      label: 'from' | 'to',
+    ): Promise<{ ok: true } | { ok: false; failures: string[] }> => {
+      if (force) return { ok: true };
+      const deadline = Date.now() + Math.max(0, actionabilityTimeoutMs);
+      let lastFailures: string[] = [];
+      while (true) {
+        const failures: string[] = [];
+        const v = checkVisible(el);
+        if (v) failures.push(v);
+        if (failures.length === 0) {
+          const s = await checkStable(el);
+          if (s) failures.push(s);
+        }
+        if (failures.length === 0) {
+          const h = checkHit(el);
+          if (h) failures.push(h);
+        }
+        if (failures.length === 0) return { ok: true };
+        lastFailures = failures;
+        if (Date.now() >= deadline) return { ok: false, failures: lastFailures };
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    };
+
+    // Source first — failing here means the user shouldn't even try to
+    // synthesize the chain.
+    const fromAct = await runActionability(fromEl, 'from');
+    if (!fromAct.ok) {
+      return {
+        ok: false,
+        message: `from element is not actionable: ${fromAct.failures.join(', ')}`,
+        reason: 'from_not_actionable',
+        failures: fromAct.failures,
+      };
     }
-    if (!isVisible(toEl)) {
-      return { ok: false, message: 'to element is not visible', reason: 'to_hidden' };
+    const toAct = await runActionability(toEl, 'to');
+    if (!toAct.ok) {
+      return {
+        ok: false,
+        message: `to element is not actionable: ${toAct.failures.join(', ')}`,
+        reason: 'to_not_actionable',
+        failures: toAct.failures,
+      };
     }
 
     const fromRect = fromEl.getBoundingClientRect();

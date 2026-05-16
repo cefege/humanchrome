@@ -72,13 +72,14 @@ describe('chrome_drag_drop: arg validation', () => {
 });
 
 describe('chrome_drag_drop: happy path', () => {
-  it('forwards selectors via shim args with default steps=5', async () => {
+  it('forwards selectors via shim args with default steps=5 + force=false + actionabilityTimeoutMs=5000', async () => {
     await dragDropTool.execute({ tabId: 7, fromSelector: '.src', toSelector: '.dst' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { tabId: 7 },
         world: 'MAIN',
-        args: ['.src', null, '.dst', null, 5],
+        // IMP-0097: shim signature gains force + actionabilityTimeoutMs.
+        args: ['.src', null, '.dst', null, 5, false, 5000],
       }),
     );
   });
@@ -86,7 +87,7 @@ describe('chrome_drag_drop: happy path', () => {
   it('forwards refs via shim args', async () => {
     await dragDropTool.execute({ tabId: 7, fromRef: 'r-1', toRef: 'r-2' });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: [null, 'r-1', null, 'r-2', 5] }),
+      expect.objectContaining({ args: [null, 'r-1', null, 'r-2', 5, false, 5000] }),
     );
   });
 
@@ -98,7 +99,7 @@ describe('chrome_drag_drop: happy path', () => {
       steps: 100,
     });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['.s', null, '.t', null, 50] }),
+      expect.objectContaining({ args: ['.s', null, '.t', null, 50, false, 5000] }),
     );
 
     executeScriptMock.mockClear();
@@ -109,7 +110,20 @@ describe('chrome_drag_drop: happy path', () => {
       steps: 0,
     });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['.s', null, '.t', null, 1] }),
+      expect.objectContaining({ args: ['.s', null, '.t', null, 1, false, 5000] }),
+    );
+  });
+
+  it('forwards force=true and a custom actionabilityTimeoutMs', async () => {
+    await dragDropTool.execute({
+      tabId: 7,
+      fromSelector: '.s',
+      toSelector: '.t',
+      force: true,
+      actionabilityTimeoutMs: 12000,
+    });
+    expect(executeScriptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['.s', null, '.t', null, 5, true, 12000] }),
     );
   });
 
@@ -169,6 +183,42 @@ describe('chrome_drag_drop: error classification', () => {
     const res = await dragDropTool.execute({ tabId: 7, fromSelector: '.s', toSelector: '.t' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('INVALID_ARGS');
+  });
+
+  it('classifies from_not_actionable as NOT_ACTIONABLE with failures', async () => {
+    executeScriptMock.mockResolvedValueOnce([
+      {
+        result: {
+          ok: false,
+          message: 'from element is not actionable: occluded_by:div#cookie-banner',
+          reason: 'from_not_actionable',
+          failures: ['occluded_by:div#cookie-banner'],
+        },
+      },
+    ]);
+    const res = await dragDropTool.execute({ tabId: 7, fromSelector: '.s', toSelector: '.t' });
+    expect(res.isError).toBe(true);
+    const text = (res.content[0] as any).text as string;
+    expect(text).toContain('NOT_ACTIONABLE');
+    expect(text).toContain('occluded_by:div#cookie-banner');
+    const parsed = JSON.parse(text);
+    expect(parsed.error.details.failures).toEqual(['occluded_by:div#cookie-banner']);
+  });
+
+  it('classifies to_not_actionable as NOT_ACTIONABLE', async () => {
+    executeScriptMock.mockResolvedValueOnce([
+      {
+        result: {
+          ok: false,
+          message: 'to element is not actionable: unstable_bbox',
+          reason: 'to_not_actionable',
+          failures: ['unstable_bbox'],
+        },
+      },
+    ]);
+    const res = await dragDropTool.execute({ tabId: 7, fromSelector: '.s', toSelector: '.t' });
+    expect(res.isError).toBe(true);
+    expect((res.content[0] as any).text).toContain('NOT_ACTIONABLE');
   });
 
   it('classifies a generic shim ok:false as UNKNOWN', async () => {

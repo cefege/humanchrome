@@ -38,6 +38,15 @@ interface ClickToolParams {
   index?: number;
   /** IMP-0098: opt out of strict-mode multi-match error (first match wins). */
   multi?: boolean;
+  // IMP-0097: skip the visible+stable+enabled+hit-test suite. scrollIntoView
+  // still runs. Default false; pass true only when the agent knows the suite
+  // is producing a false positive (e.g. clicking a pseudo-element that the
+  // hit-test can't resolve).
+  force?: boolean;
+  // IMP-0097: per-call cap on time spent waiting for actionability to pass.
+  // Default 5000ms (matches Playwright). Override when the page has a long
+  // settle (heavy SPA hydration) or to fail fast on a known-bad target.
+  actionabilityTimeoutMs?: number;
 }
 
 /**
@@ -84,11 +93,16 @@ class ClickTool extends BaseBrowserToolExecutor {
       // (waitForNavigation:true), so we only assert the document hasn't changed
       // *before* the click fires — catching the case where the page navigated
       // between ref resolution and dispatch (silent wrong-target execution).
-      // Snapshot in parallel with click-helper injection — they're independent
-      // and both incur an IPC round-trip.
+      // Snapshot in parallel with click-helper + actionability injection —
+      // they're independent and both incur an IPC round-trip. Actionability
+      // (IMP-0097) is the shared visible/stable/enabled/hit-test primitive
+      // that click-helper reaches through `window.__actionability`.
       const [snapshot] = await Promise.all([
         this.snapshotTabState(tab.id),
-        this.injectContentScript(tab.id, ['inject-scripts/click-helper.js']),
+        this.injectContentScript(tab.id, [
+          'inject-scripts/actionability.js',
+          'inject-scripts/click-helper.js',
+        ]),
       ]);
 
       let finalRef = args.ref;
@@ -133,6 +147,10 @@ class ClickTool extends BaseBrowserToolExecutor {
         navigationOccurred?: boolean;
         error?: string;
         strict?: { matchCount: number; samples?: Array<{ tag?: string; text?: string }> };
+        notActionable?: boolean;
+        failures?: string[];
+        method?: string;
+        clickPosition?: unknown;
       }
       let result: ClickHelperResponse;
       try {
@@ -152,6 +170,8 @@ class ClickTool extends BaseBrowserToolExecutor {
               cancelable,
               modifiers,
               allowMultiple: args.multi === true,
+              force: args.force === true,
+              actionabilityTimeoutMs: args.actionabilityTimeoutMs,
             },
             { frameId },
           );
@@ -169,6 +189,8 @@ class ClickTool extends BaseBrowserToolExecutor {
             cancelable,
             modifiers,
             allowMultiple: args.multi === true,
+            force: args.force === true,
+            actionabilityTimeoutMs: args.actionabilityTimeoutMs,
           });
         }
       } catch (err) {
@@ -183,8 +205,24 @@ class ClickTool extends BaseBrowserToolExecutor {
         });
       }
       // Generic error envelope (no strict info).
-      if (result && result.error) {
+      if (result && result.error && !result.notActionable) {
         return createErrorResponse(result.error);
+      }
+
+      // Actionability failures (IMP-0097) carry a structured envelope
+      // (`notActionable: true` + `failures: string[]`) so the tool can
+      // surface them as NOT_ACTIONABLE without reparsing the message.
+      if (result && result.notActionable === true) {
+        return createErrorResponse(
+          result.error || 'Element is not actionable',
+          ToolErrorCode.NOT_ACTIONABLE,
+          {
+            failures: Array.isArray(result.failures) ? result.failures : [],
+            ...(result.method ? { method: result.method } : {}),
+            ...(result.elementInfo ? { elementInfo: result.elementInfo } : {}),
+            ...(result.clickPosition ? { clickPosition: result.clickPosition } : {}),
+          },
+        );
       }
 
       // Determine actual click method used
@@ -234,6 +272,11 @@ interface FillToolParams {
   windowId?: number; // when no tabId, pick active tab from this window
   index?: number;
   multi?: boolean;
+  // IMP-0097: skip the visible+enabled+editable suite. scrollIntoView still
+  // runs. Default false.
+  force?: boolean;
+  // IMP-0097: per-call cap on actionability wait. Default 5000ms.
+  actionabilityTimeoutMs?: number;
 }
 
 /**
@@ -290,7 +333,13 @@ class FillTool extends BaseBrowserToolExecutor {
         finalSelector = undefined;
       }
 
-      await this.injectContentScript(tab.id, ['inject-scripts/fill-helper.js']);
+      // Inject actionability primitive alongside fill-helper. The helper
+      // reaches through `window.__actionability` for the visible+enabled+
+      // editable suite (IMP-0097).
+      await this.injectContentScript(tab.id, [
+        'inject-scripts/actionability.js',
+        'inject-scripts/fill-helper.js',
+      ]);
 
       // Fill should never navigate. Wrap with the snapshot+post-assert guard so
       // a mid-call hard navigation surfaces as TARGET_NAVIGATED_AWAY rather
@@ -303,10 +352,23 @@ class FillTool extends BaseBrowserToolExecutor {
             selector: finalSelector,
             ref: finalRef,
             value,
+            force: args.force === true,
+            actionabilityTimeoutMs: args.actionabilityTimeoutMs,
           },
           frameId,
         ),
       );
+
+      if (result && result.notActionable === true) {
+        return createErrorResponse(
+          result.error || 'Element is not actionable',
+          ToolErrorCode.NOT_ACTIONABLE,
+          {
+            failures: Array.isArray(result.failures) ? result.failures : [],
+            ...(result.elementInfo ? { elementInfo: result.elementInfo } : {}),
+          },
+        );
+      }
 
       if (result && result.error) {
         return createErrorResponse(result.error);

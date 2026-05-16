@@ -1,19 +1,29 @@
 // click-helper.js
-// This script is injected into the page to handle click operations
+// This script is injected into the page to handle click operations.
+// All three resolution paths (ref / coordinates / selector) feed through the
+// shared `awaitActionable` primitive (inject-scripts/actionability.js) so a
+// click never lands on a hidden, disabled, unstable, or occluded target —
+// failures surface as `NOT_ACTIONABLE` with `details.failures` describing
+// what blocked.
 
 if (window.__CLICK_HELPER_INITIALIZED__) {
   // Already initialized, skip
 } else {
   window.__CLICK_HELPER_INITIALIZED__ = true;
+
+  // Per-action check matrix. Mirrors Playwright: click/dblclick run
+  // visible+stable+enabled+hit-test before dispatch.
+  const CLICK_CHECKS = ['visible', 'stable', 'enabled', 'hit-test'];
+
   /**
-   * Click on an element matching the selector or at specific coordinates
-   * @param {string} selector - CSS selector for the element to click
-   * @param {boolean} waitForNavigation - Whether to wait for navigation to complete after click
-   * @param {number} timeout - Timeout in milliseconds for waiting for the element or navigation
-   * @param {Object} coordinates - Optional coordinates for clicking at a specific position
-   * @param {number} coordinates.x - X coordinate relative to the viewport
-   * @param {number} coordinates.y - Y coordinate relative to the viewport
-   * @returns {Promise<Object>} - Result of the click operation
+   * Click on an element matching the selector or at specific coordinates.
+   * @param {string} selector
+   * @param {boolean} waitForNavigation
+   * @param {number} timeout
+   * @param {{x:number,y:number}|null} coordinates
+   * @param {string|null} ref
+   * @param {boolean} double
+   * @param {{button?:string, bubbles?:boolean, cancelable?:boolean, modifiers?:object, force?:boolean, actionabilityTimeoutMs?:number}} options
    */
   async function clickElement(
     selector,
@@ -28,6 +38,13 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
       let element = null;
       let elementInfo = null;
       let clickX, clickY;
+      let position; // optional per-call hit-test override (coords path)
+
+      const force = options && options.force === true;
+      const actionabilityTimeoutMs =
+        options && typeof options.actionabilityTimeoutMs === 'number'
+          ? options.actionabilityTimeoutMs
+          : 5000;
 
       if (ref && typeof ref === 'string') {
         // Resolve element from weak map
@@ -47,8 +64,17 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
         }
 
         element = target;
-        element.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        // actionability suite handles scrollIntoView + visibility +
+        // stability + enabled + hit-test in one shot.
+        const actResult = await runActionability(element, {
+          checks: CLICK_CHECKS,
+          timeoutMs: actionabilityTimeoutMs,
+          force,
+        });
+        if (!actResult.ok) {
+          return notActionableError(actResult.failures, 'ref', { ref });
+        }
 
         const rect = element.getBoundingClientRect();
         clickX = rect.left + rect.width / 2;
@@ -85,6 +111,23 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
         element = document.elementFromPoint(clickX, clickY);
 
         if (element) {
+          // Element resolved at coords — run actionability against THIS
+          // element. `position` pins the hit-test to the requested point so
+          // we don't drift to center (which could land on a different
+          // element). IMP-0092 made coords-over-nothing fail; this makes
+          // coords-over-overlay fail with a structured reason.
+          position = { x: clickX, y: clickY };
+          const actResult = await runActionability(element, {
+            checks: CLICK_CHECKS,
+            timeoutMs: actionabilityTimeoutMs,
+            force,
+            position,
+          });
+          if (!actResult.ok) {
+            return notActionableError(actResult.failures, 'coordinates', {
+              clickPosition: { x: clickX, y: clickY },
+            });
+          }
           const rect = element.getBoundingClientRect();
           elementInfo = {
             tagName: element.tagName,
@@ -188,15 +231,16 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
           clickMethod: 'selector',
         };
 
-        // First sroll so that the element is in view, then check visibility.
-        element.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        elementInfo.isVisible = isElementVisible(element);
-        if (!elementInfo.isVisible) {
-          return {
-            error: `Element with selector "${selector}" is not visible`,
-            elementInfo,
-          };
+        // Single actionability call covers what the old code did in two
+        // sequential steps (scrollIntoView + isElementVisible).
+        const actResult = await runActionability(element, {
+          checks: CLICK_CHECKS,
+          timeoutMs: actionabilityTimeoutMs,
+          force,
+        });
+        if (!actResult.ok) {
+          elementInfo.isVisible = actResult.failures.includes('not_visible') ? false : true;
+          return notActionableError(actResult.failures, 'selector', { selector, elementInfo });
         }
 
         const updatedRect = element.getBoundingClientRect();
@@ -266,6 +310,42 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
         error: `Error clicking element: ${error.message}`,
       };
     }
+  }
+
+  /**
+   * Invoke the shared actionability primitive. Wrapped so the caller
+   * doesn't have to care whether actionability.js has been loaded yet —
+   * we fall back to permissive (force-style) behaviour rather than
+   * blocking the action, but log so it's visible in DevTools.
+   */
+  function runActionability(el, opts) {
+    const api = window.__actionability;
+    if (!api || typeof api.awaitActionable !== 'function') {
+      console.warn('[click-helper] actionability primitive not loaded; skipping pre-action checks');
+      return Promise.resolve({ ok: true });
+    }
+    return api.awaitActionable(el, opts);
+  }
+
+  /**
+   * Build the NOT_ACTIONABLE response envelope. The background-side tool
+   * is responsible for classifying this into `ToolErrorCode.NOT_ACTIONABLE`;
+   * the inject-script just surfaces the failure list and a structured
+   * field so the tool can pick it up without parsing the message.
+   */
+  function notActionableError(failures, method, extra) {
+    const failureList = Array.isArray(failures) ? failures : [];
+    const msg =
+      failureList.length === 0
+        ? 'Element is not actionable'
+        : `Element is not actionable: ${failureList.join(', ')}`;
+    return {
+      error: msg,
+      notActionable: true,
+      failures: failureList,
+      method,
+      ...(extra || {}),
+    };
   }
 
   /**
@@ -369,42 +449,6 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
     }
   }
 
-  /**
-   * Check if an element is visible
-   * @param {Element} element - The element to check
-   * @returns {boolean} - Whether the element is visible
-   */
-  function isElementVisible(element) {
-    if (!element) return false;
-
-    const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-      return false;
-    }
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-      return false;
-    }
-
-    if (
-      rect.bottom < 0 ||
-      rect.top > window.innerHeight ||
-      rect.right < 0 ||
-      rect.left > window.innerWidth
-    ) {
-      return false;
-    }
-
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const elementAtPoint = document.elementFromPoint(centerX, centerY);
-    if (!elementAtPoint) return false;
-
-    return element === elementAtPoint || element.contains(elementAtPoint);
-  }
-
   // Listen for messages from the extension
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'clickElement') {
@@ -420,6 +464,8 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
           bubbles: request.bubbles,
           cancelable: request.cancelable,
           modifiers: request.modifiers,
+          force: request.force === true,
+          actionabilityTimeoutMs: request.actionabilityTimeoutMs,
         },
       )
         .then(sendResponse)

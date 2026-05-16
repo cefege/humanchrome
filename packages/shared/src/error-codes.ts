@@ -38,6 +38,15 @@ export enum ToolErrorCode {
   INVALID_ARGS = 'INVALID_ARGS',
   /** Chrome (or the user) refused the operation. */
   PERMISSION_DENIED = 'PERMISSION_DENIED',
+  /**
+   * Target element exists but is not actionable: not visible, disabled,
+   * read-only, occluded by another element, or its bounding rect kept moving
+   * past the stability window. `details.failures` enumerates the failed
+   * checks (e.g. `['not_visible', 'occluded_by:#cookie-banner']`). Callers
+   * can branch to wait/scroll/dismiss the offending overlay before retry,
+   * or pass `force: true` on the action to skip the suite.
+   */
+  NOT_ACTIONABLE = 'NOT_ACTIONABLE',
   /** Catch-all for unclassified failures. */
   UNKNOWN = 'UNKNOWN',
 }

@@ -136,6 +136,13 @@ export interface ComputerParams {
   // with text it also caps the wait deadline. Default 10000ms (CDP) or
   // 10000ms (wait); clamped to [1000, 120000].
   timeoutMs?: number;
+  // IMP-0097: skip actionability checks (visible/stable/enabled/editable/
+  // hit-test) on the per-action matrix. scrollIntoView still runs.
+  // Applies to click/dblclick/triple_click/drag/hover/fill/fill_form/key/
+  // type actions. Default false.
+  force?: boolean;
+  // IMP-0097: per-call cap on the actionability wait, in ms. Default 5000.
+  actionabilityTimeoutMs?: number;
 }
 
 // Extract the hostname component of a URL, returning '' for unparseable input.

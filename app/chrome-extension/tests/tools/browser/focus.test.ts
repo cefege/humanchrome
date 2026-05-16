@@ -58,7 +58,8 @@ describe('chrome_focus', () => {
       expect.objectContaining({
         target: { tabId: 42 },
         world: 'ISOLATED',
-        args: ['#email', null],
+        // IMP-0097: shim now also receives force + actionabilityTimeoutMs.
+        args: ['#email', null, false, 5000],
       }),
     );
     const body = parseBody(res);
@@ -74,9 +75,41 @@ describe('chrome_focus', () => {
     ]);
     const res = await focusTool.execute({ tabId: 42, ref: 'r-99' });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: [null, 'r-99'] }),
+      expect.objectContaining({ args: [null, 'r-99', false, 5000] }),
     );
     expect(parseBody(res).resolution).toBe('ref');
+  });
+
+  it('forwards force=true and actionabilityTimeoutMs override', async () => {
+    await focusTool.execute({
+      tabId: 7,
+      selector: 'input',
+      force: true,
+      actionabilityTimeoutMs: 10000,
+    });
+    expect(executeScriptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['input', null, true, 10000] }),
+    );
+  });
+
+  it('classifies shim notActionable:true as NOT_ACTIONABLE', async () => {
+    executeScriptMock.mockResolvedValueOnce([
+      {
+        result: {
+          ok: false,
+          message: 'element is not actionable: not_visible',
+          notActionable: true,
+          failures: ['not_visible'],
+        },
+      },
+    ]);
+    const res = await focusTool.execute({ tabId: 7, selector: 'input' });
+    expect(res.isError).toBe(true);
+    const text = (res.content[0] as any).text as string;
+    expect(text).toContain('NOT_ACTIONABLE');
+    expect(text).toContain('not_visible');
+    const parsed = JSON.parse(text);
+    expect(parsed.error.details.failures).toEqual(['not_visible']);
   });
 
   it('falls back to the active tab when no tabId is provided', async () => {
@@ -95,7 +128,10 @@ describe('chrome_focus', () => {
   it('forwards frameId when supplied', async () => {
     await focusTool.execute({ tabId: 7, selector: 'input', frameId: 11 });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { tabId: 7, frameIds: [11] } }),
+      expect.objectContaining({
+        target: { tabId: 7, frameIds: [11] },
+        args: ['input', null, false, 5000],
+      }),
     );
   });
 

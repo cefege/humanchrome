@@ -309,6 +309,8 @@ Use a mouse and keyboard to interact with a web browser, and take screenshots.
 | `appear` | boolean |  | For action=wait with text: whether to wait for the text to appear (true, default) or disappear (false) |
 | `timeoutMs` | number |  | Per-call timeout in ms, clamped to [1000, 120000]. For most actions this caps the underlying CDP command (default 10000) — raise it if a click/scroll/screenshot/etc. on a slow page errors with "did not return within ...". For action=wait with text it caps the wait deadline (default 10000). |
 | `duration` | number |  | Seconds to wait for action=wait (max 30s) |
+| `force` | boolean |  | IMP-0097: skip the actionability suite for click/dblclick/triple_click/drag/hover/fill/fill_form/key/type actions. scrollIntoView still runs. Default false. |
+| `actionabilityTimeoutMs` | number |  | IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000. |
 
 ### `chrome_click_element`
 
@@ -327,6 +329,8 @@ Click on an element in a web page. Supports multiple targeting methods: CSS sele
 | `modifiers` | object |  | Modifier keys to hold during click. |
 | `waitForNavigation` | boolean |  | Wait for navigation to complete after click (default: false). |
 | `timeoutMs` | number |  | Timeout in milliseconds for waiting (default: 5000). |
+| `force` | boolean |  | IMP-0097: skip the actionability suite (visible/stable/enabled/hit-test). scrollIntoView still runs. Default false. Use sparingly — only when the suite is producing a false positive (e.g. pseudo-element targets the hit-test cannot resolve). |
+| `actionabilityTimeoutMs` | number |  | IMP-0097: per-call cap on time spent waiting for actionability to pass, in milliseconds. Default 5000 (matches Playwright). Raise on pages with long settle (heavy SPA hydration), lower to fail fast on a known-bad target. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `frameId` | number |  | Target frame ID for iframe support. |
@@ -343,6 +347,8 @@ Fill or select a form element on a web page. Supports input, textarea, select, c
 | `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | Element ref from chrome_read_page (takes precedence over selector). |
 | `value` | string \| number \| boolean | ✓ | Value to fill. For text inputs: string. For checkboxes/radios: boolean. For selects: option value or text. |
+| `force` | boolean |  | IMP-0097: skip the actionability suite (visible/enabled/editable). scrollIntoView still runs. Default false. |
+| `actionabilityTimeoutMs` | number |  | IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `frameId` | number |  | Target frame ID for iframe support. |
@@ -459,6 +465,8 @@ Focus an element programmatically by `selector` or `ref`. Several flows (chrome_
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 | `frameId` | number |  | Optional frame to scope the lookup to. Defaults to the main frame. |
+| `force` | boolean |  | IMP-0097: skip the visibility check. scrollIntoView still runs. Default false. |
+| `actionabilityTimeoutMs` | number |  | IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000. (Focus runs only the visibility check synchronously today; this field is reserved for the future async-friendly variant.) |
 
 ### `chrome_paste`
 
@@ -507,6 +515,8 @@ Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + 
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 | `frameId` | number |  | Optional frame to scope the operation to. Defaults to the main frame. |
+| `force` | boolean |  | IMP-0097: skip the actionability suite (visible/stable/hit-test) on both source and target. scrollIntoView still runs. Default false. |
+| `actionabilityTimeoutMs` | number |  | IMP-0097: per-call cap on the actionability wait for each endpoint, in milliseconds. Default 5000. |
 
 ### `chrome_locator_handler`
 
