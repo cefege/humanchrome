@@ -154,11 +154,12 @@ Manage Chrome browser windows. Wraps `chrome.windows.{create,update,remove}`. Ac
 
 ### `browser_claim_tab`
 
-Claim a tab as owned by the calling MCP client. Tabs the user opened manually (or that another client released on disconnect) start out unowned and are invisible to the implicit tab-resolution path; claim them here to bring them into your owned set so subsequent tool calls without an explicit `tabId` can target them. Returns `{tabId, previousOwner: string|null}`. Errors with `INVALID_ARGS` if `tabId` is missing, `TAB_NOT_FOUND` if the tab does not exist, and `TAB_NOT_OWNED` if the tab is currently owned by a different client (use `chrome_get_windows_and_tabs` to discover ownership).
+Claim a tab as owned by the calling MCP client. Tabs the user opened manually (or that another client released on disconnect) start out unowned and are invisible to the implicit tab-resolution path; claim them here to bring them into your owned set so subsequent tool calls without an explicit `tabId` can target them. Returns `{tabId, previousOwner: string|null}`. Errors with `INVALID_ARGS` if `tabId` is missing, `TAB_NOT_FOUND` if the tab does not exist, and `TAB_NOT_OWNED` if the tab is currently owned by a different client (use `chrome_get_windows_and_tabs` to discover ownership). Pass `force: true` to seize a tab owned by another client — this overrides the `TAB_NOT_OWNED` check only and is audit-logged; the dispatcher's per-call ownership gate is not affected, so a forced claim must still be followed by an explicit mutating call.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `tabId` | number | ✓ | Tab ID to claim for the calling client. |
+| `force` | boolean |  | When true, claim the tab even if another client currently owns it. The previous owner is reported in the response and audit-logged via `debugLog.warn`. Defaults to false — without `force`, claiming an owned-by-other tab returns TAB_NOT_OWNED. Only use when you know the previous owner is gone (stale session, crashed bridge) or when intentionally handing off between operator-driven sessions. |
 
 ## Reading
 

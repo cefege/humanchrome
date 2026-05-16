@@ -97,4 +97,37 @@ describe('browser_claim_tab', () => {
     expect(body.previousOwner).toBeNull();
     expect(findTabOwner(88)).toBe('alice');
   });
+
+  it('force:true seizes a tab owned by another client and reports previousOwner', async () => {
+    claimTabForClient('bob', 77);
+    const res = await asClient('alice', { tabId: 77, force: true });
+    const body = parseBody(res);
+    expect(body.success).toBe(true);
+    expect(body.tabId).toBe(77);
+    expect(body.previousOwner).toBe('bob');
+    expect(findTabOwner(77)).toBe('alice');
+  });
+
+  it('force:true on an unowned tab behaves like the default path (previousOwner: null)', async () => {
+    const res = await asClient('alice', { tabId: 42, force: true });
+    const body = parseBody(res);
+    expect(body.success).toBe(true);
+    expect(body.previousOwner).toBeNull();
+    expect(findTabOwner(42)).toBe('alice');
+  });
+
+  it('force:false (explicit) still errors with TAB_NOT_OWNED on cross-client targeting', async () => {
+    claimTabForClient('bob', 55);
+    const res = await asClient('alice', { tabId: 55, force: false });
+    expect(parseBody(res).error?.code).toBe('TAB_NOT_OWNED');
+    expect(findTabOwner(55)).toBe('bob');
+  });
+
+  it('force:true still errors with TAB_NOT_FOUND when the tab does not exist', async () => {
+    tabsGet.mockRejectedValueOnce(new Error('No tab with id'));
+    const res = await asClient('alice', { tabId: 999, force: true });
+    const body = parseBody(res);
+    expect(body.error?.code).toBe('TAB_NOT_FOUND');
+    expect(body.error?.details?.tabId).toBe(999);
+  });
 });
