@@ -49,61 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-<!-- ===== Ralph Loop queue: IMP-0074..IMP-0084 (added 2026-05-09) ============
-The eleven entries below are the autonomous-loop work queue. The loop ships
-them one at a time, in order, each as a separate PR. Conflict-avoidance rules
-the loop must follow:
-
-  1. `git checkout main; git pull --ff-only origin main` at the start of every
-     iteration. No exceptions.
-  2. Touch `packages/shared/src/tools.ts` only by appending: new TOOL_NAMES at
-     the end of the BROWSER object, new TOOL_SCHEMAS at the end of the array,
-     new TOOL_CATEGORIES at the end of its map.
-  3. Touch `app/chrome-extension/entrypoints/background/tools/index.ts` only by
-     appending an import + a push into `eagerTools`.
-  4. Touch `app/chrome-extension/entrypoints/background/tools/browser/index.ts`
-     only by appending an export.
-  5. One IMP-NNNN per PR. No multi-feature batches.
-
-Per-iteration playbook:
-  1. Pull main, branch `feat/imp-NNNN-<slug>`.
-  2. Create the new tool file under
-     app/chrome-extension/entrypoints/background/tools/browser/<slug>.ts.
-     Class extends BaseBrowserToolExecutor. Action enum if multi-action.
-     Error mapping: TAB_CLOSED for /no tab with id/i, INVALID_ARGS for arg
-     validation, UNKNOWN otherwise.
-  3. Append TOOL_NAMES + TOOL_SCHEMAS + TOOL_CATEGORIES entries.
-  4. Append barrel export and dispatcher import + eagerTools push.
-  5. Add manifest permission(s) to wxt.config.ts if the entry calls for them.
-  6. Write tests/tools/browser/<slug>.test.ts — 8-15 cases: arg validation,
-     happy path per action, error classifications, missing-permission path.
-  7. `cd packages/shared && npm run build` then `cd app/chrome-extension &&
-     npx tsc --noEmit -p .` then `npx vitest run --reporter=dot`.
-  8. `cd app/native-server && npm test`.
-  9. Move the IMP-NNNN entry from `## Active` to `## Done` with a one-paragraph
-     summary that covers what shipped, the action surface, error classification,
-     test count, and the manifest delta.
- 10. `git add -A; git commit; git push -u; gh pr create; gh run watch;
-     gh pr merge --squash --delete-branch`.
-
-Stop conditions: queue empty, two consecutive failures with the same root
-cause, or user invokes /ralph-loop:cancel-ralph.
-
-Safety net: if an iteration hits an irrecoverable failure, abort without
-opening a PR and append `**Status**: blocked\n- **Notes**: <reason>` to the
-IMP entry. Move to next iteration on the next tick.
-=========================================================================== -->
-
-### IMP-0086 · Multi-client tab isolation — ownership, auto-spawn, stable sessionName, UI clientId stamping (feat) · score: 8
-
-- **Proposed by**: user · 2026-05-16
-- **Status**: in-progress
-- **Why**: Two concurrent MCP clients (Claude Code + curl, two CLIs, etc.) silently collide on the globally-active tab when either calls a tool without an explicit `tabId`. The dispatcher's old `resolveTabIdForClient` returned `undefined` for a fresh client, falling through to whatever Chrome currently shows — so Client B's first action lands on Client A's tab and every subsequent call interleaves with Client A's session there. Same problem affects popup/sidepanel/options calls, which carried no `clientId` at all.
-- **Cost**: L
-- **Value**: L
-- **Files**: `app/chrome-extension/entrypoints/background/utils/client-state.ts`, `app/chrome-extension/entrypoints/background/tools/index.ts`, `app/chrome-extension/entrypoints/background/tools/base-browser.ts`, `app/chrome-extension/entrypoints/background/tools/browser/claim-tab.ts` (new), `app/chrome-extension/entrypoints/background/tools/browser/window.ts`, `app/chrome-extension/entrypoints/background/native-host.ts`, `app/chrome-extension/entrypoints/background/utils/timeouts.ts`, `app/native-server/src/mcp/session-name.ts` (new), `app/native-server/src/mcp/mcp-server-stdio.ts`, `app/native-server/src/server/index.ts`, `packages/shared/src/{error-codes,types,tools}.ts`.
-- **Sketch**: Replace single-`lastTabId` with `Set<number> ownedTabs` + persistence to `chrome.storage.session`. Dispatcher resolves explicit-then-active-then-most-recent-owned; mutating call with no usable owned tab → `chrome.tabs.create({active:false})` auto-spawn (opt-out via `static autoSpawnTab=false`). Cross-client targeting → `TAB_NOT_OWNED`. UI surfaces get synthetic `__ui:<surface>` clientIds. Caller-supplied sessionName via `X-Humanchrome-Session` header (stdio derives from CWD/env) becomes the canonical clientId so reconnects reclaim their owned set. Bridge `transport.onclose` → `CLIENT_DISCONNECTED` native msg → extension `releaseClient` (tabs become unowned, not closed). New `browser_claim_tab` tool exposes the claim primitive; `chrome_get_windows_and_tabs` surfaces `owner` per tab.
-
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
@@ -114,6 +59,53 @@ IMP entry. Move to next iteration on the next tick.
 - **Files**: `app/chrome-extension/entrypoints/background/tools/browser/computer.ts` (1478 LoC; executeAction lines 392-1348 ~956 LoC switch; CDPHelper lines 142-310)
 - **Sketch**: Slicing into focused PRs. Slice 1 (done): move CDPHelper to `browser/computer/cdp-helper.ts` (~168 LoC). Slice 2: extract `browser/computer/actions/click-actions.ts` (left_click/right_click/double_click/triple_click/left_click_drag). Slice 3: scroll-actions.ts. Slice 4: fill-actions.ts. Slice 5: screenshot-actions.ts. Slice 6: replace switch with `const HANDLERS: Record<string, ActionHandler> = {...}` dispatch table. After all slices: computer.ts shrinks to ~250-LoC orchestrator with execute()/mapActionToCapture()/triggerAutoCapture()/domHoverFallback().
 - **Risk**: Medium — CDP timeout wrapper composes around handler dispatch; shared helpers (project, screenshotContextManager lookups) passed via deps object. No runtime change. Extension test suite catches regressions.
+
+### IMP-0086 · Multi-client tab isolation — ownership, auto-spawn, stable sessionName, UI clientId stamping (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: done (PR #172, squash `12f1943`, 2026-05-16)
+- **Why**: Two concurrent MCP clients (Claude Code + curl, two CLIs, etc.) silently collide on the globally-active tab when either calls a tool without an explicit `tabId`. The dispatcher's old `resolveTabIdForClient` returned `undefined` for a fresh client, falling through to whatever Chrome currently shows — so Client B's first action lands on Client A's tab and every subsequent call interleaves with Client A's session there. Same problem affects popup/sidepanel/options calls, which carried no `clientId` at all.
+- **Cost**: L
+- **Value**: L
+
+- **Files**: `app/chrome-extension/entrypoints/background/utils/client-state.ts`, `app/chrome-extension/entrypoints/background/tools/index.ts`, `app/chrome-extension/entrypoints/background/tools/base-browser.ts`, `app/chrome-extension/entrypoints/background/tools/browser/claim-tab.ts` (new), `app/chrome-extension/entrypoints/background/tools/browser/window.ts`, `app/chrome-extension/entrypoints/background/native-host.ts`, `app/chrome-extension/entrypoints/background/utils/timeouts.ts`, `app/native-server/src/mcp/session-name.ts` (new), `app/native-server/src/mcp/mcp-server-stdio.ts`, `app/native-server/src/server/index.ts`, `packages/shared/src/{error-codes,types,tools}.ts`.
+- **Sketch**: Replace single-`lastTabId` with `Set<number> ownedTabs` + persistence to `chrome.storage.session`. Dispatcher resolves explicit-then-active-then-most-recent-owned; mutating call with no usable owned tab → `chrome.tabs.create({active:false})` auto-spawn (opt-out via `static autoSpawnTab=false`). Cross-client targeting → `TAB_NOT_OWNED`. UI surfaces get synthetic `__ui:<surface>` clientIds. Caller-supplied sessionName via `X-Humanchrome-Session` header (stdio derives from CWD/env) becomes the canonical clientId so reconnects reclaim their owned set. Bridge `transport.onclose` → `CLIENT_DISCONNECTED` native msg → extension `releaseClient` (tabs become unowned, not closed). New `browser_claim_tab` tool exposes the claim primitive; `chrome_get_windows_and_tabs` surfaces `owner` per tab.
+- **Notes**: Follow-ups split out as IMP-0087..0091 below — see the "Out of scope" section of the original plan at `~/.claude/plans/staged-wiggling-hennessy.md`.
+
+### IMP-0088 · `browser_close_my_tabs` opt-in cleanup tool (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: When a client wraps up (CI run, one-shot script, interactive agent finishing a workflow) there is no one-shot verb to dismiss every tab it owns. Today the caller round-trips `chrome_get_windows_and_tabs` → filter by `owner` → `chrome_close_tab` with the ids, which is racy (a tab can close between listing and close) and pushes ownership bookkeeping onto the agent loop. IMP-0086's `CLIENT_DISCONNECTED` deliberately leaves tabs intact — this is the positive opt-in side of that contract.
+- **Cost**: S
+- **Value**: M
+
+- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/close-my-tabs.ts` (new), `app/chrome-extension/entrypoints/background/tools/browser/index.ts`, `app/chrome-extension/entrypoints/background/tools/index.ts`, `packages/shared/src/tools.ts`, tests.
+- **Sketch**: New tool `browser_close_my_tabs({ keep?: number[] })`. Resolves the calling client's `ownedTabs`, skips any tabId in `keep[]`, calls a small `safeRemoveTabs` helper that swallows "no tab with id" so closed tabs don't fail the batch. Returns `{ closed: number[], kept: number[], failed: { tabId, error }[] }`. Disconnect path unchanged — still releases without closing.
+- **Notes**: Long-form plan at `~/.claude/plans/imp0088browserclosemytabs.md`.
+
+### IMP-0090 · Cross-window arbitration for per-client ownership (feat) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: IMP-0086's `autoSpawnOwnedTab` calls `chrome.tabs.create({ active: false })` with no `windowId`, so a new tab lands in whichever window Chrome considers "last focused" — usually the user's, not the client's. A client driving W1 silently loses its workspace into W2 the moment the user clicks anywhere in W2. `NavigateBatchTool`'s `getLastFocused` fallback drifts the same way. When the user closes a window the client was using, `lastWindowId` becomes stale and the next auto-spawn throws `"No window with id …"`.
+- **Cost**: S
+- **Value**: M
+
+- **Files**: `app/chrome-extension/entrypoints/background/utils/client-state.ts`, `app/chrome-extension/entrypoints/background/tools/index.ts`, `app/chrome-extension/entrypoints/background/tools/browser/common.ts`, tests.
+- **Sketch**: New `resolveOwnedWindowIdForClient` helper prefers the client's recorded `lastWindowId` over `chrome.windows.getLastFocused`. `autoSpawnOwnedTab`, `NavigateTool`'s no-`tabId` branch, and `NavigateBatchTool`'s no-`windowId` branch all route through it. Add a `chrome.windows.onRemoved` listener that clears `lastWindowId` and evicts any `ownedTabs` belonging to the dead window. Single-window default (the documented norm) stays a no-op.
+- **Notes**: Long-form plan at `~/.claude/plans/imp0090crosswindowarbitration.md`.
+
+### IMP-0091 · Plumb `clientId` into humanchrome's IPC schemas (refactor) · score: 4
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: `clientId` is now load-bearing for tab ownership but the envelope is built ad-hoc with no schema enforcement. `CALL_TOOL` and the new `CLIENT_DISCONNECTED` frames slip through `UnknownTypedMessageSchema` — a typo (`clientid`, `client_id`) or omission on either side would silently degrade isolation back to the pre-IMP-0086 bug. Both producer and consumer read `clientId` from `any`-typed envelopes — no compile-time guarantee.
+- **Cost**: M
+- **Value**: M
+- **Files**: `packages/shared/src/ipc-schemas.ts`, `app/native-server/src/native-messaging-host.ts`, `app/native-server/src/server/index.ts`, `app/chrome-extension/entrypoints/background/native-host.ts`, ipc-schemas tests.
+- **Sketch**: Add explicit `CallToolMessageSchema` requiring `clientId`, and a new `ClientDisconnectedMessageSchema`. Typed union discriminator over message types. Schema-built envelope helpers on producer side (`buildCallToolEnvelope`, `buildClientDisconnectedEnvelope`). Schema-parsed envelope on consumer side. Future regressions in clientId plumbing fail at the IPC boundary instead of silently breaking tab isolation.
+- **Notes**: Long-form plan at `~/.claude/plans/imp0091clientidinipcschemas.md`. Touches the wire boundary — land after the upstack settles.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
@@ -235,6 +227,30 @@ IMP entry. Move to next iteration on the next tick.
 - **Files**: `app/chrome-extension/entrypoints/background/record-replay-v3/engine/transport/rpc-server.ts` (1063 LoC)
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
+
+### IMP-0087 · Same-tab queueing — fairness, depth cap, per-call timeout, inspect tool (feat) · score: 2
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: After IMP-0086 same-tab contention is rare but opaque when it does happen. `utils/tab-lock.ts` is a single anonymous `Promise<void>` chain per `tabId` — no waiter accounting, no fairness, no upper bound on queue depth, no way to inspect contention from outside. A misbehaving client looping on a shared tab starves a polite one behind it (pure FIFO), and a per-call timeout cannot be tuned without changing the global default.
+- **Cost**: L
+- **Value**: M
+
+- **Files**: `app/chrome-extension/entrypoints/background/utils/tab-lock.ts` (rewrite as `tab-queue.ts` with re-export shim), `app/chrome-extension/entrypoints/background/tools/index.ts`, `app/chrome-extension/entrypoints/background/tools/browser/queue-inspect.ts` (new), `packages/shared/src/{tools,error-codes}.ts`, dispatcher + tab-queue tests.
+- **Sketch**: Replace anonymous `Map<tabId, Promise>` with `QueueEntry`-based queue carrying ticket / clientId / enqueuedAt / start / cancel / startedAt. Round-robin fairness across clients (one mutating call per client per round-trip on a contested tab). New `QUEUE_FULL` error code with a depth cap. Per-call `tabLockTimeoutMs` opt-in on the dispatcher. New `chrome_queue_inspect` tool returning per-tab snapshots + EWMA wait estimates. Same `TAB_LOCK_TIMEOUT` semantics preserved.
+- **Notes**: Long-form plan at `~/.claude/plans/imp0087sametabqueueing.md`. Largest of the IMP-0086 follow-ups — deserves its own branch and a fresh planning pass before execution.
+
+### IMP-0089 · `force: true` override on `browser_claim_tab` to seize an owned tab (feat) · score: 2
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: `browser_claim_tab` refuses to claim a tab owned by another client and returns `TAB_NOT_OWNED`. Safe default — but when the owning client is dead and `CLIENT_DISCONNECTED` never fires (native-host crash, transport hang, manual hand-off between operator-driven sessions), there's no escape hatch short of restarting the extension or waiting out the 30-min `STALE_AFTER_MS` GC. `force: true` is the explicit override.
+- **Cost**: S
+- **Value**: S
+
+- **Files**: `packages/shared/src/tools.ts` (schema), `app/chrome-extension/entrypoints/background/tools/browser/claim-tab.ts` (gate + audit log), `app/chrome-extension/tests/tools/browser/claim-tab.test.ts`, `docs/TOOLS.md` (regen).
+- **Sketch**: Add `force?: boolean` to the schema with a description that warns against habitual use. When true, the tool skips the existing `TAB_NOT_OWNED` short-circuit and delegates straight to `claimTabForClient`, which already evicts the prior owner. Emit a `console.warn`-level audit line including `{tabId, oldOwner, newOwner}` so contention stays visible. Dispatcher's per-call ownership gate is **not** touched — callers must claim with `force:true`, then issue mutating calls (two-step is the audit trail).
+- **Notes**: Long-form plan at `~/.claude/plans/imp0089claimtabforce.md`. Smallest of the IMP-0086 follow-ups; recommended first up.
 
 ## Done
 
@@ -496,13 +512,6 @@ IMP entry. Move to next iteration on the next tick.
 - **Completed**: 2026-05-08
 - **Summary**: Routed all 89 informational `console.log` sites in `app/chrome-extension/utils/vector-database.ts` (1557 LoC, hit on every embedding lookup) through a module-level `dlog()` helper that's a no-op when `const DEBUG = false`. Bundlers can DCE the call sites; flipping DEBUG to true brings the trace back. The unconditional `EmscriptenFileSystemManager.setDebugLogs(true)` was changed to `setDebugLogs(DEBUG)` so it mirrors the same flag — no more WASM FS noise on every embedding lookup. The 38 `console.warn` and 31 `console.error` sites stay direct so real warnings/errors aren't muffled. New `tests/utils/vector-database-debug-logging.test.ts` (6 tests) acts as a regression guard via static analysis (DEBUG=false declaration, ≤1 direct console.log site, setDebugLogs(DEBUG) not setDebugLogs(true), ≥20 console.warn / ≥20 console.error preserved, dlog ternary on DEBUG with a no-op false branch) plus a runtime check that module import emits zero console.log. Extension: 700/700, typecheck clean. No tool-schema changes.
 - **Branch**: perf/imp-0032-vector-db-debug-logging
-
-### IMP-0048 + IMP-0051 · chrome*performance*\* pre-condition errors now return isError:true (bug bundle) · score: 4
-
-- **Status**: done
-- **Completed**: 2026-05-08
-- **Summary**: Both bugs share the same root cause — the performance tool family was returning `{ isError: false, content: [{ text: "Error: ..." }] }` on pre-condition failures, so agents branching on `isError` treated the failure as success. Fixed in `app/chrome-extension/entrypoints/background/tools/browser/performance.ts`: `start_trace` (line 164) when a session is already recording, and `analyze_insight` (line 361) when LAST_RESULTS has no entry — both now route through `createErrorResponse(..., ToolErrorCode.UNKNOWN, { tabId })`. The "stop with no session" case at line 263 is intentionally **not** changed (IMP-0048 notes flagged it as a debatable idempotent no-op); a regression test pins the existing tolerant behavior so a future cleanup doesn't widen the fix beyond review. New `tests/tools/browser/performance.test.ts` (7 tests, uses `vi.resetModules()` per test for clean module-scoped state and synthesizes `chrome.debugger.onEvent` to drive the full trace lifecycle) covers: start happy path; IMP-0048 second-start; analyze IMP-0051; TAB_NOT_FOUND on both; stop's preserved no-session behavior; full start→stop→analyze round-trip. Extension: 701/701, typecheck clean. No tool-schema changes.
-- **Branch**: fix/imp-0048-0051-performance-iserror
 
 ### IMP-0028 · Add flush action to chrome_network_capture for mid-session drain without stopping (feat) · score: 4
 
