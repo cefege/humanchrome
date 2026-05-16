@@ -2104,13 +2104,13 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WAIT_FOR,
     description:
-      'Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, or an arbitrary JS expression to return truthy. Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.',
+      'Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, an arbitrary JS expression to return truthy, a page load state (Playwright-style `waitForLoadState`), or the tab URL to match a pattern (Playwright-style `waitForURL` — covers SPA pushState). Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.',
     inputSchema: {
       type: 'object',
       properties: {
         kind: {
           type: 'string',
-          enum: ['element', 'network_idle', 'response_match', 'js'],
+          enum: ['element', 'network_idle', 'response_match', 'js', 'load_state', 'url'],
           description: 'Which wait condition to use. Required.',
         },
         timeoutMs: {
@@ -2132,8 +2132,9 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         state: {
           type: 'string',
-          enum: ['present', 'absent'],
-          description: 'For kind="element": "present" (default) or "absent".',
+          enum: ['present', 'absent', 'load', 'domcontentloaded', 'complete'],
+          description:
+            'Dual-purpose field. For kind="element": "present" (default) or "absent". For kind="load_state": "load" (default) | "domcontentloaded" | "complete" — wait for the corresponding `chrome.webNavigation` event on the target tab+frame. "complete" is a Playwright synonym for "load" and maps to the same event. Pre-checked via `document.readyState` so already-loaded pages resolve synchronously.',
         },
         quietMs: {
           type: 'number',
@@ -2153,6 +2154,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'string',
           description:
             'For kind="js": JavaScript expression evaluated in the page context. Re-evaluated on every DOM mutation plus a 250ms safety poll. Resolves on first truthy return.',
+        },
+        pattern: {
+          type: 'string',
+          description:
+            'For kind="url": substring or /regex/flags matched against the tab URL (same syntax as chrome_intercept_response). Subscribes to `chrome.webNavigation.onCommitted` + `onHistoryStateUpdated` so SPA pushState transitions are caught. Pre-checked against the current URL so an already-matching tab resolves synchronously. Required for kind="url".',
         },
         ...TAB_TARGETING_NO_BG,
         frameId: FRAME_ID_PROP,

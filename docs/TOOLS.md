@@ -424,22 +424,23 @@ Run one or more predicates against the page and return a structured pass/fail re
 
 ### `chrome_wait_for`
 
-Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, or an arbitrary JS expression to return truthy. Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.
+Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, an arbitrary JS expression to return truthy, a page load state (Playwright-style `waitForLoadState`), or the tab URL to match a pattern (Playwright-style `waitForURL` — covers SPA pushState). Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `kind` | `element` \| `network_idle` \| `response_match` \| `js` | ✓ | Which wait condition to use. Required. |
+| `kind` | `element` \| `network_idle` \| `response_match` \| `js` \| `load_state` \| `url` | ✓ | Which wait condition to use. Required. |
 | `timeoutMs` | number |  | Wall-clock budget. Default 15000, max 120000. On timeout the tool returns a TIMEOUT error envelope. |
 | `selector` | string |  | For kind="element": CSS selector, XPath, or Playwright-style locator. Either selector or ref must be provided. |
 | `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
 | `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
 | `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
 | `ref` | string |  | For kind="element": ref from chrome_read_page. |
-| `state` | `present` \| `absent` |  | For kind="element": "present" (default) or "absent". |
+| `state` | `present` \| `absent` \| `load` \| `domcontentloaded` \| `complete` |  | Dual-purpose field. For kind="element": "present" (default) or "absent". For kind="load_state": "load" (default) \| "domcontentloaded" \| "complete" — wait for the corresponding `chrome.webNavigation` event on the target tab+frame. "complete" is a Playwright synonym for "load" and maps to the same event. Pre-checked via `document.readyState` so already-loaded pages resolve synchronously. |
 | `quietMs` | number |  | For kind="network_idle": consider the network idle once this many ms have elapsed without a new resource entry. Default 500. |
 | `urlPattern` | string |  | For kind="response_match": substring or /regex/flags matched against the response URL. Reuses chrome_intercept_response's CDP wiring with returnBody=false (signal-only). Required for response_match. |
 | `method` | string |  | For kind="response_match": optional HTTP method filter (GET/POST/etc). |
 | `expression` | string |  | For kind="js": JavaScript expression evaluated in the page context. Re-evaluated on every DOM mutation plus a 250ms safety poll. Resolves on first truthy return. |
+| `pattern` | string |  | For kind="url": substring or /regex/flags matched against the tab URL (same syntax as chrome_intercept_response). Subscribes to `chrome.webNavigation.onCommitted` + `onHistoryStateUpdated` so SPA pushState transitions are caught. Pre-checked against the current URL so an already-matching tab resolves synchronously. Required for kind="url". |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `frameId` | number |  | Target frame ID for iframe support. |

@@ -92,7 +92,15 @@ interface CompletedMatch extends PendingMatch {
   };
 }
 
-function compilePattern(pattern: string): (url: string) => boolean {
+/**
+ * Compile a URL pattern into a matcher predicate. Two forms accepted:
+ *   - "voyager/api/messaging" → simple substring match
+ *   - "/voyager\\/api\\/.*conversations/i" → wrapped slashes => regex (with flags)
+ *
+ * Exported so other URL-matching tools (chrome_wait_for kind="url") can reuse
+ * the same parser instead of duplicating the substring-vs-regex split.
+ */
+export function compilePattern(pattern: string): (url: string) => boolean {
   const trimmed = pattern.trim();
   // Regex form: /pattern/flags
   if (trimmed.length >= 2 && trimmed.startsWith('/')) {
