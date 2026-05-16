@@ -161,6 +161,14 @@ Claim a tab as owned by the calling MCP client. Tabs the user opened manually (o
 | `tabId` | number | ✓ | Tab ID to claim for the calling client. |
 | `force` | boolean |  | When true, claim the tab even if another client currently owns it. The previous owner is reported in the response and audit-logged via `debugLog.warn`. Defaults to false — without `force`, claiming an owned-by-other tab returns TAB_NOT_OWNED. Only use when you know the previous owner is gone (stale session, crashed bridge) or when intentionally handing off between operator-driven sessions. |
 
+### `browser_close_my_tabs`
+
+Close every tab currently owned by the calling MCP client. Opt-in cleanup — disconnect releases ownership without closing tabs; call this tool to actually close them. Optional `keep` array preserves specific tabIds (any id not in the caller's owned set is silently dropped). Returns `{success, closed: number[], kept: number[], failed: [{tabId, reason}]}`. Partial success is normal: an already-closed tab reports `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays true. Honors the last-tab-in-window guard (opens a placeholder rather than killing the window). NOTE: `beforeunload` prompts are bypassed silently — Chrome's extension API offers no dialog-aware close. Errors with `INVALID_ARGS` if `keep` is not an array of finite numbers or no MCP clientId is bound to the call.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `keep` | array<number> |  | Tab IDs to preserve (kept owned by the calling client, not closed). Each id must be in the caller's owned set; non-owned ids are silently dropped from `kept`. |
+
 ## Reading
 
 ### `chrome_read_page`

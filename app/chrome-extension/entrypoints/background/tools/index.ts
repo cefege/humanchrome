@@ -97,6 +97,7 @@ import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
+import { closeMyTabsTool } from './browser/close-my-tabs';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -177,6 +178,7 @@ const eagerTools: ToolInstance[] = [
   paceTool,
   paceGetTool,
   claimTabTool,
+  closeMyTabsTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,

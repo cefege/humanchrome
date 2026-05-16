@@ -75,7 +75,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0088 · `browser_close_my_tabs` opt-in cleanup tool (feat) · score: 4
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: When a client wraps up (CI run, one-shot script, interactive agent finishing a workflow) there is no one-shot verb to dismiss every tab it owns. Today the caller round-trips `chrome_get_windows_and_tabs` → filter by `owner` → `chrome_close_tab` with the ids, which is racy (a tab can close between listing and close) and pushes ownership bookkeeping onto the agent loop. IMP-0086's `CLIENT_DISCONNECTED` deliberately leaves tabs intact — this is the positive opt-in side of that contract.
 - **Cost**: S
 - **Value**: M

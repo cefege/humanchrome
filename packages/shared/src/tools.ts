@@ -117,6 +117,7 @@ export const TOOL_NAMES = {
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     PACE_GET: 'chrome_pace_get',
     CLAIM_TAB: 'browser_claim_tab',
+    CLOSE_MY_TABS: 'browser_close_my_tabs',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -2976,6 +2977,23 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.CLOSE_MY_TABS,
+    description:
+      "Close every tab currently owned by the calling MCP client. Opt-in cleanup — disconnect releases ownership without closing tabs; call this tool to actually close them. Optional `keep` array preserves specific tabIds (any id not in the caller's owned set is silently dropped). Returns `{success, closed: number[], kept: number[], failed: [{tabId, reason}]}`. Partial success is normal: an already-closed tab reports `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays true. Honors the last-tab-in-window guard (opens a placeholder rather than killing the window). NOTE: `beforeunload` prompts are bypassed silently — Chrome's extension API offers no dialog-aware close. Errors with `INVALID_ARGS` if `keep` is not an array of finite numbers or no MCP clientId is bound to the call.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keep: {
+          type: 'array',
+          items: { type: 'number' },
+          description:
+            "Tab IDs to preserve (kept owned by the calling client, not closed). Each id must be in the caller's owned set; non-owned ids are silently dropped from `kept`.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
     description:
       'Delete a recorded flow by ID. Closes the lifecycle gap left by `record_replay_list_published` + `record_replay_flow_run` so iterative record-test-refine sessions can clean up stale versions without opening the extension UI. Always unpublishes first (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. Returns `{deleted: true, unpublished, flowId}` on success — `unpublished` reports whether the flow was published before deletion. Errors with `INVALID_ARGS` if `flowId` is missing or the flow does not exist.',
@@ -3117,6 +3135,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.PACE_GET]: 'Pacing',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
