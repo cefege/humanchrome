@@ -87,6 +87,19 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: `chrome_dev_reload` MCP tool calls `chrome.runtime.reload()` from SW. `chrome_runtime_info` returns `{extensionVersion, toolNames[], buildHash, builtAt, uptimeMs}` so runners detect stale SW. Build-hash injection via wxt's `vite.define`. `scripts/run-e2e-matrix.mjs` POSTs to bridge's `/api/tools/:name` directly — no MCP, no Claude Code session, no schema cache. Pipeline: probe runtime_info → call dev_reload → poll until uptimeMs<5000 → navigate fixture → walk matrix → emit pass/fail JSON. Bootstrap: ONE manual reload of the extension to load these tools into a SW that didn't have them; every subsequent test cycle is unattended.
 - **Follow-ups**: Phase 1 (bridge file watcher — auto-calls dev_reload on `.output/chrome-mv3/manifest.json` mtime change) and Phase 4 (`puppeteer-core` to spawn dedicated Chrome with `--load-extension` so CI doesn't depend on user Chrome) deferred — current implementation is enough for local unattended runs.
 
+### IMP-0110 · CI e2e-fixture workflow gates chrome-extension PRs (feat) · score: 5
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: proposed
+- **Why**: CLAUDE.md hard-rules "E2E verification mandatory for every chrome-extension change", but until IMP-0109 landed (the `pnpm e2e:full` runner) there was no automatable way to enforce it. Now that the matrix runner is HTTP-only and JSON-emitting, a CI job can run it on every PR touching `app/chrome-extension/**` and fail the merge gate when the matrix regresses. Closes the gap that let IMP-0104..0108 slip through review unnoticed.
+- **Cost**: M
+- **Value**: L
+
+- **Depends on**: IMP-0109 (#185) merged so `pnpm e2e:full` exists on main.
+- **Files**: `.github/workflows/e2e-fixture.yml` (new), `docs/E2E-VERIFICATION.md` (point at the workflow), `package.json` (optional CI-mode flag if `--ci` needs to swap behavior).
+- **Sketch**: New workflow triggered on `pull_request` with `paths: ['app/chrome-extension/**', 'packages/shared/**']`. Steps: checkout → pnpm install → install Chrome via `browser-actions/setup-chrome@v1` → `pnpm build` → start static fixture server (`python3 -m http.server 4173 --directory app/chrome-extension/tests/e2e/fixtures`) in background → launch Chrome headed with `--load-extension=$REPO/app/chrome-extension/.output/chrome-mv3 --user-data-dir=$RUNNER_TEMP/profile --remote-debugging-port=9222 --no-first-run` in background → wait-for-port → spawn bridge with `humanchrome-bridge register` + wait-for-port on `:12306` → run `pnpm e2e:full --json $RUNNER_TEMP/result.json` (which itself calls `chrome_dev_reload` + polls runtime_info) → `actions/upload-artifact@v4` for the JSON → job fails when exit code ≠ 0.
+- **Open questions**: Headed Chrome on GitHub Actions Linux runners requires `xvfb-run` wrapping. macOS runners may be cleaner but cost more. Headless Chrome won't help because the extension needs MV3 service-worker support which is gated on browser surface; might need to investigate `--headless=new` compatibility before settling. Bootstrap reload (the one human step in IMP-0109) can be skipped in CI because the SW starts fresh on each Chrome launch — there's no prior installation to be stale against.
+
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
