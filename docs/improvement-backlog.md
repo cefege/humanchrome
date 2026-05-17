@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
-- **Status**: proposed
+- **Status**: done (2026-05-17; click-helper + fill-helper re-query `querySelectorAll(selector)` in the strict-violation branch and report the true count instead of probe's short-circuit ceiling of 2.)
 - **Why**: `chrome_click_element({selector:'.row-btn'})` against 3 matching elements correctly returns an `INVALID_ARGS` envelope, but the matrix runner's `details.matchCount` predicate doesn't match — investigation needed to see whether the envelope shape changed, matchCount is in `details.samples.length`, or the error surfaces via a different path (acc-tree-helper structured response vs click-helper's `__hcQuerySelectorUnique`).
 - **Cost**: S
 - **Value**: M

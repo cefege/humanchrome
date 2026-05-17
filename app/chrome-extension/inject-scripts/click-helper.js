@@ -205,9 +205,15 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
             return { error: `Element with selector "${selector}" not found` };
           }
           if (probe.matchCount > 1) {
+            // IMP-0116: __hcQuerySelectorUnique short-circuits at matchCount=2
+            // for speed, so probe.matchCount is "2 or more". Re-query
+            // querySelectorAll to get the accurate count for the caller's
+            // strict-mode telemetry (small DOM cost; only runs on multi-match).
             let samples = [];
+            let trueCount = probe.matchCount;
             try {
               const all = document.querySelectorAll(selector);
+              trueCount = all.length;
               samples = Array.from(all)
                 .slice(0, 5)
                 .map((node) => ({
@@ -216,8 +222,8 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
                 }));
             } catch {}
             return {
-              error: `Selector "${selector}" matched ${probe.matchCount === 2 ? '2 or more' : probe.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
-              strict: { matchCount: probe.matchCount, samples },
+              error: `Selector "${selector}" matched ${trueCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+              strict: { matchCount: trueCount, samples },
             };
           }
           element = probe.element;

@@ -109,9 +109,13 @@ if (window.__FILL_HELPER_INITIALIZED__) {
             return { error: `Element with selector "${selector}" not found` };
           }
           if (probe.matchCount > 1) {
+            // IMP-0116: probe short-circuits at matchCount=2; re-query
+            // querySelectorAll for accurate telemetry.
             let samples = [];
+            let trueCount = probe.matchCount;
             try {
               const all = document.querySelectorAll(selector);
+              trueCount = all.length;
               samples = Array.from(all)
                 .slice(0, 5)
                 .map((node) => ({
@@ -120,8 +124,8 @@ if (window.__FILL_HELPER_INITIALIZED__) {
                 }));
             } catch {}
             return {
-              error: `Selector "${selector}" matched ${probe.matchCount === 2 ? '2 or more' : probe.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
-              strict: { matchCount: probe.matchCount, samples },
+              error: `Selector "${selector}" matched ${trueCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+              strict: { matchCount: trueCount, samples },
             };
           }
           element = probe.element;
