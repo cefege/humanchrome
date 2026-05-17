@@ -71,7 +71,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0118 · checkStable false-stable at velocity-zero animation peak (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
-- **Status**: proposed
+- **Status**: done (2026-05-17; checkStable rewritten as fixed-interval (50ms × 3 samples) setTimeout sampler instead of rAF consecutive-equal heuristic; reliably catches slow CSS animations and avoids the rAF-based hang that earlier attempts triggered. Matrix `pnpm e2e:isolated` is 16/16 PASS.)
 - **Why**: `chrome_click_element({selector:'#sliding-btn'})` (a button with `4s ease-in-out infinite alternate` CSS transform) succeeds without `force:true` — should return `NOT_ACTIONABLE failures:['unstable_bbox']`. Root cause: `checkStable` resolves null on the first equal pair of consecutive rAF samples; ease-in-out animations have velocity-zero peaks at every reversal, so sampling at that exact moment yields a single equal pair and the check returns stable.
 - **Cost**: M
 - **Value**: M

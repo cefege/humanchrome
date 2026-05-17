@@ -1,0 +1,780 @@
+{
+  "runAt": "2026-05-17T11:50:24.248Z",
+  "bridge": "http://127.0.0.1:12307",
+  "fixture": "http://127.0.0.1:4173/playwright-parity.html",
+  "swInfoBefore": {
+    "extensionVersion": "1.0.1",
+    "extensionId": "hbdgbgagpkpjffpklnamcljpakneikee",
+    "toolNames": [
+      "browser_claim_tab",
+      "browser_close_my_tabs",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_await_element",
+      "chrome_block_or_redirect",
+      "chrome_bookmark_add",
+      "chrome_bookmark_delete",
+      "chrome_bookmark_search",
+      "chrome_bookmark_update",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tab",
+      "chrome_close_tabs_matching",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_console_clear",
+      "chrome_context_menu",
+      "chrome_debug_dump",
+      "chrome_dev_reload",
+      "chrome_download_cancel",
+      "chrome_download_list",
+      "chrome_drag_drop",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_cookies",
+      "chrome_get_interactive_elements",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_history",
+      "chrome_history_delete",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_list_injected_scripts",
+      "chrome_locator_handler",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_capture_start",
+      "chrome_network_capture_stop",
+      "chrome_network_debugger_start",
+      "chrome_network_debugger_stop",
+      "chrome_network_emulate",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_pace",
+      "chrome_pace_get",
+      "chrome_paste",
+      "chrome_performance_analyze_insight",
+      "chrome_performance_start_trace",
+      "chrome_performance_stop_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_queue_inspect",
+      "chrome_read_page",
+      "chrome_remove_cookie",
+      "chrome_remove_injected_script",
+      "chrome_request_element_selection",
+      "chrome_runtime_info",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_cookie",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_wait_for_tab",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 89,
+    "buildHash": "mp9ppukz-86fdxn",
+    "builtAt": "2026-05-17T11:49:20.531Z",
+    "uptimeMs": 1125
+  },
+  "swInfoAfter": {
+    "extensionVersion": "1.0.1",
+    "extensionId": "hbdgbgagpkpjffpklnamcljpakneikee",
+    "toolNames": [
+      "browser_claim_tab",
+      "browser_close_my_tabs",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_await_element",
+      "chrome_block_or_redirect",
+      "chrome_bookmark_add",
+      "chrome_bookmark_delete",
+      "chrome_bookmark_search",
+      "chrome_bookmark_update",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tab",
+      "chrome_close_tabs_matching",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_console_clear",
+      "chrome_context_menu",
+      "chrome_debug_dump",
+      "chrome_dev_reload",
+      "chrome_download_cancel",
+      "chrome_download_list",
+      "chrome_drag_drop",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_cookies",
+      "chrome_get_interactive_elements",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_history",
+      "chrome_history_delete",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_list_injected_scripts",
+      "chrome_locator_handler",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_capture_start",
+      "chrome_network_capture_stop",
+      "chrome_network_debugger_start",
+      "chrome_network_debugger_stop",
+      "chrome_network_emulate",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_pace",
+      "chrome_pace_get",
+      "chrome_paste",
+      "chrome_performance_analyze_insight",
+      "chrome_performance_start_trace",
+      "chrome_performance_stop_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_queue_inspect",
+      "chrome_read_page",
+      "chrome_remove_cookie",
+      "chrome_remove_injected_script",
+      "chrome_request_element_selection",
+      "chrome_runtime_info",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_cookie",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_wait_for_tab",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 89,
+    "buildHash": "mp9ppukz-86fdxn",
+    "builtAt": "2026-05-17T11:49:20.531Z",
+    "uptimeMs": 1125
+  },
+  "results": [
+    {
+      "imp": "IMP-0098",
+      "name": "role + name (Submit)",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"message\":\"Element clicked successfully\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"submit-btn\",\"className\":\"\",\"text\":\"Submit\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":169.5,\"y\":247.5390625,\"width\":57.4921875,\"height\":21.5,\"top\":247.5390625,\"right\":226.9921875,\"bottom\":269.0390625,\"left\":169.5},\"clickMethod\":\"ref\",\"ref\":\"ref_1\"},\"navigationOccurred\":false,\"clickMethod\":\"ref\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "message": "Element clicked successfully",
+          "elementInfo": {
+            "tagName": "BUTTON",
+            "id": "submit-btn",
+            "className": "",
+            "text": "Submit",
+            "href": null,
+            "type": "button",
+            "isVisible": true,
+            "rect": {
+              "x": 169.5,
+              "y": 247.5390625,
+              "width": 57.4921875,
+              "height": 21.5,
+              "top": 247.5390625,
+              "right": 226.9921875,
+              "bottom": 269.0390625,
+              "left": 169.5
+            },
+            "clickMethod": "ref",
+            "ref": "ref_1"
+          },
+          "navigationOccurred": false,
+          "clickMethod": "ref"
+        }
+      }
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match without index",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"INVALID_ARGS\",\"message\":\"Selector \\\".row-btn\\\" matched 3 elements. Please refine the selector or pass {index} / {multi:true}.\",\"details\":{\"matchCount\":3,\"samples\":[{\"tag\":\"button\",\"text\":\"Edit\"},{\"tag\":\"button\",\"text\":\"Edit\"},{\"tag\":\"button\",\"text\":\"Edit\"}]}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "INVALID_ARGS",
+            "message": "Selector \".row-btn\" matched 3 elements. Please refine the selector or pass {index} / {multi:true}.",
+            "details": {
+              "matchCount": 3,
+              "samples": [
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                },
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                },
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match with index:1",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"message\":\"Element clicked successfully\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"\",\"className\":\"row-btn\",\"text\":\"Edit\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":212.6640625,\"y\":847.84375,\"width\":38.9765625,\"height\":21.5,\"top\":847.84375,\"right\":251.640625,\"bottom\":869.34375,\"left\":212.6640625},\"clickMethod\":\"selector\"},\"navigationOccurred\":false,\"clickMethod\":\"selector\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "message": "Element clicked successfully",
+          "elementInfo": {
+            "tagName": "BUTTON",
+            "id": "",
+            "className": "row-btn",
+            "text": "Edit",
+            "href": null,
+            "type": "button",
+            "isVisible": true,
+            "rect": {
+              "x": 212.6640625,
+              "y": 847.84375,
+              "width": 38.9765625,
+              "height": 21.5,
+              "top": 847.84375,
+              "right": 251.640625,
+              "bottom": 869.34375,
+              "left": 212.6640625
+            },
+            "clickMethod": "selector"
+          },
+          "navigationOccurred": false,
+          "clickMethod": "selector"
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "display:none → not_visible",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_visible\",\"details\":{\"failures\":[\"not_visible\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"vis-display-none\",\"className\":\"hidden-display\",\"text\":\"display:none\",\"href\":null,\"type\":\"button\",\"isVisible\":false,\"rect\":{\"x\":0,\"y\":0,\"width\":0,\"height\":0,\"top\":0,\"right\":0,\"bottom\":0,\"left\":0},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_visible",
+            "details": {
+              "failures": ["not_visible"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "vis-display-none",
+                "className": "hidden-display",
+                "text": "display:none",
+                "href": null,
+                "type": "button",
+                "isVisible": false,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0,
+                  "top": 0,
+                  "right": 0,
+                  "bottom": 0,
+                  "left": 0
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "offscreen (left:-9999) fails not_visible",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_visible\",\"details\":{\"failures\":[\"not_visible\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"vis-offscreen\",\"className\":\"offscreen\",\"text\":\"off-screen\",\"href\":null,\"type\":\"button\",\"isVisible\":false,\"rect\":{\"x\":-9999,\"y\":563.6484375,\"width\":75.03125,\"height\":21.5,\"top\":563.6484375,\"right\":-9923.96875,\"bottom\":585.1484375,\"left\":-9999},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_visible",
+            "details": {
+              "failures": ["not_visible"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "vis-offscreen",
+                "className": "offscreen",
+                "text": "off-screen",
+                "href": null,
+                "type": "button",
+                "isVisible": false,
+                "rect": {
+                  "x": -9999,
+                  "y": 563.6484375,
+                  "width": 75.03125,
+                  "height": 21.5,
+                  "top": 563.6484375,
+                  "right": -9923.96875,
+                  "bottom": 585.1484375,
+                  "left": -9999
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "animation unstable_bbox",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: unstable_bbox\",\"details\":{\"failures\":[\"unstable_bbox\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"sliding-btn\",\"className\":\"sliding\",\"text\":\"Catch me\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":183.1334991455078,\"y\":565.453125,\"width\":91.04689025878906,\"height\":33.5,\"top\":565.453125,\"right\":274.1803894042969,\"bottom\":598.953125,\"left\":183.1334991455078},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: unstable_bbox",
+            "details": {
+              "failures": ["unstable_bbox"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "sliding-btn",
+                "className": "sliding",
+                "text": "Catch me",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 183.1334991455078,
+                  "y": 565.453125,
+                  "width": 91.04689025878906,
+                  "height": 33.5,
+                  "top": 565.453125,
+                  "right": 274.1803894042969,
+                  "bottom": 598.953125,
+                  "left": 183.1334991455078
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "occluded_by:*",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: occluded_by:div#overlay\",\"details\":{\"failures\":[\"occluded_by:div#overlay\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"occluded-btn\",\"className\":\"\",\"text\":\"Target button\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":169.5,\"y\":813.2578125,\"width\":93.8203125,\"height\":21.5,\"top\":813.2578125,\"right\":263.3203125,\"bottom\":834.7578125,\"left\":169.5},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: occluded_by:div#overlay",
+            "details": {
+              "failures": ["occluded_by:div#overlay"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "occluded-btn",
+                "className": "",
+                "text": "Target button",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 169.5,
+                  "y": 813.2578125,
+                  "width": 93.8203125,
+                  "height": 21.5,
+                  "top": 813.2578125,
+                  "right": 263.3203125,
+                  "bottom": 834.7578125,
+                  "left": 169.5
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "disabled button",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: disabled\",\"details\":{\"failures\":[\"disabled\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"disabled-btn\",\"className\":\"\",\"text\":\"Disabled button\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":169.5,\"y\":581.5625,\"width\":108.640625,\"height\":21.5,\"top\":581.5625,\"right\":278.140625,\"bottom\":603.0625,\"left\":169.5},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: disabled",
+            "details": {
+              "failures": ["disabled"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "disabled-btn",
+                "className": "",
+                "text": "Disabled button",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 169.5,
+                  "y": 581.5625,
+                  "width": 108.640625,
+                  "height": 21.5,
+                  "top": 581.5625,
+                  "right": 278.140625,
+                  "bottom": 603.0625,
+                  "left": 169.5
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "aria-disabled button",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: disabled\",\"details\":{\"failures\":[\"disabled\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"aria-disabled-btn\",\"className\":\"\",\"text\":\"aria-disabled\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":282.328125,\"y\":581.5625,\"width\":92.328125,\"height\":21.5,\"top\":581.5625,\"right\":374.65625,\"bottom\":603.0625,\"left\":282.328125},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: disabled",
+            "details": {
+              "failures": ["disabled"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "aria-disabled-btn",
+                "className": "",
+                "text": "aria-disabled",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 282.328125,
+                  "y": 581.5625,
+                  "width": 92.328125,
+                  "height": 21.5,
+                  "top": 581.5625,
+                  "right": 374.65625,
+                  "bottom": 603.0625,
+                  "left": 282.328125
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "readonly input rejects fill",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_editable\",\"details\":{\"failures\":[\"not_editable\"],\"elementInfo\":{\"tagName\":\"INPUT\",\"id\":\"readonly-in\",\"className\":\"\",\"type\":\"text\",\"isVisible\":true,\"rect\":{\"x\":169.5,\"y\":648.15625,\"width\":147,\"height\":21.5,\"top\":648.15625,\"right\":316.5,\"bottom\":669.65625,\"left\":169.5}}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_editable",
+            "details": {
+              "failures": ["not_editable"],
+              "elementInfo": {
+                "tagName": "INPUT",
+                "id": "readonly-in",
+                "className": "",
+                "type": "text",
+                "isVisible": true,
+                "rect": {
+                  "x": 169.5,
+                  "y": 648.15625,
+                  "width": 147,
+                  "height": 21.5,
+                  "top": 648.15625,
+                  "right": 316.5,
+                  "bottom": 669.65625,
+                  "left": 169.5
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0100",
+      "name": "register_default dialog policy",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"action\":\"register_default\",\"tabId\":1516637705,\"behavior\":\"accept\",\"promptText\":null,\"registeredAt\":1779018620256,\"replaced\":false,\"warning\":\"Persistent CDP attach — the \\\"Chrome is being controlled by automated software\\\" banner will be visible on this tab until unregister_default.\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "action": "register_default",
+          "tabId": 1516637705,
+          "behavior": "accept",
+          "promptText": null,
+          "registeredAt": 1779018620256,
+          "replaced": false,
+          "warning": "Persistent CDP attach — the \"Chrome is being controlled by automated software\" banner will be visible on this tab until unregister_default."
+        }
+      }
+    },
+    {
+      "imp": "IMP-0101",
+      "name": "locator_handler list returns ok",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"action\":\"list\",\"handlers\":[],\"count\":0,\"tabId\":1516637705}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "ok": true,
+          "action": "list",
+          "handlers": [],
+          "count": 0,
+          "tabId": 1516637705
+        }
+      }
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:url (already-matched)",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"kind\":\"url\",\"tookMs\":0,\"pattern\":\"playwright-parity\",\"url\":\"http://127.0.0.1:4173/playwright-parity.html\",\"alreadyMatched\":true}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "kind": "url",
+          "tookMs": 0,
+          "pattern": "playwright-parity",
+          "url": "http://127.0.0.1:4173/playwright-parity.html",
+          "alreadyMatched": true
+        }
+      }
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:load_state",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"kind\":\"load_state\",\"tookMs\":1,\"state\":\"load\",\"frameId\":0,\"alreadyLoaded\":true,\"readyState\":\"complete\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "kind": "load_state",
+          "tookMs": 1,
+          "state": "load",
+          "frameId": 0,
+          "alreadyLoaded": true,
+          "readyState": "complete"
+        }
+      }
+    },
+    {
+      "imp": "IMP-0092",
+      "name": "coords-over-empty-space returns error envelope",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"UNKNOWN\",\"message\":\"No element at coordinates (9999, 9999)\"}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "UNKNOWN",
+            "message": "No element at coordinates (9999, 9999)"
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0095",
+      "name": "await_element absent envelope",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"found\":false,\"absent\":true,\"selector\":\"#ephemeral\",\"selectorType\":\"css\",\"state\":\"absent\",\"elapsedMs\":1678,\"matched\":null}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "found": false,
+          "absent": true,
+          "selector": "#ephemeral",
+          "selectorType": "css",
+          "state": "absent",
+          "elapsedMs": 1678,
+          "matched": null
+        }
+      }
+    }
+  ],
+  "counts": {
+    "PASS": 16
+  }
+}
