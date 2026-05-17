@@ -1,0 +1,100 @@
+/**
+ * chrome_runtime_info tests (IMP-0109).
+ *
+ * Diagnostic tool returning SW identity for E2E runners. Tests assert the
+ * payload shape, build-time-define plumbing, and that listRegisteredToolNames
+ * surfaces the real dispatcher registry (so a SW running stale code can be
+ * detected by comparing toolNames or buildHash).
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { runtimeInfoTool } from '@/entrypoints/background/tools/browser/runtime-info';
+import { TOOL_NAMES } from 'humanchrome-shared';
+
+let getManifestMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  vi.stubGlobal('__HC_BUILD_HASH__', 'test-hash-abc123');
+  vi.stubGlobal('__HC_BUILT_AT__', '2026-01-01T00:00:00.000Z');
+  getManifestMock = vi.fn().mockReturnValue({ version: '9.9.9-test' });
+  (globalThis.chrome as any).runtime.getManifest = getManifestMock;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete (globalThis.chrome as any).runtime.getManifest;
+});
+
+function parseBody(res: any): any {
+  return JSON.parse(res.content[0].text);
+}
+
+describe('chrome_runtime_info', () => {
+  it('returns extensionVersion from chrome.runtime.getManifest()', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.extensionVersion).toBe('9.9.9-test');
+    expect(getManifestMock).toHaveBeenCalled();
+  });
+
+  it('returns extensionId from chrome.runtime.id', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.extensionId).toBe('test-extension-id');
+  });
+
+  it('returns toolNames sorted ascending', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(Array.isArray(body.toolNames)).toBe(true);
+    const sorted = [...body.toolNames].sort();
+    expect(body.toolNames).toEqual(sorted);
+  });
+
+  it('reports toolCount that matches toolNames.length', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.toolCount).toBe(body.toolNames.length);
+  });
+
+  it('includes its own tool name in toolNames (confirms registry round-trip)', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.RUNTIME_INFO);
+    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.DEV_RELOAD);
+  });
+
+  it('includes a well-known stable tool name (chrome_pace_get) — sanity check on registry', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.PACE_GET);
+  });
+
+  it('reports the build-time-injected buildHash', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.buildHash).toBe('test-hash-abc123');
+  });
+
+  it('reports the build-time-injected builtAt timestamp', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(body.builtAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('reports uptimeMs as a non-negative number', async () => {
+    const body = parseBody(await runtimeInfoTool.execute());
+    expect(typeof body.uptimeMs).toBe('number');
+    expect(body.uptimeMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('uptimeMs grows across two calls (monotonic non-decreasing)', async () => {
+    const a = parseBody(await runtimeInfoTool.execute());
+    await new Promise((r) => setTimeout(r, 5));
+    const b = parseBody(await runtimeInfoTool.execute());
+    expect(b.uptimeMs).toBeGreaterThanOrEqual(a.uptimeMs);
+  });
+
+  it('uses the registered TOOL_NAMES.BROWSER.RUNTIME_INFO name', () => {
+    expect(runtimeInfoTool.name).toBe(TOOL_NAMES.BROWSER.RUNTIME_INFO);
+    expect(runtimeInfoTool.name).toBe('chrome_runtime_info');
+  });
+
+  it('opts out of autoSpawnTab', () => {
+    const ctor = runtimeInfoTool.constructor as { autoSpawnTab?: boolean };
+    expect(ctor.autoSpawnTab).toBe(false);
+  });
+});

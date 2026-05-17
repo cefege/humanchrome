@@ -103,6 +103,8 @@ import { claimTabTool } from './browser/claim-tab';
 import { closeMyTabsTool } from './browser/close-my-tabs';
 import { queueInspectTool } from './browser/queue-inspect';
 import { locatorHandlerTool } from './browser/locator-handler';
+import { devReloadTool } from './browser/dev-reload';
+import { runtimeInfoTool } from './browser/runtime-info';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 
 interface ToolInstance {
@@ -186,6 +188,8 @@ const eagerTools: ToolInstance[] = [
   closeMyTabsTool,
   queueInspectTool,
   locatorHandlerTool,
+  devReloadTool,
+  runtimeInfoTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
@@ -269,8 +273,7 @@ export function _resetLazyToolCacheForTest(): void {
   lazyInflight.clear();
 }
 
-/** Test-only — list every name the dispatcher will resolve (eager + lazy). */
-export function _listRegisteredToolNamesForTest(): string[] {
+export function listRegisteredToolNames(): string[] {
   return [...eagerToolsByName.keys(), ...Object.keys(lazyLoaders)];
 }
 
