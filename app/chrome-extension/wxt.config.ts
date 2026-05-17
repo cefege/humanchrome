@@ -145,6 +145,45 @@ export default defineConfig({
   },
   vite: (env) => ({
     plugins: [
+      // Guard Vite's __vitePreload helper so it no-ops in non-DOM contexts.
+      //
+      // Why: Vite's helper does `document.head.appendChild(<link rel=modulepreload>)`
+      // for every dep of a dynamic `import()`. The background service worker has
+      // no `document`, so any `await import('@/utils/content-indexer')` (e.g.
+      // from storage-manager.ts) crashed the SW with `ReferenceError: document
+      // is not defined`. That cascaded into "Error: No SW" everywhere the
+      // popup hit a dying SW (offscreen create, IDB migration, server-status
+      // fetch). Vite skips the helper for `config.isWorker` builds but WXT
+      // ships the SW as a normal client entry, so the helper ends up bundled
+      // in `chunks/preload-helper-*.js` and imported by `background.js`.
+      //
+      // We patch the preload-helper chunk(s) in generateBundle: prepend a
+      // `typeof document === "undefined"` guard that falls back to plain
+      // baseModule() invocation. Pages keep the network hint; SW survives.
+      {
+        name: 'sw-safe-vite-preload-helper',
+        enforce: 'post' as const,
+        generateBundle(_opts: unknown, bundle: Record<string, any>) {
+          const helperShapeRE =
+            /(=function\([a-zA-Z_$][^)]*\)\{)(let [a-zA-Z_$]=Promise\.resolve\(\);if\([a-zA-Z_$]&&[a-zA-Z_$]\.length>0\)\{)/;
+          for (const [fileName, chunk] of Object.entries(bundle)) {
+            if (chunk.type !== 'chunk' || !fileName.includes('preload-helper')) continue;
+            const patched = chunk.code.replace(
+              helperShapeRE,
+              '$1if(typeof document==="undefined")return arguments[0]();$2',
+            );
+            // Fail loudly on Vite upgrades that change the helper shape — a
+            // silent miss would re-introduce the SW crash this guards against.
+            if (patched === chunk.code) {
+              throw new Error(
+                `sw-safe-vite-preload-helper: regex did not match in ${fileName}. ` +
+                  `Vite's __vitePreload emission shape likely changed; update helperShapeRE.`,
+              );
+            }
+            chunk.code = patched;
+          }
+        },
+      },
       // TailwindCSS v4 Vite plugin – no PostCSS config required
       tailwindcss(),
       // Auto-register SVG icons as Vue components; all icons are bundled locally
