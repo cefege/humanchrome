@@ -13,6 +13,7 @@ import { initQuickPanelCommands } from './quick-panel/commands';
 import { initQuickPanelTabsHandler } from './quick-panel/tabs-handler';
 import { initLastTabGuardListeners } from '@/utils/last-tab-guard';
 import { initTabCreationTracker } from './utils/tab-creation-tracker';
+import { initSelfUpdateWatcher } from './self-update-watcher';
 
 // Record-Replay V3 (feature flag)
 import { bootstrapV3 } from './record-replay-v3/bootstrap';
@@ -49,6 +50,13 @@ export default defineBackground({
         });
       }
     });
+
+    // IMP-0119 — self-update watcher polls build-info.json every 30s and
+    // calls chrome.runtime.reload() when the on-disk buildHash differs
+    // from the one baked into this SW. Closes the "rebuild → forgot to
+    // click reload" dev loop. Safe in prod too (no-op when buildHash
+    // matches, which it always will outside dev).
+    initSelfUpdateWatcher();
 
     // Initialize core services
     initNativeHostListener();
