@@ -4,21 +4,28 @@ import nativeMessagingHostInstance from './native-messaging-host';
 import fileHandler from './file-handler';
 import { logger } from './util/logger';
 import { removeInstance } from './util/instance-registry';
+import { startBridge } from './bridge-orchestrator';
 
-try {
-  serverInstance.setNativeHost(nativeMessagingHostInstance); // Server needs setNativeHost method
-  nativeMessagingHostInstance.setServer(serverInstance); // NativeHost needs setServer method
-  nativeMessagingHostInstance.start();
+(async () => {
+  try {
+    serverInstance.setNativeHost(nativeMessagingHostInstance); // Server needs setNativeHost method
+    nativeMessagingHostInstance.setServer(serverInstance); // NativeHost needs setServer method
 
-  // Sweep stale temp uploads on startup, then every 30 minutes. Without this
-  // the temp dir grows monotonically across sessions.
-  fileHandler.cleanupOldFiles();
-  setInterval(() => fileHandler.cleanupOldFiles(), 30 * 60 * 1000).unref();
-  logger.info('humanchrome bridge entry started');
-} catch (error: any) {
-  logger.fatal({ err: error?.message || String(error) }, 'fatal during bridge startup');
-  process.exit(1);
-}
+    // IMP-0120: orchestrator decides primary (daemon owning HTTP across
+    // SW reloads) vs relay (forwards stdin to existing daemon). Falls
+    // back to legacy standalone behaviour if HC_DISABLE_DAEMON=1.
+    await startBridge({ nativeHost: nativeMessagingHostInstance, server: serverInstance });
+
+    // Sweep stale temp uploads on startup, then every 30 minutes. Without this
+    // the temp dir grows monotonically across sessions.
+    fileHandler.cleanupOldFiles();
+    setInterval(() => fileHandler.cleanupOldFiles(), 30 * 60 * 1000).unref();
+    logger.info('humanchrome bridge entry started');
+  } catch (error: any) {
+    logger.fatal({ err: error?.message || String(error) }, 'fatal during bridge startup');
+    process.exit(1);
+  }
+})();
 
 process.on('error', (error) => {
   logger.fatal({ err: (error as Error)?.message || String(error) }, 'process error');
