@@ -1,0 +1,100 @@
+name: e2e-fixture
+
+# IMP-0110: run the playwright-parity matrix on every PR that touches the
+# chrome-extension. Catches regressions like IMP-0104..0108 before merge.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/chrome-extension/**'
+      - 'packages/shared/**'
+      - 'scripts/run-e2e-matrix.mjs'
+      - '.github/workflows/e2e-fixture.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    # macOS runner avoids the Linux headed-Chrome complications (Xvfb,
+    # MV3 SW timing). Slightly more expensive but the matrix is small
+    # (under a minute of actual run time once the bridge is up).
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build shared + native + extension
+        run: |
+          pnpm build:shared
+          pnpm build:native
+          pnpm build:extension
+
+      - name: Install Chrome for Testing
+        # Stable Chrome killed --load-extension in 137+; CFT is the only
+        # public Chromium-family build that still honors unpacked extensions.
+        # @puppeteer/browsers drops it under <repo>/chrome/.
+        run: npx --yes @puppeteer/browsers install chrome@stable
+
+      - name: Register native messaging host
+        # `humanchrome-bridge register` writes the NM manifest to the user
+        # Application Support dir so Chrome can spawn the bridge via
+        # chrome.runtime.connectNative.
+        run: |
+          node app/native-server/dist/cli.js register
+
+      - name: Stage NM manifest into CFT user-data-dir
+        # CFT looks at <user-data-dir>/NativeMessagingHosts/ first; without
+        # this it errors with "Specified native messaging host not found."
+        # The matrix runner does this for us, but we make the registry dir
+        # exist up-front so the dead-pid GC in listInstances doesn't trip.
+        run: |
+          mkdir -p "$HOME/Library/Application Support/humanchrome-bridge/instances"
+
+      - name: Serve fixture
+        run: |
+          python3 -m http.server 4173 --directory app/chrome-extension/tests/e2e/fixtures &
+          for i in {1..10}; do
+            curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4173/playwright-parity.html | grep -q 200 && break
+            sleep 1
+          done
+
+      - name: Run matrix
+        # `--launch-chrome` spawns CFT with --load-extension into a throwaway
+        # profile so the registry-routing path lights up. JSON result is
+        # uploaded as an artifact for post-mortem regardless of exit code.
+        run: |
+          set -o pipefail
+          pnpm e2e:matrix -- --launch-chrome --json "$RUNNER_TEMP/e2e-result.json" 2>&1 | tee "$RUNNER_TEMP/e2e-stdout.log"
+
+      - name: Upload matrix JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-matrix-result
+          path: |
+            ${{ runner.temp }}/e2e-result.json
+            ${{ runner.temp }}/e2e-stdout.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -49,6 +49,36 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: proposed
+- **Why**: `chrome_click_element({selector:'.row-btn'})` against 3 matching elements correctly returns an `INVALID_ARGS` envelope, but the matrix runner's `details.matchCount` predicate doesn't match — investigation needed to see whether the envelope shape changed, matchCount is in `details.samples.length`, or the error surfaces via a different path (acc-tree-helper structured response vs click-helper's `__hcQuerySelectorUnique`).
+- **Cost**: S
+- **Value**: M
+- **Repro**: `pnpm e2e:isolated` — "strict-mode multi-match without index" row fails with `expected matchCount:3, got {"content":[...{"error":{"code":"INVALID_ARGS"...`. Inspect the full error body and either fix the response shape or update the matrix predicate.
+
+### IMP-0117 · strict-mode multi-match with `index:1` — index param not honored (regression) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: proposed
+- **Why**: `chrome_click_element({selector:'.row-btn', index:1})` should click the second `.row-btn` (Playwright contract: `index` selects the Nth match instead of erroring on multi-match). After IMP-0104's acc-tree-helper injection started exposing `__hcQuerySelectorUnique`, click-helper's strict-mode probe (`inject-scripts/click-helper.js:178-200`) fires before checking `options.index`. It returns the strict-violation error regardless. Fix: honor `index` before the strict-violation early-return — pick `document.querySelectorAll(selector)[index]` when index is set, OR pass index to `__hcQuerySelectorUnique` so it returns the Nth match directly.
+- **Cost**: S
+- **Value**: M
+- **Repro**: `pnpm e2e:isolated` — "strict-mode multi-match with index:1" row fails with `INVALID_ARGS: Selector "..." matched ... elements...`.
+- **Fix sketch**: In `inject-scripts/click-helper.js:178-200`, when `options.index` is a number, skip the strict-violation throw and resolve `document.querySelectorAll(selector)[options.index]` directly (or pass index through to `__hcQuerySelectorUnique`). Same fix on the FillTool path in `fill-helper.js`. Add a vitest case asserting `options.index` is honored in both helpers.
+
+### IMP-0118 · checkStable false-stable at velocity-zero animation peak (bug) · score: 4
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: proposed
+- **Why**: `chrome_click_element({selector:'#sliding-btn'})` (a button with `4s ease-in-out infinite alternate` CSS transform) succeeds without `force:true` — should return `NOT_ACTIONABLE failures:['unstable_bbox']`. Root cause: `checkStable` resolves null on the first equal pair of consecutive rAF samples; ease-in-out animations have velocity-zero peaks at every reversal, so sampling at that exact moment yields a single equal pair and the check returns stable.
+- **Cost**: M
+- **Value**: M
+- **Files**: `app/chrome-extension/inject-scripts/actionability.js` (`checkStable` ~L235-267)
+- **Fix sketch**: Require N consecutive equal samples (e.g. 3 in a row) before declaring stable, so a single zero-velocity coincidence can't pass. Attempted in fix/imp0113-actionability but introduced SW hangs in matrix runs that aren't reproducible in unit tests — needs deeper investigation. Possible cause: rAF inside an injected script may interact poorly with Chrome's content-script lifecycle when the page also has animations driving its own rAF. Diagnostic next steps: enable verbose chrome_console capture during the matrix and look for "post-inject ping never returned pong" warnings.
+- **Repro**: `pnpm e2e:isolated` — "animation unstable_bbox" row fails. Evidence in any recent matrix JSON.
+
 ### IMP-0103 · Installed bridge is stale — IMP-0098/0100/0101/0102 surface rejected at MCP layer (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-05-16
@@ -67,7 +97,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0112 · IMP-0098 role+name resolver returns empty for explicit role lookup (bug) · score: 7
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
-- **Status**: proposed
+- **Status**: done (fixed transitively by IMP-0104 acc-tree-helper injection; matrix evidence at `docs/e2e-runs/2026-05-17_baseline.json` plus post-IMP-0111b runs all show "role + name (Submit)" PASS)
 - **Why**: `chrome_click_element({selectorType:'role', selector:'button[name="Submit"]'})` against a real `<button>Submit</button>` returns `INVALID_ARGS: Failed to resolve role selector: unknown error` with `details: {selectorType:'role', selector:'button[name=\"Submit\"]'}`. The resolver IS running (this is the `resolveSelectorToRef` error path, not click-helper's "not found"), but acc-tree-helper's `__hcResolveByKind('role', ...)` returns matchCount:0 even though the target element exists with explicit `role=button` (implicit via `<button>` tag) and `name="Submit"` (text content). Either the role match is too strict (e.g. requires explicit `role=button` attribute and ignores implicit ARIA roles for `<button>`) or the accessible-name computation isn't extracting text content.
 - **Cost**: M
 - **Value**: L
