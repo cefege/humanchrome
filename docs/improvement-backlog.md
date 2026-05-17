@@ -49,6 +49,44 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0103 · Installed bridge is stale — IMP-0098/0100/0101/0102 surface rejected at MCP layer (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: The bridge installed at `~/Library/Application Support/humanchrome-bridge/` was last built at 2026-05-16 14:56 — ~6h before the local `packages/shared/dist/` (20:10) and the extension build (20:46). Its bundled `humanchrome-shared` still ships the pre-IMP-0098 enums, so every IMP-0098..0102 contract is rejected at the MCP boundary before reaching the (correctly-updated) extension. E2E verification per `docs/E2E-VERIFICATION.md` against `playwright-parity.html` could not exercise the new surface at all — see IMP-0098/0100/0101/0102 matrix rows.
+- **Cost**: S
+- **Value**: L
+
+- **Repro**:
+  - `selectorType: "role"` → `chrome_click_element` schema-rejected (enum allows only `css|xpath`); prefix form `role:button[name="Submit"]` round-trips to `document.querySelector(...)` and fails with DOMException — the SW resolver never sees `selectorKind` because the bridge's shared lib strips the new fields.
+  - `chrome_handle_dialog({action:"register_default"})` → `INVALID_ARGS: action must be "accept" or "dismiss"`.
+  - `chrome_wait_for({kind:"url"|"load_state"})` → `INVALID_ARGS: unknown kind: url`.
+  - `chrome_locator_handler` not exposed via MCP at all (ToolSearch miss).
+- **Fix sketch**: Re-run `pnpm --filter chrome-extension build` (already done) + rebuild `packages/shared` + `humanchrome-bridge register` (or whichever install script bumps `~/Library/Application Support/humanchrome-bridge/`). Add a startup version check that warns when bridge-bundled `humanchrome-shared` version ≠ workspace version. Document the reinstall step at the top of `docs/E2E-VERIFICATION.md` "Prerequisites".
+
+### IMP-0108 · chrome_wait_for / chrome_await_element ignore `timeoutMs` and block ~120s (bug) · score: 5
+
+- **Proposed by**: bug-scout · 2026-05-16
+- **Status**: proposed
+- **Why**: `chrome_wait_for({kind:'element', selector:'#submit-btn', timeoutMs:2000})` and `chrome_await_element({selector:'#ephemeral', state:'absent', timeoutMs:3000})` both hang and ultimately return `{code:"UNKNOWN", message:"Request timed out after 120000ms"}` — the bridge's default 120s envelope, not the caller's budget. `#submit-btn` is present immediately so element-present should resolve in <50ms. Suggests the call isn't reaching the SW wait-helper at all (bridge handler missing or message envelope mismatched), and the bridge's default request timeout is what eventually returns.
+- **Cost**: M
+- **Value**: M
+
+- **Repro**: Open `playwright-parity.html`, call `chrome_wait_for({kind:'element', selector:'#submit-btn', timeoutMs:2000, tabId:<fixture>})` — observe 120s wall-clock to error.
+- **Fix sketch**: Likely tied to IMP-0103 (bridge staleness — `chrome_wait_for` schema mismatch causes dispatcher to drop the call). Reinstall and re-test. If still hanging: trace the request id through bridge → native-host → SW, log dispatch decisions, ensure SW returns a response even when validation fails (so caller doesn't wait for the global timeout).
+
+### IMP-0109 · Unattended E2E verification pipeline — `chrome_dev_reload` + `chrome_runtime_info` + standalone HTTP runner (feat) · score: 5
+
+- **Proposed by**: user · 2026-05-16
+- **Status**: done (2026-05-16; see `scripts/run-e2e-matrix.mjs`, `chrome_dev_reload`, `chrome_runtime_info`)
+- **Why**: Every chrome-extension PR was supposed to run the matrix in `docs/E2E-VERIFICATION.md` (hard rule in CLAUDE.md). In practice the matrix required 30+ round-trips because (a) the MV3 SW doesn't auto-reload on rebuild — needed manual click in chrome://extensions; (b) the bridge process held old code in memory; (c) the MCP client cached tool schemas at session start so new tools were invisible mid-session; (d) no way to verify the SW was actually on the bundle just built. So the rule was followed at high friction or silently skipped, and IMP-0104..0108 regressions slipped through unnoticed.
+- **Cost**: M
+- **Value**: L
+
+- **Files**: `app/chrome-extension/entrypoints/background/tools/browser/dev-reload.ts` (new), `app/chrome-extension/entrypoints/background/tools/browser/runtime-info.ts` (new), `app/chrome-extension/entrypoints/background/tools/index.ts` (`listRegisteredToolNames` export, register both tools), `app/chrome-extension/entrypoints/background/tools/browser/index.ts` (barrel), `app/chrome-extension/wxt.config.ts` (`__HC_BUILD_HASH__` + `__HC_BUILT_AT__` define), `packages/shared/src/tools.ts` (`DEV_RELOAD`, `RUNTIME_INFO` entries), `scripts/run-e2e-matrix.mjs` (new — HTTP-only matrix runner), `package.json` (`e2e:matrix`, `e2e:full`), `docs/E2E-VERIFICATION.md` (TL;DR section).
+- **Sketch**: `chrome_dev_reload` MCP tool calls `chrome.runtime.reload()` from SW. `chrome_runtime_info` returns `{extensionVersion, toolNames[], buildHash, builtAt, uptimeMs}` so runners detect stale SW. Build-hash injection via wxt's `vite.define`. `scripts/run-e2e-matrix.mjs` POSTs to bridge's `/api/tools/:name` directly — no MCP, no Claude Code session, no schema cache. Pipeline: probe runtime_info → call dev_reload → poll until uptimeMs<5000 → navigate fixture → walk matrix → emit pass/fail JSON. Bootstrap: ONE manual reload of the extension to load these tools into a SW that didn't have them; every subsequent test cycle is unattended.
+- **Follow-ups**: Phase 1 (bridge file watcher — auto-calls dev_reload on `.output/chrome-mv3/manifest.json` mtime change) and Phase 4 (`puppeteer-core` to spawn dedicated Chrome with `--load-extension` so CI doesn't depend on user Chrome) deferred — current implementation is enough for local unattended runs.
+
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08

@@ -23,13 +23,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { TOOL_NAMES } from 'humanchrome-shared';
 
 import {
-  _listRegisteredToolNamesForTest,
+  listRegisteredToolNames,
   _resetLazyToolCacheForTest,
 } from '@/entrypoints/background/tools';
 
 describe('lazy tool registry (IMP-0056)', () => {
   it('registers a handler for every TOOL_NAMES.BROWSER entry', () => {
-    const registered = new Set(_listRegisteredToolNamesForTest());
+    const registered = new Set(listRegisteredToolNames());
     const expected = Object.values(TOOL_NAMES.BROWSER) as string[];
 
     const missing = expected.filter((name) => !registered.has(name));
@@ -37,7 +37,7 @@ describe('lazy tool registry (IMP-0056)', () => {
   });
 
   it('registers a handler for every TOOL_NAMES.RECORD_REPLAY entry', () => {
-    const registered = new Set(_listRegisteredToolNamesForTest());
+    const registered = new Set(listRegisteredToolNames());
     const expected = Object.values(TOOL_NAMES.RECORD_REPLAY) as string[];
 
     const missing = expected.filter((name) => !registered.has(name));
@@ -45,7 +45,7 @@ describe('lazy tool registry (IMP-0056)', () => {
   });
 
   it('does not register names outside TOOL_NAMES (no orphaned loaders)', () => {
-    const registered = new Set(_listRegisteredToolNamesForTest());
+    const registered = new Set(listRegisteredToolNames());
     const expected = new Set<string>([
       ...(Object.values(TOOL_NAMES.BROWSER) as string[]),
       ...(Object.values(TOOL_NAMES.RECORD_REPLAY) as string[]),

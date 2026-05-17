@@ -1016,6 +1016,18 @@ OAuth2 + profile lookup via `chrome.identity`. Lets agents call Google APIs (Gma
 | `interactive` | boolean |  | For `get_token`. When true, Chrome shows a consent UI if needed; when false, the call fails fast if the user has not already consented. Default false. |
 | `token` | string |  | For `remove_token`. The token previously returned by `get_token`. |
 
+### `chrome_dev_reload`
+
+Trigger `chrome.runtime.reload()` from the SW so unattended E2E runs (rebuild → reload → re-test) do not need an operator to click "reload" in chrome://extensions. The reply returns immediately; the actual reload fires ~50ms later, so callers should pause ~1–2s before the next tool call. Picks up the latest `.output/chrome-mv3/` bundle on disk. Dev/test use only.
+
+No parameters.
+
+### `chrome_runtime_info`
+
+Diagnostic. Returns the SW's identity so E2E runners can verify the SW matches the bundle they just built. Output: `{extensionVersion, extensionId, toolNames[], toolCount, buildHash, builtAt, uptimeMs}`. `buildHash` is injected at build time — use it to assert the running SW is on the latest commit. `toolNames` lists every name the dispatcher resolves (eager + lazy) so callers can diff against the shared schema and detect tools missing in a stale SW.
+
+No parameters.
+
 ## Performance
 
 ### `chrome_performance_start_trace`

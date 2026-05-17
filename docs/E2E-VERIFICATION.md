@@ -1,5 +1,30 @@
 # E2E verification recipe
 
+## TL;DR — `pnpm e2e:full` (unattended)
+
+```bash
+pnpm e2e:full      # rebuild everything → reload SW → run matrix → write /tmp/e2e-result.json
+pnpm e2e:matrix    # skip the rebuild, just run the matrix against the running SW
+```
+
+`scripts/run-e2e-matrix.mjs` talks straight to the bridge's HTTP API on
+`:12306` (no MCP, no Claude Code session needed). It probes
+`chrome_runtime_info` to verify the SW is on the latest bundle, calls
+`chrome_dev_reload` to flush if needed, and walks every matrix row
+returning structured pass/fail per IMP.
+
+Exit codes: `0` clean, `1` matrix failure, `2` SW pre-bootstrap (run a
+one-time manual reload at `chrome://extensions/?id=hbdgbgagpkpjffpklnamcljpakneikee`
+to load `chrome_runtime_info` + `chrome_dev_reload`; every run after that
+is unattended), `3` SW reload didn't take effect, `4` fixture navigation
+failed.
+
+The rest of this document describes the deeper recipe (manual rows,
+chrome-devtools-mcp cross-verification, fixture-addition rules) for
+cases where the standalone runner doesn't cover what you need.
+
+---
+
 Real-browser verification of humanchrome tools using
 `chrome-devtools-mcp` and `humanchrome` running side-by-side in one
 Claude Code session. Catches the things `vitest run` can't:
@@ -19,6 +44,31 @@ non-mocked DOM.
 4. Network access for the late-image case (the fixture hits
    `httpbin.org/delay/2`). If running offline, skip the
    `kind:load_state` section.
+
+## Unattended reload pipeline (no human in the loop)
+
+Bridge + extension code changes don't auto-flush. The recipe:
+
+```bash
+pnpm build:shared && pnpm build:native && pnpm build:extension
+```
+
+…rebuilds everything and `sync-installed.mjs` (postbuild hook on `build:native`)
+copies the bridge bundle to `~/Library/Application Support/humanchrome-bridge/`.
+The running bridge process (spawned by Chrome native messaging) and the
+service-worker still hold the OLD code in memory. To flush them:
+
+- Bridge: `kill $(pgrep -f 'humanchrome-bridge/dist/index.js')` — Chrome
+  respawns it on the next native message.
+- Service worker: call the MCP tool `chrome_dev_reload` — fires
+  `chrome.runtime.reload()` from the SW context which restarts the
+  extension and picks up the new `.output/chrome-mv3/` bundle.
+
+Bootstrap caveat: `chrome_dev_reload` itself needs to be present in the
+running SW to be callable. If you're on a SW that pre-dates this tool,
+do ONE manual reload (`chrome://extensions/?id=...` → reload icon) so the
+SW picks up the build that contains the tool, then every subsequent
+test cycle is unattended.
 
 ## Run
 

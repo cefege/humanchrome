@@ -206,5 +206,14 @@ export default defineConfig({
       // from Vite's dep optimizer to suppress noisy warnings.
       exclude: ['katex', 'mermaid', 'monaco-editor', 'vue-i18n', 'stream-markdown'],
     },
+    // Build identity surfaced via chrome_runtime_info so E2E runners can
+    // detect a SW that didn't pick up the latest bundle.
+    define: {
+      __HC_BUILD_HASH__: JSON.stringify(
+        process.env.HC_BUILD_HASH ||
+          `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      ),
+      __HC_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+    },
   }),
 });

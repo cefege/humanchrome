@@ -122,6 +122,8 @@ export const TOOL_NAMES = {
     CLOSE_MY_TABS: 'browser_close_my_tabs',
     QUEUE_INSPECT: 'chrome_queue_inspect',
     LOCATOR_HANDLER: 'chrome_locator_handler',
+    DEV_RELOAD: 'chrome_dev_reload',
+    RUNTIME_INFO: 'chrome_runtime_info',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3191,6 +3193,24 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['action'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.DEV_RELOAD,
+    description:
+      'Trigger `chrome.runtime.reload()` from the SW so unattended E2E runs (rebuild → reload → re-test) do not need an operator to click "reload" in chrome://extensions. The reply returns immediately; the actual reload fires ~50ms later, so callers should pause ~1–2s before the next tool call. Picks up the latest `.output/chrome-mv3/` bundle on disk. Dev/test use only.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: TOOL_NAMES.BROWSER.RUNTIME_INFO,
+    description:
+      "Diagnostic. Returns the SW's identity so E2E runners can verify the SW matches the bundle they just built. Output: `{extensionVersion, extensionId, toolNames[], toolCount, buildHash, builtAt, uptimeMs}`. `buildHash` is injected at build time — use it to assert the running SW is on the latest commit. `toolNames` lists every name the dispatcher resolves (eager + lazy) so callers can diff against the shared schema and detect tools missing in a stale SW.",
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 /**
@@ -3321,6 +3341,8 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',
   [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
+  [TOOL_NAMES.BROWSER.DEV_RELOAD]: 'System',
+  [TOOL_NAMES.BROWSER.RUNTIME_INFO]: 'System',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
