@@ -49,6 +49,21 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0120 · SW auto-reload kills bridge → drops MCP-client connections (regression) · score: 9
+
+- **Proposed by**: claude · 2026-05-17 (observed in a sibling Claude Code session after PR #203 merged)
+- **Status**: proposed
+- **Why**: IMP-0119's self-update watcher reloads the SW automatically every build. Each reload tears down the native-messaging port, which makes `humanchrome-bridge` call `cleanup()` and `process.exit(0)` (`app/native-server/src/native-messaging-host.ts:436-458`). Any MCP/HTTP client connected to :12306 sees TCP RST and — for Claude Code at least — does NOT auto-reconnect; the user has to manually `/mcp` or restart their session. Pre-IMP-0119 this was rare (manual reloads); post-IMP-0119 it fires on every `pnpm build:extension`, so the friction is now constant. Worse: it pushes other Claude Code sessions to ask the user "please restart your Claude Code session," directly violating the no-touch-browser-or-client rule landed in #203.
+- **Cost**: M (architecture choice between options below)
+- **Value**: L (eliminates a recurring manual ask + makes the build-then-test loop fully unattended again)
+- **Fix sketch**: Three viable angles:
+  1. **Graceful drain + handoff.** On SW disconnect, bridge keeps the HTTP server alive for N seconds while a fresh bridge spawns under the new SW; old bridge proxies in-flight requests to new one via the IMP-0115 instance registry. Tricky: Chrome only spawns the new bridge after the SW reconnects, and the new bridge port-walks per IMP-0114 to a different port — so :12306 is briefly orphaned.
+  2. **Stable :12306 proxy detached from SW lifecycle.** Standalone long-lived proxy binds :12306 and reads `~/Library/Application Support/humanchrome-bridge/instances/` to forward to whichever bridge is currently alive. Survives SW reloads transparently. Larger change but the only thing that gives MCP clients a _stable_ endpoint across SW restarts.
+  3. **Bridge keepalive across SW handoff.** Decouple bridge process from NM lifecycle: when stdin closes, don't `process.exit(0)` — instead wait for a fresh NM connection from the new SW (Chrome would need to re-target the same process, which isn't how NM works — so this likely won't fly without a Chrome behavior we can't rely on).
+- **Repro**: open two Claude Code sessions both with humanchrome MCP loaded. Run `pnpm build:extension` in one. ~30s later the watcher fires `chrome.runtime.reload()`. The OTHER session loses its MCP connection and requires `/mcp` or session restart to recover.
+- **Files involved**: `app/native-server/src/native-messaging-host.ts` (cleanup → exit), `app/native-server/src/server/index.ts` (HTTP lifecycle), `app/chrome-extension/entrypoints/background/self-update-watcher.ts` (could add a "drain in flight" pre-reload hook).
+- **Notes**: this is the natural follow-on to #201 (IMP-0119) and #203 — both fixes made auto-reload work; this one makes auto-reload not break downstream clients.
+
 ### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
