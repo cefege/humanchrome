@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0103 · Installed bridge is stale — IMP-0098/0100/0101/0102 surface rejected at MCP layer (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-17; rebuilt+resynced bridge, matrix run at `docs/e2e-runs/2026-05-17_baseline.json` shows IMP-0100/0101/0102 rows all PASS)
 - **Why**: The bridge installed at `~/Library/Application Support/humanchrome-bridge/` was last built at 2026-05-16 14:56 — ~6h before the local `packages/shared/dist/` (20:10) and the extension build (20:46). Its bundled `humanchrome-shared` still ships the pre-IMP-0098 enums, so every IMP-0098..0102 contract is rejected at the MCP boundary before reaching the (correctly-updated) extension. E2E verification per `docs/E2E-VERIFICATION.md` against `playwright-parity.html` could not exercise the new surface at all — see IMP-0098/0100/0101/0102 matrix rows.
 - **Cost**: S
 - **Value**: L
@@ -64,10 +64,20 @@ The order of items inside ## Active is sorted by score descending.
   - `chrome_locator_handler` not exposed via MCP at all (ToolSearch miss).
 - **Fix sketch**: Re-run `pnpm --filter chrome-extension build` (already done) + rebuild `packages/shared` + `humanchrome-bridge register` (or whichever install script bumps `~/Library/Application Support/humanchrome-bridge/`). Add a startup version check that warns when bridge-bundled `humanchrome-shared` version ≠ workspace version. Document the reinstall step at the top of `docs/E2E-VERIFICATION.md` "Prerequisites".
 
+### IMP-0112 · IMP-0098 role+name resolver returns empty for explicit role lookup (bug) · score: 7
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: proposed
+- **Why**: `chrome_click_element({selectorType:'role', selector:'button[name="Submit"]'})` against a real `<button>Submit</button>` returns `INVALID_ARGS: Failed to resolve role selector: unknown error` with `details: {selectorType:'role', selector:'button[name=\"Submit\"]'}`. The resolver IS running (this is the `resolveSelectorToRef` error path, not click-helper's "not found"), but acc-tree-helper's `__hcResolveByKind('role', ...)` returns matchCount:0 even though the target element exists with explicit `role=button` (implicit via `<button>` tag) and `name="Submit"` (text content). Either the role match is too strict (e.g. requires explicit `role=button` attribute and ignores implicit ARIA roles for `<button>`) or the accessible-name computation isn't extracting text content.
+- **Cost**: M
+- **Value**: L
+- **Repro**: `pnpm e2e:isolated` — "IMP-0098 role + name (Submit)" row fails. Full evidence in `docs/e2e-runs/2026-05-17_baseline.json`.
+- **Fix sketch**: Trace `accessibility-tree-helper.js:929-967` (`resolveByKind` → `resolveByRoleJs`). Likely missing the implicit-role lookup for HTML5 button/link/input elements (Playwright's `getByRole` matches `<button>` against `role=button` without requiring the explicit attribute). May also need `computeAccessibleName_v2` to fall through to `textContent` when no `aria-label`/`aria-labelledby` set.
+
 ### IMP-0108 · chrome_wait_for / chrome_await_element ignore `timeoutMs` and block ~120s (bug) · score: 5
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: wontdo (2026-05-17; stale-bridge artifact — IMP-0103 root cause. Matrix `docs/e2e-runs/2026-05-17_baseline.json` shows `wait_for kind:url`, `wait_for kind:load_state`, and `await_element absent` all PASS against a fresh SW. Closing.)
 - **Why**: `chrome_wait_for({kind:'element', selector:'#submit-btn', timeoutMs:2000})` and `chrome_await_element({selector:'#ephemeral', state:'absent', timeoutMs:3000})` both hang and ultimately return `{code:"UNKNOWN", message:"Request timed out after 120000ms"}` — the bridge's default 120s envelope, not the caller's budget. `#submit-btn` is present immediately so element-present should resolve in <50ms. Suggests the call isn't reaching the SW wait-helper at all (bridge handler missing or message envelope mismatched), and the bridge's default request timeout is what eventually returns.
 - **Cost**: M
 - **Value**: M
@@ -99,6 +109,22 @@ The order of items inside ## Active is sorted by score descending.
 - **Files**: `.github/workflows/e2e-fixture.yml` (new), `docs/E2E-VERIFICATION.md` (point at the workflow), `package.json` (optional CI-mode flag if `--ci` needs to swap behavior).
 - **Sketch**: New workflow triggered on `pull_request` with `paths: ['app/chrome-extension/**', 'packages/shared/**']`. Steps: checkout → pnpm install → install Chrome via `browser-actions/setup-chrome@v1` → `pnpm build` → start static fixture server (`python3 -m http.server 4173 --directory app/chrome-extension/tests/e2e/fixtures`) in background → launch Chrome headed with `--load-extension=$REPO/app/chrome-extension/.output/chrome-mv3 --user-data-dir=$RUNNER_TEMP/profile --remote-debugging-port=9222 --no-first-run` in background → wait-for-port → spawn bridge with `humanchrome-bridge register` + wait-for-port on `:12306` → run `pnpm e2e:full --json $RUNNER_TEMP/result.json` (which itself calls `chrome_dev_reload` + polls runtime_info) → `actions/upload-artifact@v4` for the JSON → job fails when exit code ≠ 0.
 - **Open questions**: Headed Chrome on GitHub Actions Linux runners requires `xvfb-run` wrapping. macOS runners may be cleaner but cost more. Headless Chrome won't help because the extension needs MV3 service-worker support which is gated on browser surface; might need to investigate `--headless=new` compatibility before settling. Bootstrap reload (the one human step in IMP-0109) can be skipped in CI because the SW starts fresh on each Chrome launch — there's no prior installation to be stale against.
+
+### IMP-0113 · IMP-0097 actionability — offscreen scroll-into-view + unstable_bbox not enforced (bug) · score: 5
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: proposed
+- **Why**: Matrix run shows two actionability gaps remain after IMP-0103 bridge fix + IMP-0104 acc-tree-helper injection:
+- **Cost**: M
+- **Value**: M
+  - **Offscreen scroll-into-view**: `chrome_click_element({selector:'#vis-offscreen'})` (button at `x:-9999, y:563`) returns `NOT_ACTIONABLE failures:['not_visible']` instead of scrolling the element into view first and then clicking (Playwright's standard behavior). Element bbox is correctly computed at off-screen coords; actionability decides "not visible" before attempting scroll.
+  - **Animation unstable_bbox**: `chrome_click_element({selector:'#sliding-btn'})` (a 4s infinite `transform: translateX()` animation) clicks SUCCEEDS without `force:true` — the bbox-stability check isn't catching the animation. Should return `NOT_ACTIONABLE failures:['unstable_bbox']`.
+
+- **Repro**: `pnpm e2e:isolated` — "IMP-0097 offscreen scrolls into view" and "IMP-0097 animation unstable_bbox" rows fail. Evidence in `docs/e2e-runs/2026-05-17_baseline.json`.
+- **Fix sketch**:
+  1. In `actionability.js` add `scrollIntoViewIfNeeded({block:'center'})` BEFORE the `checkVisible` pass when initial visible-check fails due to bbox-outside-viewport. Re-check after scroll.
+  2. The stability check (`checkStable` at `actionability.js:235-267`) compares 2 frames. A 4s animation moves slowly enough that 2 consecutive `requestAnimationFrame` deltas may round to 0px — bump the comparison to 3+ frames OR widen the tolerance window (e.g. detect transform: matrix3d differences via getComputedStyle.transform).
+- **Note**: Other actionability checks (`disabled`, `aria-disabled`, `readonly`, `occluded_by`, `display:none/visibility:hidden`) all PASS in the matrix — IMP-0105's broader claim that "all actionability is broken" was wrong; only these two specific cases need work.
 
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
