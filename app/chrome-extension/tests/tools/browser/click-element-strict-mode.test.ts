@@ -189,6 +189,18 @@ describe('chrome_click_element — strict mode (IMP-0098)', () => {
     expect(ensure.allowMultiple).toBe(true);
   });
 
+  it('raw-CSS multi-match with index forwards index to click-helper (IMP-0117)', async () => {
+    // Regression: pre-IMP-0117, the SW didn't forward `index` to click-helper
+    // so the strict-mode probe always fired and returned the multi-match
+    // error even when the caller had explicitly asked for the Nth match.
+    const capture: any[] = [];
+    installChrome({ capture });
+    const res = await clickTool.execute({ selector: '.row-btn', tabId: 5, index: 1 });
+    expect(res.isError).toBe(false);
+    const click = capture.find((m) => m.action === 'clickElement');
+    expect(click.index).toBe(1);
+  });
+
   it('raw-CSS multi-match via click-helper returns strict envelope -> INVALID_ARGS', async () => {
     installChrome({
       clickResponse: {

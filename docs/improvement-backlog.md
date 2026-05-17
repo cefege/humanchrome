@@ -61,7 +61,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0117 · strict-mode multi-match with `index:1` — index param not honored (regression) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
-- **Status**: proposed
+- **Status**: done (2026-05-17; interaction.ts now forwards `index` to CLICK_ELEMENT + FILL_ELEMENT; click-helper and fill-helper resolve via `querySelectorAll(selector)[index]` when index is set, bypassing the strict-mode probe.)
 - **Why**: `chrome_click_element({selector:'.row-btn', index:1})` should click the second `.row-btn` (Playwright contract: `index` selects the Nth match instead of erroring on multi-match). After IMP-0104's acc-tree-helper injection started exposing `__hcQuerySelectorUnique`, click-helper's strict-mode probe (`inject-scripts/click-helper.js:178-200`) fires before checking `options.index`. It returns the strict-violation error regardless. Fix: honor `index` before the strict-violation early-return — pick `document.querySelectorAll(selector)[index]` when index is set, OR pass index to `__hcQuerySelectorUnique` so it returns the Nth match directly.
 - **Cost**: S
 - **Value**: M

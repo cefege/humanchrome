@@ -175,7 +175,28 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
             ? window.__hcQuerySelectorUnique
             : null;
         const allowMultipleStrict = !!(options && options.allowMultiple);
-        if (uniqueProbe && !allowMultipleStrict) {
+        const indexHint =
+          options && typeof options.index === 'number' && options.index >= 0
+            ? Math.floor(options.index)
+            : -1;
+        if (indexHint >= 0) {
+          // IMP-0117: explicit `index` opts out of strict mode — caller knows
+          // there are multiple matches and wants the Nth. Pick directly via
+          // querySelectorAll; no strict-violation envelope, no falling back
+          // to first-match.
+          let all;
+          try {
+            all = document.querySelectorAll(selector);
+          } catch (err) {
+            return { error: err.message || String(err) };
+          }
+          if (indexHint >= all.length) {
+            return {
+              error: `Selector "${selector}" matched ${all.length} elements; index ${indexHint} is out of range.`,
+            };
+          }
+          element = all[indexHint];
+        } else if (uniqueProbe && !allowMultipleStrict) {
           const probe = uniqueProbe(selector, false);
           if (probe.error) {
             return { error: probe.error };
@@ -465,6 +486,8 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
           cancelable: request.cancelable,
           modifiers: request.modifiers,
           force: request.force === true,
+          allowMultiple: request.allowMultiple === true,
+          index: typeof request.index === 'number' ? request.index : undefined,
           actionabilityTimeoutMs: request.actionabilityTimeoutMs,
         },
       )
