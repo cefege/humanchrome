@@ -233,36 +233,45 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
    * we return immediately.
    */
   function checkStable(el) {
+    // IMP-0118: the old check resolved on the first equal pair of rAF
+    // samples. ease-in-out animations have velocity-zero peaks at every
+    // reversal, so a single equal pair was a false-positive "stable"
+    // signal. Replace with a fixed-time-window sampler — take rects at
+    // t=0, t=STABILITY_SAMPLE_MS, t=2*STABILITY_SAMPLE_MS. All three
+    // must match. A 4s/200px animation moves ~2.5px per 50ms, which the
+    // sampler reliably catches as unstable.
+    //
+    // Why setTimeout instead of rAF: rAF schedules vary under Chrome's
+    // background-tab / throttling rules, and earlier attempts using
+    // consecutive-equal rAF samples caused matrix-time SW hangs that
+    // weren't reproducible in unit tests. Fixed-interval setTimeout has
+    // none of that timing fragility.
+    const STABILITY_SAMPLE_MS = 50;
+    const REQUIRED_SAMPLES = 3;
     return new Promise((resolve) => {
-      let frames = 0;
-      let prev = el.getBoundingClientRect();
+      const samples = [el.getBoundingClientRect()];
+      let collected = 1;
 
       function rectsEqual(a, b) {
         return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
       }
 
-      function tick() {
+      function takeSample() {
         const current = el.getBoundingClientRect();
-        if (rectsEqual(prev, current)) {
-          resolve(null);
-          return;
-        }
-        prev = current;
-        frames += 1;
-        if (frames >= STABILITY_MAX_FRAMES) {
+        samples.push(current);
+        collected += 1;
+        if (!rectsEqual(samples[0], current)) {
           resolve('unstable_bbox');
           return;
         }
-        // jsdom doesn't ship rAF; setTimeout(16) is the standard polyfill
-        // pattern and the test suite seeds it explicitly.
-        const raf =
-          typeof window.requestAnimationFrame === 'function'
-            ? window.requestAnimationFrame
-            : (cb) => setTimeout(cb, 16);
-        raf(tick);
+        if (collected >= REQUIRED_SAMPLES) {
+          resolve(null);
+          return;
+        }
+        setTimeout(takeSample, STABILITY_SAMPLE_MS);
       }
 
-      tick();
+      setTimeout(takeSample, STABILITY_SAMPLE_MS);
     });
   }
 
