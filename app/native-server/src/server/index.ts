@@ -507,7 +507,18 @@ export class Server {
   // Server Lifecycle
   // ============================================================
 
-  public async start(port = NATIVE_SERVER_PORT, nativeHost: NativeMessagingHost): Promise<void> {
+  /**
+   * Bind the Fastify HTTP server. When `port` is already bound (another
+   * humanchrome-bridge instance is serving a different Chrome), walks up to
+   * `port + maxWalk` to find a free port and returns the one actually bound.
+   * This is what lets two Chromes (user's regular + Chrome for Testing)
+   * coexist — each bridge process gets its own HTTP port.
+   */
+  public async start(
+    port = NATIVE_SERVER_PORT,
+    nativeHost: NativeMessagingHost,
+    maxWalk = 100,
+  ): Promise<number> {
     if (!this.nativeHost) {
       this.nativeHost = nativeHost;
     } else if (this.nativeHost !== nativeHost) {
@@ -515,21 +526,24 @@ export class Server {
     }
 
     if (this.isRunning) {
-      return;
+      return Number(process.env.HUMANCHROME_PORT) || port;
     }
 
-    try {
-      await this.fastify.listen({ port, host: SERVER_CONFIG.HOST });
-
-      // Set port environment variables after successful listen for HumanChrome URL resolution
-      process.env.HUMANCHROME_PORT = String(port);
-      process.env.MCP_HTTP_PORT = String(port);
-
-      this.isRunning = true;
-    } catch (err) {
-      this.isRunning = false;
-      throw err;
+    let lastErr: unknown = null;
+    for (let candidate = port; candidate <= port + maxWalk; candidate++) {
+      try {
+        await this.fastify.listen({ port: candidate, host: SERVER_CONFIG.HOST });
+        process.env.HUMANCHROME_PORT = String(candidate);
+        process.env.MCP_HTTP_PORT = String(candidate);
+        this.isRunning = true;
+        return candidate;
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.code !== 'EADDRINUSE') break;
+      }
     }
+    this.isRunning = false;
+    throw lastErr ?? new Error(`No free port found in [${port}, ${port + maxWalk}]`);
   }
 
   public async stop(): Promise<void> {
