@@ -205,10 +205,12 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
             return { error: `Element with selector "${selector}" not found` };
           }
           if (probe.matchCount > 1) {
-            const { trueCount, samples } =
-              typeof window.__hcCollectMatchSamples === 'function'
-                ? window.__hcCollectMatchSamples(selector, 5)
-                : { trueCount: probe.matchCount, samples: [] };
+            // acc-tree-helper.js is always co-injected with click-helper.js
+            // (see interaction.ts ClickTool injectContentScript list), so
+            // __hcCollectMatchSamples is guaranteed present here — no
+            // fallback (a fake fallback would re-introduce IMP-0116 by
+            // returning the probe's 2-cap as the "true" count).
+            const { trueCount, samples } = window.__hcCollectMatchSamples(selector, 5);
             return {
               error: `Selector "${selector}" matched ${trueCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
               strict: { matchCount: trueCount, samples },
