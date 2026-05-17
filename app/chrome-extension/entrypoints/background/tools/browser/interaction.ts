@@ -99,7 +99,12 @@ class ClickTool extends BaseBrowserToolExecutor {
       // that click-helper reaches through `window.__actionability`.
       const [snapshot] = await Promise.all([
         this.snapshotTabState(tab.id),
+        // IMP-0104: accessibility-tree-helper.js installs window.__hcQuerySelectorUnique,
+        // which click-helper reaches through for strict-mode multi-match detection.
+        // Without it the helper falls through to a single document.querySelector and
+        // silently picks the first of N matches, defeating IMP-0098's safety guard.
         this.injectContentScript(tab.id, [
+          'inject-scripts/accessibility-tree-helper.js',
           'inject-scripts/actionability.js',
           'inject-scripts/click-helper.js',
         ]),
@@ -335,8 +340,10 @@ class FillTool extends BaseBrowserToolExecutor {
 
       // Inject actionability primitive alongside fill-helper. The helper
       // reaches through `window.__actionability` for the visible+enabled+
-      // editable suite (IMP-0097).
+      // editable suite (IMP-0097). accessibility-tree-helper.js installs
+      // window.__hcQuerySelectorUnique for strict-mode multi-match (IMP-0104).
       await this.injectContentScript(tab.id, [
+        'inject-scripts/accessibility-tree-helper.js',
         'inject-scripts/actionability.js',
         'inject-scripts/fill-helper.js',
       ]);
