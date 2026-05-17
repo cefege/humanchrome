@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>humanchrome — Playwright-parity verification fixture</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        line-height: 1.4;
+      }
+      body {
+        max-width: 880px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      section {
+        margin: 2rem 0;
+        padding: 1rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        margin: 0.5rem 0;
+        align-items: center;
+      }
+      .hidden-display {
+        display: none;
+      }
+      .hidden-visibility {
+        visibility: hidden;
+      }
+      .hidden-opacity {
+        opacity: 0;
+      }
+      .no-pointer {
+        pointer-events: none;
+        background: #fee;
+      }
+      .offscreen {
+        position: absolute;
+        left: -9999px;
+      }
+      .occluded-wrap {
+        position: relative;
+        padding: 1rem 0;
+      }
+      .occluder {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 200, 0.85);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+      }
+      .sliding {
+        animation: slide 4s ease-in-out infinite alternate;
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        background: #fea;
+        border: 1px solid #c93;
+      }
+      @keyframes slide {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(200px);
+        }
+      }
+      .cookie-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: #222;
+        color: white;
+        padding: 1rem;
+        display: none;
+        align-items: center;
+        gap: 1rem;
+        z-index: 9999;
+      }
+      .cookie-banner.shown {
+        display: flex;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.5rem;
+        border-radius: 4px;
+      }
+      .log {
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: #333;
+        min-height: 1.5em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>humanchrome — Playwright-parity verification fixture</h1>
+    <p>
+      Composite page exercising every IMP shipped in the
+      <code>0092..0102</code> push. Each section is self-contained and addressable by anchor; see
+      <code>docs/E2E-VERIFICATION.md</code> for the recipe.
+    </p>
+
+    <!-- ============================================================== -->
+    <section id="role-selectors">
+      <h2>IMP-0098 — Role + name (getByRole)</h2>
+      <button id="submit-btn" type="button">Submit</button>
+      <button id="cancel-btn" type="button">Cancel</button>
+      <a href="#" id="signup-link">Sign up</a>
+      <button type="button" aria-label="Close dialog">&times;</button>
+      <div role="button" tabindex="0" aria-label="Custom button">Custom</div>
+      <p
+        >Expected: <code>role:button[name="Submit"]</code> picks the first button;
+        <code>role:link[name="Sign up"]</code> picks the anchor;
+        <code>role:button[name="Close dialog"]</code> picks the &times;.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="label-placeholder">
+      <h2>IMP-0098 — Label / placeholder / alt / title (getByLabel/etc.)</h2>
+      <form>
+        <div class="row">
+          <label for="email-in">Email address</label>
+          <input id="email-in" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="row">
+          <label>
+            Username
+            <input id="username-in" type="text" />
+          </label>
+        </div>
+        <div class="row">
+          <input
+            id="search-in"
+            type="search"
+            placeholder="Search&hellip;"
+            aria-label="Site search"
+          />
+        </div>
+        <div class="row">
+          <img
+            alt="Profile photo"
+            src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iMjAiIGZpbGw9IiNjZmYiLz48L3N2Zz4="
+          />
+          <span title="Tooltip target">Hover me</span>
+        </div>
+      </form>
+      <p
+        >Expected: <code>label:Email address</code> resolves the email input;
+        <code>label:Username</code> resolves via wrapping label;
+        <code>placeholder:Search&hellip;</code> resolves the search input;
+        <code>alt:Profile photo</code> resolves the image;
+        <code>title:Tooltip target</code> resolves the span.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="strict-mode">
+      <h2>IMP-0098 — Strict mode (multi-match guard)</h2>
+      <button type="button" class="row-btn">Edit</button>
+      <button type="button" class="row-btn">Edit</button>
+      <button type="button" class="row-btn">Edit</button>
+      <p
+        >Expected: <code>.row-btn</code> with no <code>index</code> or
+        <code>multi:true</code> &rarr; <code>INVALID_ARGS</code> with
+        <code>details.matchCount === 3</code>. With <code>index:1</code> the second one is
+        clicked.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="actionability-visibility">
+      <h2>IMP-0097 — Actionability: visibility cases</h2>
+      <button id="vis-display-none" class="hidden-display" type="button">display:none</button>
+      <button id="vis-visibility" class="hidden-visibility" type="button">visibility:hidden</button>
+      <button id="vis-opacity" class="hidden-opacity" type="button">opacity:0</button>
+      <button id="vis-pointer-events" class="no-pointer" type="button">pointer-events:none</button>
+      <button id="vis-offscreen" class="offscreen" type="button">off-screen</button>
+      <p
+        >Expected: every click on these targets returns <code>NOT_ACTIONABLE</code> with
+        <code>failures: ['not_visible']</code> (or similar). <code>force:true</code> bypasses;
+        <code>off-screen</code> gets scrolled into view first.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="actionability-stable">
+      <h2>IMP-0097 — Actionability: stability (animation)</h2>
+      <button id="sliding-btn" class="sliding" type="button">Catch me</button>
+      <p
+        >Expected: click without <code>force</code> returns <code>NOT_ACTIONABLE</code> with
+        <code>failures: ['unstable_bbox']</code> (the button is mid-animation each frame). With
+        <code>force:true</code> the click dispatches but lands somewhere arbitrary along the
+        path.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="actionability-hit-test">
+      <h2>IMP-0097 — Actionability: hit-test (occluded target)</h2>
+      <div class="occluded-wrap">
+        <button id="occluded-btn" type="button">Target button</button>
+        <div id="overlay" class="occluder">Modal overlay intercepts clicks</div>
+      </div>
+      <p
+        >Expected: click on <code>#occluded-btn</code> returns <code>NOT_ACTIONABLE</code> with
+        <code>failures: ['occluded_by:div#overlay']</code>. Dismiss the overlay first (toggle its
+        <code>display</code>), then the click succeeds.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="actionability-enabled">
+      <h2>IMP-0097 — Actionability: enabled / editable</h2>
+      <button id="disabled-btn" type="button" disabled>Disabled button</button>
+      <button id="aria-disabled-btn" type="button" aria-disabled="true">aria-disabled</button>
+      <fieldset disabled>
+        <input id="fieldset-disabled-input" type="text" value="inside disabled fieldset" />
+      </fieldset>
+      <input id="readonly-in" type="text" value="readonly" readonly />
+      <p
+        >Expected: clicks/fills on these return <code>NOT_ACTIONABLE</code> with appropriate
+        failures (<code>disabled</code> or <code>not_editable</code>).</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="dialog">
+      <h2>IMP-0100 — Proactive dialog handler</h2>
+      <button id="trigger-alert" type="button" onclick="window.alert('Alert from fixture')"
+        >Trigger alert</button
+      >
+      <button
+        id="trigger-confirm"
+        type="button"
+        onclick="window.lastConfirm = window.confirm('Continue?')"
+        >Trigger confirm</button
+      >
+      <button
+        id="trigger-prompt"
+        type="button"
+        onclick="window.lastPrompt = window.prompt('Enter value:', '')"
+        >Trigger prompt</button
+      >
+      <div class="log" id="dialog-log"></div>
+      <p
+        >Expected: with no <code>register_default</code> policy, clicking these blocks the tab until
+        the agent calls <code>handle_dialog</code>. After
+        <code>register_default({tabId, defaultBehavior:'accept'})</code>, clicks return immediately
+        and the dialog is auto-handled. <code>list_defaults({tabId})</code> shows the recent dialog
+        log.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="locator-handler">
+      <h2>IMP-0101 — chrome_locator_handler (sticky overlay)</h2>
+      <button
+        id="show-banner"
+        type="button"
+        onclick="document.getElementById('cookie-banner').classList.add('shown')"
+        >Show cookie banner</button
+      >
+      <button id="protected-action" type="button" style="margin-left: 1rem"
+        >Action that needs banner dismissed</button
+      >
+      <div id="cookie-banner" class="cookie-banner">
+        <span>We use cookies for analytics.</span>
+        <button
+          id="accept-cookies"
+          type="button"
+          onclick="document.getElementById('cookie-banner').classList.remove('shown')"
+          >Accept</button
+        >
+      </div>
+      <p
+        >Expected: register
+        <code
+          >{selector:'#cookie-banner.shown', dismissSelector:'#accept-cookies',
+          dismissAction:'click', persistent:true}</code
+        >. Click <code>#show-banner</code>, then attempt <code>#protected-action</code> — the
+        handler dismisses the banner before the action's hit-test would fail.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="wait-for-url">
+      <h2>IMP-0102 — wait_for kind:url</h2>
+      <button id="push-state" type="button" onclick="history.pushState({}, '', '/checkout?step=2')"
+        >Push /checkout</button
+      >
+      <p
+        >Expected: <code>wait_for({kind:'url', pattern:'/checkout'})</code>
+        resolves immediately if already there, otherwise resolves on
+        <code>history.pushState</code>. Both substring and <code>/regex/flags</code> patterns
+        work.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="wait-for-load-state">
+      <h2>IMP-0102 — wait_for kind:load_state</h2>
+      <button
+        id="load-late-image"
+        type="button"
+        onclick="
+          const img = document.createElement('img');
+          img.src = 'https://httpbin.org/delay/2';
+          img.alt = 'late';
+          img.onload = () => (document.getElementById('late-image-log').textContent = 'loaded');
+          document.getElementById('late-image-slot').appendChild(img);
+        "
+        >Trigger late image</button
+      >
+      <span id="late-image-slot"></span>
+      <span class="log" id="late-image-log">(no image yet)</span>
+      <p
+        >Expected: <code>wait_for({kind:'load_state', state:'load'})</code> resolves after the late
+        <code>&lt;img&gt;</code> finishes loading. <code>state:'domcontentloaded'</code> resolves
+        earlier.</p
+      >
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="bug-fixes">
+      <h2>Bug-fix verification (IMP-0092 / 0095 / 0096)</h2>
+      <div class="row">
+        <span>IMP-0092: click at coords (9999, 9999) — empty space</span>
+      </div>
+      <div class="row">
+        <button
+          id="ephemeral-modal"
+          type="button"
+          onclick="
+            (() => {
+              const e = document.createElement('div');
+              e.id = 'ephemeral';
+              e.textContent = 'modal';
+              document.body.appendChild(e);
+              setTimeout(() => e.remove(), 1500);
+            })()
+          "
+          >Create ephemeral #ephemeral</button
+        >
+        <span
+          >IMP-0095: <code>await_element({selector:'#ephemeral', state:'absent'})</code> success
+          returns <code>found:false, absent:true</code>.</span
+        >
+      </div>
+      <div class="row">
+        <input id="quote-input" type="file" name="o'brien-file" />
+        <span
+          >IMP-0096: <code>file_upload({selector:'input[name="o\\'brien-file"]'})</code> attaches
+          the file AND dispatches the change event (single-quote in selector previously broke the
+          event dispatch).</span
+        >
+      </div>
+    </section>
+
+    <script>
+      // Surface dialog-policy log entries on the page for human-visible verification.
+      const dialogLog = document.getElementById('dialog-log');
+      const origAlert = window.alert;
+      const origConfirm = window.confirm;
+      const origPrompt = window.prompt;
+      window.alert = (m) => {
+        dialogLog.textContent = `alert("${m}")`;
+        return origAlert.call(window, m);
+      };
+      window.confirm = (m) => {
+        const r = origConfirm.call(window, m);
+        dialogLog.textContent = `confirm("${m}") -> ${r}`;
+        return r;
+      };
+      window.prompt = (m, d) => {
+        const r = origPrompt.call(window, m, d);
+        dialogLog.textContent = `prompt("${m}") -> "${r}"`;
+        return r;
+      };
+    </script>
+  </body>
+</html>

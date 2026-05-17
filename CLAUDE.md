@@ -112,6 +112,7 @@ When adding a new "must not drift" invariant, name the file `*.contract.test.ts`
 - **Visual editor**: `docs/VisualEditor.md`.
 - **Caller contract** (calling tools, not authoring them): `docs/AGENTS.md`.
 - **Auto-generated tool reference**: `docs/TOOLS.md` (regenerate via `cd app/native-server && node scripts/generate-tools-doc.mjs`).
+- **E2E verification recipe**: `docs/E2E-VERIFICATION.md` + `app/chrome-extension/tests/e2e/` — runbook + HTML fixtures for real-browser verification driven by `chrome-devtools-mcp` + `humanchrome` side-by-side (the `.mcp.json` at repo root registers both). Use after any push that touches interaction tools, selector strategies, or inject-scripts.
 
 ---
 
