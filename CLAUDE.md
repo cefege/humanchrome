@@ -43,6 +43,7 @@ After the 5 edits:
 - `npx vitest run --reporter=dot tests/tools/browser/<slug>.test.ts tests/tools/lazy-tool-registry.test.ts` — both must pass.
 - `cd app/native-server && node scripts/generate-tools-doc.mjs` — regenerates `docs/TOOLS.md`.
 - `cd app/native-server && npm test` only if bridge code was touched.
+- **E2E verification (mandatory for chrome-extension changes)** — see § "E2E verification — required for every chrome-extension change" below. Build the extension, run the fixture matrix via `chrome-devtools-mcp` + `humanchrome` side-by-side per `docs/E2E-VERIFICATION.md`, extend the fixture if a new tool/contract was added. Push is not done until this passes.
 
 Long-form templates with copy-pasteable file scaffolds: [`docs/AUTHORING-A-TOOL.md`](docs/AUTHORING-A-TOOL.md).
 
@@ -87,6 +88,59 @@ Not lint-enforced, but every PR follows them.
 - **Response-body cap is 1 MiB.** When proxying response bodies (network-capture, intercept-response), cap at `1 * 1024 * 1024` bytes and surface truncation as `responseBodyTruncation: { truncated, originalSize, limit, unit:"bytes" }`.
 - **Per-client tab ownership.** The dispatcher (`tools/index.ts`) resolves the target tab from the calling client's owned set (`utils/client-state.ts`); it never falls back to the globally-active tab. Mutating tools without an explicit `tabId` get a fresh background tab auto-spawned and claimed for the client — opt out by setting `static readonly autoSpawnTab = false` on tools that don't need a tab (`pace`, `pace_get`) or that scan the whole browser (`get_windows_and_tabs`, `claim-tab`). Targeting a tab owned by another client returns `TAB_NOT_OWNED`.
 - **CI flake to ignore.** `app/native-server/src/server/preHandler.test.ts` has a 5s-timeout flake under parallel jest load; re-run in isolation before treating as a regression.
+
+---
+
+## E2E verification — required for every chrome-extension change
+
+**Hard rule:** any change touching `app/chrome-extension/` (tools,
+inject-scripts, selector strategies, shared library, recorder, popup,
+sidepanel, builder, web-editor) MUST be E2E-verified in a real
+Chrome before the change is considered shipped. Vitest with mocked
+`chrome.*` proves the shape contract; it does NOT prove the tool
+works against a live DOM.
+
+The harness:
+
+1. `.mcp.json` at repo root registers both `humanchrome` (HTTP bridge
+   at :12306) and `chrome-devtools` (`npx -y chrome-devtools-mcp@latest`)
+   so Claude Code sessions in this repo automatically have both
+   available.
+2. `app/chrome-extension/tests/e2e/fixtures/*.html` — static fixtures
+   covering every distinct tool/contract. Anchored sections, one per
+   feature, with expected outcomes inline.
+3. `docs/E2E-VERIFICATION.md` — the runbook. Self-contained prompt
+   for a fresh Claude Code session to execute the full matrix and
+   produce a pass/fail per IMP.
+
+Workflow for every chrome-extension PR:
+
+1. `pnpm --filter chrome-extension build` (produces `.output/chrome-mv3/`).
+2. If the change added a new tool / selector type / actionability rule
+   / dialog action / wait kind / inject-script behaviour: append a row
+   (and the matching `<section>`) to `playwright-parity.html` and a
+   row to the matrix in `docs/E2E-VERIFICATION.md`. One row per
+   distinct contract — don't bloat with per-code-path variants.
+3. Open a fresh Claude Code session, run the verification prompt from
+   `docs/E2E-VERIFICATION.md`. Expect a clean pass.
+4. Any unexpected failures → file as `bug-scout`-format IMP entries in
+   `docs/improvement-backlog.md` BEFORE merging. The push is blocked
+   until either the bug is fixed or the regression is explicitly
+   accepted in the IMP entry.
+
+When NOT required:
+
+- Pure-docs / pure-backlog changes.
+- `app/native-server/` (bridge) changes that don't touch the
+  extension — the native-server has its own jest suite.
+- `packages/shared/` changes that are pure type/schema additions with
+  no extension-side consumer (rare; usually the extension consumes
+  the schema and so the rule applies).
+
+When in doubt, run it. Skipping E2E for "this is a trivial change"
+is how regressions hit production unnoticed — every previous
+"trivial" actionability tweak that broke clicks would have been
+caught here.
 
 ---
 
