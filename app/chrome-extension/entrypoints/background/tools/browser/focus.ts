@@ -18,11 +18,8 @@ interface FocusParams {
   frameId?: number;
   index?: number;
   multi?: boolean;
-  // IMP-0097: skip the visibility check. scrollIntoView still runs. Default
-  // false. (Focus only runs the `visible` check — Playwright matches this.)
+  /** Skip the visibility check. Default false. */
   force?: boolean;
-  // IMP-0097: per-call cap on actionability wait. Default 5000ms.
-  actionabilityTimeoutMs?: number;
 }
 
 interface ShimSuccess {
@@ -81,8 +78,6 @@ class FocusTool extends BaseBrowserToolExecutor {
     }
 
     const force = args.force === true;
-    const actionabilityTimeoutMs =
-      typeof args.actionabilityTimeoutMs === 'number' ? args.actionabilityTimeoutMs : 5000;
 
     try {
       // IMP-0098: structured selectors (`role`, `label`, …) and prefixed CSS
@@ -125,7 +120,7 @@ class FocusTool extends BaseBrowserToolExecutor {
         target,
         world: 'ISOLATED',
         func: focusShim,
-        args: [shimSelector, shimRef, force, actionabilityTimeoutMs],
+        args: [shimSelector, shimRef, force],
       });
       const first = injected?.[0]?.result as ShimResult | undefined;
       if (!first) {
@@ -180,12 +175,7 @@ class FocusTool extends BaseBrowserToolExecutor {
  * (`document.activeElement` may still update, but the agent gets no
  * actionable state).
  */
-function focusShim(
-  selector: string | null,
-  ref: string | null,
-  force: boolean,
-  actionabilityTimeoutMs: number,
-): ShimResult {
+function focusShim(selector: string | null, ref: string | null, force: boolean): ShimResult {
   try {
     let el: Element | null = null;
     let resolution: 'ref' | 'selector' = 'selector';
@@ -216,28 +206,9 @@ function focusShim(
       return { ok: false, message: 'element does not support focus()' };
     }
 
-    // IMP-0097: inlined visibility check. The actionability primitive
-    // lives in window.__actionability when actionability.js has been
-    // injected; we use it when present and fall back to an inlined
-    // check otherwise. The inline path keeps focus-only flows lightweight
-    // (no extra injection round-trip).
+    // Sync visibility check — focusShim must return synchronously, and
+    // stability/hit-test/enabled aren't relevant to programmatic focus.
     if (!force) {
-      const api = (
-        window as unknown as {
-          __actionability?: {
-            awaitActionable: (
-              el: Element,
-              opts: { checks?: string[]; timeoutMs?: number; force?: boolean },
-            ) => Promise<{ ok: true } | { ok: false; failures: string[] }>;
-          };
-        }
-      ).__actionability;
-      // The shared primitive returns a Promise. We can't await inside a
-      // shim that must return ShimResult synchronously without breaking
-      // the existing call shape — so prefer the inlined sync check that
-      // covers the same visibility cases. (Stability/hit-test/enabled
-      // aren't relevant to a programmatic focus.)
-      void api; // not used in the shim — the consumer-side fallback is sync
       const failure = checkVisibleSync(focusable);
       if (failure) {
         return {
@@ -248,7 +219,6 @@ function focusShim(
         };
       }
     }
-    void actionabilityTimeoutMs; // reserved for future async-friendly variant
 
     focusable.focus({ preventScroll: false });
     return {

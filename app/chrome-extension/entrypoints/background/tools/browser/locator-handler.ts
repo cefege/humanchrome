@@ -341,7 +341,7 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
   }
 
   /** Forward a register payload; throw on `success:false` so callers branch on it. */
-  private async sendRegister(tabId: number, handler: RegisteredHandler): Promise<void> {
+  async sendRegister(tabId: number, handler: RegisteredHandler): Promise<void> {
     await this.ensureHelperInjected(tabId);
     const resp = await this.sendHelperMessage(tabId, {
       action: MSG.REGISTER,
@@ -398,6 +398,22 @@ export function _resetLocatorHandlersForTest(): void {
 }
 
 /**
+ * Drop every locator handler registered for any tab in `tabIds`. Mirrors
+ * the dialog tool's `releaseDialogDefaultsForTabs` so the bridge's
+ * client-disconnect hook can prevent orphan handlers from continuing to
+ * fire forever against tabs whose owning client is gone.
+ *
+ * Returns the subset of `tabIds` that actually had handlers cleared.
+ */
+export function releaseLocatorHandlersForTabs(tabIds: Iterable<number>): number[] {
+  const released: number[] = [];
+  for (const tabId of tabIds) {
+    if (tabHandlers.delete(tabId)) released.push(tabId);
+  }
+  return released;
+}
+
+/**
  * Test-only — direct read of the in-memory state for assertions that don't
  * want to round-trip through the public list action (which also injects).
  */
@@ -439,12 +455,13 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onDOMContentLoaded?.a
       else bucket.delete(handler.handlerId);
     }
     if (bucket.size === 0) tabHandlers.delete(details.tabId);
-    for (const handler of persistent) {
-      try {
-        await locatorHandlerTool['sendRegister'](details.tabId, handler);
-      } catch {
-        // Silent — the next tool call against this tab will surface the error.
-      }
-    }
+    // Replay in parallel — handlers are independent.
+    await Promise.all(
+      persistent.map((handler) =>
+        locatorHandlerTool.sendRegister(details.tabId, handler).catch(() => {
+          // Silent — the next tool call against this tab will surface the error.
+        }),
+      ),
+    );
   });
 }

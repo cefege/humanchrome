@@ -380,44 +380,6 @@ if (window.__FILL_HELPER_INITIALIZED__) {
     };
   }
 
-  /**
-   * Check if an element is visible
-   * @param {Element} element - The element to check
-   * @returns {boolean} - Whether the element is visible
-   */
-  function isElementVisible(element) {
-    if (!element) return false;
-
-    const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-      return false;
-    }
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-      return false;
-    }
-
-    // Check if element is within viewport
-    if (
-      rect.bottom < 0 ||
-      rect.top > window.innerHeight ||
-      rect.right < 0 ||
-      rect.left > window.innerWidth
-    ) {
-      return false;
-    }
-
-    // Check if element is actually visible at its center point
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const elementAtPoint = document.elementFromPoint(centerX, centerY);
-    if (!elementAtPoint) return false;
-
-    return element === elementAtPoint || element.contains(elementAtPoint);
-  }
-
   // Listen for messages from the extension
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === 'fillElement') {

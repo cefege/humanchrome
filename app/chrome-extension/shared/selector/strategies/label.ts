@@ -14,17 +14,7 @@
  */
 
 import type { SelectorCandidate, SelectorStrategy, NameExactMode } from '../types';
-import { computeAccessibleName, matchesAccessibleName } from '../accessible-name';
-
-const LABELLABLE_TAGS = new Set([
-  'input',
-  'textarea',
-  'select',
-  'button',
-  'output',
-  'progress',
-  'meter',
-]);
+import { computeAccessibleName, matchesAccessibleName, LABELLABLE_TAGS } from '../accessible-name';
 
 /**
  * Find every labellable control whose computed label (or accessible name)

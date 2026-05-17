@@ -59,7 +59,7 @@ describe('chrome_focus', () => {
         target: { tabId: 42 },
         world: 'ISOLATED',
         // IMP-0097: shim now also receives force + actionabilityTimeoutMs.
-        args: ['#email', null, false, 5000],
+        args: ['#email', null, false],
       }),
     );
     const body = parseBody(res);
@@ -75,20 +75,19 @@ describe('chrome_focus', () => {
     ]);
     const res = await focusTool.execute({ tabId: 42, ref: 'r-99' });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: [null, 'r-99', false, 5000] }),
+      expect.objectContaining({ args: [null, 'r-99', false] }),
     );
     expect(parseBody(res).resolution).toBe('ref');
   });
 
-  it('forwards force=true and actionabilityTimeoutMs override', async () => {
+  it('forwards force=true to the focus shim', async () => {
     await focusTool.execute({
       tabId: 7,
       selector: 'input',
       force: true,
-      actionabilityTimeoutMs: 10000,
     });
     expect(executeScriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['input', null, true, 10000] }),
+      expect.objectContaining({ args: ['input', null, true] }),
     );
   });
 
@@ -130,7 +129,7 @@ describe('chrome_focus', () => {
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { tabId: 7, frameIds: [11] },
-        args: ['input', null, false, 5000],
+        args: ['input', null, false],
       }),
     );
   });

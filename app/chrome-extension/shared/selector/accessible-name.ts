@@ -34,6 +34,20 @@
 
 const MAX_NAME_LENGTH = 1024;
 
+/**
+ * HTML5 §4.10.4 labellable element tags. Exported so strategies that need
+ * the same set (e.g. `label.ts`) don't drift from accname semantics.
+ */
+export const LABELLABLE_TAGS: ReadonlySet<string> = new Set([
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'output',
+  'progress',
+  'meter',
+]);
+
 interface ComputeOptions {
   /**
    * Elements already visited in the current chain — prevents infinite
@@ -159,17 +173,14 @@ function nativeHostLabel(el: Element): string | null {
   }
 
   // Wrapping <label> — only count when the element is one of the
-  // labellable types (input, textarea, select, button, output, progress,
-  // meter). Per HTML5 §4.10.4.
-  if (['input', 'textarea', 'select', 'button', 'output', 'progress', 'meter'].includes(tag)) {
+  // labellable types. Per HTML5 §4.10.4.
+  if (LABELLABLE_TAGS.has(tag)) {
     let current: Element | null = el.parentElement;
     while (current) {
       if (current.tagName.toLowerCase() === 'label') {
         const clone = current.cloneNode(true) as Element;
         // Remove the labelled control itself so we only see the surrounding text
-        clone
-          .querySelectorAll('input, textarea, select, button, output, progress, meter')
-          .forEach((c) => c.remove());
+        clone.querySelectorAll([...LABELLABLE_TAGS].join(',')).forEach((c) => c.remove());
         const text = normalize(clone.textContent || '');
         if (text) return text;
         break;

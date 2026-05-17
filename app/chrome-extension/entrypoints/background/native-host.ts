@@ -12,6 +12,7 @@ import { acquireKeepalive } from './keepalive-manager';
 import { debugLog } from './utils/debug-log';
 import { loadPersistedClientState, releaseClient, getClientState } from './utils/client-state';
 import { releaseDialogDefaultsForTabs } from './tools/browser/dialog';
+import { releaseLocatorHandlersForTabs } from './tools/browser/locator-handler';
 
 const log = debugLog.with({ tool: 'native-host' });
 
@@ -463,11 +464,19 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         const ownedTabIds = Array.from(getClientState(message.clientId)?.ownedTabs ?? []);
         const released = releaseClient(message.clientId);
         let releasedDialogDefaults: number[] = [];
+        let releasedLocatorHandlers: number[] = [];
         if (ownedTabIds.length > 0) {
           try {
             releasedDialogDefaults = await releaseDialogDefaultsForTabs(ownedTabIds);
           } catch (err) {
             log.warn('dialog default release failed during client disconnect', {
+              data: { err: err instanceof Error ? err.message : String(err) },
+            });
+          }
+          try {
+            releasedLocatorHandlers = releaseLocatorHandlersForTabs(ownedTabIds);
+          } catch (err) {
+            log.warn('locator handler release failed during client disconnect', {
               data: { err: err instanceof Error ? err.message : String(err) },
             });
           }
@@ -477,6 +486,7 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
             clientId: message.clientId,
             releasedTabs: released,
             releasedDialogDefaults,
+            releasedLocatorHandlers,
           },
         });
       } else if (message.type === 'rr_list_published_flows' && message.requestId) {

@@ -197,11 +197,13 @@
         attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'open'],
       });
     } catch {}
-    // Safety poll for CSS-only show/hide transitions that don't move nodes.
+    // Safety poll for CSS-only show/hide transitions the MutationObserver
+    // can't catch (e.g. :hover-toggled visibility). 5s is the longest we
+    // can wait without making the dismiss feel sluggish on transitions.
     if (!intervalTimer) {
       intervalTimer = setInterval(() => {
         if (handlers.size > 0) scheduleEval();
-      }, 1000);
+      }, 5000);
     }
   }
 

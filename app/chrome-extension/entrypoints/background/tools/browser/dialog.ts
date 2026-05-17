@@ -105,6 +105,9 @@ let onDetachInstalled = false;
 function ensureDetachListener() {
   if (onDetachInstalled) return;
   if (typeof chrome === 'undefined' || !chrome.debugger?.onDetach?.addListener) return;
+  // Set the flag BEFORE addListener so concurrent execute() calls can't
+  // both reach the addListener path and register duplicate handlers.
+  onDetachInstalled = true;
   chrome.debugger.onDetach.addListener((source, reason) => {
     const tabId = source.tabId;
     if (typeof tabId !== 'number') return;
@@ -124,7 +127,6 @@ function ensureDetachListener() {
     }
     defaults.delete(tabId);
   });
-  onDetachInstalled = true;
 }
 
 function buildLogEntry(

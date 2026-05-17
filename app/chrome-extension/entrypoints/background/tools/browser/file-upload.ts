@@ -84,10 +84,10 @@ class FileUploadTool extends BaseBrowserToolExecutor {
           await cdpSessionManager.sendCommand(tabId, 'DOM.enable', {});
           await cdpSessionManager.sendCommand(tabId, 'Runtime.enable', {});
 
-          // Get the document
+          // Only the root nodeId is needed — DOM.querySelector below does its
+          // own server-side traversal. Avoid serializing the whole tree.
           const { root } = (await cdpSessionManager.sendCommand(tabId, 'DOM.getDocument', {
-            depth: -1,
-            pierce: true,
+            depth: 0,
           })) as { root: { nodeId: number } };
 
           // Find the file input element using the selector

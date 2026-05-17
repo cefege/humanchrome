@@ -172,21 +172,17 @@ class DragDropTool extends BaseBrowserToolExecutor {
         return { ok: true, ref: resolved.ref };
       };
 
-      const fromResolved = await resolveEndpoint(
-        args.fromSelector,
-        args.fromSelectorType,
-        args.fromRef,
-        args.fromIndex,
-        'from',
-      );
+      const [fromResolved, toResolved] = await Promise.all([
+        resolveEndpoint(
+          args.fromSelector,
+          args.fromSelectorType,
+          args.fromRef,
+          args.fromIndex,
+          'from',
+        ),
+        resolveEndpoint(args.toSelector, args.toSelectorType, args.toRef, args.toIndex, 'to'),
+      ]);
       if (!fromResolved.ok) return fromResolved.error;
-      const toResolved = await resolveEndpoint(
-        args.toSelector,
-        args.toSelectorType,
-        args.toRef,
-        args.toIndex,
-        'to',
-      );
       if (!toResolved.ok) return toResolved.error;
 
       const finalFromSelector = fromResolved.selector ?? args.fromSelector ?? null;
