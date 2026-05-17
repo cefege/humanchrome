@@ -1627,8 +1627,13 @@ export const TOOL_SCHEMAS: Tool[] = [
         ...TAB_TARGETING_NO_BG,
         frameId: FRAME_ID_PROP,
       },
+      // "exactly one of keys/shortcut" used to live here as `anyOf:
+      // [{required:['keys']},{required:['shortcut']}]`, but the Anthropic
+      // /v1/messages API rejects tools whose input_schema has anyOf/oneOf/allOf
+      // at the top level. The constraint is enforced at dispatch time in
+      // keyboard.ts's KeyboardTool.execute instead (returns INVALID_ARGS with
+      // arg:"keys|shortcut" when neither is provided). See issue #202.
       required: [],
-      anyOf: [{ required: ['keys'] }, { required: ['shortcut'] }],
     },
   },
   {

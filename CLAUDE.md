@@ -142,6 +142,61 @@ is how regressions hit production unnoticed — every previous
 "trivial" actionability tweak that broke clicks would have been
 caught here.
 
+### Never ask the user to drive the browser — own the verification loop
+
+**Hard rule:** Do NOT ask the user to click "Reload" in chrome://extensions,
+clear the Errors panel, open the popup/sidepanel/options page, copy a
+screenshot of devtools, paste console output, navigate to a URL, or
+otherwise do _anything_ in their daily-driver browser. Every recurring
+"can you just…" message is a signal that the harness is missing a
+capability — go build the capability, don't pile friction onto the user.
+
+How to verify a chrome-extension change WITHOUT user involvement:
+
+1. **Code-deploy is automatic.** `pnpm build:extension` →
+   `scripts/sync-installed.mjs` mirrors `.output/chrome-mv3/` into the
+   TCC-safe install dir AND writes a fresh `build-info.json`. The
+   IMP-0119 self-update watcher in the running SW polls that file via
+   `chrome.alarms` every 30s and calls `chrome.runtime.reload()` on
+   mismatch — the user's installed extension picks up the new bundle
+   without a click. The bootstrap reload happened once (IMP-0119 PR
+   #201); never ask for it again.
+2. **Direct bridge probes.** While the user's Chrome is open the SW
+   spawns `humanchrome-bridge` on :12306. `curl -s -X POST
+http://127.0.0.1:12306/api/tools/<name> -H 'content-type:
+application/json' -H 'x-client-id: diag' -d '{"args":{...}}'`
+   exercises any tool against the LIVE SW. Multi-instance ports are
+   resolved via the on-disk registry at
+   `~/Library/Application Support/humanchrome-bridge/instances/`
+   (IMP-0115). Use this to confirm a fix landed without touching the
+   browser.
+3. **Spawn your own Chrome.** `pnpm e2e:isolated` (in
+   `app/chrome-extension/`) launches Chrome for Testing with the
+   extension preloaded, runs the matrix in `scripts/run-e2e-matrix.mjs`,
+   tears down cleanly. Per IMP-0114/0115/0111b this runs alongside the
+   user's daily Chrome — no need to ask them to quit anything.
+4. **chrome-devtools-mcp.** Registered in `.mcp.json`. Drive any URL,
+   inspect console messages, take screenshots — all programmatic. The
+   `mcp__chrome-devtools__*` tool family is your DevTools panel.
+5. **Last resort: Playwright.** If the matrix doesn't cover what you
+   need, write a Playwright test under `app/chrome-extension/tests/e2e/`
+   that loads the unpacked extension via `chromium.launchPersistentContext`
+   with `--load-extension=.output/chrome-mv3` (works because Playwright
+   ships Chromium, not stable Chrome — `--load-extension` still works).
+   New permanent capabilities go into the matrix runner so the next
+   change benefits too.
+
+If your first instinct is to type "can you reload / open / paste /
+click…" — stop. Pick #1–#5 above. The user has stated explicitly that
+manual browser steps are the single biggest blocker to letting you
+work autonomously; treat every avoidance as load-bearing.
+
+When the harness is genuinely missing a capability you need, **build
+it** (extend the matrix runner, add a chrome-devtools-mcp helper,
+write a Playwright fixture) — that effort pays back the next time and
+every time after. Asking the user is free for you and expensive for
+them; building infrastructure is the inverse.
+
 ---
 
 ## Pre-merge guards (tests as contract)
