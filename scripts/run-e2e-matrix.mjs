@@ -17,13 +17,26 @@
 // manual extension reload required when --launch-chrome is not used),
 // 3 SW didn't pick up new bundle.
 import { spawnSync, spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync, rmSync, existsSync, cpSync } from 'node:fs';
+import {
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  cpSync,
+  statSync,
+} from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { platform, homedir } from 'node:os';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const BRIDGE_BASE = process.env.HC_BRIDGE_URL || 'http://127.0.0.1:12306';
+const EXPECTED_EXTENSION_ID = 'hbdgbgagpkpjffpklnamcljpakneikee';
+const REGISTRY_DIR =
+  process.env.HC_INSTANCE_REGISTRY_DIR ||
+  resolve(homedir(), 'Library/Application Support/humanchrome-bridge/instances');
+let BRIDGE_BASE = process.env.HC_BRIDGE_URL || 'http://127.0.0.1:12306';
 const FIXTURE_URL = process.env.HC_FIXTURE_URL || 'http://127.0.0.1:4173/playwright-parity.html';
 const ARGS = new Set(process.argv.slice(2));
 const SHOULD_BUILD = ARGS.has('--build');
@@ -248,20 +261,54 @@ function resolveChromeBinary() {
   return 'google-chrome';
 }
 
-function killExistingBridge() {
-  // The bridge is a singleton on :12306. Kill it so the FIRST chrome to
-  // reach out via native messaging spawns a fresh one — that'll be the
-  // dedicated Chrome we're about to launch.
-  const ps = spawnSync('pgrep', ['-f', 'humanchrome-bridge/dist/index.js']);
-  const pids = ps.stdout.toString().split('\n').filter(Boolean).map(Number);
-  for (const pid of pids) {
+function readRegistry() {
+  if (!existsSync(REGISTRY_DIR)) return [];
+  let files;
+  try {
+    files = readdirSync(REGISTRY_DIR).filter((f) => f.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const file of files) {
+    const path = resolve(REGISTRY_DIR, file);
     try {
-      process.kill(pid, 'SIGTERM');
-      console.log(`[e2e] killed existing bridge pid=${pid}`);
+      const record = JSON.parse(readFileSync(path, 'utf8'));
+      const mtimeMs = statSync(path).mtimeMs;
+      // Skip dead pids — the bridge cleans up on graceful exit, but
+      // SIGKILL / crashes leave orphans. Match the registry's read-time GC.
+      try {
+        process.kill(record.pid, 0);
+      } catch (err) {
+        if (err.code !== 'EPERM') continue;
+      }
+      out.push({ ...record, mtimeMs });
     } catch {
-      /* gone */
+      /* corrupt or vanished */
     }
   }
+  return out;
+}
+
+async function findSpawnedBridge(extensionId, afterMs, deadlineMs) {
+  // Poll the on-disk registry written by the bridge after it binds its HTTP
+  // port (IMP-0115). Returns the most recently-started bridge for the given
+  // extension whose startedAt >= afterMs. Lets us route to the bridge owned
+  // by the Chrome we just spawned, without contending with the user's
+  // existing Chrome.
+  let delay = 200;
+  while (Date.now() < deadlineMs) {
+    const entries = readRegistry().filter(
+      (e) => e.extensionId === extensionId && new Date(e.startedAt).getTime() >= afterMs,
+    );
+    if (entries.length > 0) {
+      entries.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+      return entries[0];
+    }
+    await sleep(delay);
+    delay = Math.min(delay * 1.5, 1500);
+  }
+  return null;
 }
 
 function stageExtensionForChrome() {
@@ -298,7 +345,6 @@ function stageNativeMessagingHost(profile) {
 }
 
 function launchChrome() {
-  killExistingBridge();
   const profile = resolve(homedir(), 'Library/Application Support/humanchrome-bridge/e2e-profile');
   const ext = stageExtensionForChrome();
   if (existsSync(profile)) rmSync(profile, { recursive: true, force: true });
@@ -318,9 +364,10 @@ function launchChrome() {
   console.log(`[e2e] launching dedicated Chrome → ${bin}`);
   console.log(`[e2e]   ext (TCC-safe copy) = ${ext}`);
   console.log(`[e2e]   profile             = ${profile}`);
+  const spawnedAt = Date.now();
   const child = spawn(bin, args, { stdio: 'ignore', detached: true });
   child.unref();
-  return { pid: child.pid, profile };
+  return { pid: child.pid, profile, spawnedAt };
 }
 
 async function main() {
@@ -337,8 +384,25 @@ async function main() {
   if (LAUNCH_CHROME) {
     spawned = launchChrome();
     console.log(`[e2e] Chrome spawned pid=${spawned.pid} profile=${spawned.profile}`);
-    // Give the SW a moment to load + register with the bridge before probing.
-    await sleep(3000);
+    // Wait for the spawned Chrome's extension SW to come up and register its
+    // bridge in the on-disk instance registry (IMP-0115). Once we know the
+    // port, route all subsequent HTTP calls there — even if the user's
+    // regular Chrome's bridge is also bound (on a different port).
+    const entry = await findSpawnedBridge(
+      EXPECTED_EXTENSION_ID,
+      spawned.spawnedAt,
+      Date.now() + 30_000,
+    );
+    if (!entry) {
+      console.error('[e2e] spawned Chrome did not register a bridge within 30s.');
+      console.error(`[e2e] registry dir: ${REGISTRY_DIR}`);
+      process.exit(3);
+    }
+    BRIDGE_BASE = `http://127.0.0.1:${entry.port}`;
+    console.log(
+      `[e2e] discovered bridge instance=${entry.instanceId} pid=${entry.pid} port=${entry.port}`,
+    );
+    console.log(`[e2e] routing to ${BRIDGE_BASE}`);
   }
 
   const probe1 = await callTool('chrome_runtime_info', {});
@@ -346,30 +410,39 @@ async function main() {
   const priorBuildHash = probe1.parsed?.buildHash;
   console.log(
     probe1Available
-      ? `[e2e] SW info before reload: ${JSON.stringify(probe1.parsed)}`
+      ? `[e2e] SW info: buildHash=${priorBuildHash} uptimeMs=${probe1.parsed?.uptimeMs} toolCount=${probe1.parsed?.toolCount}`
       : '[e2e] chrome_runtime_info not on SW — will appear after chrome_dev_reload flushes',
   );
 
-  console.log('[e2e] triggering chrome_dev_reload...');
-  const reload = await callTool('chrome_dev_reload', {});
-  if (reload.isError) {
-    const txt = reload?.content?.[0]?.text ?? reload?.transportError ?? JSON.stringify(reload);
-    if (typeof txt === 'string' && txt.includes('Tool chrome_dev_reload not found')) {
-      console.error('[e2e] chrome_dev_reload not on SW — this is the ONE-TIME bootstrap.');
-      console.error('[e2e] Reload the extension once at:');
-      console.error('[e2e]   chrome://extensions/?id=hbdgbgagpkpjffpklnamcljpakneikee');
-      console.error('[e2e] Then re-run. Every subsequent run is unattended.');
-      process.exit(2);
+  // Skip dev_reload when the SW is already fresh — calling it on a current
+  // SW just bounces it for no reason, and the buildHash doesn't change
+  // without a rebuild so waitForFreshSw times out spuriously.
+  let probe2 = probe1;
+  const swIsFresh = probe1Available && (probe1.parsed?.uptimeMs ?? Infinity) < 60_000;
+  if (!swIsFresh) {
+    console.log('[e2e] triggering chrome_dev_reload...');
+    const reload = await callTool('chrome_dev_reload', {});
+    if (reload.isError) {
+      const txt = reload?.content?.[0]?.text ?? reload?.transportError ?? JSON.stringify(reload);
+      if (typeof txt === 'string' && txt.includes('Tool chrome_dev_reload not found')) {
+        console.error('[e2e] chrome_dev_reload not on SW — this is the ONE-TIME bootstrap.');
+        console.error('[e2e] Reload the extension once at:');
+        console.error('[e2e]   chrome://extensions/?id=hbdgbgagpkpjffpklnamcljpakneikee');
+        console.error('[e2e] Then re-run. Every subsequent run is unattended.');
+        process.exit(2);
+      }
+      console.warn(`[e2e] dev_reload returned an error envelope, continuing anyway: ${txt}`);
     }
-    console.warn(`[e2e] dev_reload returned an error envelope, continuing anyway: ${txt}`);
-  }
 
-  const probe2 = await waitForFreshSw(priorBuildHash, probe1Available);
-  if (!probe2) {
-    console.error('[e2e] SW did not pick up the new build within 15s after dev_reload.');
-    process.exit(3);
+    probe2 = await waitForFreshSw(priorBuildHash, probe1Available);
+    if (!probe2) {
+      console.error('[e2e] SW did not pick up the new build within 15s after dev_reload.');
+      process.exit(3);
+    }
+    console.log(`[e2e] SW info after reload: ${JSON.stringify(probe2.parsed)}`);
+  } else {
+    console.log('[e2e] SW is fresh (uptime < 60s) — skipping reload');
   }
-  console.log(`[e2e] SW info after reload: ${JSON.stringify(probe2.parsed)}`);
 
   console.log(`[e2e] opening fixture ${FIXTURE_URL}`);
   const nav = await callTool('chrome_navigate', { url: FIXTURE_URL });
