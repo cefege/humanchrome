@@ -49,17 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0097 · Shared actionability primitive — visible/stable/enabled/hit-test before every action (feat) · score: 5
-
-- **Proposed by**: user · 2026-05-16
-- **Status**: proposed
-- **Why**: Ground-truth audit found the ref path (the AI-default after `chrome_read_page`) skips visibility, hit-test, and disabled checks entirely (`click-helper.js:33-77`); visibility is only enforced on the selector path (`:151`); there is zero `requestAnimationFrame` usage in any click path (no bbox-stability anywhere); `pointer-events:none` is surfaced in read-page output but never enforced before click; strict mode is inconsistent — fast-path raw CSS (`click-helper.js:119`) silently picks the first match while `ensureRefForSelector` errors on multi-match. This is the largest single reliability gap in the codebase; one shared primitive fixes flakiness across every interaction tool.
-- **Cost**: M (2-3 days)
-- **Value**: L
-- **Files**: new `app/chrome-extension/inject-scripts/actionability.js`; consumers `inject-scripts/click-helper.js` (all three paths: ref/selector/coords), `inject-scripts/fill-helper.js`, `entrypoints/background/tools/browser/drag-drop.ts` (MAIN-world shim), `entrypoints/background/tools/browser/computer.ts` per-action handlers under `actions/handlers/`, `entrypoints/background/tools/browser/focus.ts`. New `tests/inject-scripts/actionability.test.ts` plus per-tool integration fixtures (animated/sticky-header/disabled-button pages). New `ToolErrorCode.NOT_ACTIONABLE` in `packages/shared/src/error-codes.ts` + `docs/AGENTS.md` § 1.
-- **Sketch**: Export `awaitActionable(el, {checks, timeoutMs, force}) → Promise<{ok, failures: string[]}>`. Checks: `visible` (display/visibility/opacity/empty-bbox/in-viewport/`pointer-events:none`), `enabled` (`disabled` attr + `aria-disabled` + nearest `fieldset[disabled]`), `editable` (enabled + not `readonly`), `stable` (same `getBoundingClientRect` for 2 consecutive `requestAnimationFrame`s — bail after ~6 frames), `hit-test` (`elementFromPoint(clickPoint) === el || el.contains(elementFromPoint(clickPoint))` where clickPoint defaults to element center; respects `position` override). Auto-`scrollIntoView({block:'center'})` if rect outside viewport before stability check. Per-action check matrix mirroring Playwright (click/dblclick/tap/check: visible+stable+enabled+hit-test; hover/dragTo: visible+stable+hit-test; fill/clear/selectOption: visible+enabled+editable; focus/blur/press/dispatchEvent: visible). Every action gets a `force: true` opt-out that skips the suite (still scrollIntoView). On failure return `NOT_ACTIONABLE` with `details: {failures: ['not_visible'|'occluded_by:#cookie-banner'|'disabled'|'unstable_bbox'|...]}` so the caller knows what to fix. Default per-action timeout 5s; per-call `actionabilityTimeoutMs` override.
-- **Notes**: Foundation for IMP-0098 — locator quality is wasted if we then click before the element settles. Land first. Coordinate with bug IMP-0092 (false success on coords-over-nothing): the actionability suite makes that bug structurally impossible.
-
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-08
@@ -239,17 +228,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: Extract `transport/handlers/queue-handlers.ts` (~80 LoC: handleEnqueueRun/handleListQueue/handleCancelQueueItem), `transport/handlers/flow-handlers.ts` (~290 LoC: handleSaveFlow/handleDeleteFlow + normalizeFlowSpec/normalizeNode/normalizeEdge), `transport/handlers/trigger-handlers.ts` (~445 LoC: handleCreateTrigger through handleFireTrigger + normalizeTriggerSpec), `transport/handlers/run-handlers.ts` (~95 LoC: handlePauseRun/handleResumeRun/handleCancelRun). rpc-server.ts becomes ~280-LoC orchestrator for port lifecycle + handleRequest dispatch. Handlers receive a context object { storage, events, runners, scheduler, triggerManager, generateRunId, now }.
 - **Risk**: Medium — handleRequest switch must stay exhaustive; requireTriggerManager guard must compose into handler context. Compile errors guide the work. No runtime change.
 
-### IMP-0099 · Recorder consumes shared locator engine — emit role/text/testid candidates instead of nth-of-type CSS (refactor) · score: 3
-
-- **Proposed by**: user · 2026-05-16
-- **Status**: proposed
-- **Why**: `inject-scripts/recorder.js:28-158` runs its own inline `SelectorEngine.buildTarget` emitting fixed `attr > css-unique > nth-of-type > aria-string > text` order with primary chosen by `attr > css` only (text/role never primary). Meanwhile the replayer (`shared/selector/locator.ts`) already has a fallback ladder. Result: recorded flows pick the most brittle selector as primary, succeed on replay only via the runtime fallback. With IMP-0098 landed, the recorder should emit the same priority order the replayer expects so new recordings are resilient on the first try.
-- **Cost**: M (3-4 days)
-- **Value**: M
-- **Files**: `app/chrome-extension/inject-scripts/recorder.js:28-158` (`SelectorEngine` rewrite — delegate to `shared/selector/generator.ts`); `app/chrome-extension/shared/selector/generator.ts` (ensure `generateExtendedSelectorTarget` returns Candidate[] in priority order); recorder bootstrap may need dual-build for content-script context (recorder.js is inline-loaded vanilla JS, shared lib is TS/ESM). Tests: new `tests/inject-scripts/recorder.test.ts` (fixture pages with role-able buttons, labelled inputs, testid-tagged elements); flow round-trip tests via `tests/record-replay/*`.
-- **Sketch**: Replace `_uniqueClassSelector` / `_choosePrimary` with calls into the shared generator. Generator returns ordered list: testid > role+name > label > placeholder > alt > title > text (when length ≤ 64 chars and content not user-typed) > css-unique > anchor-relpath > css-path. Recorder writes ALL candidates in order; primary = candidates[0]; `target.ref` still set for same-snapshot replay. Backwards-compat: old flows keep replaying — runtime's `compareSelectorCandidates` already sorts by stability+weight regardless of recorded order. Content-script bundling: use WXT's content-script entry if available; otherwise emit a vanilla-JS bundle of `shared/selector/` for inline loading.
-- **Notes**: Gated on IMP-0098. Recorder UI unchanged. Out of scope here: recorder doesn't capture hover/drag/file-upload/submit/assert today (`recorder.js` only handles click/dblclick/fill/scroll/key/navigate/openTab/switchTab/switchFrame) — separate IMP if needed.
-
 ### IMP-0087 · Same-tab queueing — fairness, depth cap, per-call timeout, inspect tool (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
@@ -275,6 +253,12 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: Long-form plan at `~/.claude/plans/imp0089claimtabforce.md`. Smallest of the IMP-0086 follow-ups; recommended first up.
 
 ## Done
+
+### IMP-0097 · Shared actionability primitive — visible/stable/enabled/hit-test before every action (feat) · score: 5
+
+- **Status**: done (2026-05-16)
+- **Completed**: 2026-05-16
+- **Summary**: New `inject-scripts/actionability.js` exports `awaitActionable(el, opts)` with all five Playwright-style checks (visible/enabled/editable/stable via rAF/hit-test with occluder identification by tag#id or tag.class), auto-`scrollIntoView({block:'center'})` pre-check, `force: true` bypass, default 5000ms timeout, per-call `position` override. Wired into every interaction path: `click-helper.js` (all 3 paths — ref/coords/selector; coords path pins hit-test to the click point so IMP-0092's silent-success-over-overlay class is structurally impossible), `fill-helper.js`, `drag-drop.ts` MAIN-world shim (source + target), `focus.ts` ISOLATED shim, `computer.ts` handlers + click/fill/key/type. Per-action check matrix mirrors Playwright: click/dblclick/tap/check (visible+stable+enabled+hit-test), hover/dragTo (visible+stable+hit-test), fill/clear/selectOption (visible+enabled+editable), focus/blur/press/dispatchEvent (visible). New `ToolErrorCode.NOT_ACTIONABLE` with `details.failures: string[]` carrying tokens like `not_visible`, `disabled`, `not_editable`, `unstable_bbox`, `occluded_by:tag#id`, `no_element_at_point`. `base-browser.ts` `sendMessageToTab` passes `{notActionable:true, failures}` envelopes through untouched. Schemas in `packages/shared/src/tools.ts` APPEND `force` + `actionabilityTimeoutMs` to 5 tools (no reorders). Tests: `actionability.test.ts` (31), `interaction-actionability.test.ts` (7), drag-drop +4, focus +3. Total: extension 1525/1525 pass. Coordinated merge: kept IMP-0092's coord-mode error return AND IMP-0098's strict-mode try/catch in click; passed force/actionabilityTimeoutMs into focus shim alongside IMP-0098's prefixed-selector resolution.
 
 ### IMP-0092 · ClickTool reports success: true after coordinate-click hit empty space (no event dispatched) (bug) · score: 6
 
@@ -312,7 +296,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0095 · chrome_await_element returns found:true after waiting for state=absent (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: When awaiting state=absent and the element actually disappears, the envelope returns found:true even though the whole point of the wait was the element being NOT FOUND. Agents conditioning on found:false to know an element was successfully waited-away cannot distinguish present-from-absent. Worse, the response shape carries an undefined ref field for the absent path so ref ?? resp.matched.ref is undefined — masking the success of the underlying poll.
 - **Cost**: S
 - **Value**: S
@@ -356,7 +340,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0102 · Add `load_state` and `url` kinds to chrome_wait_for (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-16)
 - **Why**: `chrome_wait_for` covers element / network_idle / response_match / js but is missing two Playwright primitives that come up constantly: `waitForLoadState('load'|'domcontentloaded')` and `waitForURL(pattern)`. First is needed when a flow depends on full-page resource load (not just network idle, e.g. waiting for late `<img>`/`<script>` to finish before a screenshot). Second is the canonical "wait for SPA to push /checkout to history" pattern. Cheap to add with `chrome.webNavigation` events.
 - **Cost**: S (1 day)
 - **Value**: S
@@ -369,6 +353,12 @@ The order of items inside ## Active is sorted by score descending.
 - **Status**: done (2026-05-16)
 - **Completed**: 2026-05-16
 - **Summary**: `chrome_handle_dialog` extended from a single one-shot handler into a multi-action tool. New actions: `register_default({tabId, defaultBehavior, promptText?})` subscribes `Page.javascriptDialogOpening` via a persistent CDP attach (refcounted through `cdpSessionManager` with owner tag `dialog-default`); incoming dialogs are auto-answered with the configured behavior (`accept` | `dismiss` | `prompt_with_text`) and appended to a per-tab buffer capped at 50 entries (oldest dropped). `unregister_default({tabId})` releases the attach + listener. `list_defaults({tabId?})` returns registered policies plus each tab's recent dialog log (read-only). Re-registering on the same tab replaces the prior policy without erroring. Cleanup hooks: `chrome.tabs.onRemoved` clears policies for closed tabs; the bridge's `CLIENT_DISCONNECTED` path in `native-host.ts` calls `releaseDialogDefaultsForTabs` with the disconnecting client's owned tabs (so policies don't outlive their session); `chrome.debugger.onDetach` fires a warning and clears the policy if Chrome detaches externally (DevTools opened, etc.). Legacy `action: 'accept'|'dismiss'` two-field call still works for backward compatibility. Tool description warns about the "Chrome is being controlled" banner that the persistent CDP attach surfaces. Schema in `packages/shared/src/tools.ts` extended with the new action enum + `defaultBehavior` / `behavior` fields. New tests at `tests/tools/browser/dialog.test.ts` (21 cases) cover legacy compat, register/unregister/list, log cap, CDP_BUSY classification, replace-on-re-register, and the cleanup hook contract.
+
+### IMP-0099 · Recorder consumes shared locator engine — emit role/text/testid candidates instead of nth-of-type CSS (refactor) · score: 3
+
+- **Status**: done (2026-05-16)
+- **Completed**: 2026-05-16
+- **Summary**: Rewrote `inject-scripts/recorder.js` `SelectorEngine.buildTarget` from a 130-line inline ladder (attr > css-unique > nth-of-type > aria-string > text) into a 60-line thin shim that delegates to a new vanilla-JS bundle (`inject-scripts/selector-engine-bundle.js`). The bundle mirrors `shared/selector/` line-for-line — strategies, stability scorer, dom-path/fingerprint/shadow-host helpers — exposed via `window.__rrSelectorEngine`. Bundling approach: vanilla self-IIFE rather than WXT content-script entry. The cost is dual-source: the bundle has a header comment pinning it as a port of `shared/selector/`, and the bundle test (`tests/inject-scripts/selector-engine-bundle.test.ts`) compares it field-for-field against the TS source so drift fails fast. Extended the generator's strategy list with two new strategies — `labelStrategy` (synthesizes role+name from `<label for>` / `aria-labelledby` / wrapping `<label>`) and `placeholderStrategy` (Playwright `getByPlaceholder` parity). Re-weighted every strategy to enforce the Playwright-style priority ladder: `testid: +50, alt: +20, title: +18, name: +15` (inside testid strategy), `aria: +40`, `label: +30`, `placeholder: +25`, `text: +10`, `css-unique: 0`, `anchor-relpath: -10`, `css-path: -30`. Generator now returns candidates pre-sorted by `compareSelectorCandidates` so `candidates[0]` is the highest-priority match. Old flows replay unchanged — runtime locator's `compareSelectorCandidates` re-sorts arbitrary candidate orders by stability+weight regardless of how they were recorded. Tests: `tests/shared/selector/generator-priority.test.ts` (14), `tests/inject-scripts/selector-engine-bundle.test.ts` (9), `tests/inject-scripts/recorder-selector.test.ts` (5), `tests/record-replay/recorder-priority.contract.test.ts` (5). Recorder UI unchanged. Hover/drag/file-upload/submit/assert capture remains out of scope.
 
 ### IMP-0035 · Type computer.ts params to eliminate 24 remaining as any casts in action dispatch (refactor) · score: 3
 

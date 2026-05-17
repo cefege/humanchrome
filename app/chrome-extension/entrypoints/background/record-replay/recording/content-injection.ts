@@ -9,7 +9,16 @@ export const REC_CMD = {
   RESUME: 'resume',
 } as const satisfies Record<string, RecorderCmd>;
 
+const SELECTOR_BUNDLE_SCRIPT = 'inject-scripts/selector-engine-bundle.js';
 const RECORDER_JS_SCRIPT = 'inject-scripts/recorder.js';
+
+/**
+ * Files injected for recording, in order. The selector-engine bundle MUST
+ * land before recorder.js so the SelectorEngine shim can read
+ * `window.__rrSelectorEngine`. Both files self-guard against double-install
+ * (selector bundle: idempotent assignment; recorder: __RR_RECORDER_INSTALLED__).
+ */
+const RECORDER_FILES: ReadonlyArray<string> = [SELECTOR_BUNDLE_SCRIPT, RECORDER_JS_SCRIPT];
 
 export async function ensureRecorderInjected(tabId: number): Promise<void> {
   // Discover frames (top + subframes)
@@ -47,7 +56,7 @@ export async function ensureRecorderInjected(tabId: number): Promise<void> {
     try {
       await chrome.scripting.executeScript({
         target: { tabId, frameIds: needRecorder },
-        files: [RECORDER_JS_SCRIPT],
+        files: [...RECORDER_FILES],
         world: 'ISOLATED',
       });
     } catch {
@@ -55,7 +64,7 @@ export async function ensureRecorderInjected(tabId: number): Promise<void> {
       try {
         await chrome.scripting.executeScript({
           target: { tabId, allFrames: true },
-          files: [RECORDER_JS_SCRIPT],
+          files: [...RECORDER_FILES],
           world: 'ISOLATED',
         });
       } catch {

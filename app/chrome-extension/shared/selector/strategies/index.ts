@@ -16,25 +16,27 @@ import { textStrategy } from './text';
 import { titleStrategy } from './title';
 
 /**
- * Default selector strategy list (ordered by priority).
+ * Default selector strategy list (ordered by generation order).
  *
- * Strategy order (highest priority first):
- *   1. testid       - data-testid/cy/test/qa attributes
- *   2. role         - implicit/explicit ARIA role + accessible name
- *   3. label        - form labels (label[for], wrapping, aria-label)
- *   4. placeholder  - input/textarea placeholder
- *   5. alt-text     - img/area/input[type=image] alt
- *   6. title        - title attribute
- *   7. aria         - aria-label (legacy strategy, kept for compat)
- *   8. css-unique   - unique CSS selectors (id, class combos)
- *   9. css-path     - structural path (nth-of-type)
- *  10. anchor-relpath - anchor + relative path
- *  11. text         - text content (lowest priority)
+ * Strategy generation order — the FINAL candidate order in the returned
+ * target is determined by weight (descending) + stability score
+ * (descending), but the order here governs which strategies generate
+ * first so dedupe keeps the higher-priority candidate when multiple
+ * strategies produce the same selector string.
  *
- * Note: Final candidate order is determined by stability scoring;
- * strategy order here governs *generation* sequence so dedupe keeps
- * the higher-priority candidate when multiple strategies produce the
- * same selector string.
+ * The mirrored Playwright-style priority that recorders and replayers
+ * agree on (IMP-0098 + IMP-0099):
+ *   1. testid       — data-testid/cy/test/qa (configurable per-client)
+ *   2. role         — implicit/explicit ARIA role + accessible name
+ *   3. label        — form labels (label[for], wrapping, aria-label)
+ *   4. placeholder  — getByPlaceholder
+ *   5. alt-text     — img/area/input[type=image] alt
+ *   6. title        — title attribute
+ *   7. aria         — legacy aria-label (kept for back-compat)
+ *   8. css-unique   — #id / .class combinations
+ *   9. css-path     — full nth-of-type ladder
+ *  10. anchor-relpath — ancestor anchor + relative descent path
+ *  11. text         — text content (lowest priority)
  */
 export const DEFAULT_SELECTOR_STRATEGIES: ReadonlyArray<SelectorStrategy> = [
   testIdStrategy,

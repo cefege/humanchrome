@@ -7,6 +7,14 @@
  * IMP-0098: extended with a runtime `resolve()` method that mirrors
  * Playwright's `getByTestId`. The set of recognized attribute names is
  * configurable per-client via extension storage (see `getTestIdAttributes`).
+ *
+ * IMP-0099: per-attribute weights enforce the Playwright-style priority
+ * ladder so the primary candidate (candidates[0]) is the most stable
+ * semantic identifier available:
+ *   data-testid / data-cy / data-qa / ... → highest (test attributes)
+ *   alt                                    → high (image/area semantic)
+ *   title                                  → high
+ *   name                                   → form-field semantic
  */
 
 import type { SelectorCandidate, SelectorStrategy } from '../types';
@@ -47,6 +55,27 @@ export const DEFAULT_TESTID_ATTRIBUTES = [
 ] as const;
 
 const TESTID_ATTRIBUTES_STORAGE_KEY = 'humanchrome.selector.testIdAttributes';
+
+/**
+ * IMP-0099: Weight ladder enforcing Playwright-style priority for the recorder.
+ *
+ * Test attributes (data-*) get the highest weight; semantic attributes
+ * (alt, title, name) get progressively lower weights but still rank
+ * above non-attribute strategies.
+ */
+const ATTR_WEIGHT: Record<string, number> = {
+  'data-testid': 50,
+  'data-test-id': 50,
+  'data-testId': 50,
+  'data-test': 50,
+  'data-qa': 50,
+  'data-cy': 50,
+  alt: 20,
+  title: 18,
+  name: 15,
+};
+
+const DEFAULT_TESTID_WEIGHT = 50;
 
 // =============================================================================
 // Configuration (per-client extension storage)
@@ -137,6 +166,10 @@ function shouldTryTagPrefix(attr: string, tag: string, element: Element): boolea
   return true;
 }
 
+function weightFor(attr: string): number {
+  return ATTR_WEIGHT[attr] ?? DEFAULT_TESTID_WEIGHT;
+}
+
 // =============================================================================
 // Runtime resolver
 // =============================================================================
@@ -204,12 +237,14 @@ export const testIdStrategy: SelectorStrategy & {
       if (!value) continue;
 
       const attrOnly = makeAttrSelector(attr, value, helpers.cssEscape);
+      const weight = weightFor(attr);
 
       // Try attribute-only selector first
       if (helpers.isUnique(attrOnly)) {
         out.push({
           type: 'attr',
           value: attrOnly,
+          weight,
           source: 'generated',
           strategy: 'testid',
         });
@@ -223,6 +258,7 @@ export const testIdStrategy: SelectorStrategy & {
           out.push({
             type: 'attr',
             value: withTag,
+            weight,
             source: 'generated',
             strategy: 'testid',
           });

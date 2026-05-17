@@ -1,8 +1,16 @@
 /**
  * ARIA Strategy - generates selectors from accessibility attributes (aria-label, role, etc.)
+ *
+ * Weight (+40) places ARIA selectors below test attributes (data-testid = +50)
+ * but above structural selectors (css-unique = 0).
  */
 
 import type { SelectorCandidate, SelectorStrategy } from '../types';
+
+/**
+ * Weight: below testid (+50), above label/placeholder/text.
+ */
+const ARIA_STRATEGY_WEIGHT = 40;
 
 function guessRoleByTag(tag: string): string | undefined {
   if (tag === 'input' || tag === 'textarea') return 'textbox';
@@ -58,7 +66,13 @@ export const ariaStrategy: SelectorStrategy = {
 
     for (const sel of uniqStrings(selectors)) {
       if (helpers.isUnique(sel)) {
-        out.push({ type: 'attr', value: sel, source: 'generated', strategy: 'aria' });
+        out.push({
+          type: 'attr',
+          value: sel,
+          weight: ARIA_STRATEGY_WEIGHT,
+          source: 'generated',
+          strategy: 'aria',
+        });
       }
     }
 
@@ -68,6 +82,7 @@ export const ariaStrategy: SelectorStrategy = {
       value: `${role ?? 'element'}[name=${JSON.stringify(name)}]`,
       role,
       name,
+      weight: ARIA_STRATEGY_WEIGHT,
       source: 'generated',
       strategy: 'aria',
     });

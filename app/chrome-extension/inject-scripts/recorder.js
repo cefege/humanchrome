@@ -1,4 +1,3 @@
-/* eslint-disable */
 // recorder.js - content script for recording user interactions into steps
 
 (function () {
@@ -21,139 +20,111 @@
   // Cross-frame event channel
   const FRAME_EVENT = 'rr_iframe_event';
 
-  // Memoization caches for selector computations during recording
-  const __cacheUnique = new WeakMap();
-  const __cachePath = new WeakMap();
+  // Per-element cache so we don't re-run the generator on the same node when
+  // recording back-to-back events (input bursts, drag, etc.). Cleared
+  // implicitly on tab navigation since the WeakMap lives in the page realm.
+  const __cacheBuildTarget = new WeakMap();
 
+  // ==========================================================================
+  // SelectorEngine — thin shim over the shared selector engine (IMP-0099).
+  //
+  // The engine itself lives in `inject-scripts/selector-engine-bundle.js`,
+  // which mirrors `shared/selector/` for vanilla-JS content-script use. The
+  // bundle is injected by the recorder bootstrap (see content-injection.ts)
+  // BEFORE recorder.js, so `window.__rrSelectorEngine` is always available.
+  //
+  // If the bundle is somehow missing (e.g. a partial reload), a tiny inline
+  // fallback returns a structural css-path so recording stays best-effort
+  // rather than crashing.
+  // ==========================================================================
   const SelectorEngine = {
     buildTarget(el) {
-      const candidates = [];
-      const attrNames = ['data-testid', 'data-testId', 'data-test', 'data-qa', 'data-cy'];
-      for (const an of attrNames) {
-        const v = el.getAttribute && el.getAttribute(an);
-        if (v) candidates.push({ type: 'attr', value: `[${an}="${CSS.escape(v)}"]` });
+      if (!el || el.nodeType !== Node.ELEMENT_NODE) {
+        return { selector: '', candidates: [], tag: '' };
       }
-      const classSel = this._uniqueClassSelector(el);
-      if (classSel) candidates.push({ type: 'css', value: classSel });
-      const css = this._generateSelector(el);
-      if (css) candidates.push({ type: 'css', value: css });
-      const name = el.getAttribute && el.getAttribute('name');
-      if (name) candidates.push({ type: 'attr', value: `[name="${CSS.escape(name)}"]` });
-      const title = el.getAttribute && el.getAttribute('title');
-      if (title) candidates.push({ type: 'attr', value: `[title="${CSS.escape(title)}"]` });
-      const alt = el.getAttribute && el.getAttribute('alt');
-      if (alt) candidates.push({ type: 'attr', value: `[alt="${CSS.escape(alt)}"]` });
-      const aria = el.getAttribute && el.getAttribute('aria-label');
-      const role = el.getAttribute && el.getAttribute('role');
-      if (aria) {
-        if (role) candidates.push({ type: 'aria', value: `${role}[name=${aria}]` });
-        else candidates.push({ type: 'aria', value: `textbox[name=${aria}]` });
-      }
-      const tag = el.tagName?.toLowerCase?.() || '';
-      if (['button', 'a', 'summary'].includes(tag)) {
-        const text = (el.textContent || '').trim();
-        if (text) candidates.push({ type: 'text', value: text.substring(0, 64) });
-      }
-      const selector = SelectorEngine._choosePrimary(el, candidates);
-      return { selector, candidates, tag };
-    },
 
-    _choosePrimary(el, candidates) {
-      if (el.id && document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) {
-        return `#${CSS.escape(el.id)}`;
-      }
-      const priority = ['attr', 'css'];
-      for (const p of priority) {
-        const c = candidates.find((c) => c.type === p);
-        if (c) {
-          try {
-            const tag = el.tagName ? el.tagName.toLowerCase() : '';
-            if (p === 'attr' && (tag === 'input' || tag === 'textarea' || tag === 'select')) {
-              const val = String(c.value || '').trim();
-              if (val.startsWith('[')) return `${tag}${val}`;
-            }
-          } catch {}
-          return c.value;
+      const cached = __cacheBuildTarget.get(el);
+      if (cached) return cached;
+
+      const engine = window.__rrSelectorEngine;
+      let target;
+
+      if (engine && typeof engine.generateExtendedSelectorTarget === 'function') {
+        try {
+          const extended = engine.generateExtendedSelectorTarget(el);
+          const tag = (el.tagName || '').toLowerCase();
+          target = {
+            // primary = best CSS/attr candidate (generator's pick); used by
+            // the locator's fast-path. Same value as candidates[0] when the
+            // top candidate is css/attr — otherwise the engine pulls the
+            // highest-scored CSS/attr to the front.
+            selector: extended.selector || '',
+            candidates: Array.isArray(extended.candidates) ? extended.candidates : [],
+            tag,
+            // Carry the extended locator metadata across the wire so the
+            // background-side locator can verify fingerprint / fall back to
+            // domPath when selectors break (Phase 1.2 contract).
+            fingerprint: extended.fingerprint,
+            domPath: extended.domPath,
+            shadowHostChain:
+              Array.isArray(extended.shadowHostChain) && extended.shadowHostChain.length > 0
+                ? extended.shadowHostChain
+                : undefined,
+          };
+        } catch {
+          target = SelectorEngine._fallbackBuildTarget(el);
         }
+      } else {
+        target = SelectorEngine._fallbackBuildTarget(el);
       }
-      if (candidates.length) return candidates[0].value;
-      return SelectorEngine._generateSelector(el) || '';
-    },
 
-    _uniqueClassSelector(el) {
-      if (__cacheUnique.has(el)) return __cacheUnique.get(el);
-      let result = '';
       try {
-        const classes = Array.from(el.classList || []).filter(
-          (c) => c && /^[a-zA-Z0-9_-]+$/.test(c),
-        );
-        for (const cls of classes) {
-          const sel = `.${CSS.escape(cls)}`;
-          if (document.querySelectorAll(sel).length === 1) {
-            result = sel;
-            break;
-          }
-        }
-        if (!result) {
-          const tag = el.tagName ? el.tagName.toLowerCase() : '';
-          for (const cls of classes) {
-            const sel = `${tag}.${CSS.escape(cls)}`;
-            if (document.querySelectorAll(sel).length === 1) {
-              result = sel;
-              break;
-            }
-          }
-        }
-        if (!result) {
-          for (let i = 0; i < Math.min(classes.length, 3) && !result; i++) {
-            for (let j = i + 1; j < Math.min(classes.length, 3); j++) {
-              const sel = `.${CSS.escape(classes[i])}.${CSS.escape(classes[j])}`;
-              if (document.querySelectorAll(sel).length === 1) {
-                result = sel;
-                break;
-              }
-            }
-          }
-        }
-      } catch {}
-      __cacheUnique.set(el, result);
-      return result;
+        __cacheBuildTarget.set(el, target);
+      } catch {
+        // ignore (e.g. element not WeakMap-keyable in exotic environments)
+      }
+      return target;
     },
 
-    _generateSelector(el) {
-      if (!(el instanceof Element)) return '';
-      if (__cachePath.has(el)) return __cachePath.get(el);
-      if (el.id) {
-        const idSel = `#${CSS.escape(el.id)}`;
-        if (document.querySelectorAll(idSel).length === 1) return idSel;
+    /**
+     * Last-resort target builder. Runs only if the shared selector engine
+     * bundle failed to load. Produces a candidates array deliberately
+     * compatible with the replayer's fallback ladder (testid + structural).
+     */
+    _fallbackBuildTarget(el) {
+      const candidates = [];
+      const tag = (el.tagName || '').toLowerCase();
+
+      const testidAttrs = ['data-testid', 'data-test-id', 'data-test', 'data-qa', 'data-cy'];
+      for (const attr of testidAttrs) {
+        const v = el.getAttribute && el.getAttribute(attr);
+        if (v) candidates.push({ type: 'attr', value: `[${attr}="${CSS.escape(v)}"]`, weight: 50 });
       }
-      for (const attr of ['data-testid', 'data-cy', 'name']) {
-        const attrValue = el.getAttribute(attr);
-        if (attrValue) {
-          const s = `[${attr}="${CSS.escape(attrValue)}"]`;
-          if (document.querySelectorAll(s).length === 1) return s;
-        }
+      const id = el.id ? String(el.id).trim() : '';
+      if (id) {
+        candidates.push({ type: 'css', value: `#${CSS.escape(id)}` });
       }
-      let path = '';
+
+      // Structural fallback (nth-of-type ladder).
+      const segments = [];
       let current = el;
       while (current && current.nodeType === Node.ELEMENT_NODE && current.tagName !== 'BODY') {
-        let selector = current.tagName.toLowerCase();
+        let segment = current.tagName.toLowerCase();
         const parent = current.parentElement;
         if (parent) {
-          const siblings = Array.from(parent.children).filter(
-            (child) => child.tagName === current.tagName,
-          );
+          const siblings = Array.from(parent.children).filter((c) => c.tagName === current.tagName);
           if (siblings.length > 1) {
-            const index = siblings.indexOf(current) + 1;
-            selector += `:nth-of-type(${index})`;
+            segment += `:nth-of-type(${siblings.indexOf(current) + 1})`;
           }
         }
-        path = path ? `${selector} > ${path}` : selector;
+        segments.unshift(segment);
         current = parent;
       }
-      const res = path ? `body > ${path}` : 'body';
-      __cachePath.set(el, res);
-      return res;
+      const cssPath = segments.length ? `body > ${segments.join(' > ')}` : 'body';
+      candidates.push({ type: 'css', value: cssPath, weight: -30 });
+
+      const primary = candidates[0]?.value || cssPath;
+      return { selector: primary, candidates, tag };
     },
   };
   // Extend SelectorEngine with a shared ref helper (attached after declaration)

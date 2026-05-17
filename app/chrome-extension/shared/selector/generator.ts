@@ -206,20 +206,23 @@ export function generateSelectorTarget(
   // Sort and truncate
   const sorted = [...deduped].sort(compareSelectorCandidates).slice(0, normalized.maxCandidates);
 
-  // Primary selector should be directly usable by locator (prefer CSS/attr)
-  const primary = sorted.find((c) => c.type === 'css' || c.type === 'attr') ?? sorted[0];
-
-  const reordered = (() => {
-    const idx = sorted.indexOf(primary);
-    if (idx <= 0) return sorted;
-    return [primary, ...sorted.slice(0, idx), ...sorted.slice(idx + 1)];
-  })();
+  // IMP-0099 contract: `candidates[0]` is the highest-priority candidate by
+  // weight+stability (Playwright-style ladder: testid > role+name > label >
+  // placeholder > alt > title > text > css-unique > anchor-relpath > css-path).
+  // `selector` is set to the BEST CSS/attr candidate so the locator's
+  // fast-path still has a CSS string to query — even when candidates[0] is a
+  // text/aria locator that needs the helper's text-mode resolution. When no
+  // CSS/attr candidate exists, fall back to candidates[0].value (which the
+  // helper still attempts as CSS, fails gracefully, then the candidate loop
+  // handles it via the appropriate type-aware branch).
+  const cssOrAttrPrimary = sorted.find((c) => c.type === 'css' || c.type === 'attr');
+  const selectorValue = (cssOrAttrPrimary ?? sorted[0]).value;
 
   const tagName = element.tagName?.toLowerCase?.() ?? undefined;
 
   return {
-    selector: primary.value,
-    candidates: reordered as NonEmptyArray<SelectorCandidate>,
+    selector: selectorValue,
+    candidates: sorted as NonEmptyArray<SelectorCandidate>,
     tagName,
   };
 }
