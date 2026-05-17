@@ -975,6 +975,26 @@
   // (click-helper.js) can route through the same strict-mode path.
   window.__hcQuerySelectorUnique = querySelectorWithUniquenessCheck;
   window.__hcQueryXPathUnique = queryXPathWithUniquenessCheck;
+  // IMP-0116: the uniqueness probe short-circuits at matchCount=2 for
+  // speed; this helper is called on the strict-violation path to get the
+  // accurate count + 5-element samples in one querySelectorAll pass.
+  // Centralised so click-helper / fill-helper / structured-selector
+  // handlers report the same shape.
+  window.__hcCollectMatchSamples = function (selector, limit) {
+    const cap = typeof limit === 'number' && limit > 0 ? limit : 5;
+    try {
+      const all = document.querySelectorAll(selector);
+      const samples = Array.from(all)
+        .slice(0, cap)
+        .map((node) => ({
+          tag: node.tagName ? node.tagName.toLowerCase() : '',
+          text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        }));
+      return { trueCount: all.length, samples };
+    } catch {
+      return { trueCount: 0, samples: [] };
+    }
+  };
 
   /**
    * Ensure a ref id exists for the given element, mint a new one if not.

@@ -109,20 +109,10 @@ if (window.__FILL_HELPER_INITIALIZED__) {
             return { error: `Element with selector "${selector}" not found` };
           }
           if (probe.matchCount > 1) {
-            // IMP-0116: probe short-circuits at matchCount=2; re-query
-            // querySelectorAll for accurate telemetry.
-            let samples = [];
-            let trueCount = probe.matchCount;
-            try {
-              const all = document.querySelectorAll(selector);
-              trueCount = all.length;
-              samples = Array.from(all)
-                .slice(0, 5)
-                .map((node) => ({
-                  tag: node.tagName ? node.tagName.toLowerCase() : '',
-                  text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-                }));
-            } catch {}
+            const { trueCount, samples } =
+              typeof window.__hcCollectMatchSamples === 'function'
+                ? window.__hcCollectMatchSamples(selector, 5)
+                : { trueCount: probe.matchCount, samples: [] };
             return {
               error: `Selector "${selector}" matched ${trueCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
               strict: { matchCount: trueCount, samples },

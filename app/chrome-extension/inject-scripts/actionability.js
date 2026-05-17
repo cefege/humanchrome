@@ -22,10 +22,6 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   // Default per-action timeout. Matches Playwright's actionability default
   // closely enough; callers can override via `awaitActionable(el, {timeoutMs})`.
   const DEFAULT_TIMEOUT_MS = 5000;
-  // Hard cap on rAF iterations for the stability check. ~6 frames at 60fps
-  // ≈ 100ms — long enough for slide-in animations to settle, short enough
-  // that we don't hold the page indefinitely.
-  const STABILITY_MAX_FRAMES = 6;
 
   /**
    * The full per-action check catalog. Each consumer picks the subset that
@@ -44,7 +40,8 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
    *     bbox, off-viewport after scrollIntoView, `pointer-events:none`)
    *   - `disabled` (disabled attr, aria-disabled, nearest fieldset[disabled])
    *   - `not_editable` (readonly, contenteditable=false, or non-fillable tag)
-   *   - `unstable_bbox` (bbox kept moving past STABILITY_MAX_FRAMES rAFs)
+   *   - `unstable_bbox` (bbox kept changing across the stability sampler's
+   *     three 50ms-spaced samples — caller is mid-animation)
    *   - `occluded_by:<selector>` (elementFromPoint at clickPoint resolved to
    *     a different element, identified by id/class for the failure msg)
    *   - `no_element_at_point` (elementFromPoint returned null — clickPoint
@@ -232,45 +229,48 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
    * cheap when the element isn't animated — the first two frames match and
    * we return immediately.
    */
+  // IMP-0118: the old check resolved on the first equal pair of rAF samples,
+  // which ease-in-out animations spoofed at every velocity-zero reversal.
+  // Replaced with a fixed-interval sampler (setTimeout, not rAF — rAF was
+  // throttling-fragile under Chrome's SW lifecycle and caused matrix hangs
+  // that didn't reproduce in jsdom). Fast-path via Element.getAnimations
+  // skips the 100ms sampler entirely on static targets, restoring the old
+  // ~0ms latency on the 95% case.
+  const STABILITY_SAMPLE_MS = 50;
+  const REQUIRED_SAMPLES = 3;
+
+  function rectsEqual(a, b) {
+    return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  }
+
+  function hasActiveAnimation(el) {
+    if (typeof el.getAnimations !== 'function') return false;
+    try {
+      // `subtree: true` because a CSS transform on a parent shifts the
+      // child's bbox too, even when the child itself is static.
+      return el.getAnimations({ subtree: true }).length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   function checkStable(el) {
-    // IMP-0118: the old check resolved on the first equal pair of rAF
-    // samples. ease-in-out animations have velocity-zero peaks at every
-    // reversal, so a single equal pair was a false-positive "stable"
-    // signal. Replace with a fixed-time-window sampler — take rects at
-    // t=0, t=STABILITY_SAMPLE_MS, t=2*STABILITY_SAMPLE_MS. All three
-    // must match. A 4s/200px animation moves ~2.5px per 50ms, which the
-    // sampler reliably catches as unstable.
-    //
-    // Why setTimeout instead of rAF: rAF schedules vary under Chrome's
-    // background-tab / throttling rules, and earlier attempts using
-    // consecutive-equal rAF samples caused matrix-time SW hangs that
-    // weren't reproducible in unit tests. Fixed-interval setTimeout has
-    // none of that timing fragility.
-    const STABILITY_SAMPLE_MS = 50;
-    const REQUIRED_SAMPLES = 3;
+    if (!hasActiveAnimation(el)) return Promise.resolve(null);
+    const baseline = el.getBoundingClientRect();
+    let taken = 1;
     return new Promise((resolve) => {
-      const samples = [el.getBoundingClientRect()];
-      let collected = 1;
-
-      function rectsEqual(a, b) {
-        return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-      }
-
       function takeSample() {
-        const current = el.getBoundingClientRect();
-        samples.push(current);
-        collected += 1;
-        if (!rectsEqual(samples[0], current)) {
+        if (!rectsEqual(baseline, el.getBoundingClientRect())) {
           resolve('unstable_bbox');
           return;
         }
-        if (collected >= REQUIRED_SAMPLES) {
+        taken += 1;
+        if (taken >= REQUIRED_SAMPLES) {
           resolve(null);
           return;
         }
         setTimeout(takeSample, STABILITY_SAMPLE_MS);
       }
-
       setTimeout(takeSample, STABILITY_SAMPLE_MS);
     });
   }
