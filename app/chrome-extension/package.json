@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "postbuild": "node scripts/sync-installed.mjs",
     "zip": "wxt zip",
     "compile": "vue-tsc --noEmit",
     "postinstall": "wxt prepare",
