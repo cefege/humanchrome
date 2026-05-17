@@ -960,11 +960,29 @@
     } else if (elements.length > 0) {
       chosen = elements[0];
     }
-    const samples = elements.slice(0, 5).map((el) => ({
-      tag: el.tagName ? el.tagName.toLowerCase() : '',
-      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-    }));
-    return { element: chosen, matchCount: elements.length, samples };
+    return {
+      element: chosen,
+      matchCount: elements.length,
+      samples: buildSampleList(elements, 5),
+    };
+  }
+
+  // Shared {tag, text} sample builder. Three callers used to duplicate this:
+  // resolveByKind (structured-selector matches), __hcCollectMatchSamples
+  // (CSS strict-violation), and the ENSURE_REF_FOR_SELECTOR handler's
+  // strict-violation reporter. Single definition keeps the wire shape
+  // consistent across all paths.
+  function buildSampleList(nodesOrNodeList, cap) {
+    const out = [];
+    const max = Math.min(nodesOrNodeList.length, cap);
+    for (let i = 0; i < max; i++) {
+      const node = nodesOrNodeList[i];
+      out.push({
+        tag: node.tagName ? node.tagName.toLowerCase() : '',
+        text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      });
+    }
+    return out;
   }
 
   // Exposed on window so the tests + recorder can reuse the same logic.
@@ -978,18 +996,11 @@
   // IMP-0116: the uniqueness probe short-circuits at matchCount=2 for
   // speed; this helper is called on the strict-violation path to get the
   // accurate count + 5-element samples in one querySelectorAll pass.
-  // Centralised so click-helper / fill-helper / structured-selector
-  // handlers report the same shape.
   window.__hcCollectMatchSamples = function (selector, limit) {
     const cap = typeof limit === 'number' && limit > 0 ? limit : 5;
     try {
       const all = document.querySelectorAll(selector);
-      const samples = Array.from(all)
-        .slice(0, cap)
-        .map((node) => ({
-          tag: node.tagName ? node.tagName.toLowerCase() : '',
-          text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-        }));
+      const samples = buildSampleList(all, cap);
       return { trueCount: all.length, samples };
     } catch {
       return { trueCount: 0, samples: [] };
@@ -1922,13 +1933,7 @@
               // IMP-0098: surface samples to make multi-match errors actionable.
               let samples = [];
               try {
-                const allMatches = document.querySelectorAll(sel);
-                samples = Array.from(allMatches)
-                  .slice(0, 5)
-                  .map((node) => ({
-                    tag: node.tagName ? node.tagName.toLowerCase() : '',
-                    text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-                  }));
+                samples = buildSampleList(document.querySelectorAll(sel), 5);
               } catch {}
               sendResponse({
                 success: false,

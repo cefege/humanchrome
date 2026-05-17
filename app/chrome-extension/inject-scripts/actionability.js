@@ -223,19 +223,13 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     return null;
   }
 
-  /**
-   * Stability: same getBoundingClientRect for 2 consecutive rAFs. Bails
-   * after STABILITY_MAX_FRAMES rAFs returning `unstable_bbox`. The check is
-   * cheap when the element isn't animated — the first two frames match and
-   * we return immediately.
-   */
   // IMP-0118: the old check resolved on the first equal pair of rAF samples,
   // which ease-in-out animations spoofed at every velocity-zero reversal.
   // Replaced with a fixed-interval sampler (setTimeout, not rAF — rAF was
   // throttling-fragile under Chrome's SW lifecycle and caused matrix hangs
   // that didn't reproduce in jsdom). Fast-path via Element.getAnimations
-  // skips the 100ms sampler entirely on static targets, restoring the old
-  // ~0ms latency on the 95% case.
+  // skips the sampler entirely on static targets, restoring ~0ms latency
+  // on the 95% case.
   const STABILITY_SAMPLE_MS = 50;
   const REQUIRED_SAMPLES = 3;
 
@@ -246,11 +240,16 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   function hasActiveAnimation(el) {
     if (typeof el.getAnimations !== 'function') return false;
     try {
-      // `subtree: true` because a CSS transform on a parent shifts the
-      // child's bbox too, even when the child itself is static.
-      return el.getAnimations({ subtree: true }).length > 0;
+      // `subtree: true` catches transforms on parents that shift the child's
+      // bbox. Filter on `playState === 'running'` so finished/paused
+      // animations (post-fade-in, etc) don't trip the slow sampler forever.
+      return el.getAnimations({ subtree: true }).some((a) => a.playState === 'running');
     } catch {
-      return false;
+      // getAnimations throws on cross-origin iframe descendants (spec:
+      // InvalidStateError). Assume animated and let the sampler decide —
+      // a false-positive sampler run is cheap; a false-positive "stable"
+      // re-introduces IMP-0118 against cross-origin targets.
+      return true;
     }
   }
 

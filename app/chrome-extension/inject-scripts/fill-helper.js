@@ -109,10 +109,10 @@ if (window.__FILL_HELPER_INITIALIZED__) {
             return { error: `Element with selector "${selector}" not found` };
           }
           if (probe.matchCount > 1) {
-            const { trueCount, samples } =
-              typeof window.__hcCollectMatchSamples === 'function'
-                ? window.__hcCollectMatchSamples(selector, 5)
-                : { trueCount: probe.matchCount, samples: [] };
+            // acc-tree-helper.js always co-injected — see IMP-0117 inject
+            // list in interaction.ts. No fallback (a fake fallback would
+            // re-introduce IMP-0116 by reporting the probe's 2-cap).
+            const { trueCount, samples } = window.__hcCollectMatchSamples(selector, 5);
             return {
               error: `Selector "${selector}" matched ${trueCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
               strict: { matchCount: trueCount, samples },

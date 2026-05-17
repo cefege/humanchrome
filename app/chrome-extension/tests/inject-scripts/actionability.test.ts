@@ -284,10 +284,13 @@ describe('actionability: stable check', () => {
         toJSON: () => ({}),
       } as DOMRect;
     };
-    // checkStable fast-path skips the sampler when there are no active
-    // animations on the element subtree. A real animated element exposes
-    // them via getAnimations(); jsdom doesn't, so stub it.
-    (el as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [{}];
+    // checkStable fast-path skips the sampler when no animation on the
+    // element subtree has playState === 'running'. jsdom doesn't ship
+    // getAnimations; stub with a fake running animation so the sampler
+    // runs against the moving rect.
+    (el as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [
+      { playState: 'running' },
+    ];
 
     const r = await api.awaitActionable(el, { checks: ['stable'], timeoutMs: 1000 });
     expect(r.ok).toBe(false);
