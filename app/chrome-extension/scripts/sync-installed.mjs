@@ -72,11 +72,27 @@ async function pruneOrphans(src, dst) {
   );
 }
 
+async function writeBuildInfo() {
+  // IMP-0119: write a fresh timestamp into build-info.json on every build.
+  // The self-update-watcher in background.js polls this file via
+  // chrome.runtime.getURL('build-info.json') every 30s and calls
+  // chrome.runtime.reload() when the builtAt changes — so a `pnpm build`
+  // triggers an auto-reload of the running SW without a manual click.
+  const info = {
+    buildHash: process.env.HC_BUILD_HASH || `${Date.now().toString(36)}`,
+    builtAt: new Date().toISOString(),
+  };
+  await fs.writeFile(path.join(REPO_OUTPUT, 'build-info.json'), JSON.stringify(info, null, 2));
+  return info;
+}
+
 async function main() {
   if (!existsSync(REPO_OUTPUT)) {
     console.log(`[sync-installed-ext] no build output at ${REPO_OUTPUT} — skipping`);
     return;
   }
+  const info = await writeBuildInfo();
+  console.log(`[sync-installed-ext] build-info.json → ${info.builtAt}`);
   for (const dst of installDirCandidates()) {
     if (!existsSync(dst)) continue;
     console.log(`[sync-installed-ext] ${REPO_OUTPUT} → ${dst}`);
