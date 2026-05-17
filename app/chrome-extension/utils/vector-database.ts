@@ -359,7 +359,7 @@ export class VectorDatabase {
     }
 
     const documentId = this.generateDocumentId(tabId, chunk.index);
-    const document: VectorDocument = {
+    const doc: VectorDocument = {
       id: documentId,
       tabId,
       url,
@@ -468,7 +468,7 @@ export class VectorDatabase {
       dlog(`VectorDatabase: ✅ Successfully added document with label ${label}`);
 
       // Store document mapping
-      this.documents.set(label, document);
+      this.documents.set(label, doc);
 
       // Update tab document mapping
       if (!this.tabDocuments.has(tabId)) {
@@ -613,11 +613,11 @@ export class VectorDatabase {
         );
 
         // Find corresponding document by label
-        const document = this.findDocumentByLabel(label);
-        if (document) {
-          dlog(`VectorDatabase: Found document for label ${label}: ${document.id}`);
+        const doc = this.findDocumentByLabel(label);
+        if (doc) {
+          dlog(`VectorDatabase: Found document for label ${label}: ${doc.id}`);
           results.push({
-            document,
+            document: doc,
             similarity,
             distance,
           });
@@ -761,12 +761,12 @@ export class VectorDatabase {
     let size = 0;
 
     // Calculate documents Map size
-    for (const [label, document] of this.documents.entries()) {
+    for (const [, doc] of this.documents.entries()) {
       // label (number): 8 bytes
       size += 8;
 
       // document object
-      size += this.calculateObjectSize(document);
+      size += this.calculateObjectSize(doc);
     }
 
     // Calculate tabDocuments Map size
@@ -1005,8 +1005,8 @@ export class VectorDatabase {
 
       const documentsToDelete: number[] = [];
 
-      for (const [label, document] of this.documents.entries()) {
-        if (document.timestamp < cutoffTime) {
+      for (const [label, doc] of this.documents.entries()) {
+        if (doc.timestamp < cutoffTime) {
           documentsToDelete.push(label);
         }
       }
@@ -1034,8 +1034,8 @@ export class VectorDatabase {
    */
   private async removeDocumentByLabel(label: number): Promise<void> {
     try {
-      const document = this.documents.get(label);
-      if (!document) {
+      const doc = this.documents.get(label);
+      if (!doc) {
         console.warn(`VectorDatabase: Document with label ${label} not found`);
         return;
       }
@@ -1056,7 +1056,7 @@ export class VectorDatabase {
       this.documents.delete(label);
 
       // Remove from tab mapping
-      const tabId = document.tabId;
+      const tabId = doc.tabId;
       if (this.tabDocuments.has(tabId)) {
         this.tabDocuments.get(tabId)!.delete(label);
         // If tab has no other documents, delete entire tab mapping
