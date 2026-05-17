@@ -19,6 +19,21 @@ const log = debugLog.with({ tool: 'native-host' });
 let nativePort: chrome.runtime.Port | null = null;
 export const HOST_NAME = NATIVE_HOST.NAME;
 
+// IMP-0115: a per-SW-boot UUID stamped into the START frame so the bridge
+// can distinguish multiple Chromes loading the same extension (e.g. user's
+// regular Chrome vs Chrome for Testing in --load-extension mode). Resets
+// on chrome.runtime.reload — that's the desired semantics: each respawn
+// is logically a fresh instance.
+let cachedInstanceId: string | null = null;
+function getInstanceId(): string {
+  if (cachedInstanceId) return cachedInstanceId;
+  cachedInstanceId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return cachedInstanceId;
+}
+
 // Background-context callers that need a request/response round-trip with the
 // native host (file uploads, perf traces) used to go through a
 // `chrome.runtime.sendMessage({type: 'forward_to_native'})` round-trip and
@@ -590,7 +605,19 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
       scheduleReconnect('native_port_disconnected');
     });
 
-    nativePort.postMessage({ type: NativeMessageType.START, payload: { port } });
+    // IMP-0115: stamp the SW identity onto the START frame so the bridge can
+    // write {extensionId, instanceId} into its on-disk instance registry.
+    // instanceId is a fresh UUID per SW boot (resets on chrome.runtime.reload),
+    // distinct from the deterministic extensionId — lets clients distinguish
+    // multiple Chromes that load the same extension via --load-extension.
+    nativePort.postMessage({
+      type: NativeMessageType.START,
+      payload: {
+        port,
+        extensionId: chrome.runtime.id,
+        instanceId: getInstanceId(),
+      },
+    });
     // Note: Don't reset reconnect state here. Wait for SERVER_STARTED confirmation.
     // Chrome may return a Port but disconnect immediately if native host is missing.
     return true;

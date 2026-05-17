@@ -19,6 +19,7 @@ import {
 } from '../constant';
 import { NativeMessagingHost } from '../native-messaging-host';
 import nativeMessagingHostInstance from '../native-messaging-host';
+import { writeInstance, removeInstance } from '../util/instance-registry';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
@@ -536,6 +537,24 @@ export class Server {
         process.env.HUMANCHROME_PORT = String(candidate);
         process.env.MCP_HTTP_PORT = String(candidate);
         this.isRunning = true;
+        // IMP-0115: announce this instance to disk so the matrix runner
+        // (and any other HTTP client) can discover which port belongs to
+        // which Chrome instance.
+        try {
+          writeInstance({
+            pid: process.pid,
+            port: candidate,
+            extensionId: nativeHost.getRemoteExtensionId?.() ?? 'unknown',
+            instanceId: nativeHost.getRemoteInstanceId?.() ?? undefined,
+            chromeBinary: process.env.HC_CHROME_BINARY ?? undefined,
+            startedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          // Best-effort — registry write failure doesn't kill the bridge.
+          // Logged and life goes on.
+
+          console.error('[instance-registry] write failed:', err);
+        }
         return candidate;
       } catch (err: any) {
         lastErr = err;

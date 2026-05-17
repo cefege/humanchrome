@@ -18,9 +18,21 @@ export class NativeMessagingHost {
   private associatedServer: Server | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private static readonly MAX_PENDING_REQUESTS = 1000;
+  // IMP-0115: identity the SW announces in the START message payload, used
+  // to stamp the instance-registry record so multi-Chrome callers can route.
+  private remoteExtensionId: string | null = null;
+  private remoteInstanceId: string | null = null;
 
   public setServer(serverInstance: Server): void {
     this.associatedServer = serverInstance;
+  }
+
+  public getRemoteExtensionId(): string | null {
+    return this.remoteExtensionId;
+  }
+
+  public getRemoteInstanceId(): string | null {
+    return this.remoteInstanceId;
   }
 
   // add message handler to wait for start server
@@ -146,6 +158,12 @@ export class NativeMessagingHost {
       log.debug({ type: message.type, requestId: message.requestId }, 'inbound directive');
       switch (message.type) {
         case NativeMessageType.START:
+          if (typeof message.payload?.extensionId === 'string') {
+            this.remoteExtensionId = message.payload.extensionId;
+          }
+          if (typeof message.payload?.instanceId === 'string') {
+            this.remoteInstanceId = message.payload.instanceId;
+          }
           await this.startServer(message.payload?.port || 12306);
           break;
         case NativeMessageType.STOP:

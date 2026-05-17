@@ -3,6 +3,7 @@ import serverInstance from './server';
 import nativeMessagingHostInstance from './native-messaging-host';
 import fileHandler from './file-handler';
 import { logger } from './util/logger';
+import { removeInstance } from './util/instance-registry';
 
 try {
   serverInstance.setNativeHost(nativeMessagingHostInstance); // Server needs setNativeHost method
@@ -27,15 +28,21 @@ process.on('error', (error) => {
 // Handle process signals and uncaught exceptions
 process.on('SIGINT', () => {
   logger.info('SIGINT received — exiting');
+  removeInstance(process.pid);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received — exiting');
+  removeInstance(process.pid);
   process.exit(0);
 });
 
 process.on('exit', (code) => {
+  // Best-effort registry cleanup — won't run on hard kills (SIGKILL,
+  // crash) but listInstances() filters dead pids at read time so orphans
+  // self-heal.
+  removeInstance(process.pid);
   logger.debug({ code }, 'process exit');
 });
 
