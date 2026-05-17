@@ -63,6 +63,9 @@ if (window.__FILL_HELPER_INITIALIZED__) {
     const force = opts && opts.force === true;
     const actionabilityTimeoutMs =
       opts && typeof opts.actionabilityTimeoutMs === 'number' ? opts.actionabilityTimeoutMs : 5000;
+    const allowMultipleStrict = !!(opts && opts.allowMultiple);
+    const indexHint =
+      opts && typeof opts.index === 'number' && opts.index >= 0 ? Math.floor(opts.index) : -1;
     try {
       // Find the element
       let element = null;
@@ -79,8 +82,52 @@ if (window.__FILL_HELPER_INITIALIZED__) {
             error: `Element ref "${ref}" not found. Please call chrome_read_page first and ensure the ref is still valid.`,
           };
         }
+      } else if (indexHint >= 0) {
+        // IMP-0117: explicit `index` opts out of strict mode for the fill
+        // path — pick the Nth match directly.
+        let all;
+        try {
+          all = document.querySelectorAll(selector);
+        } catch (err) {
+          return { error: err.message || String(err) };
+        }
+        if (indexHint >= all.length) {
+          return {
+            error: `Selector "${selector}" matched ${all.length} elements; index ${indexHint} is out of range.`,
+          };
+        }
+        element = all[indexHint];
       } else {
-        element = document.querySelector(selector);
+        const uniqueProbe =
+          typeof window.__hcQuerySelectorUnique === 'function'
+            ? window.__hcQuerySelectorUnique
+            : null;
+        if (uniqueProbe && !allowMultipleStrict) {
+          const probe = uniqueProbe(selector, false);
+          if (probe.error) return { error: probe.error };
+          if (probe.matchCount === 0) {
+            return { error: `Element with selector "${selector}" not found` };
+          }
+          if (probe.matchCount > 1) {
+            let samples = [];
+            try {
+              const all = document.querySelectorAll(selector);
+              samples = Array.from(all)
+                .slice(0, 5)
+                .map((node) => ({
+                  tag: node.tagName ? node.tagName.toLowerCase() : '',
+                  text: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+                }));
+            } catch {}
+            return {
+              error: `Selector "${selector}" matched ${probe.matchCount === 2 ? '2 or more' : probe.matchCount} elements. Please refine the selector or pass {index} / {multi:true}.`,
+              strict: { matchCount: probe.matchCount, samples },
+            };
+          }
+          element = probe.element;
+        } else {
+          element = document.querySelector(selector);
+        }
       }
       if (!element) {
         return {
@@ -386,6 +433,8 @@ if (window.__FILL_HELPER_INITIALIZED__) {
       fillElement(request.selector, request.value, request.ref, {
         force: request.force === true,
         actionabilityTimeoutMs: request.actionabilityTimeoutMs,
+        allowMultiple: request.allowMultiple === true,
+        index: typeof request.index === 'number' ? request.index : undefined,
       })
         .then(sendResponse)
         .catch((error) => {
