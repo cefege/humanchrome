@@ -3,21 +3,32 @@
 // /api/tools/:name HTTP endpoint to skip the MCP transport's session
 // cache (the main reason matrix runs needed a Claude Code restart).
 //
-//   pnpm e2e:matrix          # use existing build
+//   pnpm e2e:matrix          # use existing build + existing Chrome
 //   pnpm e2e:full            # rebuild first + dump /tmp/e2e-result.json
+//   pnpm e2e:full --launch-chrome
+//                            # also spawn a dedicated headed Chrome with
+//                            # --load-extension pointing at .output/chrome-mv3
+//                            # in a throwaway user-data-dir. Avoids touching
+//                            # the user's primary Chrome and skips the
+//                            # bootstrap reload entirely (fresh Chrome →
+//                            # fresh SW with latest bundle every run).
 //
 // Exit codes: 0 all pass, 1 some fail, 2 SW pre-bootstrap (one-time
-// manual extension reload required), 3 SW didn't pick up new bundle.
-import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+// manual extension reload required when --launch-chrome is not used),
+// 3 SW didn't pick up new bundle.
+import { spawnSync, spawn } from 'node:child_process';
+import { writeFileSync, mkdirSync, rmSync, existsSync, cpSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { platform, homedir } from 'node:os';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BRIDGE_BASE = process.env.HC_BRIDGE_URL || 'http://127.0.0.1:12306';
 const FIXTURE_URL = process.env.HC_FIXTURE_URL || 'http://127.0.0.1:4173/playwright-parity.html';
 const ARGS = new Set(process.argv.slice(2));
 const SHOULD_BUILD = ARGS.has('--build');
+const LAUNCH_CHROME = ARGS.has('--launch-chrome');
+const KEEP_CHROME = ARGS.has('--keep-chrome');
 const JSON_OUT = (() => {
   const i = process.argv.indexOf('--json');
   return i >= 0 ? process.argv[i + 1] : null;
@@ -216,6 +227,102 @@ async function waitForFreshSw(priorBuildHash, priorAvailable) {
   return null;
 }
 
+function resolveChromeBinary() {
+  if (process.env.HC_CHROME_PATH) return process.env.HC_CHROME_PATH;
+  // Stable Google Chrome on macOS no longer honors --load-extension
+  // (silently warns + ignores), so prefer Chrome for Testing when it's
+  // been installed via @puppeteer/browsers — install runs once and
+  // drops the binary under <repo>/chrome/.
+  const cftGlob = spawnSync('sh', [
+    '-c',
+    `ls -t '${REPO_ROOT}'/chrome/mac_*/chrome-mac-*/'Google Chrome for Testing.app'/Contents/MacOS/'Google Chrome for Testing' 2>/dev/null | head -1`,
+  ]);
+  const cft = cftGlob.stdout.toString().trim();
+  if (cft) return cft;
+  if (platform() === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+  if (platform() === 'win32') {
+    return 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+  }
+  return 'google-chrome';
+}
+
+function killExistingBridge() {
+  // The bridge is a singleton on :12306. Kill it so the FIRST chrome to
+  // reach out via native messaging spawns a fresh one — that'll be the
+  // dedicated Chrome we're about to launch.
+  const ps = spawnSync('pgrep', ['-f', 'humanchrome-bridge/dist/index.js']);
+  const pids = ps.stdout.toString().split('\n').filter(Boolean).map(Number);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(`[e2e] killed existing bridge pid=${pid}`);
+    } catch {
+      /* gone */
+    }
+  }
+}
+
+function stageExtensionForChrome() {
+  // macOS TCC blocks Chrome from reading ~/Documents even with the bridge's
+  // Full Disk Access, so --load-extension silently no-ops when the source
+  // lives there. Mirror the bridge's workaround (IMP from project memory):
+  // copy the build to ~/Library/Application Support/humanchrome-bridge/e2e-ext/
+  // where Chrome is unrestricted, then point --load-extension at the copy.
+  const src = resolve(REPO_ROOT, 'app/chrome-extension/.output/chrome-mv3');
+  const tccSafe = resolve(homedir(), 'Library/Application Support/humanchrome-bridge/e2e-ext');
+  if (existsSync(tccSafe)) rmSync(tccSafe, { recursive: true, force: true });
+  mkdirSync(dirname(tccSafe), { recursive: true });
+  cpSync(src, tccSafe, { recursive: true });
+  return tccSafe;
+}
+
+function stageNativeMessagingHost(profile) {
+  // Chrome for Testing (and any non-default Chrome channel) looks for native
+  // messaging host manifests under <user-data-dir>/NativeMessagingHosts/
+  // FIRST. Without this the SW gets "Specified native messaging host not
+  // found." and the bridge never spawns for the dedicated instance.
+  const src = resolve(
+    homedir(),
+    'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.humanchrome.nativehost.json',
+  );
+  if (!existsSync(src)) {
+    console.warn('[e2e] no NM manifest at', src, '— skipping stage');
+    return;
+  }
+  const dst = resolve(profile, 'NativeMessagingHosts');
+  mkdirSync(dst, { recursive: true });
+  cpSync(src, resolve(dst, 'com.humanchrome.nativehost.json'));
+  console.log(`[e2e]   NM manifest staged   = ${dst}/`);
+}
+
+function launchChrome() {
+  killExistingBridge();
+  const profile = resolve(homedir(), 'Library/Application Support/humanchrome-bridge/e2e-profile');
+  const ext = stageExtensionForChrome();
+  if (existsSync(profile)) rmSync(profile, { recursive: true, force: true });
+  mkdirSync(profile, { recursive: true });
+  stageNativeMessagingHost(profile);
+
+  const bin = resolveChromeBinary();
+  const args = [
+    `--user-data-dir=${profile}`,
+    `--load-extension=${ext}`,
+    '--remote-debugging-port=9333',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-features=DialMediaRouteProvider',
+    FIXTURE_URL,
+  ];
+  console.log(`[e2e] launching dedicated Chrome → ${bin}`);
+  console.log(`[e2e]   ext (TCC-safe copy) = ${ext}`);
+  console.log(`[e2e]   profile             = ${profile}`);
+  const child = spawn(bin, args, { stdio: 'ignore', detached: true });
+  child.unref();
+  return { pid: child.pid, profile };
+}
+
 async function main() {
   console.log(`[e2e] bridge=${BRIDGE_BASE} fixture=${FIXTURE_URL} clientId=${CLIENT_ID}`);
 
@@ -224,6 +331,14 @@ async function main() {
     run('pnpm', ['build:shared']);
     run('pnpm', ['build:native']);
     run('pnpm', ['build:extension']);
+  }
+
+  let spawned = null;
+  if (LAUNCH_CHROME) {
+    spawned = launchChrome();
+    console.log(`[e2e] Chrome spawned pid=${spawned.pid} profile=${spawned.profile}`);
+    // Give the SW a moment to load + register with the bridge before probing.
+    await sleep(3000);
   }
 
   const probe1 = await callTool('chrome_runtime_info', {});
@@ -306,6 +421,17 @@ async function main() {
       ),
     );
     console.log(`[e2e] wrote ${JSON_OUT}`);
+  }
+
+  if (spawned && !KEEP_CHROME) {
+    try {
+      process.kill(spawned.pid, 'SIGTERM');
+      console.log(`[e2e] cleaned up spawned Chrome pid=${spawned.pid}`);
+    } catch {
+      /* already gone */
+    }
+  } else if (spawned) {
+    console.log(`[e2e] --keep-chrome: leaving Chrome pid=${spawned.pid} running`);
   }
 
   process.exit(counts.FAIL ? 1 : 0);
