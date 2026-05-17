@@ -138,9 +138,13 @@ const MATRIX = [
   },
   {
     imp: 'IMP-0097',
-    name: 'offscreen scrolls into view',
+    name: 'offscreen (left:-9999) fails not_visible',
+    // `position:absolute; left:-9999px` is the conventional .sr-only /
+    // visually-hidden pattern. scrollIntoView is a no-op because there's
+    // nowhere to scroll horizontally past x=0; Playwright treats these as
+    // unactionable too. Expect NOT_ACTIONABLE not silent click success.
     run: () => callTool('chrome_click_element', { selector: '#vis-offscreen' }),
-    check: (res) => assert(!res.isError, JSON.stringify(res)),
+    check: (res) => expectFailure(res, 'not_visible'),
   },
   {
     imp: 'IMP-0097',
