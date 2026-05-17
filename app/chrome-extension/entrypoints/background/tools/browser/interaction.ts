@@ -157,49 +157,29 @@ class ClickTool extends BaseBrowserToolExecutor {
         method?: string;
         clickPosition?: unknown;
       }
+      const clickMessage = {
+        action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
+        selector: finalSelector,
+        coordinates,
+        ref: finalRef,
+        waitForNavigation,
+        timeout: timeoutMs,
+        double: args.double === true,
+        button,
+        bubbles,
+        cancelable,
+        modifiers,
+        allowMultiple: args.multi === true,
+        index: typeof args.index === 'number' ? args.index : undefined,
+        force: args.force === true,
+        actionabilityTimeoutMs: args.actionabilityTimeoutMs,
+      };
       let result: ClickHelperResponse;
       try {
-        if (typeof frameId === 'number') {
-          result = await chrome.tabs.sendMessage(
-            tab.id,
-            {
-              action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
-              selector: finalSelector,
-              coordinates,
-              ref: finalRef,
-              waitForNavigation,
-              timeout: timeoutMs,
-              double: args.double === true,
-              button,
-              bubbles,
-              cancelable,
-              modifiers,
-              allowMultiple: args.multi === true,
-              index: typeof args.index === 'number' ? args.index : undefined,
-              force: args.force === true,
-              actionabilityTimeoutMs: args.actionabilityTimeoutMs,
-            },
-            { frameId },
-          );
-        } else {
-          result = await chrome.tabs.sendMessage(tab.id, {
-            action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
-            selector: finalSelector,
-            coordinates,
-            ref: finalRef,
-            waitForNavigation,
-            timeout: timeoutMs,
-            double: args.double === true,
-            button,
-            bubbles,
-            cancelable,
-            modifiers,
-            allowMultiple: args.multi === true,
-            index: typeof args.index === 'number' ? args.index : undefined,
-            force: args.force === true,
-            actionabilityTimeoutMs: args.actionabilityTimeoutMs,
-          });
-        }
+        result =
+          typeof frameId === 'number'
+            ? await chrome.tabs.sendMessage(tab.id, clickMessage, { frameId })
+            : await chrome.tabs.sendMessage(tab.id, clickMessage);
       } catch (err) {
         return createErrorResponseFromThrown(err);
       }
