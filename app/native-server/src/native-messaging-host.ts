@@ -323,12 +323,16 @@ export class NativeMessagingHost {
         return;
       }
 
-      await this.associatedServer.start(port, this);
-      log.info({ port }, 'fastify server started');
+      // start() walks ports on EADDRINUSE and returns the actually-bound
+      // port — may differ from `port` when another bridge owns it. Tell the
+      // extension which one we bound so it can persist + use that for future
+      // connections (IMP-0114).
+      const actualPort = await this.associatedServer.start(port, this);
+      log.info({ requestedPort: port, actualPort }, 'fastify server started');
 
       this.sendMessage({
         type: NativeMessageType.SERVER_STARTED,
-        payload: { port },
+        payload: { port: actualPort, requestedPort: port },
       });
     } catch (error: any) {
       log.error({ err: error?.message || String(error), port }, 'failed to start fastify server');
