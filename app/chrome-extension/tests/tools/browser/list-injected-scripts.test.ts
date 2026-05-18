@@ -38,8 +38,12 @@ function installChromeMock() {
   (globalThis.chrome as any).windows = {
     update: vi.fn().mockResolvedValue({}),
   };
+  // The MAIN-world inject path (bug #217) now runs a third executeScript
+  // call to verify the wrapper actually ran. Returning `result: true` for
+  // every call makes that verify succeed without breaking the bridge/main
+  // injections that don't read the result.
   (globalThis.chrome as any).scripting = {
-    executeScript: vi.fn().mockResolvedValue([{ result: undefined }]),
+    executeScript: vi.fn().mockResolvedValue([{ result: true }]),
   };
   // For the chrome.tabs.onRemoved listener registered at module load.
   (globalThis.chrome as any).tabs.onRemoved = {

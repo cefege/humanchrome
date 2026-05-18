@@ -49,6 +49,18 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0122 · `chrome_search_tabs_content` still blocked by SW dynamic-`import()` ban (bug) · score: 5
+
+- **Proposed by**: claude · 2026-05-18 (follow-up to GitHub issues #216 / #217)
+- **Status**: proposed
+- **Why**: #216 promoted the cheap lazy tools (javascript / read-page / userscript / performance / element-picker) to static imports so they survive the SW dynamic-`import()` ban. `vector-search.ts` (`chrome_search_tabs_content`) is left lazy because its `getIndexer()` does `await import('@/utils/content-indexer')` to defer the ~1.2 MB ML graph (`@huggingface/transformers` + `onnxruntime-web` + `hnswlib-wasm-static`). That inner dynamic import hits the same Chrome limitation: `import() is disallowed on ServiceWorkerGlobalScope` per https://github.com/w3c/ServiceWorker/issues/1356. Calling the tool currently returns the same error the original bug filed. Bringing the graph in statically would add ~1.2 MB to SW boot — unacceptable.
+- **Cost**: M (architecture choice)
+- **Value**: M (restores semantic search; cheaply unblocks future vector-backed features)
+- **Fix sketch**: Move the indexer to an offscreen document (`chrome.offscreen.createDocument({reasons:['WORKERS'], justification:'vector ML graph too large for SW'})`). Offscreen pages have full DOM/window so dynamic `import()` works. SW dispatches search RPCs over `chrome.runtime.sendMessage`; offscreen page owns the singleton `ContentIndexer` and replies with results.
+- **Files involved**: `app/chrome-extension/entrypoints/background/tools/browser/vector-search.ts`, `app/chrome-extension/utils/content-indexer.ts` (dynamic imports of `vector-database` + `semantic-similarity`), new `app/chrome-extension/entrypoints/offscreen/vector-host.ts` page.
+- **Repro**: `curl -s -X POST http://127.0.0.1:12306/api/tools/chrome_search_tabs_content -H 'content-type: application/json' -H 'x-client-id: diag' -d '{"args":{"query":"test","topK":1}}'` returns `{"code":"UNKNOWN","message":"import() is disallowed on ServiceWorkerGlobalScope ..."}` even after #216 ships.
+- **Notes**: `storage-manager.ts` and `semantic-similarity.ts` also do `await import('@/utils/content-indexer')` — they fail the same way if reached at runtime. Offscreen pattern fixes all three call sites uniformly.
+
 ### IMP-0121 · `/mcp` POST race vs fastify auto-respond — ERR_HTTP_HEADERS_SENT spam (bug) · score: 7
 
 - **Proposed by**: claude · 2026-05-17 (observed in daemon stderr log: 175 738 stack traces in ~3h; 91 MB of log spam; 15 stuck `transportsMap` entries cleared on first `/admin/reset` probe)
