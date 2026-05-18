@@ -85,14 +85,21 @@ class PasteTool extends BaseBrowserToolExecutor {
     // is omitted, the synthetic ClipboardEvent uses whatever the OS clipboard
     // currently holds (the shim falls back to navigator.clipboard.readText()
     // inside the page when text is null).
+    //
+    // When `text` IS provided, seeding the OS clipboard is a best-effort step:
+    // it helps the minority of pages that call navigator.clipboard.readText()
+    // themselves, but the shim (line 188) builds a synthetic DataTransfer + falls
+    // back to execCommand('insertText') using the text directly. So a seed
+    // failure (typically "Document is not focused" in background-mode) should
+    // not block the whole paste — degrade gracefully and let the shim run.
+    let clipboardSeedWarning: string | null = null;
     if (typeof args.text === 'string') {
       try {
         await writeClipboardFromBackground(args.text);
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        return createErrorResponse(
-          `Failed to seed clipboard before paste: ${msg}`,
-          ToolErrorCode.UNKNOWN,
+        clipboardSeedWarning = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[chrome_paste] clipboard seed failed, continuing with shim: ${clipboardSeedWarning}`,
         );
       }
     }
@@ -130,6 +137,7 @@ class PasteTool extends BaseBrowserToolExecutor {
         pasted: first.pasted,
         mode: first.mode,
         tagName: first.tagName,
+        clipboardSeedWarning,
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -186,6 +194,19 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
     let eventDispatched = false;
     let execCommandDispatched = false;
     if (text !== null) {
+      // Snapshot the editor's text BEFORE event dispatch so we can detect
+      // whether the page's paste handler actually inserted text. Without this
+      // check, the execCommand fallback below double-inserts on editors that
+      // accept BOTH the paste event AND execCommand (e.g. LinkedIn's
+      // contenteditable React composer).
+      const readText = (): string => {
+        if ((target as HTMLElement).isContentEditable)
+          return (target as HTMLElement).innerText ?? '';
+        const v = (target as unknown as { value?: unknown }).value;
+        return typeof v === 'string' ? v : '';
+      };
+      const textBefore = readText();
+
       // Synthetic ClipboardEvent — pages with .addEventListener('paste', ...) handlers
       // (rich editors, framework controls) see the data via event.clipboardData.
       try {
@@ -196,20 +217,25 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
           cancelable: true,
           clipboardData: dt,
         });
-        const accepted = target.dispatchEvent(ev);
-        // accepted is `false` when the page called preventDefault — treat that
-        // as a successful event-driven paste.
-        eventDispatched = !accepted ? true : true;
+        target.dispatchEvent(ev);
+        eventDispatched = true;
       } catch {
         eventDispatched = false;
       }
 
-      // Fallback for plain inputs / textareas that don't react to paste events.
-      try {
-        const ok = document.execCommand('insertText', false, text);
-        execCommandDispatched = ok === true;
-      } catch {
-        execCommandDispatched = false;
+      // Only fall back to execCommand if the event-dispatch path did NOT
+      // already insert the text. Prevents double-insertion on rich editors
+      // that consume both surfaces.
+      const textAfterEvent = readText();
+      const eventInsertedText = textAfterEvent !== textBefore;
+
+      if (!eventInsertedText) {
+        try {
+          const ok = document.execCommand('insertText', false, text);
+          execCommandDispatched = ok === true;
+        } catch {
+          execCommandDispatched = false;
+        }
       }
     }
 
