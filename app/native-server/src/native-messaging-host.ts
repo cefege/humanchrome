@@ -1,4 +1,4 @@
-import { stdin, stdout } from 'process';
+import { stdin as processStdin, stdout as processStdout } from 'process';
 import { Server } from './server';
 import { v4 as uuidv4 } from 'uuid';
 import { buildCallToolEnvelope, NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
@@ -14,6 +14,17 @@ interface PendingRequest {
   timeoutId: NodeJS.Timeout;
 }
 
+// IMP-0120: source-closed callback so the orchestrator can decide whether
+// to exit the process or keep the HTTP server alive while waiting for a
+// fresh native-messaging source (e.g. a UDS relay from a respawned SW).
+export type SourceClosedHandler = (reason: 'end' | 'error', err?: Error) => void;
+
+interface SourceListeners {
+  onReadable: () => void;
+  onEnd: () => void;
+  onError: (err: Error) => void;
+}
+
 export class NativeMessagingHost {
   private associatedServer: Server | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
@@ -22,6 +33,20 @@ export class NativeMessagingHost {
   // to stamp the instance-registry record so multi-Chrome callers can route.
   private remoteExtensionId: string | null = null;
   private remoteInstanceId: string | null = null;
+  // IMP-0120: streams are swappable so a primary bridge can move its NM
+  // source from its own process.stdin to a UDS relay socket when the SW
+  // reloads, without dropping the HTTP server. Default is process stdio so
+  // the standalone (non-daemon) bridge path keeps working unchanged.
+  private inStream: NodeJS.ReadableStream = processStdin;
+  private outStream: NodeJS.WritableStream = processStdout;
+  private currentListeners: SourceListeners | null = null;
+  private sourceClosedHandler: SourceClosedHandler | null = null;
+  // IMP-0120: when the NM source has dropped and we're waiting for a
+  // fresh relay to connect, fail incoming requests fast rather than
+  // letting them hang until the 120s envelope timeout. Defaults to true
+  // so callers that pre-date the daemon split (notably the pending-cap
+  // test) and the legacy standalone path keep working unchanged.
+  private sourceActive = true;
 
   public setServer(serverInstance: Server): void {
     this.associatedServer = serverInstance;
@@ -35,15 +60,52 @@ export class NativeMessagingHost {
     return this.remoteInstanceId;
   }
 
+  /**
+   * Install a callback fired when the active NM source ends or errors.
+   * The orchestrator uses this to decide whether to exit (standalone /
+   * relay mode) or keep running and wait for a replacement source
+   * (primary/daemon mode).
+   */
+  public setSourceClosedHandler(handler: SourceClosedHandler | null): void {
+    this.sourceClosedHandler = handler;
+  }
+
+  /**
+   * Hot-swap the NM source. Detaches listeners from the previous input,
+   * resets the framing buffer, and re-attaches to the new pair. Used by
+   * the primary/daemon mode to switch from process.stdin → UDS relay
+   * socket → next UDS relay socket across SW reloads.
+   */
+  public setStreams(input: NodeJS.ReadableStream, output: NodeJS.WritableStream): void {
+    this.detachSourceListeners();
+    this.inStream = input;
+    this.outStream = output;
+    this.setupMessageHandling();
+  }
+
   // add message handler to wait for start server
-  public start(): void {
+  public start(input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream): void {
     try {
+      if (input) this.inStream = input;
+      if (output) this.outStream = output;
       this.setupMessageHandling();
       log.info('native messaging host started');
     } catch (error: any) {
       log.fatal({ err: error?.message || String(error) }, 'failed to start native messaging host');
       process.exit(1);
     }
+  }
+
+  private detachSourceListeners(): void {
+    if (!this.currentListeners) return;
+    try {
+      this.inStream.removeListener('readable', this.currentListeners.onReadable);
+      this.inStream.removeListener('end', this.currentListeners.onEnd);
+      this.inStream.removeListener('error', this.currentListeners.onError);
+    } catch {
+      /* stream may already be torn down */
+    }
+    this.currentListeners = null;
   }
 
   private setupMessageHandling(): void {
@@ -97,23 +159,53 @@ export class NativeMessagingHost {
       }
     };
 
-    stdin.on('readable', () => {
-      let chunk;
-      while ((chunk = stdin.read()) !== null) {
-        buffer = Buffer.concat([buffer, chunk]);
-        processAvailable();
+    const input = this.inStream;
+    const listeners: SourceListeners = {
+      onReadable: () => {
+        let chunk;
+        while ((chunk = (input as any).read?.()) !== null && chunk !== undefined) {
+          buffer = Buffer.concat([buffer, chunk]);
+          processAvailable();
+        }
+      },
+      onEnd: () => {
+        log.info('NM source ended');
+        this.handleSourceClosed('end');
+      },
+      onError: (err: Error) => {
+        log.error({ err: err?.message || String(err) }, 'NM source error');
+        this.handleSourceClosed('error', err);
+      },
+    };
+    this.currentListeners = listeners;
+    input.on('readable', listeners.onReadable);
+    input.on('end', listeners.onEnd);
+    input.on('error', listeners.onError);
+    this.sourceActive = true;
+  }
+
+  private handleSourceClosed(reason: 'end' | 'error', err?: Error): void {
+    this.sourceActive = false;
+    this.detachSourceListeners();
+    // Reject pending requests so callers don't hang waiting for a SW that's
+    // about to be replaced by a fresh one (or is gone for good).
+    this.pendingRequests.forEach((pending) => {
+      clearTimeout(pending.timeoutId);
+      pending.reject(new Error('Native host source disconnected — request aborted'));
+    });
+    this.pendingRequests.clear();
+    if (this.sourceClosedHandler) {
+      try {
+        this.sourceClosedHandler(reason, err);
+      } catch (e: any) {
+        log.error({ err: e?.message || String(e) }, 'sourceClosedHandler threw');
       }
-    });
-
-    stdin.on('end', () => {
-      log.info('stdin ended — cleaning up');
+    } else {
+      // Legacy behaviour: when no orchestrator is installed (matrix runner
+      // / standalone bridge), exit the process so Chrome's NM lifecycle
+      // sees us go away cleanly.
       this.cleanup();
-    });
-
-    stdin.on('error', (err) => {
-      log.error({ err: (err as Error)?.message || String(err) }, 'stdin error — cleaning up');
-      this.cleanup();
-    });
+    }
   }
 
   private async handleMessage(rawMessage: any): Promise<void> {
@@ -262,6 +354,14 @@ export class NativeMessagingHost {
     return new Promise((resolve, reject) => {
       const id = requestId || uuidv4();
 
+      // IMP-0120: fail fast when no NM source is connected (SW reloaded,
+      // relay hasn't reconnected yet). Better than waiting the full 120s
+      // for the envelope timeout.
+      if (!this.sourceActive) {
+        reject(new Error('Bridge has no active native-messaging source (SW reconnecting)'));
+        return;
+      }
+
       // DoS guard: cap how many requests can be in-flight simultaneously so a
       // misbehaving client (or a buggy build) can't grow the Map without bound.
       if (this.pendingRequests.size >= NativeMessagingHost.MAX_PENDING_REQUESTS) {
@@ -399,7 +499,7 @@ export class NativeMessagingHost {
       const headerBuffer = Buffer.alloc(4);
       headerBuffer.writeUInt32LE(messageBuffer.length, 0);
       // Ensure atomic write
-      stdout.write(Buffer.concat([headerBuffer, messageBuffer]), (err) => {
+      this.outStream.write(Buffer.concat([headerBuffer, messageBuffer]), (err) => {
         if (err) {
           // Don't log to stdout — that's the wire. Logger pins stderr.
           log.warn(
@@ -431,11 +531,13 @@ export class NativeMessagingHost {
   }
 
   /**
-   * Clean up resources
+   * Clean up resources and exit. Only called in the legacy path when no
+   * SourceClosedHandler is installed (standalone bridge). Primary/daemon
+   * mode installs a handler and keeps the process alive across SW reloads.
    */
   private cleanup(): void {
     log.info({ pendingCount: this.pendingRequests.size }, 'cleanup starting');
-    // Reject all pending requests
+    // Reject all pending requests (no-op if already drained by handleSourceClosed)
     this.pendingRequests.forEach((pending) => {
       clearTimeout(pending.timeoutId);
       pending.reject(new Error('Native host is shutting down or Chrome disconnected.'));

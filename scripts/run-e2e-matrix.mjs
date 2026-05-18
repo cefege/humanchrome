@@ -33,7 +33,7 @@ import { platform, homedir } from 'node:os';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXPECTED_EXTENSION_ID = 'hbdgbgagpkpjffpklnamcljpakneikee';
-const REGISTRY_DIR =
+let REGISTRY_DIR =
   process.env.HC_INSTANCE_REGISTRY_DIR ||
   resolve(homedir(), 'Library/Application Support/humanchrome-bridge/instances');
 let BRIDGE_BASE = process.env.HC_BRIDGE_URL || 'http://127.0.0.1:12306';
@@ -355,6 +355,20 @@ function launchChrome() {
   mkdirSync(profile, { recursive: true });
   stageNativeMessagingHost(profile);
 
+  // IMP-0120: isolate the matrix bridge from the user's main Chrome's
+  // daemon UDS by giving it its own registry dir + daemon socket. Without
+  // this, the matrix bridge would try to acquire the user's main daemon
+  // lock, fail, fall back to relay mode, and start shovelling matrix's
+  // SW messages into the user's main bridge.
+  const matrixRegistry = resolve(
+    homedir(),
+    'Library/Application Support/humanchrome-bridge/e2e-registry/instances',
+  );
+  const matrixDaemonSocket = resolve(
+    homedir(),
+    'Library/Application Support/humanchrome-bridge/e2e-registry/bridge-daemon.sock',
+  );
+
   const bin = resolveChromeBinary();
   const args = [
     `--user-data-dir=${profile}`,
@@ -368,10 +382,19 @@ function launchChrome() {
   console.log(`[e2e] launching dedicated Chrome → ${bin}`);
   console.log(`[e2e]   ext (TCC-safe copy) = ${ext}`);
   console.log(`[e2e]   profile             = ${profile}`);
+  console.log(`[e2e]   isolated registry   = ${matrixRegistry}`);
   const spawnedAt = Date.now();
-  const child = spawn(bin, args, { stdio: 'ignore', detached: true });
+  const child = spawn(bin, args, {
+    stdio: 'ignore',
+    detached: true,
+    env: {
+      ...process.env,
+      HC_INSTANCE_REGISTRY_DIR: matrixRegistry,
+      HC_BRIDGE_DAEMON_SOCKET: matrixDaemonSocket,
+    },
+  });
   child.unref();
-  return { pid: child.pid, profile, spawnedAt };
+  return { pid: child.pid, profile, spawnedAt, matrixRegistry };
 }
 
 async function main() {
@@ -387,6 +410,10 @@ async function main() {
   let spawned = null;
   if (LAUNCH_CHROME) {
     spawned = launchChrome();
+    // IMP-0120: matrix's bridge uses an isolated registry dir so its
+    // daemon UDS doesn't collide with the user's main Chrome. Point
+    // findSpawnedBridge at the same isolated dir.
+    REGISTRY_DIR = spawned.matrixRegistry;
     console.log(`[e2e] Chrome spawned pid=${spawned.pid} profile=${spawned.profile}`);
     // Wait for the spawned Chrome's extension SW to come up and register its
     // bridge in the on-disk instance registry (IMP-0115). Once we know the

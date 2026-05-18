@@ -331,10 +331,28 @@ export class Server {
     }
   }
 
+  /**
+   * IMP-0121: every MCP HTTP route hands `reply.raw` to the SDK transport,
+   * which writes the response via `@hono/node-server`. Without hijacking,
+   * fastify also tries to auto-respond after the handler resolves — the
+   * second writeHead blows up with `ERR_HTTP_HEADERS_SENT` (observed at
+   * ~10/sec, 175k errors in 3h of normal use). This helper hijacks before
+   * the handoff and provides a uniform raw-mode error tail.
+   */
+  private async runHijacked(reply: FastifyReply, fn: () => Promise<void>): Promise<void> {
+    reply.hijack();
+    try {
+      await fn();
+    } catch {
+      if (!reply.raw.headersSent) reply.raw.writeHead(HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      if (!reply.raw.writableEnded) reply.raw.end();
+    }
+  }
+
   private setupMcpRoutes(): void {
     // SSE endpoint
     this.fastify.get('/sse', async (request, reply) => {
-      try {
+      await this.runHijacked(reply, async () => {
         reply.raw.writeHead(HTTP_STATUS.OK, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -366,29 +384,20 @@ export class Server {
         await server.connect(transport);
 
         reply.raw.write(':\n\n');
-      } catch (error) {
-        if (!reply.sent) {
-          reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
-        }
-      }
+      });
     });
 
     // SSE messages endpoint
     this.fastify.post('/messages', async (req, reply) => {
-      try {
-        const { sessionId } = req.query as { sessionId?: string };
-        const transport = this.transportsMap.get(sessionId || '') as SSEServerTransport;
-        if (!sessionId || !transport) {
-          reply.code(HTTP_STATUS.BAD_REQUEST).send('No transport found for sessionId');
-          return;
-        }
-
-        await transport.handlePostMessage(req.raw, reply.raw, req.body);
-      } catch (error) {
-        if (!reply.sent) {
-          reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
-        }
+      const { sessionId } = req.query as { sessionId?: string };
+      const transport = this.transportsMap.get(sessionId || '') as SSEServerTransport | undefined;
+      if (!sessionId || !transport) {
+        reply.code(HTTP_STATUS.BAD_REQUEST).send('No transport found for sessionId');
+        return;
       }
+      await this.runHijacked(reply, () =>
+        transport.handlePostMessage(req.raw, reply.raw, req.body),
+      );
     });
 
     // MCP POST endpoint
@@ -433,15 +442,9 @@ export class Server {
         return;
       }
 
-      try {
-        await transport.handleRequest(request.raw, reply.raw, request.body);
-      } catch (error) {
-        if (!reply.sent) {
-          reply
-            .code(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-            .send({ error: ERROR_MESSAGES.MCP_REQUEST_PROCESSING_ERROR });
-        }
-      }
+      await this.runHijacked(reply, () =>
+        transport!.handleRequest(request.raw, reply.raw, request.body),
+      );
     });
 
     // MCP GET endpoint (SSE stream)
@@ -456,21 +459,7 @@ export class Server {
         return;
       }
 
-      reply.raw.setHeader('Content-Type', 'text/event-stream');
-      reply.raw.setHeader('Cache-Control', 'no-cache');
-      reply.raw.setHeader('Connection', 'keep-alive');
-      reply.raw.flushHeaders();
-
-      try {
-        await transport.handleRequest(request.raw, reply.raw);
-        if (!reply.sent) {
-          reply.hijack();
-        }
-      } catch (error) {
-        if (!reply.raw.writableEnded) {
-          reply.raw.end();
-        }
-      }
+      await this.runHijacked(reply, () => transport.handleRequest(request.raw, reply.raw));
 
       request.socket.on('close', () => {
         request.log.info(`SSE client disconnected for session: ${sessionId}`);
@@ -489,18 +478,7 @@ export class Server {
         return;
       }
 
-      try {
-        await transport.handleRequest(request.raw, reply.raw);
-        if (!reply.sent) {
-          reply.code(HTTP_STATUS.NO_CONTENT).send();
-        }
-      } catch (error) {
-        if (!reply.sent) {
-          reply
-            .code(HTTP_STATUS.INTERNAL_SERVER_ERROR)
-            .send({ error: ERROR_MESSAGES.MCP_SESSION_DELETION_ERROR });
-        }
-      }
+      await this.runHijacked(reply, () => transport.handleRequest(request.raw, reply.raw));
     });
   }
 
