@@ -3,13 +3,23 @@ import serverInstance from './server';
 import nativeMessagingHostInstance from './native-messaging-host';
 import fileHandler from './file-handler';
 import { logger } from './util/logger';
-import { removeInstance } from './util/instance-registry';
+import { listInstances, removeInstance } from './util/instance-registry';
 import { startBridge } from './bridge-orchestrator';
 
 (async () => {
   try {
     serverInstance.setNativeHost(nativeMessagingHostInstance); // Server needs setNativeHost method
     nativeMessagingHostInstance.setServer(serverInstance); // NativeHost needs setServer method
+
+    // IMP-0121: proactively sweep stale registry entries on startup
+    // (listInstances filters + unlinks dead pid records at read time).
+    // Lets `humanchrome-bridge doctor` and the matrix runner see clean
+    // state without having to wait for the next consumer to read.
+    try {
+      listInstances();
+    } catch (err) {
+      logger.warn({ err: (err as Error)?.message || String(err) }, 'registry sweep failed');
+    }
 
     // IMP-0120: orchestrator decides primary (daemon owning HTTP across
     // SW reloads) vs relay (forwards stdin to existing daemon). Falls

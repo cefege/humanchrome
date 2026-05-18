@@ -49,6 +49,11 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0121 · `/mcp` POST race vs fastify auto-respond — ERR_HTTP_HEADERS_SENT spam (bug) · score: 7
+
+- **Proposed by**: claude · 2026-05-17 (observed in daemon stderr log: 175 738 stack traces in ~3h; 91 MB of log spam; 15 stuck `transportsMap` entries cleared on first `/admin/reset` probe)
+- **Status**: done (2026-05-17; `server/index.ts` now calls `reply.hijack()` BEFORE handing `reply.raw` to every MCP transport (`/sse`, `/messages`, `/mcp` POST/GET/DELETE) via a new `runHijacked(reply, fn)` helper that also provides a uniform raw-mode error tail. Root cause: the MCP SDK's `StreamableHTTPServerTransport.handleRequest` writes the response via `@hono/node-server` directly on the underlying `ServerResponse`; without `hijack()` fastify's post-handler auto-send fires a second `writeHead` → `ERR_HTTP_HEADERS_SENT` storms at ~10/sec. Coverage: `src/server/mcp-hijack.contract.test.ts` asserts the fixed-path round-trip; existing `server.test.ts` T7 multi-client smoke regresses if hijack is removed. Also: proactive `listInstances()` sweep on bridge startup so stale registry entries don't linger until the next consumer reads.)
+
 ### IMP-0120 · SW auto-reload kills bridge → drops MCP-client connections (regression) · score: 9
 
 - **Proposed by**: claude · 2026-05-17 (observed in a sibling Claude Code session after PR #203 merged)
