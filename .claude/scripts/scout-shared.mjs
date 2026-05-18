@@ -8,13 +8,14 @@
  * free text, and falls back to "skip this entry" rather than throwing on
  * malformed items so a hand-edit doesn't break the whole pipeline.
  */
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, '..', '..');
 export const BACKLOG_PATH = resolve(REPO_ROOT, 'docs', 'improvement-backlog.md');
+export const ARCHIVE_DIR = resolve(REPO_ROOT, 'docs', 'backlog-archive');
 
 const ID_RE = /^IMP-(\d{4,})$/;
 const HEADER_RE = /^### (IMP-\d{4,})\s*·\s*(.+?)\s*\((feat|bug|perf|refactor|docs)\)\s*·\s*score:\s*(-?\d+)\s*$/;
@@ -184,12 +185,19 @@ export async function saveBacklog(parsed) {
 }
 
 /**
- * Allocate the next IMP-NNNN id by reading max existing id across both
- * sections. Pads to 4 digits.
+ * Allocate the next IMP-NNNN id by reading max existing id across both live
+ * sections AND every archived entry. Pads to 4 digits. Without the archive
+ * scan an id allocated today could collide with a historical one moved out
+ * of the live file — surprising and hard to debug later.
  */
-export function allocateNextId(parsed) {
+export async function allocateNextId(parsed) {
   let max = 0;
   for (const it of [...parsed.active, ...parsed.done]) {
+    const m = it.id.match(ID_RE);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  const archive = await loadArchiveIndex();
+  for (const it of archive) {
     const m = it.id.match(ID_RE);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
@@ -215,6 +223,52 @@ export function findByTitleSimilarity(parsed, title) {
 }
 
 /**
+ * Read every archive file's IMP headers (id + title only) so scouts can dedupe
+ * against historical entries that have been moved off the live backlog. Returns
+ * an array of `{ id, title, kind, score }` records; on missing dir or no files,
+ * returns `[]`. Pure-text scan — does not invoke the full parser.
+ */
+export async function loadArchiveIndex() {
+  let files;
+  try {
+    files = await readdir(ARCHIVE_DIR);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  const out = [];
+  for (const name of files) {
+    if (!name.endsWith('.md')) continue;
+    const text = await readFile(join(ARCHIVE_DIR, name), 'utf8');
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('### ')) continue;
+      const m = line.match(HEADER_RE);
+      if (!m) continue;
+      const [, id, title, kind, scoreStr] = m;
+      out.push({ id, title: title.trim(), kind, score: parseInt(scoreStr, 10), file: name });
+    }
+  }
+  return out;
+}
+
+/**
+ * Dedupe variant that also checks the on-disk archive — so a scout that's
+ * about to re-propose IMP-0042 ("split foo.ts") sees the archived entry and
+ * skips. `archiveIndex` is the array returned by `loadArchiveIndex()`; passed
+ * in so callers can cache it across many `appendProposal` calls in one run.
+ */
+export function findByTitleSimilarityWithArchive(parsed, title, archiveIndex) {
+  const live = findByTitleSimilarity(parsed, title);
+  if (live) return live;
+  const key = titleKey(title);
+  if (!key) return null;
+  for (const it of archiveIndex) {
+    if (titleKey(it.title) === key) return { ...it, archived: true };
+  }
+  return null;
+}
+
+/**
  * Append a single proposed item to ## Active. Returns the assigned id, or
  * null if a near-duplicate was found and skipped. The triage script will
  * re-score afterward.
@@ -234,11 +288,12 @@ export async function appendProposal(draft) {
     throw new Error('appendProposal: title, kind, why, proposedBy are required');
   }
   const parsed = await loadBacklog();
-  const existing = findByTitleSimilarity(parsed, draft.title);
+  const archive = await loadArchiveIndex();
+  const existing = findByTitleSimilarityWithArchive(parsed, draft.title, archive);
   if (existing) return null;
 
   const today = new Date().toISOString().slice(0, 10);
-  const id = allocateNextId(parsed);
+  const id = await allocateNextId(parsed);
   const item = {
     id,
     title: draft.title.trim(),
