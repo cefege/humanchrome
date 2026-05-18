@@ -7,12 +7,28 @@
  * detected by comparing toolNames or buildHash).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runtimeInfoTool } from '@/entrypoints/background/tools/browser/runtime-info';
 import { TOOL_NAMES } from 'humanchrome-shared';
 
 let getManifestMock: ReturnType<typeof vi.fn>;
+
+// Warm the dispatcher import once per file. runtimeInfoTool.execute()
+// does `await import('../index')` to break a static-import cycle; that
+// pulls the eager dispatcher graph (which post bug #216 includes
+// javascript/read-page/userscript/performance/element-picker as static
+// imports). Under parallel-runner contention the first warm-up can take
+// several seconds — paying it once in beforeAll keeps every individual
+// test sub-millisecond instead of flaking on the 5s default per-test
+// timeout. The build-time defines must be stubbed here too, since
+// beforeAll runs BEFORE the per-test beforeEach.
+beforeAll(async () => {
+  vi.stubGlobal('__HC_BUILD_HASH__', 'warmup-hash');
+  vi.stubGlobal('__HC_BUILT_AT__', '2026-01-01T00:00:00.000Z');
+  (globalThis.chrome as any).runtime.getManifest = vi.fn().mockReturnValue({ version: 'warmup' });
+  await runtimeInfoTool.execute();
+}, 30_000);
 
 beforeEach(() => {
   vi.stubGlobal('__HC_BUILD_HASH__', 'test-hash-abc123');

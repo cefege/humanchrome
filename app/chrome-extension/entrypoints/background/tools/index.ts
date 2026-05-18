@@ -106,6 +106,28 @@ import { locatorHandlerTool } from './browser/locator-handler';
 import { devReloadTool } from './browser/dev-reload';
 import { runtimeInfoTool } from './browser/runtime-info';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
+// Eager imports for tools that USED to be lazy but landed in their own
+// Rolldown chunk — bug #216. Chrome forbids dynamic `import()` of new
+// modules from a service-worker context (even with `type: "module"`):
+// `import() is disallowed on ServiceWorkerGlobalScope by the HTML
+// specification` (https://github.com/w3c/ServiceWorker/issues/1356). The
+// previous lazy split worked only by accident when the bundler inlined
+// the target into background.js; the moment Rolldown emitted a separate
+// chunk (which it does for every tool wider than ~3 KB) the runtime call
+// blew up. Eager static imports put these chunks into the SW's initial
+// module graph, so the wrapper still memoizes on first call but the
+// underlying module is already resolved. The lazyLoaders Map remains for
+// the heavy chunks (gif-recorder, vector-search) that need a follow-up
+// offscreen refactor before they can be eager — see backlog IMP-0121.
+import { javascriptTool } from './browser/javascript';
+import { readPageTool } from './browser/read-page';
+import { userscriptTool } from './browser/userscript';
+import {
+  performanceStartTraceTool,
+  performanceStopTraceTool,
+  performanceAnalyzeInsightTool,
+} from './browser/performance';
+import { elementPickerTool } from './browser/element-picker';
 
 interface ToolInstance {
   name: string;
@@ -193,6 +215,14 @@ const eagerTools: ToolInstance[] = [
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
+  // Promoted from lazyLoaders — bug #216 (SW import() disallowed).
+  javascriptTool,
+  readPageTool,
+  userscriptTool,
+  performanceStartTraceTool,
+  performanceStopTraceTool,
+  performanceAnalyzeInsightTool,
+  elementPickerTool,
 ];
 
 const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
@@ -210,32 +240,31 @@ const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.
 type LazyLoader = () => Promise<ToolInstance>;
 
 const lazyLoaders: Record<string, LazyLoader> = {
+  // These tools' chunks happened to land back in background.js in current
+  // builds (so the dynamic import resolves to a cached module and works).
+  // Listed here for forward-compat: if Rolldown ever splits them out, they
+  // become unreachable for the same reason as bug #216, and we should
+  // promote them to `eagerTools` (see the eager-import block above).
   [TOOL_NAMES.BROWSER.SCREENSHOT]: async () =>
     (await import('./browser/screenshot')).screenshotTool,
-  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: async () =>
-    (await import('./browser/vector-search')).vectorSearchTabsContentTool,
-  [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: async () =>
-    (await import('./browser/element-picker')).elementPickerTool,
   [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START]: async () =>
     (await import('./browser/network-capture-debugger')).networkDebuggerStartTool,
   [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP]: async () =>
     (await import('./browser/network-capture-debugger')).networkDebuggerStopTool,
   [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: async () =>
     (await import('./browser/intercept-response')).interceptResponseTool,
-  [TOOL_NAMES.BROWSER.JAVASCRIPT]: async () =>
-    (await import('./browser/javascript')).javascriptTool,
-  [TOOL_NAMES.BROWSER.READ_PAGE]: async () => (await import('./browser/read-page')).readPageTool,
   [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
-  [TOOL_NAMES.BROWSER.USERSCRIPT]: async () =>
-    (await import('./browser/userscript')).userscriptTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: async () =>
-    (await import('./browser/performance')).performanceStartTraceTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: async () =>
-    (await import('./browser/performance')).performanceStopTraceTool,
-  [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: async () =>
-    (await import('./browser/performance')).performanceAnalyzeInsightTool,
   [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
     (await import('./browser/gif-recorder')).gifRecorderTool,
+  // SEARCH_TABS_CONTENT stays lazy because its execute() path itself does
+  // `await import('@/utils/content-indexer')` to defer the ~1.2 MB ML graph
+  // (transformers + onnxruntime). That inner dynamic import hits the same
+  // SW limitation, so the tool is broken until IMP-0121 moves the heavy
+  // graph to an offscreen document. Leaving the registration in place so
+  // the tool-coverage tests stay green; calling it returns the same
+  // "import() is disallowed" error rather than crashing the dispatcher.
+  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: async () =>
+    (await import('./browser/vector-search')).vectorSearchTabsContentTool,
 };
 
 const lazyResolved = new Map<string, ToolInstance>();

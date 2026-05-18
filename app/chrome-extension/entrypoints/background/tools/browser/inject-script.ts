@@ -4,6 +4,81 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
 
+// Bug #217: `chrome.scripting.executeScript` calls used to be unbounded —
+// when a page silently absorbed the injection (e.g., freelancermap.de's
+// SW intercepts MAIN-world script setup) the await would never settle,
+// and the caller waited the full 120s MCP transport budget before getting
+// a generic "Request timed out" error. The new internal budget surfaces
+// the hang as a structured INJECTION_TIMEOUT in <=5s so the LLM caller
+// can branch instead of burning a prompt-cache window per failed inject.
+const INJECT_TIMEOUT_MS = 5_000;
+
+// Bug #217: `chrome.scripting.executeScript({world:'MAIN', func: ...})`
+// can resolve successfully even when the page's CSP refuses to evaluate
+// the function — the per-frame failure surfaces in `result.error`, not
+// as a thrown rejection. We pattern-match the message to flip the tool
+// response from a false-positive `{injected:true}` to an INJECTION_FAILED
+// error with `details.reason:'CSP_BLOCKED'` the caller can branch on.
+// The strings come from real-world rejections we've captured against
+// LinkedIn (`script-src 'strict-dynamic' 'nonce-…'`) and Gmail (`'unsafe-eval'`).
+const CSP_PATTERN_RE =
+  /content security policy|csp|unsafe-eval|strict-dynamic|script-src|refused to (evaluate|execute|run)/i;
+
+class InjectTimeoutError extends Error {
+  constructor(
+    public phase: string,
+    public timeoutMs: number,
+  ) {
+    super(`${phase} did not return within ${timeoutMs}ms`);
+    this.name = 'InjectTimeoutError';
+  }
+}
+
+function withInjectTimeout<T>(promise: Promise<T>, phase: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new InjectTimeoutError(phase, INJECT_TIMEOUT_MS)),
+      INJECT_TIMEOUT_MS,
+    );
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+function isInjectTimeoutError(err: unknown): err is InjectTimeoutError {
+  return err instanceof Error && err.name === 'InjectTimeoutError';
+}
+
+interface InjectionFrameError {
+  result?: unknown;
+  error?: { message?: string };
+}
+
+interface InjectFailure {
+  success: false;
+  reason: 'CSP_BLOCKED' | 'INJECTION_ERROR';
+  message: string;
+}
+
+interface InjectSuccess {
+  injected: true;
+  success: true;
+}
+
+type InjectOutcome = InjectFailure | InjectSuccess;
+
+function classifyFrameError(
+  results: InjectionFrameError[] | undefined,
+  phase: string,
+): InjectFailure | undefined {
+  const failed = results?.find((r) => r && r.error && r.error.message);
+  if (!failed?.error?.message) return undefined;
+  const message = failed.error.message;
+  if (CSP_PATTERN_RE.test(message)) {
+    return { success: false, reason: 'CSP_BLOCKED', message };
+  }
+  return { success: false, reason: 'INJECTION_ERROR', message: `${phase}: ${message}` };
+}
+
 interface InjectScriptParam {
   url?: string;
   tabId?: number;
@@ -98,7 +173,27 @@ class InjectScriptTool extends BaseBrowserToolExecutor {
         await chrome.windows.update(tab.windowId, { focused: true });
       }
 
-      const res = await handleInject(tab.id!, { ...args });
+      const targetTabId = tab.id!;
+      let res: InjectOutcome;
+      try {
+        res = await handleInject(targetTabId, { ...args });
+      } catch (error) {
+        if (isInjectTimeoutError(error)) {
+          return createErrorResponse(error.message, ToolErrorCode.INJECTION_TIMEOUT, {
+            tabId: targetTabId,
+            phase: error.phase,
+            timeoutMs: error.timeoutMs,
+          });
+        }
+        throw error;
+      }
+
+      if (res.success === false) {
+        return createErrorResponse(res.message, ToolErrorCode.INJECTION_FAILED, {
+          tabId: targetTabId,
+          reason: res.reason,
+        });
+      }
 
       return {
         content: [
@@ -193,7 +288,7 @@ async function isTabExists(tabId: number) {
  * @param {number} tabId - The ID of the target tab.
  * @param {object} scriptConfig - The configuration object for the script.
  */
-async function handleInject(tabId: number, scriptConfig: ScriptConfig) {
+async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<InjectOutcome> {
   if (injectedTabs.has(tabId)) {
     // If already injected, run cleanup first to ensure a clean state.
     console.log(`Tab ${tabId} already has injections. Cleaning up first.`);
@@ -203,29 +298,93 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig) {
   const hasMain = type === ExecutionWorld.MAIN;
 
   if (hasMain) {
-    // The bridge is essential for MAIN world communication and cleanup.
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['inject-scripts/inject-bridge.js'],
-      world: ExecutionWorld.ISOLATED,
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (code) => new Function(code)(),
-      args: [jsScript],
-      world: ExecutionWorld.MAIN,
-    });
+    // Bridge is essential for MAIN-world communication and cleanup. Time-
+    // boxed because the bridge ships via chrome.scripting.executeScript,
+    // which can hang indefinitely when a page intercepts script setup
+    // (e.g., a service worker that rewrites every executeScript hook).
+    await withInjectTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['inject-scripts/inject-bridge.js'],
+        world: ExecutionWorld.ISOLATED,
+      }),
+      'bridge inject',
+    );
+
+    // Stamp a per-call sentinel onto `window` ONCE the user code has run.
+    // The follow-up verify call reads it back and confirms MAIN-world
+    // execution actually happened. LinkedIn (`script-src 'strict-dynamic'`)
+    // is the canonical case where chrome.scripting.executeScript resolves
+    // with no `result.error` even though the wrapper never reaches eval —
+    // without this round-trip the tool would return a false-positive
+    // `{injected:true}` while no script ran. Bug #217.
+    const ack = `__hc_inject_ack_${Date.now().toString(36)}_${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
+
+    const results = (await withInjectTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: (code, ackKey) => {
+          new Function(code)();
+          (window as unknown as Record<string, boolean>)[ackKey] = true;
+        },
+        args: [jsScript, ack],
+        world: ExecutionWorld.MAIN,
+      }),
+      'MAIN-world inject',
+    )) as InjectionFrameError[];
+
+    const failure = classifyFrameError(results, 'MAIN-world inject');
+    if (failure) {
+      // No `injected:true` claim and no map entry — there's no MAIN-world
+      // state to clean up since the function never ran.
+      return failure;
+    }
+
+    // Verify the sentinel landed. If the wrapper was silently dropped
+    // (CSP `strict-dynamic` rejecting extension MAIN-world scripts; SW
+    // intercepting; iframe sandbox), chrome.scripting won't report an
+    // error but the property will be missing. Read it via a pure arrow
+    // function (no eval) so the verify itself can't be CSP-blocked the
+    // same way the user code might be.
+    const verify = (await withInjectTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: (ackKey) => Boolean((window as unknown as Record<string, boolean>)[ackKey]),
+        args: [ack],
+        world: ExecutionWorld.MAIN,
+      }),
+      'MAIN-world verify',
+    )) as Array<{ result?: unknown }>;
+
+    const ran = verify?.some((r) => r && r.result === true);
+    if (!ran) {
+      return {
+        success: false,
+        reason: 'CSP_BLOCKED',
+        message:
+          "MAIN-world script did not execute. The page's CSP likely refuses extension-injected scripts (e.g. `script-src 'strict-dynamic' 'nonce-...'`). Try chrome_javascript (CDP path) or chrome_inject_script with type:'ISOLATED'.",
+      };
+    }
   } else {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: (code) => new Function(code)(),
-      args: [jsScript],
-      world: ExecutionWorld.ISOLATED,
-    });
+    const results = (await withInjectTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: (code) => new Function(code)(),
+        args: [jsScript],
+        world: ExecutionWorld.ISOLATED,
+      }),
+      'ISOLATED-world inject',
+    )) as InjectionFrameError[];
+
+    const failure = classifyFrameError(results, 'ISOLATED-world inject');
+    if (failure) return failure;
   }
+
   injectedTabs.set(tabId, { ...scriptConfig, injectedAt: Date.now() });
   console.log(`Scripts successfully injected into tab ${tabId}.`);
-  return { injected: true };
+  return { injected: true, success: true };
 }
 
 /**

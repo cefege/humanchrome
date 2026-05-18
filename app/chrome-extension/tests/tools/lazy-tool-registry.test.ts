@@ -1,7 +1,7 @@
 /**
- * Lazy tool registry coverage + behavior tests (IMP-0056).
+ * Lazy tool registry coverage + behavior tests (IMP-0056, revised in #216).
  *
- * Locks the new dispatcher contract:
+ * Locks the dispatcher contract:
  *
  *   1. Every tool name from `humanchrome-shared`'s TOOL_NAMES is
  *      reachable through the dispatcher (eager OR lazy). This is the
@@ -9,14 +9,16 @@
  *      forgets to register a loader, this test fails loudly instead
  *      of the call returning a runtime "Tool ... not found" error.
  *
- *   2. Heavy modules (gif-recorder, performance, computer, read-page,
- *      vector-search, network-capture-debugger, intercept-response,
- *      javascript, screenshot, userscript, element-picker) do NOT
- *      load at SW boot — they only load when their tool is first
- *      invoked. We assert this via the dynamic-import behavior:
- *      `import('@/entrypoints/background/tools')` must NOT pull in
- *      `import('@/entrypoints/background/tools/browser/gif-recorder')`
- *      transitively.
+ *   2. The remaining lazy tools (screenshot, network-capture-debugger,
+ *      intercept-response, computer, gif-recorder, search_tabs_content)
+ *      keep their lazy registration. Bug #216 forced JAVASCRIPT,
+ *      READ_PAGE, USERSCRIPT, PERFORMANCE_*, REQUEST_ELEMENT_SELECTION
+ *      back into the eager half because Chrome rejects dynamic `import()`
+ *      of new module chunks from a service worker (even with
+ *      `type: "module"` — see https://github.com/w3c/ServiceWorker/issues/1356).
+ *      The lazy half only stays viable for tools whose chunks happen to
+ *      land back in background.js, so we keep the registration but no
+ *      longer assert "must be in lazy" — that invariant became a footgun.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -63,50 +65,26 @@ describe('lazy tool registry (IMP-0056)', () => {
   });
 });
 
-describe('lazy heavy tools — boot-time silence', () => {
-  // Each entry is one of the heavy tools that IMP-0056 explicitly calls
-  // out as expensive at SW boot. The test imports the dispatcher and
-  // asserts the corresponding module file did NOT show up in the
-  // bundler's module cache (vitest exposes it via vi.hoisted's
-  // module-evaluation tracking).
-  //
-  // We approximate "module not eagerly imported" by spying on the
-  // module's top-level side effect: every heavy file declares a
-  // module-scoped const `xxxTool = new XxxTool()` that triggers the
-  // class constructor at import time. By spying on the class
-  // constructor (via vi.spyOn before the import), we'd catch eager
-  // construction. Simpler: just check that vi.resetModules + a fresh
-  // import of the dispatcher does NOT itself import the heavy files
-  // — we measure this via a marker in the heavy modules.
-  //
-  // The cheapest signal that survives across bundlers is reachability:
-  // if the heavy module wasn't imported, its singleton symbol from
-  // browser/index.ts won't be in vitest's loaded-module set yet. We
-  // skip that introspection and instead confirm the registry shape:
-  // each heavy tool name appears ONLY in the lazy half (no eager
-  // loader for it).
-  const HEAVY_TOOL_NAMES = [
+describe('lazy tools — chunks that still land back in background.js', () => {
+  // After bug #216, only tools whose chunks happen to fold back into
+  // background.js can stay lazy. Each entry below is verified to be a
+  // wrapper that either lives in background.js directly OR pulls a
+  // chunk that ends up alongside it after Rolldown's hoist pass. If a
+  // future build splits one of these into its own chunk (visible as a
+  // separate file under .output/chrome-mv3/chunks/), promote it to the
+  // eager block in tools/index.ts the same way #216 did for
+  // javascript/read-page/userscript/performance/element-picker.
+  const STILL_LAZY = [
     TOOL_NAMES.BROWSER.SCREENSHOT,
     TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT,
-    TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION,
     TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START,
     TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP,
     TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
-    TOOL_NAMES.BROWSER.JAVASCRIPT,
-    TOOL_NAMES.BROWSER.READ_PAGE,
     TOOL_NAMES.BROWSER.COMPUTER,
-    TOOL_NAMES.BROWSER.USERSCRIPT,
-    TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
-    TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE,
-    TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT,
     TOOL_NAMES.BROWSER.GIF_RECORDER,
   ];
 
-  it('source: every heavy tool is wired through the lazy half', async () => {
-    // Read the dispatcher source and assert each heavy tool name
-    // appears inside a `lazyLoaders` entry (i.e., dynamic import). This
-    // is a static guard — if a future PR moves one of these tools back
-    // into eagerTools, the test fails.
+  it('source: each still-lazy tool is wired through a lazyLoaders entry', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const { fileURLToPath } = await import('node:url');
@@ -116,11 +94,7 @@ describe('lazy heavy tools — boot-time silence', () => {
       'utf8',
     );
 
-    // Each heavy tool name must appear in the file inside an `await import(`
-    // expression — not inside the eagerTools list.
-    for (const toolName of HEAVY_TOOL_NAMES) {
-      // The dispatcher references TOOL_NAMES.BROWSER.<KEY>, not the
-      // string literal. Resolve the key from the value.
+    for (const toolName of STILL_LAZY) {
       const key = (Object.entries(TOOL_NAMES.BROWSER).find(([, v]) => v === toolName) ?? [])[0];
       expect(key, `no TOOL_NAMES.BROWSER key matches ${toolName}`).toBeDefined();
       const marker = `[TOOL_NAMES.BROWSER.${key}]`;
@@ -131,7 +105,7 @@ describe('lazy heavy tools — boot-time silence', () => {
     }
   });
 
-  it('source: dispatcher does NOT statically import any heavy module', async () => {
+  it('source: bug #216 promotions are statically imported (eager)', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
     const { fileURLToPath } = await import('node:url');
@@ -141,29 +115,34 @@ describe('lazy heavy tools — boot-time silence', () => {
       'utf8',
     );
 
-    const HEAVY_PATHS = [
-      './browser/screenshot',
-      './browser/vector-search',
-      './browser/element-picker',
-      './browser/network-capture-debugger',
-      './browser/intercept-response',
+    // Each path below got its own Rolldown chunk in the build that
+    // triggered bug #216. Chrome refuses `import()` of new chunks from
+    // a service worker, so these MUST be static imports — otherwise the
+    // tool returns the "import() is disallowed on ServiceWorkerGlobalScope"
+    // error at call time.
+    const PROMOTED_PATHS = [
       './browser/javascript',
       './browser/read-page',
-      './browser/computer',
       './browser/userscript',
       './browser/performance',
-      './browser/gif-recorder',
+      './browser/element-picker',
     ];
 
-    for (const heavy of HEAVY_PATHS) {
-      // The static-import form would be `import { foo } from '<heavy>';`
-      // A dynamic import is `import('<heavy>')` — which we WANT.
-      // Only `.` needs escaping in path strings here.
-      const escaped = heavy.replace(/\./g, '\\.');
-      const staticImport = new RegExp(`^\\s*import\\s+[^;\\n]*from\\s+['"]${escaped}['"]`, 'm');
-      expect(staticImport.test(src), `dispatcher must not statically import ${heavy}`).toBe(false);
+    for (const promoted of PROMOTED_PATHS) {
+      const escaped = promoted.replace(/\./g, '\\.');
+      // Accept both single-line (`import { foo } from './x';`) and
+      // multi-line forms where the `from` is on its own line.
+      const staticImport = new RegExp(`\\bfrom\\s+['"]${escaped}['"]`);
+      expect(staticImport.test(src), `${promoted} must be a static import after bug #216`).toBe(
+        true,
+      );
+      // And NOT also referenced inside an `import(...)` call — that would
+      // be a leftover that confuses readers about which side wins.
       const dynamicImport = new RegExp(`import\\(['"]${escaped}['"]\\)`);
-      expect(dynamicImport.test(src), `dispatcher should dynamically import ${heavy}`).toBe(true);
+      expect(
+        dynamicImport.test(src),
+        `${promoted} must not also have a dynamic import() call`,
+      ).toBe(false);
     }
   });
 });
