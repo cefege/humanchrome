@@ -145,12 +145,30 @@ describe('chrome_paste', () => {
     expect((res.content[0] as any).text).toContain('matched no element');
   });
 
-  it('reports a clipboard-seed failure as UNKNOWN', async () => {
+  it('degrades clipboard-seed failure to a warning and still runs the shim', async () => {
+    // Seed fails (NotAllowedError is what offscreen returns when document
+    // focus can't be synthesized in background mode). The tool must NOT
+    // hard-fail — the shim accepts text directly via DataTransfer +
+    // execCommand without needing the OS clipboard. Surface the seed
+    // failure as `clipboardSeedWarning` on success so callers can tell.
     sendMessageMock.mockResolvedValueOnce({ success: false, error: 'NotAllowedError' });
-    const res = await pasteTool.execute({ tabId: 7, selector: 'input', text: 'x' });
-    expect(res.isError).toBe(true);
-    expect((res.content[0] as any).text).toContain('NotAllowedError');
-    expect(executeScriptMock).not.toHaveBeenCalled();
+    executeScriptMock.mockResolvedValueOnce([
+      {
+        result: {
+          ok: true,
+          resolution: { type: 'selector', selector: 'input', frame: 'main' },
+          focused: true,
+          pasted: true,
+          tagName: 'INPUT',
+          mode: 'event',
+        },
+      },
+    ]);
+    const body = parseBody(await pasteTool.execute({ tabId: 7, selector: 'input', text: 'x' }));
+    expect(body.ok).toBe(true);
+    expect(body.pasted).toBe(true);
+    expect(body.clipboardSeedWarning).toContain('NotAllowedError');
+    expect(executeScriptMock).toHaveBeenCalled();
   });
 
   it('classifies "no tab with id" as TAB_CLOSED', async () => {
