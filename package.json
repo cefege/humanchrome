@@ -39,6 +39,7 @@
     "clean": "pnpm clean:dist && pnpm clean:modules",
     "//typecheck": "Two filters: wasm-simd (Rust pkg, no tsconfig) AND humanchrome-monorepo (the workspace root, no tsconfig either — pnpm -r exec includes it).",
     "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' exec tsc --noEmit",
+    "doctor": "node scripts/claude-doctor.mjs",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -65,6 +66,8 @@
     ],
     "**/*.{json,md,yaml,html,css}": [
       "prettier --write"
-    ]
+    ],
+    "packages/shared/src/tools.ts": "node .claude/scripts/regen-tools-doc.mjs",
+    "packages/shared/src/tool-schemas/*.ts": "node .claude/scripts/regen-tools-doc.mjs"
   }
 }
