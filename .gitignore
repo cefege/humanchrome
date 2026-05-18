@@ -52,4 +52,7 @@ tools_optimize.md
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/ralph-loop.local.md
+.claude/loop-state.local.json
+.claude/loop-state.local.json.tmp
+.claude/loop-final-summary.md
 chrome/
