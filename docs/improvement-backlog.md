@@ -84,15 +84,6 @@ The order of items inside ## Active is sorted by score descending.
 
 - **Repro**: `pnpm e2e:isolated` — "strict-mode multi-match without index" row fails with `expected matchCount:3, got {"content":[...{"error":{"code":"INVALID_ARGS"...`. Inspect the full error body and either fix the response shape or update the matrix predicate.
 
-### IMP-0135 · chrome_wait_for(load_state) race: load event fires between readyState check and listener install (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
-- **Why**: `chrome_wait_for({kind:"load_state"})` does `await readReadyState()` (which performs a `chrome.scripting.executeScript` round-trip, ~10-100ms) at wait-for.ts:273, then if the readyState doesn`t yet satisfy the wait, installs the `onCompleted`/`onDOMContentLoaded`listener at line 321. During that ~10-100ms gap, the navigation can transition from`loading→complete` and the load event fires WITHOUT a listener attached. The wait then sits idle for the full timeoutMs (default 30s) and returns TIMEOUT, even though the page is actually loaded. Particularly painful on fast in-process navigations (SPA route changes that re-fire load) and tests where pages load in <100ms. The IMP-0102 ship note specifically called out the fast-path as an optimization — it accidentally introduced a race.
-- **Cost**: S
-- **Value**: M
-- **Repro**: Navigate a tab to `about:blank` so readyState is `complete` momentarily, then immediately call `chrome_wait_for({kind:"load_state", state:"load", tabId})` against a tab where you trigger `tab.update({url:"https://example.com"})` simultaneously. The page resolves `loading` during readReadyState, then `complete` fires before addListener completes. Tool times out at 30s instead of returning in <200ms. Higher-frequency repro: `for i in 1..20; do navigate→wait_for(load_state)→repeat; done` — at least one iteration will flake.\n- **Fix sketch**: `app/chrome-extension/entrypoints/background/tools/browser/wait-for.ts:254-322` — install the listener BEFORE the readyState fast-path check, then perform the readyState read, then either resolve from the fast-path (and removeListener) OR keep the listener installed. Equivalent: install listener, AWAIT readReadyState, if satisfied call resolve+removeListener immediately, otherwise let the listener handle it. Same pattern is needed in `waitForUrl` (line 350-358) where `chrome.tabs.get` similarly takes ~ms and the URL can change in between.\n- **Notes**: The race is hard to reproduce in vitest because mocked chrome.scripting.executeScript resolves synchronously. Need a real-Chrome E2E or a fakeTimers test that interleaves `webNavigation.onCompleted` between readyState resolution and addListener.
-
 ### IMP-0136 · chrome_inject_script bridge-inject (ISOLATED) skips classifyFrameError — silent failure when bridge CSP-blocked (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-19
@@ -500,6 +491,16 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0135 · chrome_wait_for(load_state) race: load event fires between readyState check and listener install (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-19
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Reordered `waitForLoadState` and `waitForUrl` in `app/chrome-extension/entrypoints/background/tools/browser/wait-for.ts` so the `chrome.webNavigation` listener is attached BEFORE the `document.readyState` / `chrome.tabs.get` fast-path probe runs. Pre-fix, the `await readReadyState()` (a `chrome.scripting.executeScript` round-trip, ~10-100ms in practice) sat between the wait entry and `addListener`, opening a window where the page's `load` / `DOMContentLoaded` / navigation-commit event could fire unobserved — the wait then sat idle until the 30s timeout. Post-fix, both `waitForLoadState` and `waitForUrl` enter the Promise executor, synchronously install listeners + the timeout timer, THEN kick off the probe via `.then(...)`; the fast-path branch and the listener share a single `settled` flag so resolution is exclusive. Added 9 vitest cases (`tests/tools/browser/wait-for.test.ts` IMP-0135 describe block) covering the race directly via a deferred-promise mock for `chrome.scripting.executeScript` and `chrome.tabs.get` — the event fires before the probe resolves, and the wait still resolves from the listener; reverse-order ("late-arriving readyState/URL after listener already resolved") is asserted to not double-resolve; happy-path fast-path and timeout-only paths are re-covered against the new code. Total: wait-for suite 25/25 pass, typecheck clean, `lazy-tool-registry.test.ts` clean.
+- **Why**: `chrome_wait_for({kind:"load_state"})` did `await readReadyState()` (which performs a `chrome.scripting.executeScript` round-trip, ~10-100ms) at wait-for.ts:273, then if the readyState didn't yet satisfy the wait, installed the `onCompleted`/`onDOMContentLoaded` listener at line 321. During that ~10-100ms gap, the navigation could transition from `loading→complete` and the load event fired WITHOUT a listener attached. The wait then sat idle for the full timeoutMs (default 30s) and returned TIMEOUT, even though the page was actually loaded. Particularly painful on fast in-process navigations (SPA route changes that re-fire load) and tests where pages load in <100ms. The IMP-0102 ship note specifically called out the fast-path as an optimization — it accidentally introduced a race. Same root cause in `waitForUrl` (line 350-358) where `chrome.tabs.get` takes ~ms and the URL could change in between.
+- **Cost**: S
+- **Value**: M
 
 ### IMP-0134 · chrome_paste reports `pasted:true` when event fired but no text inserted (bug) · score: 6
 

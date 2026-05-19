@@ -246,10 +246,13 @@ class WaitForTool extends BaseBrowserToolExecutor {
    * `page.waitForLoadState('load'|'domcontentloaded')`. 'complete' is a
    * Playwright synonym for 'load' and maps to the same `webNavigation.onCompleted`.
    *
-   * Fast path: query `document.readyState` first via a MAIN-world shim. If
-   * the document already satisfies the requested state, resolve synchronously
-   * without subscribing to anything. Otherwise subscribe to the appropriate
-   * webNavigation event filtered by tabId + (optional) frameId.
+   * IMP-0135 — race fix: install the webNavigation listener BEFORE the
+   * `document.readyState` fast-path check. The fast-path read does a
+   * `chrome.scripting.executeScript` round-trip (~10-100ms in practice); if
+   * the load event fires inside that window with no listener attached, the
+   * wait sits idle until `timeoutMs` (30s default). With the listener
+   * installed first, either the fast-path resolves (and removes the listener)
+   * or the listener resolves later — never both, thanks to a `settled` flag.
    */
   private async waitForLoadState(
     tabId: number,
@@ -268,13 +271,6 @@ class WaitForTool extends BaseBrowserToolExecutor {
     const wantComplete = rawState === 'load' || rawState === 'complete';
     const frameId = typeof args.frameId === 'number' ? args.frameId : 0;
 
-    // One-shot readyState check via MAIN-world shim. If the document is
-    // already loaded enough, resolve immediately and skip the listener.
-    const readyState = await this.readReadyState(tabId, frameId);
-    if (readyState && this.readyStateSatisfies(readyState, rawState)) {
-      return this.buildLoadStateResult(rawState, readyState, true, timeoutMs, startedAt, frameId);
-    }
-
     const eventApi = wantComplete
       ? chrome.webNavigation?.onCompleted
       : chrome.webNavigation?.onDOMContentLoaded;
@@ -287,29 +283,35 @@ class WaitForTool extends BaseBrowserToolExecutor {
 
     return new Promise<ToolResult>((resolve) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        try {
+          eventApi.removeListener(listener);
+        } catch {
+          // ignore
+        }
+      };
       const listener = (details: chrome.webNavigation.WebNavigationFramedCallbackDetails): void => {
         if (settled) return;
         if (details.tabId !== tabId) return;
         if (details.frameId !== frameId) return;
         settled = true;
-        clearTimeout(timer);
-        try {
-          eventApi.removeListener(listener);
-        } catch {
-          // ignore
-        }
+        cleanup();
         resolve(
           this.buildLoadStateResult(rawState, undefined, false, timeoutMs, startedAt, frameId),
         );
       };
-      const timer = setTimeout(() => {
+      // Install listener FIRST — before any await — so an event firing
+      // during the readyState probe is still observed.
+      eventApi.addListener(listener);
+      timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        try {
-          eventApi.removeListener(listener);
-        } catch {
-          // ignore
-        }
+        cleanup();
         resolve(
           createErrorResponse(
             `chrome_wait_for(load_state) timed out after ${timeoutMs}ms`,
@@ -318,7 +320,35 @@ class WaitForTool extends BaseBrowserToolExecutor {
           ),
         );
       }, timeoutMs);
-      eventApi.addListener(listener);
+
+      // Fast-path: query readyState via MAIN-world shim AFTER the listener is
+      // attached. If the document already satisfies the requested state and
+      // the listener hasn't already resolved, finish here.
+      this.readReadyState(tabId, frameId).then(
+        (readyState) => {
+          if (settled) return;
+          if (readyState && this.readyStateSatisfies(readyState, rawState)) {
+            settled = true;
+            cleanup();
+            resolve(
+              this.buildLoadStateResult(
+                rawState,
+                readyState,
+                true,
+                timeoutMs,
+                startedAt,
+                frameId,
+              ),
+            );
+          }
+          // Otherwise the listener (or the timeout) takes over.
+        },
+        () => {
+          // Defensive: readReadyState already swallows internal errors and
+          // returns undefined. If something still bubbles up, fall through to
+          // the listener — don't resolve from this branch.
+        },
+      );
     });
   }
 
@@ -328,8 +358,10 @@ class WaitForTool extends BaseBrowserToolExecutor {
    * `page.waitForURL(pattern)`. Subscribes to both `onCommitted` (hard nav)
    * and `onHistoryStateUpdated` (SPA pushState/replaceState).
    *
-   * Fast path: read the current URL via `chrome.tabs.get` before subscribing;
-   * if it already matches, resolve synchronously.
+   * IMP-0135 — race fix: install the listeners BEFORE reading the current URL
+   * via `chrome.tabs.get` (a few-ms IPC). If a navigation commits in that
+   * window the listener catches it; otherwise the fast-path resolves on the
+   * already-matching URL. `settled` keeps both branches exclusive.
    */
   private async waitForUrl(
     tabId: number,
@@ -347,33 +379,6 @@ class WaitForTool extends BaseBrowserToolExecutor {
     }
     const matches = compilePattern(rawPattern);
 
-    // Fast-path: current URL already matches → resolve immediately.
-    let currentUrl: string | undefined;
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      currentUrl = tab.url || tab.pendingUrl || '';
-    } catch {
-      currentUrl = '';
-    }
-    if (currentUrl && matches(currentUrl)) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              kind: 'url',
-              tookMs: Date.now() - startedAt,
-              pattern: rawPattern,
-              url: currentUrl,
-              alreadyMatched: true,
-            }),
-          },
-        ],
-        isError: false,
-      };
-    }
-
     const onCommitted = chrome.webNavigation?.onCommitted;
     const onHistory = chrome.webNavigation?.onHistoryStateUpdated;
     if (
@@ -390,7 +395,12 @@ class WaitForTool extends BaseBrowserToolExecutor {
 
     return new Promise<ToolResult>((resolve) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
         try {
           onCommitted.removeListener(committedListener);
         } catch {
@@ -402,10 +412,9 @@ class WaitForTool extends BaseBrowserToolExecutor {
           // ignore
         }
       };
-      const finish = (url: string): void => {
+      const finish = (url: string, alreadyMatched: boolean): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
         cleanup();
         resolve({
           content: [
@@ -417,7 +426,7 @@ class WaitForTool extends BaseBrowserToolExecutor {
                 tookMs: Date.now() - startedAt,
                 pattern: rawPattern,
                 url,
-                alreadyMatched: false,
+                alreadyMatched,
               }),
             },
           ],
@@ -430,7 +439,7 @@ class WaitForTool extends BaseBrowserToolExecutor {
         if (settled) return;
         if (details.tabId !== tabId) return;
         if (details.frameId !== 0) return; // main frame only
-        if (details.url && matches(details.url)) finish(details.url);
+        if (details.url && matches(details.url)) finish(details.url, false);
       };
       const historyListener = (
         details: chrome.webNavigation.WebNavigationTransitionCallbackDetails,
@@ -438,9 +447,13 @@ class WaitForTool extends BaseBrowserToolExecutor {
         if (settled) return;
         if (details.tabId !== tabId) return;
         if (details.frameId !== 0) return;
-        if (details.url && matches(details.url)) finish(details.url);
+        if (details.url && matches(details.url)) finish(details.url, false);
       };
-      const timer = setTimeout(() => {
+      // Install listeners FIRST — before any await — so a navigation commit
+      // landing during the chrome.tabs.get probe is still observed.
+      onCommitted.addListener(committedListener);
+      onHistory.addListener(historyListener);
+      timer = setTimeout(() => {
         if (settled) return;
         settled = true;
         cleanup();
@@ -452,8 +465,21 @@ class WaitForTool extends BaseBrowserToolExecutor {
           ),
         );
       }, timeoutMs);
-      onCommitted.addListener(committedListener);
-      onHistory.addListener(historyListener);
+
+      // Fast-path: read the current URL AFTER subscribing. If it already
+      // matches and the listener hasn't already resolved, finish here.
+      chrome.tabs.get(tabId).then(
+        (tab) => {
+          if (settled) return;
+          const currentUrl = tab.url || tab.pendingUrl || '';
+          if (currentUrl && matches(currentUrl)) finish(currentUrl, true);
+          // Otherwise let the listener (or the timeout) handle it.
+        },
+        () => {
+          // Tab lookup failed — let the listener handle it. The timeout still
+          // fires if nothing matches.
+        },
+      );
     });
   }
 
