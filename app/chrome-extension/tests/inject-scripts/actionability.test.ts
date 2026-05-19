@@ -339,6 +339,99 @@ describe('actionability: stable check', () => {
     }
   });
 
+  // IMP-0155: when the outer `timeoutMs` is tighter than the sampler's
+  // natural sample window (REQUIRED_SAMPLES * STABILITY_SAMPLE_MS = 200ms),
+  // the sampler MUST bail with `unstable_bbox` instead of running to the
+  // end of its setTimeout chain and false-positive-claiming stable past
+  // the deadline. Pre-IMP-0155 the inner chain ran on its own clock so a
+  // 50ms `timeoutMs` against an animated element could still return
+  // `ok:true` at t=200ms — the matrix runner's 15s HTTP transport then
+  // saw an inconsistent envelope only if a downstream check (hit-test
+  // against a moved bbox) hung.
+  it('bails with unstable_bbox when the deadline expires inside the sampler', async () => {
+    const api = loadActionability();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    // Bbox + transform never differ from baseline, so the only way out
+    // of the sampler is the deadline plumb.
+    stubRect(el, { x: 10, y: 10, width: 100, height: 30 });
+    (el as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [
+      { playState: 'running' },
+    ];
+
+    const originalGCS = window.getComputedStyle.bind(window);
+    window.getComputedStyle = vi.fn((target: Element) => {
+      if (target === el) {
+        return {
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          pointerEvents: 'auto',
+          transform: 'matrix(1, 0, 0, 1, 0, 0)',
+        } as unknown as CSSStyleDeclaration;
+      }
+      return originalGCS(target);
+    }) as typeof window.getComputedStyle;
+
+    try {
+      const started = Date.now();
+      // 60ms < sampler's natural ~200ms window. The deadline must fire
+      // inside checkStable's setTimeout chain and bail with unstable_bbox.
+      const r = await api.awaitActionable(el, { checks: ['stable'], timeoutMs: 60 });
+      const elapsed = Date.now() - started;
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.failures).toContain('unstable_bbox');
+      // Worst case is `timeoutMs + one inter-iteration sleep` (50ms) +
+      // tiny CI jitter. 200ms is loose enough; the regression mode
+      // (no deadline plumb) would land at 200ms+ regardless.
+      expect(elapsed).toBeLessThan(200);
+    } finally {
+      window.getComputedStyle = originalGCS;
+    }
+  });
+
+  // IMP-0155: a tighter version of the offscreen recovery test that pins
+  // the wall-clock budget explicitly. The pre-existing test only asserts
+  // `not_visible`; this one asserts that the scroll-recovery branch's
+  // `waitOneFrame` + the outer poll loop together bail within the budget.
+  it('honours the outer deadline when scrollIntoView never recovers an offscreen element', async () => {
+    const api = loadActionability();
+    const el = document.createElement('button');
+    document.body.appendChild(el);
+    // sr-only style: never recoverable via scroll because there's no
+    // scroll container to scroll into.
+    stubRect(el, { x: -9999, y: 100, width: 75, height: 21 });
+    el.scrollIntoView = vi.fn();
+
+    const started = Date.now();
+    const r = await api.awaitActionable(el, { checks: ['visible'], timeoutMs: 200 });
+    const elapsed = Date.now() - started;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.failures).toContain('not_visible');
+    // Contract: bail near the deadline, NOT 15s. The scroll-recovery
+    // branch is one-shot per call so even with rAF stretched to a full
+    // second the worst case is `timeoutMs + 1 frame`.
+    expect(elapsed).toBeLessThan(350);
+  });
+
+  // IMP-0155: the happy path must remain cheap. A static, visible,
+  // animation-free element should pass instantly without polling.
+  it('returns ok in <50ms for a stable visible element (happy path)', async () => {
+    const api = loadActionability();
+    const el = document.createElement('button');
+    document.body.appendChild(el);
+    stubRect(el, { x: 10, y: 10, width: 100, height: 30 });
+    document.elementFromPoint = vi.fn(() => el);
+    const started = Date.now();
+    const r = await api.awaitActionable(el, {
+      checks: ['visible', 'stable', 'enabled', 'hit-test'],
+      timeoutMs: 5000,
+    });
+    const elapsed = Date.now() - started;
+    expect(r.ok).toBe(true);
+    expect(elapsed).toBeLessThan(50);
+  });
+
   // IMP-0113: a static transform must NOT trigger unstable_bbox. The transform
   // string is identical across every sample so the sampler should conclude stable.
   it('passes when transform is static (no diff across samples)', async () => {
