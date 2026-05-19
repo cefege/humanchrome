@@ -79,6 +79,21 @@ function classifyFrameError(
   return { success: false, reason: 'INJECTION_ERROR', message: `${phase}: ${message}` };
 }
 
+// Each inject phase (bridge, MAIN-world inject, ISOLATED inject) shares the
+// same pipeline: time-boxed executeScript, then classifyFrameError on the
+// per-frame results. The verify call is intentionally NOT routed through
+// here — it inspects `result === true` for the sentinel, not `result.error`.
+async function runInjectStep<Args extends unknown[]>(
+  injection: chrome.scripting.ScriptInjection<Args, unknown>,
+  phase: string,
+): Promise<InjectFailure | undefined> {
+  const results = (await withInjectTimeout(
+    chrome.scripting.executeScript(injection),
+    phase,
+  )) as InjectionFrameError[];
+  return classifyFrameError(results, phase);
+}
+
 interface InjectScriptParam {
   url?: string;
   tabId?: number;
@@ -302,14 +317,24 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
     // boxed because the bridge ships via chrome.scripting.executeScript,
     // which can hang indefinitely when a page intercepts script setup
     // (e.g., a service worker that rewrites every executeScript hook).
-    await withInjectTimeout(
-      chrome.scripting.executeScript({
+    //
+    // IMP-0136: per-frame failures here (page denies extension content
+    // scripts via manifest CSP, detached frame, restricted URL race) also
+    // need classifyFrameError — same silent-success class as bug #217 on
+    // the MAIN-world path. Without this, the bridge listener fails to
+    // install, the follow-up MAIN-world inject still succeeds (the
+    // sentinel is set by the user-code wrapper, not the bridge), the
+    // tool returns `{injected:true}`, and later `send_command_to_inject_script`
+    // calls hang because there is no bridge to forward `targetWorld:MAIN`.
+    const bridgeFailure = await runInjectStep(
+      {
         target: { tabId },
         files: ['inject-scripts/inject-bridge.js'],
         world: ExecutionWorld.ISOLATED,
-      }),
+      },
       'bridge inject',
     );
+    if (bridgeFailure) return bridgeFailure;
 
     // Stamp a per-call sentinel onto `window` ONCE the user code has run.
     // The follow-up verify call reads it back and confirms MAIN-world
@@ -322,25 +347,19 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
       .toString(36)
       .slice(2, 10)}`;
 
-    const results = (await withInjectTimeout(
-      chrome.scripting.executeScript({
+    const failure = await runInjectStep(
+      {
         target: { tabId },
-        func: (code, ackKey) => {
+        func: (code: string, ackKey: string) => {
           new Function(code)();
           (window as unknown as Record<string, boolean>)[ackKey] = true;
         },
         args: [jsScript, ack],
         world: ExecutionWorld.MAIN,
-      }),
+      },
       'MAIN-world inject',
-    )) as InjectionFrameError[];
-
-    const failure = classifyFrameError(results, 'MAIN-world inject');
-    if (failure) {
-      // No `injected:true` claim and no map entry — there's no MAIN-world
-      // state to clean up since the function never ran.
-      return failure;
-    }
+    );
+    if (failure) return failure;
 
     // Verify the sentinel landed. If the wrapper was silently dropped
     // (CSP `strict-dynamic` rejecting extension MAIN-world scripts; SW
@@ -368,17 +387,15 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
       };
     }
   } else {
-    const results = (await withInjectTimeout(
-      chrome.scripting.executeScript({
+    const failure = await runInjectStep(
+      {
         target: { tabId },
-        func: (code) => new Function(code)(),
+        func: (code: string) => new Function(code)(),
         args: [jsScript],
         world: ExecutionWorld.ISOLATED,
-      }),
+      },
       'ISOLATED-world inject',
-    )) as InjectionFrameError[];
-
-    const failure = classifyFrameError(results, 'ISOLATED-world inject');
+    );
     if (failure) return failure;
   }
 
