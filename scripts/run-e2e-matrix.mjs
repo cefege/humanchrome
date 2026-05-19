@@ -250,13 +250,41 @@ function resolveChromeBinary() {
   // (silently warns + ignores), so prefer Chrome for Testing when it's
   // been installed via @puppeteer/browsers — install runs once and
   // drops the binary under <repo>/chrome/.
-  const cftGlob = spawnSync('sh', [
-    '-c',
-    `ls -t '${REPO_ROOT}'/chrome/mac_*/chrome-mac-*/'Google Chrome for Testing.app'/Contents/MacOS/'Google Chrome for Testing' 2>/dev/null | head -1`,
-  ]);
-  const cft = cftGlob.stdout.toString().trim();
-  if (cft) return cft;
+  //
+  // Search candidates in order:
+  //   1. `<REPO_ROOT>/chrome/` (current worktree) — usual case.
+  //   2. The main worktree's chrome/ — for git-worktree runs where
+  //      @puppeteer/browsers installed to the main checkout only.
+  //   3. The user's macOS app bundle — last resort, --load-extension
+  //      becomes a no-op so the matrix WILL fail later, but it's better
+  //      to fail with a useful error than silently fall through.
+  const searchRoots = [REPO_ROOT];
+  // IMP-0139: detect git-worktree by walking up `.claude/worktrees/agent-*`.
+  const worktreeMatch = REPO_ROOT.match(/^(.*)\/\.claude\/worktrees\/agent-[a-f0-9]+$/);
+  if (worktreeMatch) {
+    searchRoots.push(worktreeMatch[1]);
+  }
+  for (const root of searchRoots) {
+    const cftGlob = spawnSync('sh', [
+      '-c',
+      `ls -t '${root}'/chrome/mac_*/chrome-mac-*/'Google Chrome for Testing.app'/Contents/MacOS/'Google Chrome for Testing' 2>/dev/null | head -1`,
+    ]);
+    const cft = cftGlob.stdout.toString().trim();
+    if (cft) {
+      if (root !== REPO_ROOT) {
+        console.log(`[e2e] using CFT from sibling main worktree (current cwd=${REPO_ROOT})`);
+      }
+      return cft;
+    }
+  }
   if (platform() === 'darwin') {
+    console.warn(
+      '[e2e] no Chrome for Testing found under any search root — falling back to stable Chrome.',
+    );
+    console.warn(
+      '[e2e]   --load-extension is silently ignored by stable Chrome 145+. The matrix WILL fail.',
+    );
+    console.warn('[e2e]   Run `npx @puppeteer/browsers install chrome@stable` from the repo root.');
     return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   }
   if (platform() === 'win32') {
@@ -329,23 +357,106 @@ function stageExtensionForChrome() {
   return tccSafe;
 }
 
-function stageNativeMessagingHost(profile) {
-  // Chrome for Testing (and any non-default Chrome channel) looks for native
-  // messaging host manifests under <user-data-dir>/NativeMessagingHosts/
-  // FIRST. Without this the SW gets "Specified native messaging host not
-  // found." and the bridge never spawns for the dedicated instance.
-  const src = resolve(
+function nativeMessagingHostManifestSource() {
+  // The user's daily-driver Chrome NM manifest is the canonical source —
+  // generated once by `humanchrome-bridge register`, points at the installed
+  // dist's run_host.sh. Reuse it verbatim for the matrix run.
+  return resolve(
     homedir(),
     'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.humanchrome.nativehost.json',
   );
+}
+
+function nativeMessagingHostTargets() {
+  // Chrome on macOS only scans system-wide (`/Library/...`) and user-level
+  // (`~/Library/...`) NM manifest dirs — NOT profile-relative paths under
+  // `--user-data-dir`. Empirically Chrome for Testing 148 falls back to the
+  // regular Chrome user-level dir when its own dedicated dir is empty, but
+  // we can't rely on that on fresh CFT installs. Stage at every plausible
+  // path so the matrix works regardless of which one CFT actually reads.
+  //
+  // Order matters: we copy into each in turn, but Chrome only needs one
+  // hit. If the manifest already exists at a location we skip it (avoid
+  // clobbering a user's working manifest with our copy of the same file).
+  //
+  // Refs:
+  //   https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
+  //   IMP-0139 (this).
+  if (platform() !== 'darwin') {
+    // Linux/Windows: today the matrix runner only runs on macOS in CI and
+    // local. When porting, add the Linux equivalents
+    // (~/.config/google-chrome/NativeMessagingHosts/ + the
+    // chrome-for-testing dir Google ships).
+    return [];
+  }
+  const home = homedir();
+  return [
+    // Chrome for Testing (Chrome 146+, documented) — `ChromeForTesting`
+    // (no spaces). Some docs / forum posts disagree on whether the dir
+    // uses spaces; we stage both spellings and let CFT pick whichever
+    // it actually scans on this machine.
+    resolve(home, 'Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts'),
+    // Chrome for Testing — `Chrome for Testing` (with spaces); matches
+    // CFT's own user-data-dir naming and is what Chrome 148 actually
+    // appears to read on this machine.
+    resolve(home, 'Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts'),
+    // Regular Chrome user-level dir. CFT < 146 reads from here, and Chrome
+    // 148 still falls back to it in practice. Staging here means a user
+    // who installed humanchrome-bridge via the normal `register` flow
+    // already has the file in place; we just won't overwrite it.
+    resolve(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
+  ];
+}
+
+function stageNativeMessagingHost(profile) {
+  // Per IMP-0139: Chrome on macOS does NOT scan `<user-data-dir>/NativeMessagingHosts/`.
+  // The pre-IMP-0139 implementation copied here, which only worked by
+  // accident — the same user happened to have the manifest staged at a
+  // user-level path the matrix never wrote to. On fresh systems that left
+  // Chrome with "Specified native messaging host not found." and the bridge
+  // never spawned. Now we stage at every documented + empirically-correct
+  // user-level path.
+  const src = nativeMessagingHostManifestSource();
+  const profileLocal = resolve(profile, 'NativeMessagingHosts');
   if (!existsSync(src)) {
-    console.warn('[e2e] no NM manifest at', src, '— skipping stage');
+    console.warn(`[e2e] no NM manifest at ${src} — bridge handshake will fail.`);
+    console.warn(
+      '[e2e]   Run `humanchrome-bridge register` (or equivalent install) first.',
+    );
     return;
   }
-  const dst = resolve(profile, 'NativeMessagingHosts');
-  mkdirSync(dst, { recursive: true });
-  cpSync(src, resolve(dst, 'com.humanchrome.nativehost.json'));
-  console.log(`[e2e]   NM manifest staged   = ${dst}/`);
+  // Log the source manifest so a stale `path` field is visible in the run log
+  // — saved us hours debugging "bridge spawned but exits immediately" before.
+  try {
+    const stat = statSync(src);
+    const raw = readFileSync(src, 'utf8');
+    const parsed = JSON.parse(raw);
+    console.log(`[e2e] NM manifest source: ${src} (${stat.size} bytes)`);
+    console.log(
+      `[e2e]   name=${parsed.name} path=${parsed.path} allowed_origins=${JSON.stringify(parsed.allowed_origins)}`,
+    );
+  } catch (err) {
+    console.warn(`[e2e]   failed to read/parse source manifest: ${err.message}`);
+  }
+  // Profile-relative copy for back-compat with any future Chrome version
+  // that *does* honor profile-relative paths (today none on macOS, but
+  // cheap to keep).
+  mkdirSync(profileLocal, { recursive: true });
+  cpSync(src, resolve(profileLocal, 'com.humanchrome.nativehost.json'));
+  console.log(`[e2e]   profile-relative (back-compat) = ${profileLocal}/`);
+  // User-level copies — the paths Chrome actually scans on macOS.
+  for (const dst of nativeMessagingHostTargets()) {
+    const dstFile = resolve(dst, 'com.humanchrome.nativehost.json');
+    if (existsSync(dstFile)) {
+      // Don't clobber a user-installed working manifest — they may have
+      // a hand-edited `path` pointing at a non-default dist.
+      console.log(`[e2e]   user-level present, leaving alone: ${dstFile}`);
+      continue;
+    }
+    mkdirSync(dst, { recursive: true });
+    cpSync(src, dstFile);
+    console.log(`[e2e]   user-level (staged) = ${dstFile}`);
+  }
 }
 
 function launchChrome() {
@@ -369,7 +480,64 @@ function launchChrome() {
     'Library/Application Support/humanchrome-bridge/e2e-registry/bridge-daemon.sock',
   );
 
+  // IMP-0139: nuke the matrix's e2e-registry before each run. If a previous
+  // run abandoned its bridge daemon (typical when a Claude Code run got
+  // interrupted via SIGKILL or pipe-close), the orphan daemon still holds
+  // the UDS — the new bridge spawned by this Chrome connects as a relay
+  // instead of becoming the primary, never writes a registry entry, and
+  // findSpawnedBridge times out at 30s even though everything else works.
+  //
+  // Killing any process holding the daemon socket first, then unlinking
+  // the socket file + clearing stale registry entries. The matrix runner
+  // owns this directory (HC_INSTANCE_REGISTRY_DIR isolates it from the
+  // user's main bridge), so it's safe to scrub.
+  try {
+    if (existsSync(matrixDaemonSocket)) {
+      // Find any process holding the socket and SIGTERM it. lsof's output
+      // shape is consistent across macOS versions; the second column is the
+      // pid. Tolerant of "no process found" (lsof exits 1).
+      const lsof = spawnSync('lsof', ['-Fp', matrixDaemonSocket]);
+      if (lsof.status === 0) {
+        const pids = lsof.stdout
+          .toString()
+          .split('\n')
+          .filter((l) => l.startsWith('p'))
+          .map((l) => Number(l.slice(1)))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        for (const pid of pids) {
+          try {
+            process.kill(pid, 'SIGTERM');
+            console.log(`[e2e] killed stale daemon pid=${pid} holding ${matrixDaemonSocket}`);
+          } catch {
+            /* already gone */
+          }
+        }
+        // Give SIGTERM a moment to land before unlinking.
+        if (pids.length > 0) {
+          spawnSync('sleep', ['0.5']);
+        }
+      }
+      try {
+        rmSync(matrixDaemonSocket, { force: true });
+        console.log(`[e2e] removed stale daemon socket ${matrixDaemonSocket}`);
+      } catch {
+        /* ignore */
+      }
+    }
+    // Empty the registry dir so findSpawnedBridge starts from a clean slate.
+    if (existsSync(matrixRegistry)) {
+      rmSync(matrixRegistry, { recursive: true, force: true });
+    }
+    mkdirSync(matrixRegistry, { recursive: true });
+  } catch (err) {
+    console.warn(`[e2e] failed to scrub matrix registry/socket: ${err.message}`);
+  }
+
   const bin = resolveChromeBinary();
+  // IMP-0139: capture Chrome's NM-discovery logs to disk so future failures
+  // self-diagnose. The log file lands at <profile>/chrome_debug.log when
+  // --enable-logging=stderr-and-file is set with a profile-relative path.
+  const chromeLogPath = resolve(profile, 'chrome_debug.log');
   const args = [
     `--user-data-dir=${profile}`,
     `--load-extension=${ext}`,
@@ -377,11 +545,17 @@ function launchChrome() {
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-features=DialMediaRouteProvider',
+    // Verbose logging so the "Specified native messaging host not found"
+    // and "Failed to start native messaging host" messages land in the
+    // profile-relative log file. Skip when HC_QUIET_CHROME is set so
+    // future CI noise can be dialed down without code edit.
+    ...(process.env.HC_QUIET_CHROME ? [] : ['--enable-logging', '--v=1']),
     FIXTURE_URL,
   ];
   console.log(`[e2e] launching dedicated Chrome → ${bin}`);
   console.log(`[e2e]   ext (TCC-safe copy) = ${ext}`);
   console.log(`[e2e]   profile             = ${profile}`);
+  console.log(`[e2e]   chrome log          = ${chromeLogPath}`);
   console.log(`[e2e]   isolated registry   = ${matrixRegistry}`);
   const spawnedAt = Date.now();
   const child = spawn(bin, args, {
@@ -394,7 +568,7 @@ function launchChrome() {
     },
   });
   child.unref();
-  return { pid: child.pid, profile, spawnedAt, matrixRegistry };
+  return { pid: child.pid, profile, spawnedAt, matrixRegistry, chromeLogPath };
 }
 
 async function main() {
@@ -425,13 +599,52 @@ async function main() {
       Date.now() + 30_000,
     );
     if (!entry) {
+      // IMP-0139: self-diagnostic dump. Most common cause is Chrome not
+      // finding the NM manifest at a path it actually scans on this
+      // platform (macOS: user-level only — profile-relative does NOT
+      // work). The matrix runner stages copies at every documented path
+      // in stageNativeMessagingHost, but if the source manifest itself
+      // is missing or stale, that staging silently does nothing useful.
       console.error('[e2e] spawned Chrome did not register a bridge within 30s.');
       console.error(`[e2e] registry dir: ${REGISTRY_DIR}`);
+      console.error('[e2e] diagnostic checklist:');
+      const sourceManifest = nativeMessagingHostManifestSource();
+      console.error(
+        `[e2e]   1. source manifest at ${sourceManifest} → ${existsSync(sourceManifest) ? 'OK' : 'MISSING'}`,
+      );
+      for (const dir of nativeMessagingHostTargets()) {
+        const file = resolve(dir, 'com.humanchrome.nativehost.json');
+        console.error(`[e2e]   2. staged at ${file} → ${existsSync(file) ? 'OK' : 'MISSING'}`);
+      }
+      if (existsSync(spawned.chromeLogPath)) {
+        console.error(`[e2e]   3. chrome log lines mentioning native messaging:`);
+        try {
+          const log = readFileSync(spawned.chromeLogPath, 'utf8')
+            .split('\n')
+            .filter((l) => /native|nativeMessaging|messaging host/i.test(l))
+            .slice(-15);
+          for (const line of log) console.error(`[e2e]      ${line}`);
+        } catch (err) {
+          console.error(`[e2e]      <failed to read log: ${err.message}>`);
+        }
+      } else {
+        console.error(
+          `[e2e]   3. chrome log not yet written at ${spawned.chromeLogPath} (Chrome may have crashed before flushing).`,
+        );
+      }
+      console.error('[e2e]   4. Chrome process status:');
+      try {
+        process.kill(spawned.pid, 0);
+        console.error(`[e2e]      pid ${spawned.pid} is alive (Chrome is up; NM lookup is the issue)`);
+      } catch {
+        console.error(`[e2e]      pid ${spawned.pid} is gone (Chrome exited / crashed)`);
+      }
       process.exit(3);
     }
     BRIDGE_BASE = `http://127.0.0.1:${entry.port}`;
+    const handshakeMs = Date.now() - spawned.spawnedAt;
     console.log(
-      `[e2e] discovered bridge instance=${entry.instanceId} pid=${entry.pid} port=${entry.port}`,
+      `[e2e] discovered bridge instance=${entry.instanceId} pid=${entry.pid} port=${entry.port} (handshake ${handshakeMs}ms)`,
     );
     console.log(`[e2e] routing to ${BRIDGE_BASE}`);
   }
