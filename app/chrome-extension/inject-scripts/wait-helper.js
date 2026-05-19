@@ -93,10 +93,22 @@
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   }
 
+  // IMP-0138: every executor below hoists its `setTimeout`/`setInterval`
+  // handles (`timer`, `poller`, `idleTimer`, `deadline`) with `let` BEFORE
+  // declaring `done()` and running the initial synchronous `check()`. If the
+  // predicate is already satisfied on first poll, `check()` invokes `done()`,
+  // which clears those handles — and a `const` declared further down would
+  // still be in TDZ at that moment. The resulting ReferenceError escapes the
+  // Promise executor, the Promise rejects with no payload, the SW message
+  // router gets nothing back, and the caller hits the 120s MCP transport
+  // timeout instead of the requested timeoutMs. `clearTimeout(undefined)` /
+  // `clearInterval(undefined)` are no-ops, so the early-done() path is safe
+  // before the handles are assigned.
   function waitFor({ text, appear = true, timeout = 5000 }) {
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
+      let timer;
 
       const check = () => {
         try {
@@ -134,9 +146,8 @@
         });
       } catch {}
 
-      // Initial check
       check();
-      const timer = setTimeout(
+      timer = setTimeout(
         () => {
           done({ success: false, reason: 'timeout', tookMs: Date.now() - start });
         },
@@ -222,6 +233,7 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
+      let timer; // see IMP-0138 note above `waitFor`
 
       const wantPresent = state !== 'absent';
 
@@ -286,9 +298,8 @@
         });
       } catch {}
 
-      // initial check
       check();
-      const timer = setTimeout(
+      timer = setTimeout(
         () =>
           done({
             success: false,
@@ -305,6 +316,7 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
+      let timer; // see IMP-0138 note above `waitFor`
 
       const isMatch = () => {
         try {
@@ -344,9 +356,8 @@
         });
       } catch {}
 
-      // initial check
       check();
-      const timer = setTimeout(
+      timer = setTimeout(
         () => done({ success: false, reason: 'timeout', tookMs: Date.now() - start }),
         Math.max(0, timeout),
       );
@@ -364,6 +375,13 @@
       let resolved = false;
       let lastActivity = Date.now();
       let observer = null;
+      // see IMP-0138 note above `waitFor`. PerformanceObserver's buffered=true
+      // flush is a microtask today (post-executor), so this is defensive only —
+      // but the same shape killed `waitForJs` and a future refactor that routes
+      // a synchronous resolution through `done()` would otherwise reintroduce
+      // it.
+      let idleTimer;
+      let deadline;
 
       const done = (result) => {
         if (resolved) return;
@@ -400,9 +418,8 @@
         // PerformanceObserver unavailable — fall back to a single timer
       }
 
-      let idleTimer = setTimeout(() => {}, 0);
       reschedule();
-      const deadline = setTimeout(
+      deadline = setTimeout(
         () =>
           done({
             success: false,
@@ -423,6 +440,11 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
+      // see IMP-0138 note above `waitFor` — this is the executor that was
+      // observed hitting the TDZ in production (`document.readyState ===
+      // 'complete'` on an already-loaded page).
+      let poller;
+      let timer;
 
       let evalFn;
       try {
@@ -467,8 +489,8 @@
       } catch {}
 
       check();
-      const poller = setInterval(check, 250);
-      const timer = setTimeout(
+      poller = setInterval(check, 250);
+      timer = setTimeout(
         () => done({ success: false, reason: 'timeout', tookMs: Date.now() - start }),
         Math.max(0, timeout),
       );

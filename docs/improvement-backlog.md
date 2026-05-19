@@ -64,15 +64,6 @@ The order of items inside ## Active is sorted by score descending.
   - `chrome_locator_handler` not exposed via MCP at all (ToolSearch miss).
 - **Fix sketch**: Re-run `pnpm --filter chrome-extension build` (already done) + rebuild `packages/shared` + `humanchrome-bridge register` (or whichever install script bumps `~/Library/Application Support/humanchrome-bridge/`). Add a startup version check that warns when bridge-bundled `humanchrome-shared` version ≠ workspace version. Document the reinstall step at the top of `docs/E2E-VERIFICATION.md` "Prerequisites".
 
-### IMP-0138 · chrome_wait_for(js) TDZ ReferenceError on first-check-true — silent 120s timeout (bug) · score: 8
-
-- **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
-- **Why**: `wait-helper.js:469` calls `check()` synchronously BEFORE declaring `const poller` (line 470) and `const timer` (line 471). If `evalFn()` returns truthy on first call (the expression is ALREADY satisfied), `check()` calls `done()` which references `poller` and `timer` at lines 446-447 — both in TDZ. ReferenceError: "Cannot access `poller` before initialization" propagates out of the Promise executor, the promise rejects with no payload to the SW message router, the SW sendMessage callback never gets a structured response, and the caller times out at the MCP transport default (120s). Effect: `chrome_wait_for({kind:"js", expression:"document.readyState === `complete`"})` against an already-loaded page TIMES OUT instead of returning success in <5ms — the exact case the JS wait was designed for (poll-until-ready).
-- **Cost**: S
-- **Value**: L
-- **Repro**: `curl -sX POST http://127.0.0.1:12306/api/tools/chrome_wait_for -H content-type:application/json -H x-client-id:diag -d `{"args":{"kind":"js","expression":"true","timeoutMs":2000}}``against any loaded tab — observe ~120s wall-clock (NOT the requested 2000ms) followed by a transport-timeout error. Verified locally with node -e:`function t(){const d=()=>{clearInterval(p);}; const c=()=>d(); try{c()}catch(e){console.log(`ERROR:`,e.message)} const p=setInterval(()=>{},1)} t()`→`ERROR: Cannot access `p` before initialization`.\n- **Fix sketch**: `app/chrome-extension/inject-scripts/wait-helper.js:440-475`— declare`let poller, timer`BEFORE the`done`closure (just after`let resolved = false`), then assign with plain assignment at the bottom: `poller = setInterval(check, 250); timer = setTimeout(...)`. `clearInterval(undefined)`is a no-op in browsers, so the now-undefined values during the first synchronous check are safe. Alternative: move`check()`AFTER the`const poller`/`const timer`declarations.\n- **Notes**: This bug also affects`waitFor`(text-presence) at lines ~127-139 and`waitForNetworkIdle`at ~403-414 — both share the same`done`-references-later-declared-timer pattern. All three need the same fix. Single-line fix per function, ~3 LoC total. No tests catch this today because every existing test sets an expression that returns false initially and waits for a mutation to flip it true.
-
 ### IMP-0112 · IMP-0098 role+name resolver returns empty for explicit role lookup (bug) · score: 7
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
@@ -531,6 +522,16 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0138 · chrome_wait_for(js) TDZ ReferenceError on first-check-true — silent 120s timeout (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-05-19
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Hoisted the `poller`/`timer` (and analogous `idleTimer`/`deadline`) lexical bindings in all five executor bodies inside `app/chrome-extension/inject-scripts/wait-helper.js` (`waitFor`, `waitForElement`, `waitForSelector`, `waitForNetworkIdle`, `waitForJs`) so the initial synchronous `check()` can call `done()` safely when the predicate is already satisfied on first poll. Pre-fix, `done()` referenced `const`-declared timers that were still in TDZ; the ReferenceError escaped the Promise executor, the executor rejected silently, the SW message router got nothing back, and the caller observed a 120s MCP transport timeout instead of the requested timeoutMs. `clearTimeout(undefined)` / `clearInterval(undefined)` are no-ops, so the early-done() path is safe even before the timers are assigned. Added 8 new test cases in `tests/inject-scripts/wait-helper.test.ts` covering: waitForJs first-check-true (the canonical regression), waitForJs against `document.readyState === "complete"` (the production repro), waitFor (text-presence) with element already present, waitForNetworkIdle on a quiet page, waitForJs flipping after a DOM mutation (no slow-path regression), waitForJs timeout envelope shape, waitForJs compile-error envelope, and a `wait_helper_ping` sanity check. All 8 pass; without the fix, the first-check-true tests would hang past vitest's default timeout because `sendResponse` is never invoked.
+- **Why**: `wait-helper.js:469` calls `check()` synchronously BEFORE declaring `const poller` (line 470) and `const timer` (line 471). If `evalFn()` returns truthy on first call (the expression is ALREADY satisfied), `check()` calls `done()` which references `poller` and `timer` at lines 446-447 — both in TDZ. ReferenceError propagates out of the Promise executor, the promise rejects with no payload to the SW message router, the SW sendMessage callback never gets a structured response, and the caller times out at the MCP transport default (120s). Effect: `chrome_wait_for({kind:"js", expression:"document.readyState === 'complete'"})` against an already-loaded page TIMES OUT instead of returning success in <5ms — the exact case the JS wait was designed for (poll-until-ready). Identical bug present in `waitFor` / `waitForElement` / `waitForSelector` / `waitForNetworkIdle` — all fixed in one pass to prevent latent regressions.
+- **Cost**: S
+- **Value**: L
 
 ### IMP-0137 · runActionability silently degrades to {ok:true} when actionability.js fails to inject — masks click/fill regressions (bug) · score: 9
 
