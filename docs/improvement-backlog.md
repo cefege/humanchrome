@@ -74,19 +74,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Repro**: `pnpm e2e:isolated` — "IMP-0098 role + name (Submit)" row fails. Full evidence in `docs/e2e-runs/2026-05-17_baseline.json`.
 - **Fix sketch**: Trace `accessibility-tree-helper.js:929-967` (`resolveByKind` → `resolveByRoleJs`). Likely missing the implicit-role lookup for HTML5 button/link/input elements (Playwright's `getByRole` matches `<button>` against `role=button` without requiring the explicit attribute). May also need `computeAccessibleName_v2` to fall through to `textContent` when no `aria-label`/`aria-labelledby` set.
 
-### IMP-0123 · `preHandler.test.ts` entire file flaky under parallel jest — quarantined (bug) · score: 7
-
-- **Proposed by**: claude · 2026-05-18 (broadened 2026-05-18 — initially quarantined 2 tests; turned out all 9 are flaky under parallel load)
-- **Status**: proposed
-- **Why**: Every test in `app/native-server/src/server/preHandler.test.ts` passes consistently in isolation (`npm test -- preHandler` → 7 pass, 2 deferred-skip) but flakes with 5000ms timeouts under parallel jest load when run as part of the full suite (`pnpm -r ... test`). `buildServer()` constructs a fresh Fastify per test (~50ms standalone) and that contention apparently exceeds the per-test cap when other test files are running concurrently. All three `describe` blocks are now `describe.skip`'d. Until un-skipped, the preHandler contract is enforced only by the production code path — this file is a regression-coverage placeholder, not an active gate. Previously documented as "known flake to ignore" in `CLAUDE.md`; that erosion of CI signal was blocking the autonomous loop's `pnpm test` gate.
-- **Cost**: M (root-cause investigation across jest worker contention, fastify Inject + listen race, buildServer port allocation)
-- **Value**: L (restores 7 lost gates AND trust in `pnpm test` green)
-
-- **Fix sketch**: Three options, ordered by defensibility: (a) split into three sibling files — `preHandler-host.test.ts`, `preHandler-origin.test.ts`, `preHandler-bearer.test.ts` — so each describe gets its own jest worker; (b) hoist `buildServer()` to `beforeAll` + `afterAll` per describe so we build once per worker instead of once per test (~3× fewer fastify boots); (c) configure jest to run this file with `--runInBand` (per-file maxWorkers:1). (a) is the cleanest and easiest to verify standalone. (b) is the smallest diff.
-- **Files involved**: `app/native-server/src/server/preHandler.test.ts` (un-skip all 3 describes), possibly split into 3 files, plus `app/native-server/jest.config.cjs` if going with option (c).
-- **Repro**: `pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test` reliably trips 1-3 preHandler tests on a 5000ms timeout. `npm test -- preHandler` in isolation produces all 7 pass + 2 skip.
-- **Notes**: Quarantine is `describe.skip` on all three blocks — `test`s inside are unchanged in code, just unreachable. Un-skip should also re-add the load-bearing CLAUDE.md rule that `pnpm test` green is the canonical gate.
-
 ### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
@@ -522,6 +509,13 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0123 · `preHandler.test.ts` entire file flaky under parallel jest — quarantined (bug) · score: 7
+
+- **Proposed by**: claude · 2026-05-18 (broadened 2026-05-18 — initially quarantined 2 tests; turned out all 9 are flaky under parallel load)
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Split `app/native-server/src/server/preHandler.test.ts` into three sibling files — `preHandler-host.test.ts`, `preHandler-origin.test.ts`, `preHandler-bearer.test.ts` — so each describe block gets its own jest worker. Each file is fully self-contained (own `buildServer()` helper, own `beforeEach`/`afterEach` env reset) and removes the `describe.skip` so all 9 tests now run. Pre-fix: 9 tests skipped, regression coverage was a placeholder. Post-fix: 9 tests active, run cleanly under parallel jest load, restoring the preHandler gate (Host DNS-rebinding defence, Origin allowlist, HUMANCHROME_TOKEN bearer auth). Verified via `pnpm test` run twice — both fully green, no preHandler timeouts. Removed the IMP-0123 carve-out from `CLAUDE.md` so `pnpm test` green is once again the canonical CI signal with no documented flake exemption.
 
 ### IMP-0138 · chrome_wait_for(js) TDZ ReferenceError on first-check-true — silent 120s timeout (bug) · score: 8
 
