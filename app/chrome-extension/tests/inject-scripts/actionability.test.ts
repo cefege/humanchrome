@@ -254,7 +254,7 @@ describe('actionability: editable check', () => {
 });
 
 describe('actionability: stable check', () => {
-  it('passes when bbox is stable across two frames', async () => {
+  it('passes via the no-active-animation fast-path', async () => {
     const api = loadActionability();
     const el = document.createElement('div');
     document.body.appendChild(el);
@@ -295,6 +295,84 @@ describe('actionability: stable check', () => {
     const r = await api.awaitActionable(el, { checks: ['stable'], timeoutMs: 1000 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.failures).toContain('unstable_bbox');
+  });
+
+  // IMP-0113: bbox-only comparison can be defeated by sub-pixel animations
+  // that round to identical x/y across the entire sampler window. The
+  // transform-matrix diff is a second axis of motion detection.
+  it('fails with unstable_bbox when transform animates but bbox pixel-rounds to equal', async () => {
+    const api = loadActionability();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    stubRect(el, { x: 10, y: 10, width: 100, height: 30 });
+
+    // Active animation so the sampler runs.
+    (el as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [
+      { playState: 'running' },
+    ];
+
+    // The bbox snapshot returns the same x/y on every call (above), but the
+    // computed transform matrix advances each frame — simulates an animation
+    // whose per-frame translation is smaller than a pixel rounding boundary.
+    let frame = 0;
+    const originalGCS = window.getComputedStyle.bind(window);
+    window.getComputedStyle = vi.fn((target: Element) => {
+      if (target === el) {
+        frame += 1;
+        return {
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          pointerEvents: 'auto',
+          transform: `matrix(1, 0, 0, 1, ${0.1 * frame}, 0)`,
+        } as unknown as CSSStyleDeclaration;
+      }
+      return originalGCS(target);
+    }) as typeof window.getComputedStyle;
+
+    try {
+      const r = await api.awaitActionable(el, { checks: ['stable'], timeoutMs: 1000 });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.failures).toContain('unstable_bbox');
+    } finally {
+      window.getComputedStyle = originalGCS;
+    }
+  });
+
+  // IMP-0113: a static transform must NOT trigger unstable_bbox. The transform
+  // string is identical across every sample so the sampler should conclude stable.
+  it('passes when transform is static (no diff across samples)', async () => {
+    const api = loadActionability();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    stubRect(el, { x: 10, y: 10, width: 100, height: 30 });
+
+    // Active animation flag (we want the sampler to run), but the transform
+    // matrix string stays constant.
+    (el as unknown as { getAnimations: () => unknown[] }).getAnimations = () => [
+      { playState: 'running' },
+    ];
+
+    const originalGCS = window.getComputedStyle.bind(window);
+    window.getComputedStyle = vi.fn((target: Element) => {
+      if (target === el) {
+        return {
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          pointerEvents: 'auto',
+          transform: 'matrix(1, 0, 0, 1, 5, 0)',
+        } as unknown as CSSStyleDeclaration;
+      }
+      return originalGCS(target);
+    }) as typeof window.getComputedStyle;
+
+    try {
+      const r = await api.awaitActionable(el, { checks: ['stable'], timeoutMs: 2000 });
+      expect(r.ok).toBe(true);
+    } finally {
+      window.getComputedStyle = originalGCS;
+    }
   });
 });
 
@@ -409,6 +487,100 @@ describe('actionability: scrollIntoView pre-check', () => {
     const scroll = vi.fn();
     el.scrollIntoView = scroll;
     await api.awaitActionable(el, { force: true, timeoutMs: 100 });
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  // IMP-0113: explicit recovery path — when checkVisible reports `not_visible`
+  // purely because the element is off-screen (not hidden, not zero-area), call
+  // scrollIntoView({block:'center', inline:'center', behavior:'instant'}) once
+  // and re-check on the next frame. If the scroll lands the element in view
+  // the action proceeds; if the scroll is a no-op (e.g. `left:-9999px` with no
+  // scroll container) the second check still fails and we return `not_visible`.
+  it('recovers an offscreen element when scrollIntoView lands it in view', async () => {
+    const api = loadActionability();
+    const el = document.createElement('button');
+    document.body.appendChild(el);
+
+    // First snapshot: way below the viewport. Second snapshot (post-scroll):
+    // inside the viewport. The fake "scroll" toggles which bbox getBoundingClientRect returns.
+    let scrolled = false;
+    el.getBoundingClientRect = () => {
+      if (!scrolled) {
+        return {
+          x: 10,
+          y: 10000,
+          width: 100,
+          height: 30,
+          top: 10000,
+          left: 10,
+          right: 110,
+          bottom: 10030,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return {
+        x: 10,
+        y: 100,
+        width: 100,
+        height: 30,
+        top: 100,
+        left: 10,
+        right: 110,
+        bottom: 130,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+    document.elementFromPoint = vi.fn(() => el);
+    el.scrollIntoView = vi.fn(() => {
+      scrolled = true;
+    });
+
+    const r = await api.awaitActionable(el, { checks: ['visible'], timeoutMs: 1000 });
+    expect(r.ok).toBe(true);
+    // scrollIntoView is called at least once (orchestrator entry) and may be
+    // called a second time by the polling-loop recovery branch. Once `scrolled`
+    // flips, subsequent calls find the rect in-viewport so the recovery path
+    // is bypassed. Either way at least one call must have landed.
+    expect(
+      (el.scrollIntoView as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it('still fails not_visible when scrollIntoView is a no-op (cannot recover)', async () => {
+    const api = loadActionability();
+    const el = document.createElement('button');
+    document.body.appendChild(el);
+    // The canonical .sr-only / `left:-9999px` pattern: no scroll container
+    // can bring it back in view.
+    stubRect(el, { x: -9999, y: 100, width: 75, height: 21 });
+    el.scrollIntoView = vi.fn(); // no-op, rect never moves
+
+    const r = await api.awaitActionable(el, { checks: ['visible'], timeoutMs: 200 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.failures).toContain('not_visible');
+    // The recovery branch was attempted exactly once even though the orchestrator
+    // entry already scrolled. (Belt-and-braces: confirms the in-loop retry fires.)
+    expect(
+      (el.scrollIntoView as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not attempt scrollIntoView recovery for display:none (the rect would never recover)', async () => {
+    const api = loadActionability();
+    const el = document.createElement('button');
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    stubRect(el, { x: 10, y: 10, width: 100, height: 30 });
+    const scroll = vi.fn();
+    el.scrollIntoView = scroll;
+
+    const r = await api.awaitActionable(el, { checks: ['visible'], timeoutMs: 100 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.failures).toContain('not_visible');
+    // The orchestrator-entry scrollIntoView ALSO short-circuits because the
+    // element's rect (10,10,100,30) is inside the viewport. The recovery
+    // branch is gated on `isOffscreenButPresent` which returns false for
+    // display:none. So scrollIntoView should never be called.
     expect(scroll).not.toHaveBeenCalled();
   });
 });

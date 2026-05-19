@@ -120,22 +120,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Sketch**: New workflow triggered on `pull_request` with `paths: ['app/chrome-extension/**', 'packages/shared/**']`. Steps: checkout → pnpm install → install Chrome via `browser-actions/setup-chrome@v1` → `pnpm build` → start static fixture server (`python3 -m http.server 4173 --directory app/chrome-extension/tests/e2e/fixtures`) in background → launch Chrome headed with `--load-extension=$REPO/app/chrome-extension/.output/chrome-mv3 --user-data-dir=$RUNNER_TEMP/profile --remote-debugging-port=9222 --no-first-run` in background → wait-for-port → spawn bridge with `humanchrome-bridge register` + wait-for-port on `:12306` → run `pnpm e2e:full --json $RUNNER_TEMP/result.json` (which itself calls `chrome_dev_reload` + polls runtime_info) → `actions/upload-artifact@v4` for the JSON → job fails when exit code ≠ 0.
 - **Open questions**: Headed Chrome on GitHub Actions Linux runners requires `xvfb-run` wrapping. macOS runners may be cleaner but cost more. Headless Chrome won't help because the extension needs MV3 service-worker support which is gated on browser surface; might need to investigate `--headless=new` compatibility before settling. Bootstrap reload (the one human step in IMP-0109) can be skipped in CI because the SW starts fresh on each Chrome launch — there's no prior installation to be stale against.
 
-### IMP-0113 · IMP-0097 actionability — offscreen scroll-into-view + unstable_bbox not enforced (bug) · score: 5
-
-- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
-- **Status**: proposed
-- **Why**: Matrix run shows two actionability gaps remain after IMP-0103 bridge fix + IMP-0104 acc-tree-helper injection:
-- **Cost**: M
-- **Value**: M
-  - **Offscreen scroll-into-view**: `chrome_click_element({selector:'#vis-offscreen'})` (button at `x:-9999, y:563`) returns `NOT_ACTIONABLE failures:['not_visible']` instead of scrolling the element into view first and then clicking (Playwright's standard behavior). Element bbox is correctly computed at off-screen coords; actionability decides "not visible" before attempting scroll.
-  - **Animation unstable_bbox**: `chrome_click_element({selector:'#sliding-btn'})` (a 4s infinite `transform: translateX()` animation) clicks SUCCEEDS without `force:true` — the bbox-stability check isn't catching the animation. Should return `NOT_ACTIONABLE failures:['unstable_bbox']`.
-
-- **Repro**: `pnpm e2e:isolated` — "IMP-0097 offscreen scrolls into view" and "IMP-0097 animation unstable_bbox" rows fail. Evidence in `docs/e2e-runs/2026-05-17_baseline.json`.
-- **Fix sketch**:
-  1. In `actionability.js` add `scrollIntoViewIfNeeded({block:'center'})` BEFORE the `checkVisible` pass when initial visible-check fails due to bbox-outside-viewport. Re-check after scroll.
-  2. The stability check (`checkStable` at `actionability.js:235-267`) compares 2 frames. A 4s animation moves slowly enough that 2 consecutive `requestAnimationFrame` deltas may round to 0px — bump the comparison to 3+ frames OR widen the tolerance window (e.g. detect transform: matrix3d differences via getComputedStyle.transform).
-- **Note**: Other actionability checks (`disabled`, `aria-disabled`, `readonly`, `occluded_by`, `display:none/visibility:hidden`) all PASS in the matrix — IMP-0105's broader claim that "all actionability is broken" was wrong; only these two specific cases need work.
-
 ### IMP-0118 · checkStable false-stable at velocity-zero animation peak (bug) · score: 5
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
@@ -482,6 +466,18 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0113 · IMP-0097 actionability — offscreen scroll-into-view + unstable_bbox not enforced (bug) · score: 5
+
+- **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Hardened `app/chrome-extension/inject-scripts/actionability.js` against the two remaining matrix-evidence gaps. (1) Offscreen scroll-into-view: added an explicit `isOffscreenButPresent(el)` guard inside the polling loop; when `checkVisible` returns `not_visible` purely because the rect is outside the viewport (not display:none / visibility:hidden / opacity:0 / pointer-events:none / zero-area), the orchestrator now calls `el.scrollIntoView({block:'center', inline:'center', behavior:'instant'})` once, awaits a single rAF for the layout flush, then re-checks visibility. If the scroll lands the element in view the action proceeds; if scrolling cannot help (e.g. `position:absolute; left:-9999px` with no scroll container) the second check still fails and `not_visible` is returned — Playwright's contract exactly. The recovery is one-shot per `awaitActionable` call so the polling loop can't infinite-loop on a slow-to-scroll page. (2) Stability check: extended `checkStable` to compare `getComputedStyle(el).transform` strings alongside `getBoundingClientRect()` across the 4-sample window (was 3). The matrix-string diff catches transform-only motion that pixel-rounds the bbox back to baseline (matrix(...)/matrix3d(...) differs at sub-pixel offsets where x/y still floor to the same integer); the 4th sample further reduces the chance of a velocity-zero coincidence. Added 5 new vitest cases to `tests/inject-scripts/actionability.test.ts` covering: scrollIntoView recovers an offscreen element when the scroll actually moves the rect; offscreen with `left:-9999px` still fails `not_visible` after recovery attempt; `display:none` does NOT trigger the recovery (saves a frame of latency); transform diff catches sub-pixel motion when bbox rounds equal; static transform across sampler returns stable. Total: actionability.test.ts 36/36 pass; full chrome-extension suite 1631 pass + 7 skipped; tsc clean.
+- **Why**: Matrix run showed two actionability gaps after IMP-0103/0104:
+- **Cost**: M
+- **Value**: M
+  - **Offscreen scroll-into-view**: `chrome_click_element({selector:'#vis-offscreen'})` (button at `x:-9999, y:563`) returned `NOT_ACTIONABLE failures:['not_visible']` instead of attempting scrollIntoView first (Playwright's standard behavior); even though the actual fixture can't be scrolled into view, the contract is to try-then-fail not fail-without-trying. Elements in overflow-scroll containers were never recovered.
+  - **Animation unstable_bbox**: `chrome_click_element({selector:'#sliding-btn'})` (a 4s infinite `transform: translateX()` animation) succeeded without `force:true` — the bbox-stability check rounded sub-pixel motion to identical x/y across samples and missed it. Should return `NOT_ACTIONABLE failures:['unstable_bbox']`.
 
 ### IMP-0136 · chrome_inject_script bridge-inject (ISOLATED) skips classifyFrameError — silent failure when bridge CSP-blocked (bug) · score: 6
 
