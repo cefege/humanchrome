@@ -132,18 +132,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Require N consecutive equal samples (e.g. 3 in a row) before declaring stable, so a single zero-velocity coincidence can't pass. Attempted in fix/imp0113-actionability but introduced SW hangs in matrix runs that aren't reproducible in unit tests — needs deeper investigation. Possible cause: rAF inside an injected script may interact poorly with Chrome's content-script lifecycle when the page also has animations driving its own rAF. Diagnostic next steps: enable verbose chrome_console capture during the matrix and look for "post-inject ping never returned pong" warnings.
 - **Repro**: `pnpm e2e:isolated` — "animation unstable_bbox" row fails. Evidence in any recent matrix JSON.
 
-### IMP-0122 · `chrome_search_tabs_content` still blocked by SW dynamic-`import()` ban (bug) · score: 5
-
-- **Proposed by**: claude · 2026-05-18 (follow-up to GitHub issues #216 / #217)
-- **Status**: proposed
-- **Why**: #216 promoted the cheap lazy tools (javascript / read-page / userscript / performance / element-picker) to static imports so they survive the SW dynamic-`import()` ban. `vector-search.ts` (`chrome_search_tabs_content`) is left lazy because its `getIndexer()` does `await import('@/utils/content-indexer')` to defer the ~1.2 MB ML graph (`@huggingface/transformers` + `onnxruntime-web` + `hnswlib-wasm-static`). That inner dynamic import hits the same Chrome limitation: `import() is disallowed on ServiceWorkerGlobalScope` per https://github.com/w3c/ServiceWorker/issues/1356. Calling the tool currently returns the same error the original bug filed. Bringing the graph in statically would add ~1.2 MB to SW boot — unacceptable.
-- **Cost**: M (architecture choice)
-- **Value**: M (restores semantic search; cheaply unblocks future vector-backed features)
-- **Fix sketch**: Move the indexer to an offscreen document (`chrome.offscreen.createDocument({reasons:['WORKERS'], justification:'vector ML graph too large for SW'})`). Offscreen pages have full DOM/window so dynamic `import()` works. SW dispatches search RPCs over `chrome.runtime.sendMessage`; offscreen page owns the singleton `ContentIndexer` and replies with results.
-- **Files involved**: `app/chrome-extension/entrypoints/background/tools/browser/vector-search.ts`, `app/chrome-extension/utils/content-indexer.ts` (dynamic imports of `vector-database` + `semantic-similarity`), new `app/chrome-extension/entrypoints/offscreen/vector-host.ts` page.
-- **Repro**: `curl -s -X POST http://127.0.0.1:12306/api/tools/chrome_search_tabs_content -H 'content-type: application/json' -H 'x-client-id: diag' -d '{"args":{"query":"test","topK":1}}'` returns `{"code":"UNKNOWN","message":"import() is disallowed on ServiceWorkerGlobalScope ..."}` even after #216 ships.
-- **Notes**: `storage-manager.ts` and `semantic-similarity.ts` also do `await import('@/utils/content-indexer')` — they fail the same way if reached at runtime. Offscreen pattern fixes all three call sites uniformly.
-
 ### IMP-0124 · chrome_emulate — device/UA/locale/timezone/geolocation/color-scheme overrides via CDP (feat) · score: 5
 
 - **Proposed by**: feature-scout · 2026-05-19
@@ -466,6 +454,16 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0122 · `chrome_search_tabs_content` still blocked by SW dynamic-`import()` ban (bug) · score: 5
+
+- **Proposed by**: claude · 2026-05-18 (follow-up to GitHub issues #216 / #217)
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Moved the ~1.2 MB ML indexer graph (`@huggingface/transformers` + `onnxruntime-web` + `hnswlib-wasm-static`) out of the service-worker import surface and into the existing offscreen document. SW callers now speak to the indexer over `chrome.runtime.sendMessage` via a new typed client at `app/chrome-extension/utils/indexer-rpc.ts`. New offscreen entry at `app/chrome-extension/entrypoints/offscreen/vector-host.ts` owns the `getGlobalContentIndexer()` singleton and dispatches the 9 new `OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_*` calls (search, stats, status, clearAll, clearVectorData, indexTab, removeTab, reinitialize, startInit). Rewrote `app/chrome-extension/entrypoints/background/tools/browser/vector-search.ts` to call `indexerRpc.*` instead of `await import('@/utils/content-indexer')`; same swap applied to `app/chrome-extension/entrypoints/background/storage-manager.ts` (3 sites: stats, indexer-clear, vector-data-clear) and `app/chrome-extension/entrypoints/background/semantic-similarity.ts` (2 sites: post-init kick, model-switch reinit). `content-indexer.ts` had a leftover `await import('@/entrypoints/background/semantic-similarity')` reading the model status; replaced with a direct `chrome.storage.local.get(['modelState'])` read since the indexer now runs in the offscreen page and importing a background entrypoint from there would either crash or pick up the wrong listener context. Vector-search tool promoted from `lazyLoaders` to eager registration because the module no longer drags the ML graph into the SW; lazy-tool-registry test updated to drop SEARCH_TABS_CONTENT from STILL_LAZY and add `./browser/vector-search` to PROMOTED_PATHS. Build output verified: zero references to `hnswlib-wasm-static` / `onnxruntime-web` / `@huggingface/transformers` in `background.js`; all 9 `CONTENT_INDEXER_*` message types present in the offscreen chunk (`offscreen-D7n4WWoC.js`). Total: 13 new vector-search tests + 12 new vector-host tests pass; lazy-tool-registry suite green; full chrome-extension suite 1656/1656 pass (7 skipped); `pnpm -w build` clean.
+- **Why**: #216 promoted the cheap lazy tools (javascript / read-page / userscript / performance / element-picker) to static imports so they survive the SW dynamic-`import()` ban. `vector-search.ts` (`chrome_search_tabs_content`) was left lazy because its `getIndexer()` did `await import('@/utils/content-indexer')` to defer the ~1.2 MB ML graph. That inner dynamic import hit the same Chrome limitation: `import() is disallowed on ServiceWorkerGlobalScope` per https://github.com/w3c/ServiceWorker/issues/1356. Bringing the graph in statically would have added ~1.2 MB to SW boot — unacceptable.
+- **Cost**: M
+- **Value**: M
 
 ### IMP-0113 · IMP-0097 actionability — offscreen scroll-into-view + unstable_bbox not enforced (bug) · score: 5
 

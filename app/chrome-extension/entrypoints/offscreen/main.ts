@@ -6,6 +6,7 @@ import {
   BACKGROUND_MESSAGE_TYPES,
 } from '@/common/message-types';
 import { handleGifMessage } from './gif-encoder';
+import { handleIndexerMessage } from './vector-host';
 import { initKeepalive } from './rr-keepalive';
 
 initKeepalive();
@@ -68,6 +69,13 @@ chrome.runtime.onMessage.addListener(
 
     // Handle GIF encoding messages first
     if (handleGifMessage(message, sendResponse)) {
+      return true;
+    }
+
+    // ContentIndexer RPC (IMP-0122) — vector-search / storage-manager /
+    // semantic-similarity hooks dispatch here because SW can't `import()`
+    // the heavy ML graph the indexer depends on.
+    if (handleIndexerMessage(message as any, sendResponse as any)) {
       return true;
     }
 

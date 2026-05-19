@@ -128,6 +128,13 @@ import {
   performanceAnalyzeInsightTool,
 } from './browser/performance';
 import { elementPickerTool } from './browser/element-picker';
+// IMP-0122 promotion: vector-search.ts no longer drags the ~1.2 MB ML
+// graph (`@huggingface/transformers` / `onnxruntime-web` /
+// `hnswlib-wasm-static`) through `await import('@/utils/content-indexer')`.
+// The graph lives in the offscreen page now and the SW tool only speaks
+// `chrome.runtime.sendMessage`. The module is therefore safe to static-
+// import — eager registration sidesteps the SW dynamic-`import()` ban.
+import { vectorSearchTabsContentTool } from './browser/vector-search';
 
 interface ToolInstance {
   name: string;
@@ -223,6 +230,9 @@ const eagerTools: ToolInstance[] = [
   performanceStopTraceTool,
   performanceAnalyzeInsightTool,
   elementPickerTool,
+  // Promoted from lazyLoaders — IMP-0122 (ML graph now lives in the
+  // offscreen page; SW tool is a thin RPC shim).
+  vectorSearchTabsContentTool,
 ];
 
 const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
@@ -256,15 +266,9 @@ const lazyLoaders: Record<string, LazyLoader> = {
   [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
   [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
     (await import('./browser/gif-recorder')).gifRecorderTool,
-  // SEARCH_TABS_CONTENT stays lazy because its execute() path itself does
-  // `await import('@/utils/content-indexer')` to defer the ~1.2 MB ML graph
-  // (transformers + onnxruntime). That inner dynamic import hits the same
-  // SW limitation, so the tool is broken until IMP-0121 moves the heavy
-  // graph to an offscreen document. Leaving the registration in place so
-  // the tool-coverage tests stay green; calling it returns the same
-  // "import() is disallowed" error rather than crashing the dispatcher.
-  [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: async () =>
-    (await import('./browser/vector-search')).vectorSearchTabsContentTool,
+  // SEARCH_TABS_CONTENT was promoted to eager imports above (IMP-0122).
+  // The ML graph now lives in the offscreen document; the SW tool no
+  // longer attempts `import()` of the heavy chunk.
 };
 
 const lazyResolved = new Map<string, ToolInstance>();

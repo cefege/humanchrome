@@ -100,6 +100,18 @@ export const OFFSCREEN_MESSAGE_TYPES = {
   GIF_ADD_FRAME: 'gifAddFrame',
   GIF_FINISH: 'gifFinish',
   GIF_RESET: 'gifReset',
+  // Content indexer RPC (IMP-0122) — SW can't `import()` the indexer's ML
+  // graph, so the indexer lives in the offscreen doc and SW dispatches
+  // these messages to drive it. See utils/indexer-rpc.ts.
+  CONTENT_INDEXER_SEARCH: 'contentIndexerSearch',
+  CONTENT_INDEXER_STATS: 'contentIndexerStats',
+  CONTENT_INDEXER_CLEAR_ALL: 'contentIndexerClearAll',
+  CONTENT_INDEXER_CLEAR_VECTOR_DATA: 'contentIndexerClearVectorData',
+  CONTENT_INDEXER_INDEX_TAB: 'contentIndexerIndexTab',
+  CONTENT_INDEXER_REMOVE_TAB: 'contentIndexerRemoveTab',
+  CONTENT_INDEXER_REINITIALIZE: 'contentIndexerReinitialize',
+  CONTENT_INDEXER_START_INIT: 'contentIndexerStartInit',
+  CONTENT_INDEXER_STATUS: 'contentIndexerStatus',
 } as const;
 
 // Content script message types

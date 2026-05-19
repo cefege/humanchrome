@@ -1,21 +1,23 @@
 /**
- * Vectorized tab content search tool
- * Uses vector database for efficient semantic search
+ * Vectorized tab content search tool.
+ *
+ * Pre-IMP-0122 this tool did `await import('@/utils/content-indexer')` to
+ * defer the ~1.2 MB ML graph (`@huggingface/transformers` + `onnxruntime-web` +
+ * `hnswlib-wasm-static`). That worked at compile-time but failed at runtime
+ * because Chrome forbids dynamic `import()` of new module chunks from a
+ * ServiceWorkerGlobalScope (https://github.com/w3c/ServiceWorker/issues/1356).
+ *
+ * IMP-0122 moves the indexer to the offscreen document — it has a DOM, so
+ * `import()` works there. This tool now dispatches over
+ * `chrome.runtime.sendMessage` via `utils/indexer-rpc.ts`; no heavy graph
+ * lives in the SW. Tool registration can therefore be eager.
  */
 
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
-// `ContentIndexer` is the entry point to the semantic-similarity engine, which
-// transitively pulls `@huggingface/transformers` (~700 KB) and
-// `onnxruntime-web` (~500 KB) via `utils/vector-database` + the
-// `hnswlib-wasm-static` loader. The vector-search tool only runs when the
-// user invokes the `search_tabs_content` tool, so we lazy-load the value
-// graph via dynamic `import()` inside `getIndexer()` below. The `import type`
-// here is erased at compile time and does NOT contribute to the SW chunk.
-// See IMP-0057.
-import type { ContentIndexer } from '@/utils/content-indexer';
-import { LIMITS, ERROR_MESSAGES } from '@/common/constants';
+import { ERROR_MESSAGES } from '@/common/constants';
+import { indexerRpc } from '@/utils/indexer-rpc';
 import type { SearchResult } from '@/utils/vector-database';
 
 interface VectorSearchResult {
@@ -29,44 +31,10 @@ interface VectorSearchResult {
 }
 
 /**
- * Tool for vectorized search of tab content using semantic similarity
+ * Tool for vectorized search of tab content using semantic similarity.
  */
 class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT;
-  // Lazily constructed on first tool invocation so the SW cold-start does not
-  // parse the indexer/engine/transformers graph. See IMP-0057.
-  private contentIndexer: ContentIndexer | null = null;
-  private isInitialized = false;
-
-  /**
-   * Lazy-load and memoize the `ContentIndexer` instance. The dynamic import
-   * keeps `utils/content-indexer` (and its transitive transformers /
-   * onnxruntime-web / hnswlib-wasm-static graph) out of the background.js
-   * chunk; it lands in a separate chunk that is only fetched on first call.
-   */
-  private async getIndexer(): Promise<ContentIndexer> {
-    if (!this.contentIndexer) {
-      const { ContentIndexer } = await import('@/utils/content-indexer');
-      this.contentIndexer = new ContentIndexer({
-        autoIndex: true,
-        maxChunksPerPage: LIMITS.MAX_SEARCH_RESULTS,
-        skipDuplicates: true,
-      });
-    }
-    return this.contentIndexer;
-  }
-
-  private async initializeIndexer(): Promise<void> {
-    try {
-      const indexer = await this.getIndexer();
-      await indexer.initialize();
-      this.isInitialized = true;
-      console.log('VectorSearchTabsContentTool: Content indexer initialized successfully');
-    } catch (error) {
-      console.error('VectorSearchTabsContentTool: Failed to initialize content indexer:', error);
-      this.isInitialized = false;
-    }
-  }
 
   async execute(args: { query: string }): Promise<ToolResult> {
     try {
@@ -80,44 +48,42 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
 
       console.log(`VectorSearchTabsContentTool: Starting vector search with query: "${query}"`);
 
-      // Lazy-load the indexer; first invocation incurs the dynamic-import +
-      // engine-bootstrap cost. Subsequent calls reuse the memoized instance.
-      const indexer = await this.getIndexer();
+      // Check engine status via offscreen — if it's still booting, surface
+      // the same "please retry" error the old code path used.
+      let status;
+      try {
+        status = await indexerRpc.getStatus();
+      } catch (statusError) {
+        return createErrorResponse(
+          `Vector search failed: ${statusError instanceof Error ? statusError.message : String(statusError)}`,
+        );
+      }
 
-      // Check semantic engine status
-      if (!indexer.isSemanticEngineReady()) {
-        if (indexer.isSemanticEngineInitializing()) {
+      if (!status.semanticEngineReady) {
+        if (status.semanticEngineInitializing) {
           return createErrorResponse(
             'Vector search engine is still initializing (model downloading). Please wait a moment and try again.',
           );
-        } else {
-          // Try to initialize
-          console.log('VectorSearchTabsContentTool: Initializing content indexer...');
-          await this.initializeIndexer();
-
-          // Check semantic engine status again
-          if (!indexer.isSemanticEngineReady()) {
-            return createErrorResponse('Failed to initialize vector search engine');
-          }
         }
+        // Kick off init; caller can retry on next tick.
+        try {
+          await indexerRpc.startSemanticEngineInitialization();
+        } catch {
+          // best-effort
+        }
+        return createErrorResponse('Failed to initialize vector search engine');
       }
 
-      // Execute vector search, get more results for deduplication
-      const searchResults = await indexer.searchContent(query, 50);
+      // Execute vector search, get more results for deduplication.
+      const searchResults = await indexerRpc.searchContent(query, 50);
 
-      // Convert search results format
       const vectorSearchResults = this.convertSearchResults(searchResults);
-
-      // Deduplicate by tab, keep only the highest similarity fragment per tab
       const deduplicatedResults = this.deduplicateByTab(vectorSearchResults);
-
-      // Sort by similarity and get top 10 results
       const topResults = deduplicatedResults
         .sort((a, b) => b.semanticScore - a.semanticScore)
         .slice(0, 10);
 
-      // Get index statistics
-      const stats = indexer.getStats();
+      const stats = await indexerRpc.getStats();
 
       const result = {
         success: true,
@@ -131,14 +97,14 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
           semanticEngineReady: stats.semanticEngineReady,
           semanticEngineInitializing: stats.semanticEngineInitializing,
         },
-        matchedTabs: topResults.map((result) => ({
-          tabId: result.tabId,
-          url: result.url,
-          title: result.title,
-          semanticScore: result.semanticScore,
-          matchedSnippets: [result.matchedSnippet],
-          chunkSource: result.chunkSource,
-          timestamp: result.timestamp,
+        matchedTabs: topResults.map((r) => ({
+          tabId: r.tabId,
+          url: r.url,
+          title: r.title,
+          semanticScore: r.semanticScore,
+          matchedSnippets: [r.matchedSnippet],
+          chunkSource: r.chunkSource,
+          timestamp: r.timestamp,
         })),
       };
 
@@ -163,27 +129,7 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /**
-   * Ensure all tabs are indexed
-   */
-  private async ensureTabsIndexed(tabs: chrome.tabs.Tab[]): Promise<void> {
-    const indexer = await this.getIndexer();
-    const indexPromises = tabs
-      .filter((tab) => tab.id)
-      .map(async (tab) => {
-        try {
-          await indexer.indexTabContent(tab.id!);
-        } catch (error) {
-          console.warn(`VectorSearchTabsContentTool: Failed to index tab ${tab.id}:`, error);
-        }
-      });
-
-    await Promise.allSettled(indexPromises);
-  }
-
-  /**
-   * Convert search results format
-   */
+  /** Convert offscreen `SearchResult` -> tool-shape result. */
   private convertSearchResults(searchResults: SearchResult[]): VectorSearchResult[] {
     return searchResults.map((result) => ({
       tabId: result.document.tabId,
@@ -196,17 +142,13 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }));
   }
 
-  /**
-   * Deduplicate by tab, keep only the highest similarity fragment per tab
-   */
+  /** Keep only the top-scoring fragment per tab. */
   private deduplicateByTab(results: VectorSearchResult[]): VectorSearchResult[] {
     const tabMap = new Map<number, VectorSearchResult>();
 
     for (const result of results) {
-      const existingResult = tabMap.get(result.tabId);
-
-      // If this tab has no result yet, or current result has higher similarity, update it
-      if (!existingResult || result.semanticScore > existingResult.semanticScore) {
+      const existing = tabMap.get(result.tabId);
+      if (!existing || result.semanticScore > existing.semanticScore) {
         tabMap.set(result.tabId, result);
       }
     }
@@ -214,30 +156,24 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     return Array.from(tabMap.values());
   }
 
-  /**
-   * Extract text snippet for display
-   */
+  /** Pick a readable preview snippet, preferring sentence boundaries. */
   private extractSnippet(text: string, maxLength: number = 200): string {
-    if (text.length <= maxLength) {
-      return text;
-    }
+    if (text.length <= maxLength) return text;
 
-    // Try to truncate at sentence boundary
     const truncated = text.substring(0, maxLength);
     const lastSentenceEnd = Math.max(
       truncated.lastIndexOf('.'),
       truncated.lastIndexOf('!'),
       truncated.lastIndexOf('?'),
       truncated.lastIndexOf('。'),
-      truncated.lastIndexOf('！'),
-      truncated.lastIndexOf('？'),
+      truncated.lastIndexOf('!'),
+      truncated.lastIndexOf('?'),
     );
 
     if (lastSentenceEnd > maxLength * 0.7) {
       return truncated.substring(0, lastSentenceEnd + 1);
     }
 
-    // If no suitable sentence boundary found, truncate at word boundary
     const lastSpaceIndex = truncated.lastIndexOf(' ');
     if (lastSpaceIndex > maxLength * 0.8) {
       return truncated.substring(0, lastSpaceIndex) + '...';
@@ -246,12 +182,11 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     return truncated + '...';
   }
 
-  /**
-   * Get index statistics
-   */
+  /** Stats getter retained for callers that import the singleton directly. */
   public async getIndexStats() {
-    if (!this.isInitialized || !this.contentIndexer) {
-      // Don't automatically initialize - just return basic stats
+    try {
+      return await indexerRpc.getStats();
+    } catch {
       return {
         totalDocuments: 0,
         totalTabs: 0,
@@ -262,30 +197,18 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
         semanticEngineInitializing: false,
       };
     }
-    return this.contentIndexer.getStats();
   }
 
-  /**
-   * Manually rebuild index
-   */
+  /** Rebuild the index across all reasonable tabs (chrome://, file://, etc. filtered). */
   public async rebuildIndex(): Promise<void> {
-    if (!this.isInitialized) {
-      await this.initializeIndexer();
-    }
-    const indexer = await this.getIndexer();
-
     try {
-      // Clear existing indexes
-      await indexer.clearAllIndexes();
+      await indexerRpc.clearAllIndexes();
 
-      // Get all tabs and reindex
       const windows = await chrome.windows.getAll({ populate: true });
       const allTabs: chrome.tabs.Tab[] = [];
 
       for (const window of windows) {
-        if (window.tabs) {
-          allTabs.push(...window.tabs);
-        }
+        if (window.tabs) allTabs.push(...window.tabs);
       }
 
       const validTabs = allTabs.filter(
@@ -298,7 +221,9 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
           !tab.url.startsWith('about:'),
       );
 
-      await this.ensureTabsIndexed(validTabs);
+      await Promise.allSettled(
+        validTabs.map((tab) => indexerRpc.indexTab(tab.id!).catch(() => undefined)),
+      );
 
       console.log(`VectorSearchTabsContentTool: Rebuilt index for ${validTabs.length} tabs`);
     } catch (error) {
@@ -307,29 +232,15 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /**
-   * Manually index specified tab
-   */
+  /** Index a specific tab. */
   public async indexTab(tabId: number): Promise<void> {
-    if (!this.isInitialized) {
-      await this.initializeIndexer();
-    }
-    const indexer = await this.getIndexer();
-
-    await indexer.indexTabContent(tabId);
+    await indexerRpc.indexTab(tabId);
   }
 
-  /**
-   * Remove index for specified tab
-   */
+  /** Remove a tab's index entries. */
   public async removeTabIndex(tabId: number): Promise<void> {
-    if (!this.isInitialized || !this.contentIndexer) {
-      return;
-    }
-
-    await this.contentIndexer.removeTabIndex(tabId);
+    await indexerRpc.removeTabIndex(tabId);
   }
 }
 
-// Export tool instance
 export const vectorSearchTabsContentTool = new VectorSearchTabsContentTool();
