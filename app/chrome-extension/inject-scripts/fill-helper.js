@@ -392,15 +392,23 @@ if (window.__FILL_HELPER_INITIALIZED__) {
   }
 
   /**
-   * Run the shared actionability primitive. Falls back to permissive when
-   * actionability.js wasn't loaded — production callers always inject it
-   * alongside fill-helper.
+   * Run the shared actionability primitive. IMP-0137: when the primitive
+   * is missing, hard-fail with `actionability_unavailable` so the tool can
+   * surface NOT_ACTIONABLE rather than silently degrading to a permissive
+   * fill (a value-write into a disabled/readonly/hidden field). Comment
+   * used to say "production callers always inject it alongside fill-
+   * helper" — that's a hope, not a guarantee, and the silent-degrade was
+   * exactly the bug that removed the guarantee from the contract.
+   *
+   * Explicit `force: true` short-circuits the wrapper: the caller has
+   * already opted out of the actionability suite, so the primitive
+   * being missing doesn't change anything actionable for them.
    */
   function runActionability(el, opts) {
+    if (opts && opts.force === true) return Promise.resolve({ ok: true });
     const api = window.__actionability;
     if (!api || typeof api.awaitActionable !== 'function') {
-      console.warn('[fill-helper] actionability primitive not loaded; skipping pre-action checks');
-      return Promise.resolve({ ok: true });
+      return Promise.resolve({ ok: false, failures: ['actionability_unavailable'] });
     }
     return api.awaitActionable(el, opts);
   }

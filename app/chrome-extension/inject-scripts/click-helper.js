@@ -330,16 +330,25 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
   }
 
   /**
-   * Invoke the shared actionability primitive. Wrapped so the caller
-   * doesn't have to care whether actionability.js has been loaded yet —
-   * we fall back to permissive (force-style) behaviour rather than
-   * blocking the action, but log so it's visible in DevTools.
+   * Invoke the shared actionability primitive. IMP-0137: when the primitive
+   * is missing (build dropped the file, CSP blocked the inject, race with
+   * cleanup), hard-fail with `actionability_unavailable` rather than
+   * silently degrading to a permissive force-style click. The previous
+   * permissive fallback regressed every page to pre-IMP-0097 silent-click-
+   * on-overlay behaviour the moment `actionability.js` failed to land —
+   * caller had no signal, only a `console.warn` they'd never see.
+   *
+   * Explicit `force: true` short-circuits the wrapper too: the caller
+   * has already opted out of the suite, so the primitive being missing
+   * doesn't change anything actionable. (Without the primitive there's
+   * no scrollIntoView either, but force has always been a "best effort
+   * regardless" signal, so we honour it.)
    */
   function runActionability(el, opts) {
+    if (opts && opts.force === true) return Promise.resolve({ ok: true });
     const api = window.__actionability;
     if (!api || typeof api.awaitActionable !== 'function') {
-      console.warn('[click-helper] actionability primitive not loaded; skipping pre-action checks');
-      return Promise.resolve({ ok: true });
+      return Promise.resolve({ ok: false, failures: ['actionability_unavailable'] });
     }
     return api.awaitActionable(el, opts);
   }

@@ -30,10 +30,13 @@ function installChrome() {
     return [{ result: undefined }];
   });
 
-  // Ping intentionally returns falsy so injectContentScript actually fires
+  // Tool-name pings return falsy so injectContentScript actually fires
   // (pingOnce returns true when response.status === 'pong' and short-circuits
-  // injection, hiding the files[] arg we want to assert on).
+  // injection, hiding the files[] arg we want to assert on). The
+  // actionability_ping (IMP-0137 self-test) DOES return pong so the
+  // dispatcher's assertHelperPresent doesn't throw INJECTION_FAILED.
   const sendMessage = vi.fn(async (_tid: number, msg: any) => {
+    if (msg?.action === 'actionability_ping') return { status: 'pong' };
     if (typeof msg.action === 'string' && msg.action.endsWith('_ping')) {
       return undefined;
     }

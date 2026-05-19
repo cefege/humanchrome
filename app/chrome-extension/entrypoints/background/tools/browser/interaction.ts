@@ -110,6 +110,15 @@ class ClickTool extends BaseBrowserToolExecutor {
         ]),
       ]);
 
+      // IMP-0137: confirm actionability.js actually installed window.__actionability
+      // before letting click-helper depend on it. If a future refactor drops
+      // actionability.js from the file list (or the build output is missing it),
+      // fail loudly at the contract boundary instead of silently degrading to
+      // a permissive click (the runActionability fallback in click-helper now
+      // returns actionability_unavailable, but failing here gives a clearer
+      // build-misconfiguration error rather than a per-element NOT_ACTIONABLE).
+      await this.assertHelperPresent(tab.id, 'actionability_ping', 'actionability.js', frameId);
+
       let finalRef = args.ref;
       let finalSelector = selector;
 
@@ -329,6 +338,12 @@ class FillTool extends BaseBrowserToolExecutor {
         'inject-scripts/actionability.js',
         'inject-scripts/fill-helper.js',
       ]);
+
+      // IMP-0137: contract boundary check — same rationale as ClickTool.
+      // Without window.__actionability, fill-helper would (post-fix) refuse
+      // every action with actionability_unavailable. Catching it here gives
+      // the caller a precise build-misconfiguration error.
+      await this.assertHelperPresent(tab.id, 'actionability_ping', 'actionability.js', frameId);
 
       // Fill should never navigate. Wrap with the snapshot+post-assert guard so
       // a mid-call hard navigation surfaces as TARGET_NAVIGATED_AWAY rather

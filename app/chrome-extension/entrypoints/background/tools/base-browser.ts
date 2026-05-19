@@ -6,6 +6,11 @@ import { getCurrentRequestContext } from '../utils/request-context';
 import { debugLog } from '../utils/debug-log';
 
 const PING_TIMEOUT_MS = 300;
+// executeScript resolves before the script's listener registers — a short
+// retry loop bridges the gap. Shared by both `injectContentScript`'s
+// post-inject wait and `assertHelperPresent`'s companion-helper check.
+const POST_INJECT_RETRIES = 5;
+const POST_INJECT_DELAY_MS = 60;
 
 /**
  * Base class for browser tool executors
@@ -44,11 +49,26 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    * Single attempt with a fixed timeout — callers loop for retry behavior.
    */
   private async pingOnce(tabId: number, frameId: number | undefined): Promise<boolean> {
+    return this.pingAction(tabId, `${this.name}_ping`, frameId);
+  }
+
+  /**
+   * Generic ping helper. Sends `{action: <pingAction>}` to the tab and
+   * resolves true on `{status: 'pong'}`. Use to confirm a specific helper
+   * (identified by its ping action name, e.g. `actionability_ping`) is
+   * present in the page — distinct from the tool-name ping pattern used
+   * by `pingOnce`.
+   */
+  private async pingAction(
+    tabId: number,
+    pingAction: string,
+    frameId: number | undefined,
+  ): Promise<boolean> {
     try {
       const response = (await Promise.race([
         typeof frameId === 'number'
-          ? chrome.tabs.sendMessage(tabId, { action: `${this.name}_ping` }, { frameId })
-          : chrome.tabs.sendMessage(tabId, { action: `${this.name}_ping` }),
+          ? chrome.tabs.sendMessage(tabId, { action: pingAction }, { frameId })
+          : chrome.tabs.sendMessage(tabId, { action: pingAction }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('ping timeout')), PING_TIMEOUT_MS),
         ),
@@ -57,6 +77,66 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * IMP-0137: post-injection contract check. Confirms a helper exposed
+   * its `<helper>_ping` handler in the page after `injectContentScript`
+   * ran (or after the optimistic ping-skip path). Distinct from
+   * `pingOnce` because the latter only probes for the calling tool's
+   * own helper (`${this.name}_ping`) — this method checks an arbitrary
+   * companion helper that the tool depends on (most importantly
+   * `actionability_ping` from `actionability.js`).
+   *
+   * Called explicitly by tools whose contract depends on companion
+   * helpers being present (`ClickTool`, `FillTool` → actionability.js).
+   * On failure, throws `INJECTION_FAILED` with a message naming the
+   * missing helper so build-misconfiguration regressions surface at the
+   * contract boundary rather than silently degrading to
+   * `actionability_unavailable` failures on every action.
+   *
+   * Multiple ping retries cover the same Chrome scripting timing
+   * window that `injectContentScript` already handles for the primary
+   * helper (executeScript resolves before the listener registers).
+   */
+  protected async assertHelperPresent(
+    tabId: number,
+    pingAction: string,
+    helperLabel: string,
+    frameId?: number,
+  ): Promise<void> {
+    if (await this.waitForPing(tabId, pingAction, frameId)) return;
+    debugLog.error('required companion helper missing after injection', {
+      tabId,
+      data: { pingAction, helperLabel },
+    });
+    throw new ToolError(
+      ToolErrorCode.INJECTION_FAILED,
+      `${ERROR_MESSAGES.TOOL_EXECUTION_FAILED}: Required helper "${helperLabel}" did not respond to ${pingAction} in tab ${tabId}. ` +
+        `The companion inject-script may have failed to load (check build output / CSP). ` +
+        `Without it, pre-action checks cannot run.`,
+      { tabId, pingAction, helperLabel },
+    );
+  }
+
+  /**
+   * Ping `pingAction` up to POST_INJECT_RETRIES times (with POST_INJECT_DELAY_MS
+   * between attempts) and resolve true on the first pong. Shared between the
+   * post-inject self-check in `injectContentScript` and the companion-helper
+   * check in `assertHelperPresent`.
+   */
+  private async waitForPing(
+    tabId: number,
+    pingAction: string,
+    frameId: number | undefined,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < POST_INJECT_RETRIES; attempt++) {
+      if (await this.pingAction(tabId, pingAction, frameId)) return true;
+      if (attempt < POST_INJECT_RETRIES - 1) {
+        await new Promise((r) => setTimeout(r, POST_INJECT_DELAY_MS));
+      }
+    }
+    return false;
   }
 
   /**
@@ -92,12 +172,7 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
       // finishes registering — surfaces as "Receiving end does not exist".
       // Confirm responsiveness with short retries so callers can rely on
       // "after injectContentScript, sendMessageToTab works."
-      const POST_INJECT_RETRIES = 5;
-      const POST_INJECT_DELAY_MS = 60;
-      for (let attempt = 0; attempt < POST_INJECT_RETRIES; attempt++) {
-        if (await this.pingOnce(tabId, pingFrameId)) return;
-        await new Promise((r) => setTimeout(r, POST_INJECT_DELAY_MS));
-      }
+      if (await this.waitForPing(tabId, `${this.name}_ping`, pingFrameId)) return;
       debugLog.warn('post-inject ping never returned pong; proceeding anyway', {
         tabId,
         data: { files },
