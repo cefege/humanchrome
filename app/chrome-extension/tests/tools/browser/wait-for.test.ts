@@ -515,3 +515,279 @@ describe('chrome_wait_for kind validation', () => {
     expect(text).toContain('url');
   });
 });
+
+/**
+ * IMP-0135 race regressions. The pre-fix implementation awaited
+ * `readReadyState` / `chrome.tabs.get` BEFORE installing the webNavigation
+ * listener — during that gap the load event could fire unobserved and the
+ * wait sat idle until the 30s timeout. These tests deliberately fire the
+ * webNavigation event BEFORE the deferred chrome.* probe resolves; the wait
+ * must resolve from the listener (or the post-probe fast-path), not from
+ * the timeout.
+ */
+describe('chrome_wait_for IMP-0135 listener-first race regression', () => {
+  it('load_state: navigation completes while readReadyState is still pending → listener resolves the wait', async () => {
+    // readReadyState returns a Promise we control. We will fire the
+    // webNavigation event BEFORE resolving it — the pre-fix code would have
+    // had no listener attached yet and timed out at 30s.
+    let resolveReadyState: (value: { result: DocumentReadyState }[]) => void = () => {};
+    executeScriptMock.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveReadyState = res;
+      }),
+    );
+
+    const promise = waitForTool.execute({ kind: 'load_state', state: 'load', tabId: TAB_ID });
+
+    // Yield once so `waitForTool.execute` reaches the new `addListener` call
+    // (it runs synchronously inside the Promise executor after the awaits in
+    // `execute()` have settled).
+    await new Promise((r) => setImmediate(r));
+    expect(onCompleted.count()).toBe(1); // listener installed BEFORE readyState resolves
+
+    // Fire onCompleted while executeScript is still pending. Pre-fix: no
+    // listener → wait would block until timeout. Post-fix: listener resolves.
+    onCompleted.fire({
+      tabId: TAB_ID,
+      frameId: 0,
+      url: 'https://example.com/start',
+      timeStamp: Date.now(),
+      processId: 0,
+      documentId: 'd',
+      documentLifecycle: 'active',
+      frameType: 'outermost_frame',
+      parentFrameId: -1,
+    } as NavDetails);
+
+    // Now resolve the readyState — its `.then` branch must NOT double-resolve
+    // (the `settled` guard handles this). Resolve with 'loading' to confirm
+    // the fast-path also wouldn't have fired even if it ran first.
+    resolveReadyState([{ result: 'loading' }]);
+
+    const res = await promise;
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.success).toBe(true);
+    expect(body.kind).toBe('load_state');
+    expect(body.alreadyLoaded).toBe(false);
+    // Listener was detached on resolve.
+    expect(onCompleted.count()).toBe(0);
+  });
+
+  it('load_state: listener resolves before readReadyState; late `complete` readyState does NOT double-resolve', async () => {
+    // Same scenario but the readyState eventually reports `complete` AFTER
+    // the listener already fired. The fast-path branch in the new code must
+    // see `settled=true` and skip — otherwise we would resolve twice (the
+    // second resolve is a no-op thanks to Promise semantics, but we'd leak
+    // an extra cleanup attempt).
+    let resolveReadyState: (value: { result: DocumentReadyState }[]) => void = () => {};
+    executeScriptMock.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveReadyState = res;
+      }),
+    );
+
+    const promise = waitForTool.execute({ kind: 'load_state', state: 'load', tabId: TAB_ID });
+    await new Promise((r) => setImmediate(r));
+    expect(onCompleted.count()).toBe(1);
+
+    // 1) Event fires first — wait resolves from listener.
+    onCompleted.fire({
+      tabId: TAB_ID,
+      frameId: 0,
+      url: 'https://example.com/start',
+      timeStamp: Date.now(),
+      processId: 0,
+      documentId: 'd',
+      documentLifecycle: 'active',
+      frameType: 'outermost_frame',
+      parentFrameId: -1,
+    } as NavDetails);
+
+    // 2) readyState completes later. Must be a no-op.
+    resolveReadyState([{ result: 'complete' }]);
+    await new Promise((r) => setImmediate(r));
+
+    const res = await promise;
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    // The body came from the LISTENER branch (alreadyLoaded:false), not the
+    // late readyState fast-path (which would set alreadyLoaded:true).
+    expect(body.alreadyLoaded).toBe(false);
+    expect(onCompleted.count()).toBe(0);
+  });
+
+  it('load_state: fast-path still wins when readyState already satisfies and no event fires', async () => {
+    // The non-race happy path: readyState immediately reports `complete`, no
+    // event ever fires, the wait must still resolve via the fast-path.
+    executeScriptMock.mockResolvedValueOnce([{ result: 'complete' }]);
+
+    const res = await waitForTool.execute({ kind: 'load_state', state: 'load', tabId: TAB_ID });
+
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.alreadyLoaded).toBe(true);
+    expect(body.readyState).toBe('complete');
+    expect(onCompleted.count()).toBe(0); // listener attached, then cleaned up
+  });
+
+  it('url: navigation commits while chrome.tabs.get is still pending → listener resolves the wait', async () => {
+    // First call to chrome.tabs.get is the `tryGetTab` lookup in the
+    // dispatcher (synchronous resolution is fine, returns the start URL).
+    // Second call (the waitForUrl fast-path) is deferred so we can fire
+    // onCommitted before it resolves.
+    let resolveSecondGet: (value: chrome.tabs.Tab) => void = () => {};
+    tabsGetMock
+      .mockResolvedValueOnce({ id: TAB_ID, url: 'https://example.com/start' })
+      .mockReturnValueOnce(
+        new Promise<chrome.tabs.Tab>((res) => {
+          resolveSecondGet = res;
+        }),
+      );
+
+    const promise = waitForTool.execute({
+      kind: 'url',
+      pattern: '/checkout',
+      tabId: TAB_ID,
+    });
+    await new Promise((r) => setImmediate(r));
+    // Listeners installed BEFORE tabs.get resolves.
+    expect(onCommitted.count()).toBe(1);
+    expect(onHistoryStateUpdated.count()).toBe(1);
+
+    onCommitted.fire({
+      tabId: TAB_ID,
+      frameId: 0,
+      url: 'https://example.com/checkout?ok=1',
+      timeStamp: Date.now(),
+      processId: 0,
+      transitionType: 'link',
+      transitionQualifiers: [],
+      documentId: 'd',
+      documentLifecycle: 'active',
+      frameType: 'outermost_frame',
+      parentFrameId: -1,
+    } as NavTransitionDetails);
+
+    // Now resolve the deferred tabs.get with a *non-matching* URL — confirms
+    // the fast-path doesn't second-guess the listener's resolution.
+    resolveSecondGet({ id: TAB_ID, url: 'https://example.com/start' } as chrome.tabs.Tab);
+
+    const res = await promise;
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.alreadyMatched).toBe(false);
+    expect(body.url).toBe('https://example.com/checkout?ok=1');
+    expect(onCommitted.count()).toBe(0);
+    expect(onHistoryStateUpdated.count()).toBe(0);
+  });
+
+  it('url: listener resolves before chrome.tabs.get; late matching URL does NOT double-resolve', async () => {
+    let resolveSecondGet: (value: chrome.tabs.Tab) => void = () => {};
+    tabsGetMock
+      .mockResolvedValueOnce({ id: TAB_ID, url: 'https://example.com/start' })
+      .mockReturnValueOnce(
+        new Promise<chrome.tabs.Tab>((res) => {
+          resolveSecondGet = res;
+        }),
+      );
+
+    const promise = waitForTool.execute({
+      kind: 'url',
+      pattern: '/checkout',
+      tabId: TAB_ID,
+    });
+    await new Promise((r) => setImmediate(r));
+
+    // 1) Event fires first.
+    onCommitted.fire({
+      tabId: TAB_ID,
+      frameId: 0,
+      url: 'https://example.com/checkout?step=1',
+      timeStamp: Date.now(),
+      processId: 0,
+      transitionType: 'link',
+      transitionQualifiers: [],
+      documentId: 'd',
+      documentLifecycle: 'active',
+      frameType: 'outermost_frame',
+      parentFrameId: -1,
+    } as NavTransitionDetails);
+
+    // 2) tabs.get resolves later with a URL that ALSO matches. The fast-path
+    // branch must see `settled=true` and skip — the wait result should
+    // reflect the LISTENER's URL ("?step=1"), not the late fast-path's URL.
+    resolveSecondGet({
+      id: TAB_ID,
+      url: 'https://example.com/checkout?step=99',
+    } as chrome.tabs.Tab);
+    await new Promise((r) => setImmediate(r));
+
+    const res = await promise;
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.alreadyMatched).toBe(false);
+    expect(body.url).toBe('https://example.com/checkout?step=1');
+    expect(onCommitted.count()).toBe(0);
+    expect(onHistoryStateUpdated.count()).toBe(0);
+  });
+
+  it('url: fast-path still wins when current URL already matches and no event fires', async () => {
+    // Both calls (`tryGetTab` + the fast-path probe) report the matching
+    // URL, no event ever fires.
+    tabsGetMock.mockResolvedValue({ id: TAB_ID, url: 'https://example.com/checkout' });
+    const res = await waitForTool.execute({
+      kind: 'url',
+      pattern: '/checkout',
+      tabId: TAB_ID,
+    });
+
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.alreadyMatched).toBe(true);
+    expect(body.url).toBe('https://example.com/checkout');
+    expect(onCommitted.count()).toBe(0);
+    expect(onHistoryStateUpdated.count()).toBe(0);
+  });
+
+  it('load_state: times out cleanly when neither fast-path nor listener fires', async () => {
+    vi.useFakeTimers();
+    // readReadyState reports `loading` (default beforeEach mock) — fast-path
+    // skipped. No event will fire. Timeout fires.
+    const promise = waitForTool.execute({
+      kind: 'load_state',
+      state: 'load',
+      tabId: TAB_ID,
+      timeoutMs: 30,
+    });
+    await vi.advanceTimersByTimeAsync(0); // settle readyState microtask
+    expect(onCompleted.count()).toBe(1);
+    await vi.advanceTimersByTimeAsync(100);
+
+    const res = await promise;
+    expect(res.isError).toBe(true);
+    expect((res.content[0] as any).text).toContain('TIMEOUT');
+    expect(onCompleted.count()).toBe(0);
+  });
+
+  it('url: times out cleanly when neither fast-path nor listener fires', async () => {
+    vi.useFakeTimers();
+    // Default tabsGet mock returns a non-matching URL — fast-path skipped.
+    const promise = waitForTool.execute({
+      kind: 'url',
+      pattern: '/checkout',
+      tabId: TAB_ID,
+      timeoutMs: 30,
+    });
+    await vi.advanceTimersByTimeAsync(0); // settle tabs.get microtask
+    expect(onCommitted.count()).toBe(1);
+    expect(onHistoryStateUpdated.count()).toBe(1);
+    await vi.advanceTimersByTimeAsync(100);
+
+    const res = await promise;
+    expect(res.isError).toBe(true);
+    expect((res.content[0] as any).text).toContain('TIMEOUT');
+    expect(onCommitted.count()).toBe(0);
+    expect(onHistoryStateUpdated.count()).toBe(0);
+  });
+});
