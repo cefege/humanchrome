@@ -309,3 +309,99 @@ describe('chrome_inject_script — CSP detection (bug #217)', () => {
     expect(body.error.details.reason).toBe('INJECTION_ERROR');
   });
 });
+
+describe('chrome_inject_script — bridge-inject classifyFrameError (IMP-0136)', () => {
+  // Mirror of the bug #217 describe block, but for the BRIDGE inject step
+  // (file-based, ISOLATED-world, runs BEFORE the MAIN-world user code).
+  // Pre-fix, the bridge result was awaited but never inspected — so any
+  // per-frame failure (page denies extension content scripts via manifest
+  // CSP, detached frame, restricted URL race) silently fell through to
+  // the MAIN-world inject. The sentinel was set inside the user-code
+  // wrapper (not the bridge), so verify still passed, and the tool
+  // returned `{injected:true}` despite the bridge listener never being
+  // installed. The next `send_command_to_inject_script` then hung forever
+  // because there was no bridge to forward `targetWorld:MAIN` messages.
+  it('flags a bridge-inject INJECTION_ERROR (non-CSP frame error) as INJECTION_FAILED', async () => {
+    const mod = await loadModule();
+
+    // Bridge inject fails with a non-CSP per-frame error (the canonical
+    // "Cannot access contents of url ..." that surfaces when a page
+    // denies extension scripts via manifest CSP or the frame goes
+    // detached mid-call).
+    const executeScript = vi
+      .fn()
+      .mockResolvedValueOnce([{ error: { message: 'Cannot access contents of url "https://locked.example/"' } }])
+      // Second/third calls MUST NOT happen — assert below.
+      .mockResolvedValueOnce([{ result: undefined }])
+      .mockResolvedValueOnce([{ result: true }]);
+    (globalThis.chrome as any).scripting.executeScript = executeScript;
+
+    const res = await mod.injectScriptTool.execute({
+      tabId: 21,
+      type: 'MAIN' as any,
+      jsScript: 'document.title',
+    });
+
+    expect(res.isError).toBe(true);
+    const body = parse((res.content[0] as any).text);
+    expect(body.error.code).toBe('INJECTION_FAILED');
+    expect(body.error.details.reason).toBe('INJECTION_ERROR');
+    expect(body.error.message).toMatch(/bridge inject/);
+    expect(body.error.message).toMatch(/Cannot access contents/);
+    // Bridge fails → tool must NOT proceed to MAIN-world inject or verify.
+    expect(executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('flags a bridge-inject CSP rejection as CSP_BLOCKED', async () => {
+    const mod = await loadModule();
+
+    const executeScript = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          error: {
+            message:
+              "Refused to execute inline script because it violates the following Content Security Policy directive: \"script-src 'self'\"",
+          },
+        },
+      ])
+      .mockResolvedValueOnce([{ result: undefined }])
+      .mockResolvedValueOnce([{ result: true }]);
+    (globalThis.chrome as any).scripting.executeScript = executeScript;
+
+    const res = await mod.injectScriptTool.execute({
+      tabId: 22,
+      type: 'MAIN' as any,
+      jsScript: 'document.title',
+    });
+
+    expect(res.isError).toBe(true);
+    const body = parse((res.content[0] as any).text);
+    expect(body.error.code).toBe('INJECTION_FAILED');
+    expect(body.error.details.reason).toBe('CSP_BLOCKED');
+    expect(body.error.message).toMatch(/Refused to execute/);
+    expect(executeScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT record the failed bridge-inject in injectedTabs', async () => {
+    // No cleanup state should remain after a failed bridge inject. The
+    // pre-fix path would have set the map entry (because the MAIN-world
+    // inject + verify both succeeded against a missing bridge), leaving
+    // a phantom record that `list_injected_scripts` would happily report.
+    const mod = await loadModule();
+
+    (globalThis.chrome as any).scripting.executeScript = vi
+      .fn()
+      .mockResolvedValueOnce([{ error: { message: 'Cannot access contents of url ...' } }]);
+
+    await mod.injectScriptTool.execute({
+      tabId: 24,
+      type: 'MAIN' as any,
+      jsScript: 'document.title',
+    });
+
+    const list = await mod.listInjectedScriptsTool.execute({ tabId: 24 });
+    const body = parse((list.content[0] as any).text);
+    expect(body.count).toBe(0);
+  });
+});
