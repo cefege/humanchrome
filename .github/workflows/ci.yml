@@ -49,7 +49,11 @@ jobs:
         run: pnpm typecheck
 
       - name: Unit tests (shared + bridge + extension)
-        run: pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test
+        # Serial workspace execution (--workspace-concurrency=1 inside the
+        # `pnpm test` script) prevents CPU/memory contention between
+        # native-server jest and chrome-extension vitest that otherwise
+        # causes intermittent timeouts. See IMP-0123 + package.json `//test`.
+        run: pnpm test
 
       - name: Bridge smoke tests
         working-directory: app/native-server
