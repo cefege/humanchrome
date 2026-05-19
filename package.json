@@ -39,6 +39,8 @@
     "clean": "pnpm clean:dist && pnpm clean:modules",
     "//typecheck": "Two filters: wasm-simd (Rust pkg, no tsconfig) AND humanchrome-monorepo (the workspace root, no tsconfig either — pnpm -r exec includes it).",
     "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' exec tsc --noEmit",
+    "//test": "Serial workspace execution (--workspace-concurrency=1) — running native-server jest and chrome-extension vitest in parallel causes CPU/memory contention that times out otherwise-passing tests. Serial is ~150s vs parallel ~485s here, AND green vs flaky-failures. See IMP-0123.",
+    "test": "pnpm -r --workspace-concurrency=1 --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test",
     "doctor": "node scripts/claude-doctor.mjs",
     "prepare": "husky"
   },
