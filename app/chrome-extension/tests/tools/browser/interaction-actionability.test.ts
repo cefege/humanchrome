@@ -117,8 +117,11 @@ describe('chrome_click_element: NOT_ACTIONABLE classification', () => {
   });
 
   it('injects actionability.js alongside click-helper.js', async () => {
-    // Ping returns "no helper" so executeScript runs
+    // Tool-name ping returns falsy so executeScript runs (otherwise the
+    // optimistic ping-skip path hides files[]); actionability_ping returns
+    // pong so the IMP-0137 assertHelperPresent self-test doesn't fire.
     sendMessageMock.mockImplementation(async (_tabId, msg) => {
+      if (msg?.action === 'actionability_ping') return { status: 'pong' };
       if (msg?.action?.endsWith?.('_ping')) return undefined;
       return { success: true, message: 'ok', elementInfo: { tagName: 'BUTTON' } };
     });
@@ -176,7 +179,11 @@ describe('chrome_fill_or_select: NOT_ACTIONABLE classification', () => {
   });
 
   it('injects actionability.js alongside fill-helper.js', async () => {
+    // Same pattern as the click case above — actionability_ping returns
+    // pong so the IMP-0137 self-test doesn't fire, but the fill-helper
+    // ping returns falsy so executeScript actually runs.
     sendMessageMock.mockImplementation(async (_tabId, msg) => {
+      if (msg?.action === 'actionability_ping') return { status: 'pong' };
       if (msg?.action?.endsWith?.('_ping')) return undefined;
       return { success: true, message: 'ok', elementInfo: { tagName: 'INPUT' } };
     });

@@ -185,6 +185,7 @@ describe('click-helper.js — coord-mode error shape (IMP-0092)', () => {
     opts: {
       elementFromPoint?: (x: number, y: number) => Element | null;
       elementFromPointSequence?: Array<Element | null>;
+      installActionability?: boolean;
     } = {},
   ): HelperApi {
     // Reset window flag so the IIFE in the helper re-runs cleanly.
@@ -217,6 +218,19 @@ describe('click-helper.js — coord-mode error shape (IMP-0092)', () => {
       innerWidth: 800,
       getComputedStyle: () => ({}),
     };
+    // IMP-0137: when the helper-side runActionability can't find
+    // window.__actionability it now hard-fails with the
+    // `actionability_unavailable` token instead of silently degrading.
+    // Tests that need to exercise OTHER code paths past the actionability
+    // gate must opt into a stubbed primitive that always returns ok.
+    if (opts.installActionability !== false) {
+      (globalThis as any).window.__actionability = {
+        awaitActionable: () => Promise.resolve({ ok: true }),
+        ALL_CHECKS: ['visible', 'enabled', 'editable', 'stable', 'hit-test'],
+      };
+    } else {
+      delete (globalThis as any).window.__actionability;
+    }
     (globalThis as any).chrome = {
       runtime: { onMessage: { addListener: () => {} } },
     };
