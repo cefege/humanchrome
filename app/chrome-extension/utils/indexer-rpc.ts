@@ -43,9 +43,12 @@ interface OffscreenResponse<T = unknown> {
   result?: T;
 }
 
+type OffscreenMessageType =
+  (typeof OFFSCREEN_MESSAGE_TYPES)[keyof typeof OFFSCREEN_MESSAGE_TYPES];
+
 interface OffscreenMessage {
   target: 'offscreen';
-  type: string;
+  type: OffscreenMessageType;
   [k: string]: unknown;
 }
 

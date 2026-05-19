@@ -1,10 +1,6 @@
 /**
  * Regression tests for the bridge HTTP preHandler — Origin allowlist slice.
- *
- * Originally part of `preHandler.test.ts`; split into 3 sibling files
- * (`preHandler-{host,origin,bearer}.test.ts`) under IMP-0123 so each describe
- * block runs in its own jest worker process. See `preHandler-host.test.ts`
- * docblock for the full rationale. Boot helper lives in
+ * See `preHandler-host.test.ts` for the split rationale. Boot helper:
  * `./preHandler-test-utils.ts`.
  *
  * Origin gate: enforces the CORS allowlist on state-changing methods when an

@@ -318,14 +318,10 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
     // which can hang indefinitely when a page intercepts script setup
     // (e.g., a service worker that rewrites every executeScript hook).
     //
-    // IMP-0136: per-frame failures here (page denies extension content
-    // scripts via manifest CSP, detached frame, restricted URL race) also
-    // need classifyFrameError — same silent-success class as bug #217 on
-    // the MAIN-world path. Without this, the bridge listener fails to
-    // install, the follow-up MAIN-world inject still succeeds (the
-    // sentinel is set by the user-code wrapper, not the bridge), the
-    // tool returns `{injected:true}`, and later `send_command_to_inject_script`
-    // calls hang because there is no bridge to forward `targetWorld:MAIN`.
+    // Bridge inject must classifyFrameError too — silent-success otherwise
+    // (bridge listener never installs, MAIN-world inject claims success
+    // because its sentinel runs in the user wrapper not the bridge, and
+    // later send-command calls hang with no forwarder).
     const bridgeFailure = await runInjectStep(
       {
         target: { tabId },

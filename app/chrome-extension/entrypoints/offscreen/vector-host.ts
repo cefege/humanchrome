@@ -1,19 +1,7 @@
 /**
- * Offscreen ContentIndexer host (IMP-0122).
- *
- * The `ContentIndexer` graph (transformers + onnxruntime-web +
- * hnswlib-wasm-static, ~1.2 MB) can't be `import()`-ed from the SW per
- * Chrome's `import() is disallowed on ServiceWorkerGlobalScope` rule.
- * This module lives inside the offscreen page (which has a DOM and so
- * can `import()` freely) and exposes the indexer over
- * `chrome.runtime.sendMessage`.
- *
- * Wire-up: imported by `entrypoints/offscreen/main.ts`. The dispatch
- * function is invoked from the same `chrome.runtime.onMessage` listener
- * that already handles GIF + similarity-engine messages.
- *
- * SW callers should use `utils/indexer-rpc.ts` — never construct a
- * ContentIndexer outside the offscreen page.
+ * Offscreen counterpart of `utils/indexer-rpc.ts`. See that file for the
+ * architectural rationale. SW callers MUST go through the RPC client —
+ * never construct a ContentIndexer outside the offscreen page.
  */
 import { getGlobalContentIndexer } from '@/utils/content-indexer';
 import { clearAllVectorData } from '@/utils/vector-database';
@@ -70,6 +58,13 @@ export function handleIndexerMessage(
   return true;
 }
 
+function requireTabId(message: IndexerHostMessage, label: string): number {
+  if (typeof message.tabId !== 'number') {
+    throw new Error(`${label}: [tabId] must be a number`);
+  }
+  return message.tabId;
+}
+
 async function dispatchIndexerCall(message: IndexerHostMessage): Promise<unknown> {
   const indexer = getGlobalContentIndexer();
 
@@ -107,18 +102,12 @@ async function dispatchIndexerCall(message: IndexerHostMessage): Promise<unknown
     }
 
     case OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_INDEX_TAB: {
-      if (typeof message.tabId !== 'number') {
-        throw new Error('CONTENT_INDEXER_INDEX_TAB: [tabId] must be a number');
-      }
-      await indexer.indexTabContent(message.tabId);
+      await indexer.indexTabContent(requireTabId(message, 'CONTENT_INDEXER_INDEX_TAB'));
       return undefined;
     }
 
     case OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_REMOVE_TAB: {
-      if (typeof message.tabId !== 'number') {
-        throw new Error('CONTENT_INDEXER_REMOVE_TAB: [tabId] must be a number');
-      }
-      await indexer.removeTabIndex(message.tabId);
+      await indexer.removeTabIndex(requireTabId(message, 'CONTENT_INDEXER_REMOVE_TAB'));
       return undefined;
     }
 

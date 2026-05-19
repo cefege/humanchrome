@@ -1,11 +1,6 @@
 /**
  * Regression tests for the bridge HTTP preHandler — Bearer token slice.
- *
- * Originally part of `preHandler.test.ts`; split into 3 sibling files
- * (`preHandler-{host,origin,bearer}.test.ts`) under IMP-0123 so each describe
- * block runs in its own jest worker process. See `preHandler-host.test.ts`
- * docblock for the full rationale. Boot helper lives in
- * `./preHandler-test-utils.ts`.
+ * See `preHandler-host.test.ts` for the split rationale.
  *
  * Bearer is env-sensitive (`createSecurityPreHandler` snapshots
  * `HUMANCHROME_TOKEN` at hook-creation time), so we boot two long-lived

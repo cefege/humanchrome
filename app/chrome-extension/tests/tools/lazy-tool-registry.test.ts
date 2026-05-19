@@ -76,10 +76,6 @@ describe('lazy tools — chunks that still land back in background.js', () => {
   // javascript/read-page/userscript/performance/element-picker.
   const STILL_LAZY = [
     TOOL_NAMES.BROWSER.SCREENSHOT,
-    // SEARCH_TABS_CONTENT was promoted to eager by IMP-0122 — its ML
-    // graph (transformers + onnxruntime + hnswlib-wasm-static) now lives
-    // in the offscreen page and the SW tool is a thin RPC shim that
-    // statically imports cleanly.
     TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START,
     TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP,
     TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
@@ -129,7 +125,6 @@ describe('lazy tools — chunks that still land back in background.js', () => {
       './browser/userscript',
       './browser/performance',
       './browser/element-picker',
-      // IMP-0122 promotion: ML graph moved to offscreen, SW import is safe.
       './browser/vector-search',
     ];
 

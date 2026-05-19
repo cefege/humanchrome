@@ -1,15 +1,11 @@
 /**
  * Regression tests for the bridge HTTP preHandler — Host header gating slice.
  *
- * Originally part of `preHandler.test.ts`; split into 3 sibling files
- * (`preHandler-{host,origin,bearer}.test.ts`) under IMP-0123 so each describe
- * block runs in its own jest worker process. Pre-split, all 9 tests in the
- * combined file flaked with 5s timeouts under parallel jest load — each test
- * built a fresh Fastify instance (`buildServer()`, ~50ms standalone) and the
- * cumulative contention with other native-server suites exceeded the per-test
- * cap. This file applies fix (a)+(b) together: split by describe AND hoist
- * the Fastify boot to `beforeAll` (one boot per worker via `bootPreHandlerApp`
- * — see `./preHandler-test-utils.ts`).
+ * Sibling files (`preHandler-{host,origin,bearer}.test.ts`) split by describe
+ * so each runs in its own jest worker — combined-file boot contention used
+ * to flake under parallel jest load. Boot helper is in
+ * `./preHandler-test-utils.ts`; each describe hoists `bootPreHandlerApp` to
+ * `beforeAll` so we get one Fastify per worker, not one per test.
  *
  * Host header gate: enforces the loopback-Host DNS-rebinding defence on
  * state-changing methods. See `createSecurityPreHandler` in ./index.ts step 1.
