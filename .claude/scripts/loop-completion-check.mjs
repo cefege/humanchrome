@@ -53,13 +53,15 @@ function ghRateRemaining() {
 const state = await loadState();
 const parsed = await loadBacklog();
 
+// Status strings often have free-text after the keyword:
+// "done (2026-05-17; rebuilt+resynced bridge, ...)". Match by the
+// leading word, not equality, so historical entries with notes don't
+// get re-picked.
+const STATUS_BLOCKED = /^(in-progress|done|wontdo)\b/i;
+
 const eligible = parsed.active.filter(
   (it) =>
-    SCOPE.has(it.kind) &&
-    it.score >= MIN_SCORE &&
-    it.status !== 'in-progress' &&
-    it.status !== 'done' &&
-    it.status !== 'wontdo',
+    SCOPE.has(it.kind) && it.score >= MIN_SCORE && !STATUS_BLOCKED.test(it.status || ''),
 );
 
 // Skip items the loop has already attempted (avoid thrashing on a bad pick).

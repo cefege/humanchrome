@@ -65,7 +65,7 @@ Re-read `docs/improvement-backlog.md`. Walk the `## Active` list (already sorted
 - `kind ∈ {bug, perf, refactor, docs}` — skip `feat`.
 - `score >= 4`.
 - Not in `state.prsOpened[].imp` (no re-attempts of an already-shipped item).
-- `status` is `proposed` or `queued` (not `in-progress` or `done` or `wontdo`).
+- `status` STARTS WITH `proposed` or `queued` (not `in-progress` / `done` / `wontdo`). Some historical entries have free-text after the status keyword like `done (2026-05-17; rebuilt...)` — match by leading word, not equality, to avoid re-picking already-shipped work.
 
 If nothing qualifies at `score >= 4`, lower the threshold to `score >= 3` and try again. If still nothing, skip to Step 8 (completion check) — the loop is likely drained.
 
