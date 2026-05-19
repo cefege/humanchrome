@@ -81,9 +81,16 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     let triedScrollRecovery = false;
 
     // Poll: each iteration re-evaluates every requested check. The stable
-    // check is cooperative — it runs its own rAF loop internally if invoked
-    // — so this outer loop just retries on a 16ms tick for the cheaper
-    // checks (visibility flips, disabled toggle, occluder dismissed).
+    // check is cooperative — it runs its own bounded inner loop, and IMP-0155
+    // plumbs the outer `deadline` through so that loop bails when the budget
+    // is gone (without the plumb, a 4s-infinite-translate animation kept the
+    // sampler resampling forever and the matrix runner saw 15s HTTP timeouts
+    // instead of the expected unstable_bbox envelope).
+    //
+    // Every blocking sub-call (checkStable, the scroll-recovery waitOneFrame,
+    // the inter-iteration 50ms sleep) is bounded by `deadline` so the worst-
+    // case total wall time is `timeoutMs + one-iteration-of-cheap-checks`
+    // — never the 15s transport ceiling above us.
     while (true) {
       const failures = [];
 
@@ -92,7 +99,11 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
         if (failure === 'not_visible' && !triedScrollRecovery && isOffscreenButPresent(el)) {
           triedScrollRecovery = true;
           scrollCenter(el);
-          await waitOneFrame();
+          // Race the rAF against the remaining deadline. Background-tab
+          // throttling can stretch a single rAF tick well past its nominal
+          // 16ms, so without the race the recovery branch alone could
+          // burn the entire outer budget.
+          await waitOneFrameOrDeadline(deadline);
           failure = checkVisible(el);
         }
         if (failure) failures.push(failure);
@@ -109,9 +120,17 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
       }
 
       // Stability runs its own bounded inner loop so we don't burn the
-      // whole outer budget on a single rAF tick.
+      // whole outer budget on a single rAF tick. The inner loop now
+      // shares `deadline` (IMP-0155): if it expires mid-sample the
+      // sampler returns `unstable_bbox` immediately rather than scheduling
+      // another setTimeout. checkStable's own fast-path (no active
+      // animation) still returns null instantly so static elements
+      // don't pay the deadline cost — guarding the call with an outer
+      // `Date.now() >= deadline` here would mis-classify them as
+      // unstable_bbox just because a sibling section took the whole
+      // budget to evaluate.
       if (checks.includes('stable') && failures.length === 0) {
-        const stable = await checkStable(el);
+        const stable = await checkStable(el, deadline);
         if (stable) failures.push(stable);
       }
 
@@ -131,8 +150,13 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
 
       // Small wait before retry; longer than rAF so we don't burn cpu, short
       // enough that a freshly-dismissed overlay or enabled button unblocks
-      // within one poll. 50ms is the same cadence Playwright uses.
-      await new Promise((r) => setTimeout(r, 50));
+      // within one poll. 50ms is the same cadence Playwright uses. Clip to
+      // the remaining budget so we don't overshoot the deadline.
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return { ok: false, failures: lastFailures };
+      }
+      await new Promise((r) => setTimeout(r, Math.min(50, remaining)));
     }
   }
 
@@ -222,13 +246,36 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
    * Resolve on the next animation frame. Used after scrollIntoView so the
    * synchronous layout flush has a chance to land before re-checking. Falls
    * back to a setTimeout(0) when rAF is unavailable (jsdom, very old browsers).
+   *
+   * IMP-0155: race against an optional absolute `deadline`. Chrome throttles
+   * rAF for backgrounded / hidden tabs (and even foreground tabs can stall
+   * one frame under heavy GC), so without the race the recovery branch could
+   * burn the whole outer actionability budget on a single rAF tick. When the
+   * deadline is already past, resolve on the next microtask so the caller
+   * proceeds to its own deadline check.
    */
-  function waitOneFrame() {
+  function waitOneFrameOrDeadline(deadline) {
     return new Promise((resolve) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        resolve(undefined);
+      };
       if (typeof window.requestAnimationFrame === 'function') {
-        window.requestAnimationFrame(() => resolve(undefined));
+        window.requestAnimationFrame(() => settle());
       } else {
-        setTimeout(() => resolve(undefined), 0);
+        setTimeout(() => settle(), 0);
+      }
+      if (typeof deadline === 'number') {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          // Already past the deadline — settle on the next tick so the
+          // caller's next `Date.now() >= deadline` check fires.
+          setTimeout(settle, 0);
+        } else {
+          setTimeout(settle, remaining);
+        }
       }
     });
   }
@@ -337,7 +384,24 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     }
   }
 
-  function checkStable(el) {
+  /**
+   * Sample bbox + transform at fixed intervals; resolves `unstable_bbox`
+   * the moment any sample differs from the baseline, `null` after
+   * REQUIRED_SAMPLES consecutive matches.
+   *
+   * IMP-0155: when the outer `awaitActionable` deadline expires mid-sample
+   * (e.g. an `infinite alternate` animation whose bbox+transform happen to
+   * align across the entire sampler window — vanishingly rare in practice
+   * but the previous code had no guard), bail out with `unstable_bbox`
+   * rather than scheduling another setTimeout that would extend wall time
+   * past the caller's budget. Without this, the matrix runner saw 15s HTTP
+   * timeouts on the #sliding-btn fixture instead of the expected envelope.
+   *
+   * `deadline` is the absolute Date.now() ceiling; pass `undefined` when no
+   * outer deadline applies (tests that exercise the sampler in isolation
+   * via `timeoutMs:1000+` rely on the legacy ~200ms unconditional behaviour).
+   */
+  function checkStable(el, deadline) {
     if (!hasActiveAnimation(el)) return Promise.resolve(null);
     const baselineRect = el.getBoundingClientRect();
     const baselineTransform = readTransform(el);
@@ -356,9 +420,29 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
           resolve(null);
           return;
         }
-        setTimeout(takeSample, STABILITY_SAMPLE_MS);
+        if (typeof deadline === 'number' && Date.now() >= deadline) {
+          // Active animation reported by getAnimations() AND we've burned
+          // the budget. The element is by definition still animating —
+          // failing closed (unstable_bbox) is the safe answer; the
+          // alternative would be claiming stable on a still-moving target.
+          resolve('unstable_bbox');
+          return;
+        }
+        scheduleNextSample();
       }
-      setTimeout(takeSample, STABILITY_SAMPLE_MS);
+      function scheduleNextSample() {
+        if (typeof deadline === 'number') {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            resolve('unstable_bbox');
+            return;
+          }
+          setTimeout(takeSample, Math.min(STABILITY_SAMPLE_MS, remaining));
+        } else {
+          setTimeout(takeSample, STABILITY_SAMPLE_MS);
+        }
+      }
+      scheduleNextSample();
     });
   }
 
