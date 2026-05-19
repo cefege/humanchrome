@@ -71,12 +71,9 @@ If nothing qualifies at `score >= 4`, lower the threshold to `score >= 3` and tr
 
 Once picked, set the local variable `IMP` to the id (e.g. `IMP-0122`), `TITLE` to the title text, and `BACKLOG_ENTRY` to the full markdown block (header + all `- **...**:` lines).
 
-## Step 4 — Mark in-progress
+## Step 4 — (no parent-side backlog edits)
 
-Edit `docs/improvement-backlog.md`: change the picked item's `- **Status**: queued` (or `proposed`) line to `- **Status**: in-progress`. Append a new line:
-`- **Loop**: improve-auto · iter $ITER`
-
-Do **not** commit yet — the backlog change rides on the same final commit as the Done flip (Step 7).
+Backlog updates land in the IMP's own branch (per Step 5 below) and ride to main via the auto-merge PR. The parent NEVER pushes directly to main — the harness's git-push hook blocks direct-to-main pushes. Every state change goes through a PR.
 
 ## Step 5 — Spawn the implementer in a worktree
 
@@ -125,12 +122,25 @@ If the change touches packages/shared/src/tools.ts (or any tool-schemas/
 file): regenerate docs/TOOLS.md by running:
   cd app/native-server && node scripts/generate-tools-doc.mjs
 
-# Step D — verify locally
+# Step D — flip backlog entry to Done (in the same worktree)
+
+Edit docs/improvement-backlog.md:
+  - Move IMP-{NNNN} from `## Active` to `## Done`.
+  - Replace its status line with `- **Status**: done`.
+  - Append:
+      - **Completed**: {YYYY-MM-DD}
+      - **Summary**: {one-line summary of what you implemented}
+
+This commit ships the backlog flip alongside the code -- the parent loop
+NEVER pushes to main directly (the harness's git hook blocks that). Every
+state change goes through the auto-merge PR.
+
+# Step E — verify locally
 
 Run from the worktree root:
 
   pnpm -w build                  # must finish green
-  pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test
+  pnpm test                      # serial workspace (see IMP-0123)
   node app/native-server/smoke-test.mjs
   node app/chrome-extension/smoke-test.mjs
 
@@ -138,17 +148,17 @@ Any red gate -> abort and report the failure. Do not try to "fix the test
 to match" -- the test exists for a reason. If the test is wrong, that's a
 separate IMP to file, not a unilateral edit.
 
-# Step E — commit (do NOT push)
+# Step F — commit (do NOT push)
 
 Conventional Commits subject with IMP id; full body explains WHY and HOW.
 Footer must include the Co-Author trailer.
 
-  git add -A
+  git add -A   # includes the backlog flip from Step D
   git commit -m "<type>(<scope>): <imperative subject> (IMP-{NNNN})
   ...
   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
-# Step F — report (single returned message)
+# Step G — report (single returned message)
 
 Return a structured markdown report with these sections (the parent will
 embed it verbatim into the PR body):
@@ -294,30 +304,26 @@ PR_URL=$(echo "$OUT" | sed 's/.*url=\([^ ]*\).*/\1/')
 node /Users/mike/Documents/Code/humanchrome/.claude/scripts/loop-state-update.mjs record-pr "$IMP" "$PR_NUM" "$PR_URL"
 ```
 
-## Step 7 — Update + commit + push the backlog
+## Step 7 — (backlog flip already in the PR)
 
-Return to the main repo (`cd /Users/mike/Documents/Code/humanchrome`). Edit `docs/improvement-backlog.md`:
+The implementer's Step D moved the IMP from `## Active` to `## Done` inside the worktree. That edit is part of the auto-merge PR opened in Step 6 — so the backlog reflects "done" the moment GitHub squash-merges. No parent-side commit, no direct main push.
 
-- Move the IMP entry from `## Active` to `## Done`.
-- Append:
-  ```
-  - **Status**: done
-  - **Completed**: {YYYY-MM-DD}
-  - **PR**: #{PR_NUM}
-  - **Summary**: {one-line summary from the implementer's report}
-  ```
-
-Commit + push:
+The only remaining update is the PR number: append `- **PR**: #{PR_NUM}` to the Done entry. Do this by pushing a follow-up amend to the same branch:
 
 ```bash
+cd <worktree-path>
+# Find the Done entry just added and append PR line.
+# Use sed to insert after the "- **Summary**:" line.
+sed -i.bak "/^### IMP-{NNNN}.*$/,/^### /{/^- \*\*Summary\*\*:/a\\
+- **PR**: #${PR_NUM}
+}" docs/improvement-backlog.md
+rm docs/improvement-backlog.md.bak
 git add docs/improvement-backlog.md
-git commit -m "chore(backlog): {IMP} done -- {short title}
-
-PR: {PR_URL}
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-git push
+git commit --amend --no-edit
+git push --force-with-lease   # only force-with-lease ever — never plain force
 ```
+
+`--force-with-lease` is the safe variant: it succeeds only if the remote ref is still pointing at the commit we last pushed (no one else has pushed in between). If a human pushed to the branch in the meantime (unlikely for `auto/*`), the push aborts safely and the parent treats it as a blocker.
 
 ## Step 8 — Completion check + promise emission
 
@@ -363,6 +369,6 @@ The ralph-loop stop-hook reads this verbatim and exits the loop. **DO NOT** emit
 ## Notes
 
 - The orchestrator runs in the OUTER session (the one ralph-loop watches). The implementer + simplify-pass run in worktree-isolated subagents. The completion-promise must come from the OUTER session, otherwise ralph won't see it.
-- Never push directly to main — the `chore(backlog)` commits in Step 7 are the only direct main pushes the loop makes. Everything else lands via the auto-merge PR.
-- Never run `git reset --hard` or `git push --force` in the loop. If a worktree state is broken, abandon it and let the implementer's next attempt branch fresh from main.
+- Never push directly to main. The harness's git hook blocks it. EVERY change goes through the auto-merge PR — including the backlog Done flip (in the implementer's commit) and the PR-number annotation (in a force-with-lease amend).
+- Never run `git reset --hard` or `git push --force` in the loop. `git push --force-with-lease` IS allowed (and used by Step 7 to amend the PR-number into the backlog) because it refuses if anyone else pushed in between. If a worktree state is broken, abandon it and let the implementer's next attempt branch fresh from main.
 - `loop-state.local.json` is in `.gitignore` — it never enters a commit. The PR audit trail comes from `state.prsOpened[]` + `state.prsMerged[]` + the per-PR backlog commits.
