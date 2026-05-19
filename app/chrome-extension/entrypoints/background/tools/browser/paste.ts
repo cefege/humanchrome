@@ -20,7 +20,15 @@ interface ShimSuccess {
   resolution: 'ref' | 'selector';
   tagName: string;
   pasted: boolean;
-  mode: 'event' | 'execCommand' | 'both';
+  /**
+   * Which path actually inserted text into the target.
+   * - 'event': the synthetic ClipboardEvent's listener inserted text
+   * - 'execCommand': the execCommand('insertText') fallback ran successfully
+   * - 'none': neither path inserted text (paste claimed false, OR clipboard-only mode)
+   */
+  mode: 'event' | 'execCommand' | 'none';
+  /** Number of characters added to the target's text content (after - before). */
+  textInserted: number;
 }
 
 interface ShimFailure {
@@ -136,6 +144,7 @@ class PasteTool extends BaseBrowserToolExecutor {
         focused: first.focused,
         pasted: first.pasted,
         mode: first.mode,
+        textInserted: first.textInserted,
         tagName: first.tagName,
         clipboardSeedWarning,
       });
@@ -191,21 +200,27 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
     }
     const focused = document.activeElement === el;
 
-    let eventDispatched = false;
-    let execCommandDispatched = false;
+    // Helper: read the editor's text content. Different targets expose text
+    // through different APIs — input/textarea via `.value`, contenteditable
+    // via `.innerText`. Other elements get empty string (paste can't insert
+    // into them; we still try execCommand for compatibility).
+    const readText = (): string => {
+      if ((target as HTMLElement).isContentEditable) return (target as HTMLElement).innerText ?? '';
+      const v = (target as unknown as { value?: unknown }).value;
+      return typeof v === 'string' ? v : '';
+    };
+
+    let mode: ShimSuccess['mode'] = 'none';
+    let textBefore = '';
+    let textAfter = '';
+    let pasted = false;
+
     if (text !== null) {
-      // Snapshot the editor's text BEFORE event dispatch so we can detect
-      // whether the page's paste handler actually inserted text. Without this
-      // check, the execCommand fallback below double-inserts on editors that
-      // accept BOTH the paste event AND execCommand (e.g. LinkedIn's
-      // contenteditable React composer).
-      const readText = (): string => {
-        if ((target as HTMLElement).isContentEditable)
-          return (target as HTMLElement).innerText ?? '';
-        const v = (target as unknown as { value?: unknown }).value;
-        return typeof v === 'string' ? v : '';
-      };
-      const textBefore = readText();
+      // IMP-0134: derive `pasted` from "text actually changed" rather than
+      // "event dispatched successfully". Readonly inputs, contenteditable=false,
+      // and pages whose paste listener is purely for telemetry all dispatch
+      // cleanly but insert nothing — those must report pasted:false.
+      textBefore = readText();
 
       // Synthetic ClipboardEvent — pages with .addEventListener('paste', ...) handlers
       // (rich editors, framework controls) see the data via event.clipboardData.
@@ -218,30 +233,44 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
           clipboardData: dt,
         });
         target.dispatchEvent(ev);
-        eventDispatched = true;
       } catch {
-        eventDispatched = false;
+        // Event construction can throw in odd execution contexts (e.g.
+        // detached iframes). Swallow and let execCommand try.
       }
 
-      // Only fall back to execCommand if the event-dispatch path did NOT
-      // already insert the text. Prevents double-insertion on rich editors
-      // that consume both surfaces.
-      const textAfterEvent = readText();
-      const eventInsertedText = textAfterEvent !== textBefore;
-
-      if (!eventInsertedText) {
+      // Did the listener insert text? If so, skip execCommand to avoid
+      // double-insert on editors that accept both surfaces (LinkedIn React
+      // composer style).
+      textAfter = readText();
+      if (textAfter !== textBefore) {
+        mode = 'event';
+      } else {
+        // Fall back to execCommand. It returns true on many platforms even
+        // when the target rejects insertion (readonly input, ce=false), so
+        // trust the text-diff, not the return value.
         try {
-          const ok = document.execCommand('insertText', false, text);
-          execCommandDispatched = ok === true;
+          document.execCommand('insertText', false, text);
         } catch {
-          execCommandDispatched = false;
+          // Some surfaces throw rather than return false; the post-check covers both.
+        }
+        textAfter = readText();
+        if (textAfter !== textBefore) {
+          mode = 'execCommand';
         }
       }
+
+      pasted = textAfter !== textBefore;
+    } else {
+      // No text supplied — caller is asking us to deliver the OS clipboard
+      // via the focused element's native paste handler. We can't introspect
+      // the OS clipboard from the shim, so preserve the prior contract:
+      // `pasted` reflects whether the element accepted focus (the precondition
+      // for the browser to deliver the paste in the first place). textBefore
+      // and textAfter stay at '' so textInserted is 0.
+      pasted = focused;
     }
 
-    const pasted = text === null ? focused : eventDispatched || execCommandDispatched;
-    const mode: ShimSuccess['mode'] =
-      eventDispatched && execCommandDispatched ? 'both' : eventDispatched ? 'event' : 'execCommand';
+    const textInserted = textAfter.length - textBefore.length;
 
     return {
       ok: true,
@@ -250,6 +279,7 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
       tagName: el.tagName.toLowerCase(),
       pasted,
       mode,
+      textInserted,
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
@@ -257,3 +287,19 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
 }
 
 export const pasteTool = new PasteTool();
+
+/**
+ * Test-only export of the in-page shim. The shim is serialized via
+ * chrome.scripting.executeScript at runtime and never imported by the
+ * extension; exposing it here lets jsdom tests verify the textBefore /
+ * textAfter / `pasted` derivation (IMP-0134) against real DOM nodes —
+ * the only way to catch silent-success classes like the readonly-input
+ * + paste-listener combo that prior shim-mocking tests couldn't reach.
+ */
+export function _pasteShimForTest(
+  selector: string | null,
+  ref: string | null,
+  text: string | null,
+): ShimResult {
+  return pasteShim(selector, ref, text);
+}

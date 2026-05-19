@@ -84,15 +84,6 @@ The order of items inside ## Active is sorted by score descending.
 
 - **Repro**: `pnpm e2e:isolated` — "strict-mode multi-match without index" row fails with `expected matchCount:3, got {"content":[...{"error":{"code":"INVALID_ARGS"...`. Inspect the full error body and either fix the response shape or update the matrix predicate.
 
-### IMP-0134 · chrome_paste reports `pasted:true` when event fired but no text inserted (bug) · score: 6
-
-- **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
-- **Why**: After PR #218, paste.ts sets `eventDispatched=true` unconditionally on any `target.dispatchEvent(ev)` call, then derives `pasted = eventDispatched || execCommandDispatched`. If a page has a `paste` event listener that consumes the event for telemetry/logging without inserting text AND `eventInsertedText` is false (textBefore === textAfter), the tool still claims `pasted:true, mode:"event"` — repeating the IMP-0092 silent-success class of bug. Caller has no way to detect the paste actually failed; downstream waits time out because the field never got the text.
-- **Cost**: S
-- **Value**: M
-- **Repro**: Open page with `<input id=x>` + `<script>document.getElementById("x").addEventListener("paste", e => console.log("saw paste"))</script>`. Call `chrome_paste({selector:"#x", text:"hello"})`. Listener runs (doesn`t call preventDefault, doesn`t insert text), execCommand fallback skips because eventInsertedText was checked before execCommand (line 230) — but execCommand only runs in the `!eventInsertedText` branch. Wait — actually execCommand DOES run when eventInsertedText is false (line 232). The bug fires when BOTH execCommand AND event-insert fail to write text. Reproducer: `<div contenteditable=false>` (focusable but execCommand returns false), or `<input readonly>` (paste event fires, dispatchEvent returns truthy, execCommand insertText returns false silently when target rejects insertion).\n- **Fix sketch**: `app/chrome-extension/entrypoints/background/tools/browser/paste.ts:242` — replace `pasted = eventDispatched || execCommandDispatched` with a real "text-was-actually-inserted" check: `const textAfter = readText(); const pasted = text === null ? focused : (textAfter !== textBefore)`. The `mode` field should derive from which path landed the text (track `textAfterEvent` vs `textAfterExec`). Add a new `textInserted: number` field returning `textAfter.length - textBefore.length` so callers can detect partial inserts.\n- **Notes**: Existing tests (`tests/tools/browser/paste.test.ts:121`) assert `body.pasted === true` from shim-supplied `pasted:true` — they don`t exercise the textBefore/textAfter path because they mock the shim entirely. A real-DOM jsdom test covering readonly input + paste-event listener would catch this.
-
 ### IMP-0135 · chrome_wait_for(load_state) race: load event fires between readyState check and listener install (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-19
@@ -509,6 +500,16 @@ The order of items inside ## Active is sorted by score descending.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
 ## Done
+
+### IMP-0134 · chrome_paste reports `pasted:true` when event fired but no text inserted (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-05-19
+- **Status**: done
+- **Completed**: 2026-05-19
+- **Summary**: Rewrote `pasteShim` in `app/chrome-extension/entrypoints/background/tools/browser/paste.ts` so `pasted` derives from a textBefore/textAfter diff rather than from "did we successfully dispatch an event". A page listener that consumes the paste event for telemetry without inserting text, followed by an `execCommand('insertText')` that returns true on readonly inputs / `contenteditable=false` without writing, now correctly reports `pasted:false, mode:'none', textInserted:0` — closing the same IMP-0092 silent-success class on the paste path. Added `textInserted: number` (after-before character delta) and changed `mode` to track which path actually wrote text (`'event' | 'execCommand' | 'none'`, replacing the prior `'both'` which couldn't happen given the guard order). Exposed `_pasteShimForTest` per the load-bearing `_`-prefix convention so jsdom tests can exercise the shim against a real DOM (the existing chrome.scripting.executeScript-mocking tests never reached the textBefore/textAfter path). Added 9 new in-shim tests covering: input + execCommand happy path, paste-listener happy path (no double-insert), readonly-input silent-success regression (the canonical IMP-0134 repro), contenteditable=false silent-success regression, contenteditable=true execCommand path, partial-insert detection (textInserted < text.length when listener sanitizes), clipboard-only mode preserved, execCommand-returns-false explicit guard, and mode:event precedence over execCommand. Existing dispatcher-level tests updated to include the new `textInserted` field. Total: paste suite 24/24 pass.
+- **Why**: After PR #218, paste.ts derived `pasted = eventDispatched || execCommandDispatched`. Both flags flipped to true on any `target.dispatchEvent(ev)` / `execCommand('insertText', ...)` call regardless of whether text was actually inserted. Readonly inputs, `contenteditable=false`, and pages whose paste listener is purely for telemetry all reported `pasted:true` while leaving the field empty — caller had no signal that the paste failed, downstream waits timed out. Same class of bug as IMP-0092 (click reporting success without dispatching), now structurally impossible on paste because the boolean is computed from "did the text change", not from "did the call succeed".
+- **Cost**: S
+- **Value**: M
 
 ### IMP-0123 · `preHandler.test.ts` entire file flaky under parallel jest — quarantined (bug) · score: 7
 
