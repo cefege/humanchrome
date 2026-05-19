@@ -342,11 +342,11 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     return null;
   }
 
-  // Fixed-interval sampler (IMP-0118): rAF was throttling-fragile under
-  // Chrome's SW lifecycle; setTimeout avoids matrix hangs while keeping the
-  // fast-path skip when Element.getAnimations reports no running animation.
-  // Samples both bbox AND computed-transform string (IMP-0113) so sub-pixel
-  // animations that round to identical x/y still register as unstable.
+  // Fixed-interval sampler instead of rAF — under Chrome's SW lifecycle, rAF
+  // was throttling-fragile and caused matrix hangs. setTimeout keeps the
+  // fast-path skip when Element.getAnimations reports no running animation,
+  // and the transform-string comparison catches sub-pixel motion that rounds
+  // to identical bbox.
   const STABILITY_SAMPLE_MS = 50;
   const REQUIRED_SAMPLES = 4;
 

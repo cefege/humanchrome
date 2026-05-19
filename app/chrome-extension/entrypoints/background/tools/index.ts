@@ -128,12 +128,9 @@ import {
   performanceAnalyzeInsightTool,
 } from './browser/performance';
 import { elementPickerTool } from './browser/element-picker';
-// IMP-0122 promotion: vector-search.ts no longer drags the ~1.2 MB ML
-// graph (`@huggingface/transformers` / `onnxruntime-web` /
-// `hnswlib-wasm-static`) through `await import('@/utils/content-indexer')`.
-// The graph lives in the offscreen page now and the SW tool only speaks
-// `chrome.runtime.sendMessage`. The module is therefore safe to static-
-// import — eager registration sidesteps the SW dynamic-`import()` ban.
+// vector-search.ts is now a thin RPC shim — the heavy ML graph lives in
+// the offscreen document, so static import is safe (no SW dynamic-import()
+// ban risk).
 import { vectorSearchTabsContentTool } from './browser/vector-search';
 
 interface ToolInstance {
@@ -230,8 +227,6 @@ const eagerTools: ToolInstance[] = [
   performanceStopTraceTool,
   performanceAnalyzeInsightTool,
   elementPickerTool,
-  // Promoted from lazyLoaders — IMP-0122 (ML graph now lives in the
-  // offscreen page; SW tool is a thin RPC shim).
   vectorSearchTabsContentTool,
 ];
 
@@ -266,9 +261,6 @@ const lazyLoaders: Record<string, LazyLoader> = {
   [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
   [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
     (await import('./browser/gif-recorder')).gifRecorderTool,
-  // SEARCH_TABS_CONTENT was promoted to eager imports above (IMP-0122).
-  // The ML graph now lives in the offscreen document; the SW tool no
-  // longer attempts `import()` of the heavy chunk.
 };
 
 const lazyResolved = new Map<string, ToolInstance>();

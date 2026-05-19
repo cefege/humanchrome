@@ -233,7 +233,7 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
-      let timer; // see IMP-0138 note above `waitFor`
+      let timer;
 
       const wantPresent = state !== 'absent';
 
@@ -316,7 +316,7 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
-      let timer; // see IMP-0138 note above `waitFor`
+      let timer;
 
       const isMatch = () => {
         try {
@@ -375,11 +375,6 @@
       let resolved = false;
       let lastActivity = Date.now();
       let observer = null;
-      // see IMP-0138 note above `waitFor`. PerformanceObserver's buffered=true
-      // flush is a microtask today (post-executor), so this is defensive only —
-      // but the same shape killed `waitForJs` and a future refactor that routes
-      // a synchronous resolution through `done()` would otherwise reintroduce
-      // it.
       let idleTimer;
       let deadline;
 
@@ -440,9 +435,6 @@
     return new Promise((resolve) => {
       const start = Date.now();
       let resolved = false;
-      // see IMP-0138 note above `waitFor` — this is the executor that was
-      // observed hitting the TDZ in production (`document.readyState ===
-      // 'complete'` on an already-loaded page).
       let poller;
       let timer;
 

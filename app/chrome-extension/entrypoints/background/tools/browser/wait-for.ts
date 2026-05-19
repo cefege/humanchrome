@@ -246,13 +246,9 @@ class WaitForTool extends BaseBrowserToolExecutor {
    * `page.waitForLoadState('load'|'domcontentloaded')`. 'complete' is a
    * Playwright synonym for 'load' and maps to the same `webNavigation.onCompleted`.
    *
-   * IMP-0135 — race fix: install the webNavigation listener BEFORE the
-   * `document.readyState` fast-path check. The fast-path read does a
-   * `chrome.scripting.executeScript` round-trip (~10-100ms in practice); if
-   * the load event fires inside that window with no listener attached, the
-   * wait sits idle until `timeoutMs` (30s default). With the listener
-   * installed first, either the fast-path resolves (and removes the listener)
-   * or the listener resolves later — never both, thanks to a `settled` flag.
+   * Listener is installed BEFORE the readyState fast-path probe so an event
+   * firing during the `executeScript` round-trip is still observed. The
+   * `settled` flag keeps the fast-path and listener resolution exclusive.
    */
   private async waitForLoadState(
     tabId: number,
@@ -356,12 +352,8 @@ class WaitForTool extends BaseBrowserToolExecutor {
    * kind="url": wait for the tab URL to match a substring or /regex/flags
    * pattern (intercept-response syntax). Mirrors Playwright's
    * `page.waitForURL(pattern)`. Subscribes to both `onCommitted` (hard nav)
-   * and `onHistoryStateUpdated` (SPA pushState/replaceState).
-   *
-   * IMP-0135 — race fix: install the listeners BEFORE reading the current URL
-   * via `chrome.tabs.get` (a few-ms IPC). If a navigation commits in that
-   * window the listener catches it; otherwise the fast-path resolves on the
-   * already-matching URL. `settled` keeps both branches exclusive.
+   * and `onHistoryStateUpdated` (SPA pushState/replaceState). Same
+   * listener-before-fast-path pattern as `waitForLoadState`.
    */
   private async waitForUrl(
     tabId: number,

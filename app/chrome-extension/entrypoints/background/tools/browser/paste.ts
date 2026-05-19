@@ -216,9 +216,9 @@ function pasteShim(selector: string | null, ref: string | null, text: string | n
     let pasted = false;
 
     if (text !== null) {
-      // IMP-0134: derive `pasted` from "text actually changed" rather than
-      // "event dispatched successfully". Readonly inputs, contenteditable=false,
-      // and pages whose paste listener is purely for telemetry all dispatch
+      // Derive `pasted` from "text actually changed" rather than "event
+      // dispatched successfully". Readonly inputs, contenteditable=false, and
+      // pages whose paste listener is purely for telemetry all dispatch
       // cleanly but insert nothing — those must report pasted:false.
       textBefore = readText();
 
@@ -292,9 +292,9 @@ export const pasteTool = new PasteTool();
  * Test-only export of the in-page shim. The shim is serialized via
  * chrome.scripting.executeScript at runtime and never imported by the
  * extension; exposing it here lets jsdom tests verify the textBefore /
- * textAfter / `pasted` derivation (IMP-0134) against real DOM nodes —
- * the only way to catch silent-success classes like the readonly-input
- * + paste-listener combo that prior shim-mocking tests couldn't reach.
+ * textAfter / `pasted` derivation against real DOM nodes — the only way
+ * to catch silent-success classes like the readonly-input + paste-listener
+ * combo that prior shim-mocking tests couldn't reach.
  */
 export function _pasteShimForTest(
   selector: string | null,

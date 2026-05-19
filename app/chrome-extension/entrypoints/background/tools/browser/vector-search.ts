@@ -1,16 +1,9 @@
 /**
- * Vectorized tab content search tool.
- *
- * Pre-IMP-0122 this tool did `await import('@/utils/content-indexer')` to
- * defer the ~1.2 MB ML graph (`@huggingface/transformers` + `onnxruntime-web` +
- * `hnswlib-wasm-static`). That worked at compile-time but failed at runtime
- * because Chrome forbids dynamic `import()` of new module chunks from a
- * ServiceWorkerGlobalScope (https://github.com/w3c/ServiceWorker/issues/1356).
- *
- * IMP-0122 moves the indexer to the offscreen document — it has a DOM, so
- * `import()` works there. This tool now dispatches over
- * `chrome.runtime.sendMessage` via `utils/indexer-rpc.ts`; no heavy graph
- * lives in the SW. Tool registration can therefore be eager.
+ * Vectorized tab content search tool — thin RPC shim over the offscreen
+ * indexer (utils/indexer-rpc.ts). The ~1.2 MB ML graph lives in the
+ * offscreen document because Chrome forbids dynamic import() of new
+ * module chunks from a ServiceWorkerGlobalScope
+ * (https://github.com/w3c/ServiceWorker/issues/1356).
  */
 
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
@@ -182,7 +175,6 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     return truncated + '...';
   }
 
-  /** Stats getter retained for callers that import the singleton directly. */
   public async getIndexStats() {
     try {
       return await indexerRpc.getStats();
@@ -199,7 +191,6 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /** Rebuild the index across all reasonable tabs (chrome://, file://, etc. filtered). */
   public async rebuildIndex(): Promise<void> {
     try {
       await indexerRpc.clearAllIndexes();
@@ -232,12 +223,10 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /** Index a specific tab. */
   public async indexTab(tabId: number): Promise<void> {
     await indexerRpc.indexTab(tabId);
   }
 
-  /** Remove a tab's index entries. */
   public async removeTabIndex(tabId: number): Promise<void> {
     await indexerRpc.removeTabIndex(tabId);
   }
