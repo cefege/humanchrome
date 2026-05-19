@@ -75,6 +75,10 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     const deadline = Date.now() + timeoutMs;
 
     let lastFailures = [];
+    // One-shot recovery: an element in a scroll container the orchestrator
+    // entry didn't address can still come into view via a centered scroll +
+    // rAF flush. Playwright's contract is to retry once before failing.
+    let triedScrollRecovery = false;
 
     // Poll: each iteration re-evaluates every requested check. The stable
     // check is cooperative — it runs its own rAF loop internally if invoked
@@ -84,7 +88,13 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
       const failures = [];
 
       if (checks.includes('visible')) {
-        const failure = checkVisible(el);
+        let failure = checkVisible(el);
+        if (failure === 'not_visible' && !triedScrollRecovery && isOffscreenButPresent(el)) {
+          triedScrollRecovery = true;
+          scrollCenter(el);
+          await waitOneFrame();
+          failure = checkVisible(el);
+        }
         if (failure) failures.push(failure);
       }
 
@@ -126,6 +136,37 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     }
   }
 
+  function getViewport() {
+    return {
+      vw: window.innerWidth || document.documentElement.clientWidth || 0,
+      vh: window.innerHeight || document.documentElement.clientHeight || 0,
+    };
+  }
+
+  function isOutOfViewport(rect, vw, vh) {
+    return rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw;
+  }
+
+  /**
+   * Returns true when computed style makes the element unactionable
+   * regardless of position (display:none, visibility:hidden|collapse,
+   * opacity:0, pointer-events:none). Throws-as-hidden so detached / broken
+   * style calls don't crash the caller.
+   */
+  function isCssHidden(el) {
+    try {
+      const style = window.getComputedStyle(el);
+      if (!style) return true;
+      if (style.display === 'none') return true;
+      if (style.visibility === 'hidden' || style.visibility === 'collapse') return true;
+      if (Number(style.opacity) === 0) return true;
+      if (style.pointerEvents === 'none') return true;
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
   /**
    * scrollIntoView the element if its rect is partially or fully outside
    * the viewport. No-op when already in view. Uses 'auto' behavior so the
@@ -134,10 +175,8 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   function scrollIntoViewIfNeeded(el) {
     if (!el || typeof el.getBoundingClientRect !== 'function') return;
     const rect = el.getBoundingClientRect();
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const outOfView = rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw;
-    if (outOfView) {
+    const { vw, vh } = getViewport();
+    if (isOutOfViewport(rect, vw, vh)) {
       try {
         el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
       } catch {
@@ -147,33 +186,66 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   }
 
   /**
+   * One-shot centered scroll used by the recovery branch. `behavior:'instant'`
+   * landed in the spec in 2022; older engines reject it, so fall back to the
+   * default behavior. Detached elements throw — swallow; the post-rAF re-check
+   * will report `not_visible`.
+   */
+  function scrollCenter(el) {
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    } catch {
+      try {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  /**
+   * True when the element is in the DOM, not CSS-hidden, has a non-zero
+   * bbox, but is outside the viewport — i.e. a scrollIntoView retry might
+   * recover it. Returning false for CSS-hidden / zero-area / detached lets
+   * the polling loop skip a wasted rAF tick.
+   */
+  function isOffscreenButPresent(el) {
+    if (!el || !el.isConnected) return false;
+    if (isCssHidden(el)) return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const { vw, vh } = getViewport();
+    return isOutOfViewport(rect, vw, vh);
+  }
+
+  /**
+   * Resolve on the next animation frame. Used after scrollIntoView so the
+   * synchronous layout flush has a chance to land before re-checking. Falls
+   * back to a setTimeout(0) when rAF is unavailable (jsdom, very old browsers).
+   */
+  function waitOneFrame() {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => resolve(undefined));
+      } else {
+        setTimeout(() => resolve(undefined), 0);
+      }
+    });
+  }
+
+  /**
    * Visibility: display/visibility/opacity, non-empty bbox, in-viewport,
    * `pointer-events:none`. Returns failure token or null when visible.
    */
   function checkVisible(el) {
     if (!el || !el.isConnected) return 'not_visible';
-    let style;
-    try {
-      style = window.getComputedStyle(el);
-    } catch {
-      return 'not_visible';
-    }
-    if (!style) return 'not_visible';
-    if (style.display === 'none') return 'not_visible';
-    if (style.visibility === 'hidden' || style.visibility === 'collapse') return 'not_visible';
-    // Some libraries use opacity:0 to fade-out before removal. Treat as
-    // not_visible for action purposes — Playwright does too.
-    if (Number(style.opacity) === 0) return 'not_visible';
-    if (style.pointerEvents === 'none') return 'not_visible';
+    if (isCssHidden(el)) return 'not_visible';
 
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return 'not_visible';
 
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    if (rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw) {
-      return 'not_visible';
-    }
+    const { vw, vh } = getViewport();
+    if (isOutOfViewport(rect, vw, vh)) return 'not_visible';
     return null;
   }
 
@@ -223,18 +295,30 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     return null;
   }
 
-  // IMP-0118: the old check resolved on the first equal pair of rAF samples,
-  // which ease-in-out animations spoofed at every velocity-zero reversal.
-  // Replaced with a fixed-interval sampler (setTimeout, not rAF — rAF was
-  // throttling-fragile under Chrome's SW lifecycle and caused matrix hangs
-  // that didn't reproduce in jsdom). Fast-path via Element.getAnimations
-  // skips the sampler entirely on static targets, restoring ~0ms latency
-  // on the 95% case.
+  // Fixed-interval sampler (IMP-0118): rAF was throttling-fragile under
+  // Chrome's SW lifecycle; setTimeout avoids matrix hangs while keeping the
+  // fast-path skip when Element.getAnimations reports no running animation.
+  // Samples both bbox AND computed-transform string (IMP-0113) so sub-pixel
+  // animations that round to identical x/y still register as unstable.
   const STABILITY_SAMPLE_MS = 50;
-  const REQUIRED_SAMPLES = 3;
+  const REQUIRED_SAMPLES = 4;
 
   function rectsEqual(a, b) {
     return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  }
+
+  /**
+   * Returns the computed transform as a string (`matrix(...)`, `matrix3d(...)`
+   * or `none`). The engine normalizes to one of these forms, so direct
+   * string comparison is sufficient for change-detection.
+   */
+  function readTransform(el) {
+    try {
+      const style = window.getComputedStyle(el);
+      return (style && style.transform) || 'none';
+    } catch {
+      return 'none';
+    }
   }
 
   function hasActiveAnimation(el) {
@@ -255,11 +339,15 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
 
   function checkStable(el) {
     if (!hasActiveAnimation(el)) return Promise.resolve(null);
-    const baseline = el.getBoundingClientRect();
+    const baselineRect = el.getBoundingClientRect();
+    const baselineTransform = readTransform(el);
     let taken = 1;
     return new Promise((resolve) => {
       function takeSample() {
-        if (!rectsEqual(baseline, el.getBoundingClientRect())) {
+        if (
+          !rectsEqual(baselineRect, el.getBoundingClientRect()) ||
+          readTransform(el) !== baselineTransform
+        ) {
           resolve('unstable_bbox');
           return;
         }
