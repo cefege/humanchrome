@@ -517,6 +517,19 @@ The order of items inside ## Active is sorted by score descending.
 - **Proposed by**: claude · 2026-05-17 (observed in daemon stderr log: 175 738 stack traces in ~3h; 91 MB of log spam; 15 stuck `transportsMap` entries cleared on first `/admin/reset` probe)
 - **Status**: done (2026-05-17; `server/index.ts` now calls `reply.hijack()` BEFORE handing `reply.raw` to every MCP transport (`/sse`, `/messages`, `/mcp` POST/GET/DELETE) via a new `runHijacked(reply, fn)` helper that also provides a uniform raw-mode error tail. Root cause: the MCP SDK's `StreamableHTTPServerTransport.handleRequest` writes the response via `@hono/node-server` directly on the underlying `ServerResponse`; without `hijack()` fastify's post-handler auto-send fires a second `writeHead` → `ERR_HTTP_HEADERS_SENT` storms at ~10/sec. Coverage: `src/server/mcp-hijack.contract.test.ts` asserts the fixed-path round-trip; existing `server.test.ts` T7 multi-client smoke regresses if hijack is removed. Also: proactive `listInstances()` sweep on bridge startup so stale registry entries don't linger until the next consumer reads.)
 
+### IMP-0139 · pnpm e2e:isolated — spawned Chrome never registers a bridge in 30s (harness regression) (bug) · score: 0
+
+- **Proposed by**: claude-loop · 2026-05-19
+- **Status**: proposed
+- **Why**: Running `pnpm e2e:isolated` (the local matrix runner for hands-off E2E verification per CLAUDE.md "Never ask user to drive browser" rule) consistently fails with "spawned Chrome did not register a bridge within 30s." Chrome spawns (pid is logged) but the registry dir at ~/Library/Application Support/humanchrome-bridge/e2e-registry/instances stays empty. The NM manifest is staged at e2e-profile/NativeMessagingHosts/ — that may not be a path Chrome actually scans on macOS (Chrome reads NM manifests from ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/, not from a profile-specific path). Result: every chrome-extension PR opened by /improve-auto fails its mandatory E2E gate locally, even when the code change has nothing to do with the bridge handshake. Caught while running IMP-0137 verification in iteration 1 of the autonomous loop.
+- **Cost**: M
+- **Value**: L
+- **Cost**: M (NM manifest path investigation + e2e harness fix)
+- **Value**: L (unblocks every chrome-extension PR's local E2E; restores the "never ask user to drive browser" guarantee for the autonomous loop)
+- **Repro**: `cd app/chrome-extension && pnpm e2e:isolated` from a clean main → fails at `[e2e] spawned Chrome did not register a bridge within 30s` after Chrome pid is logged. Re-run produces identical failure.
+- **Fix sketch**: Inspect `scripts/run-e2e-matrix.mjs` Chrome-launch path. NM manifest must be at `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.humanchrome.bridge.json` (system path) OR Chrome must be launched with `--user-data-dir` pointing at a profile whose `NativeMessagingHosts` subdirectory has the manifest (the latter requires Chrome to actually scan profile-relative paths, which I should verify is supported on macOS). Add a startup-trace flag (`--enable-logging --v=1`) to capture Chrome's NM-discovery output so future failures self-diagnose.
+- **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
+
 ## Done
 
 ### IMP-0137 · runActionability silently degrades to {ok:true} when actionability.js fails to inject — masks click/fill regressions (bug) · score: 9
