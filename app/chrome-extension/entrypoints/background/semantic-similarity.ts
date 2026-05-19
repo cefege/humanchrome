@@ -3,6 +3,7 @@ import { OffscreenManager } from '@/utils/offscreen-manager';
 import { BACKGROUND_MESSAGE_TYPES, OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 import { STORAGE_KEYS, ERROR_MESSAGES } from '@/common/constants';
 import { hasAnyModelCache } from '@/utils/model-cache-status';
+import { indexerRpc } from '@/utils/indexer-rpc';
 
 /**
  * Model configuration state management interface
@@ -82,11 +83,11 @@ export async function initializeDefaultSemanticEngine(): Promise<void> {
       // Update status to ready
       await updateModelStatus('ready', 100);
 
-      // Also initialize ContentIndexer now that semantic engine is ready
+      // Also initialize ContentIndexer now that semantic engine is ready.
+      // IMP-0122: dispatched to offscreen because the indexer's heavy
+      // graph can't be `import()`-ed from a service worker.
       try {
-        const { getGlobalContentIndexer } = await import('@/utils/content-indexer');
-        const contentIndexer = getGlobalContentIndexer();
-        contentIndexer.startSemanticEngineInitialization();
+        await indexerRpc.startSemanticEngineInitialization();
         console.log('ContentIndexer initialization triggered after semantic engine initialization');
       } catch (indexerError) {
         console.warn(
@@ -181,12 +182,11 @@ export async function handleModelSwitch(
         modelDimension: modelDimension!,
       };
 
-      // Only reinitialize ContentIndexer when dimension changes
+      // Only reinitialize ContentIndexer when dimension changes.
+      // IMP-0122: dispatched to offscreen for the same reason as above.
       try {
         if (modelDimension && previousDimension && modelDimension !== previousDimension) {
-          const { getGlobalContentIndexer } = await import('@/utils/content-indexer');
-          const contentIndexer = getGlobalContentIndexer();
-          await contentIndexer.reinitialize();
+          await indexerRpc.reinitialize();
         }
       } catch (indexerError) {
         console.warn('Background: Failed to reinitialize ContentIndexer:', indexerError);

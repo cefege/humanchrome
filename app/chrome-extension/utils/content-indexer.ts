@@ -281,19 +281,23 @@ export class ContentIndexer {
   }
 
   /**
-   * Check if global semantic engine is ready (in background/offscreen)
+   * Check if global semantic engine is ready (in background/offscreen).
+   *
+   * Pre-IMP-0122 this dynamically imported the background entrypoint to
+   * read model status. ContentIndexer now lives in the offscreen page,
+   * where importing a background entrypoint would either crash (no
+   * SW-only listeners) or fall through to a different chrome.storage
+   * code path. We read the persisted status directly instead — it's the
+   * same source of truth that `handleGetModelStatus()` exposes.
    */
   public async isGlobalSemanticEngineReady(): Promise<boolean> {
     try {
-      // Since ContentIndexer runs in background script, directly call the function instead of sending message
-      const { handleGetModelStatus } = await import('@/entrypoints/background/semantic-similarity');
-      const response = await handleGetModelStatus();
-      return (
-        response &&
-        response.success &&
-        response.status &&
-        response.status.initializationStatus === 'ready'
-      );
+      if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+        return false;
+      }
+      const result = await chrome.storage.local.get(['modelState']);
+      const modelState = (result as { modelState?: { status?: string } }).modelState;
+      return modelState?.status === 'ready';
     } catch (error) {
       console.error('ContentIndexer: Failed to check global semantic engine status:', error);
       return false;

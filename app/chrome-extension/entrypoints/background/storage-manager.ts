@@ -1,7 +1,12 @@
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
+import { indexerRpc } from '@/utils/indexer-rpc';
 
 /**
- * Get storage statistics
+ * Get storage statistics.
+ *
+ * Pre-IMP-0122 this did `await import('@/utils/content-indexer')` from
+ * the SW and crashed on Chrome's dynamic-`import()` ban. The indexer now
+ * lives in the offscreen page; we go through the RPC shim.
  */
 export async function handleGetStorageStats(): Promise<{
   success: boolean;
@@ -9,15 +14,7 @@ export async function handleGetStorageStats(): Promise<{
   error?: string;
 }> {
   try {
-    // Get ContentIndexer statistics
-    const { getGlobalContentIndexer } = await import('@/utils/content-indexer');
-    const contentIndexer = getGlobalContentIndexer();
-
-    // Note: Semantic engine initialization is now user-controlled
-    // ContentIndexer will be initialized when user manually triggers semantic engine initialization
-
-    // Get statistics
-    const stats = contentIndexer.getStats();
+    const stats = await indexerRpc.getStats();
 
     return {
       success: true,
@@ -35,7 +32,7 @@ export async function handleGetStorageStats(): Promise<{
     console.error('Background: Failed to get storage stats:', error);
     return {
       success: false,
-      error: error.message,
+      error: error?.message ?? String(error),
       stats: {
         indexedPages: 0,
         totalDocuments: 0,
@@ -50,33 +47,34 @@ export async function handleGetStorageStats(): Promise<{
 }
 
 /**
- * Clear all data
+ * Clear all data — indexer state, vector data, and chrome.storage caches.
+ *
+ * Each cleanup branch is best-effort; we continue past failures so a
+ * stuck indexer doesn't prevent us from clearing the vector DB and
+ * chrome.storage entries (and vice versa).
  */
 export async function handleClearAllData(): Promise<{ success: boolean; error?: string }> {
   try {
-    // 1. Clear all ContentIndexer indexes
+    // 1. ContentIndexer indexes (RPC to offscreen).
     try {
-      const { getGlobalContentIndexer } = await import('@/utils/content-indexer');
-      const contentIndexer = getGlobalContentIndexer();
-
-      await contentIndexer.clearAllIndexes();
+      await indexerRpc.clearAllIndexes();
       console.log('Storage: ContentIndexer indexes cleared successfully');
     } catch (indexerError) {
       console.warn('Background: Failed to clear ContentIndexer indexes:', indexerError);
-      // Continue with other cleanup operations
     }
 
-    // 2. Clear all VectorDatabase data
+    // 2. VectorDatabase data — dispatched to offscreen because the
+    // `hnswlib-wasm-static` import in `utils/vector-database` would
+    // otherwise drag the WASM loader into the SW bundle. The offscreen
+    // helper already owns that graph (it's where the indexer lives).
     try {
-      const { clearAllVectorData } = await import('@/utils/vector-database');
-      await clearAllVectorData();
+      await indexerRpc.clearVectorData();
       console.log('Storage: Vector database data cleared successfully');
     } catch (vectorError) {
       console.warn('Background: Failed to clear vector data:', vectorError);
-      // Continue with other cleanup operations
     }
 
-    // 3. Clear related data in chrome.storage (preserve model preferences)
+    // 3. Chrome.storage caches (preserve model preferences).
     try {
       const keysToRemove = ['vectorDatabaseStats', 'lastCleanupTime', 'contentIndexerStats'];
       await chrome.storage.local.remove(keysToRemove);
@@ -88,12 +86,12 @@ export async function handleClearAllData(): Promise<{ success: boolean; error?: 
     return { success: true };
   } catch (error: any) {
     console.error('Background: Failed to clear all data:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: error?.message ?? String(error) };
   }
 }
 
 /**
- * Initialize storage manager module message listeners
+ * Initialize storage manager module message listeners.
  */
 export const initStorageManagerListener = () => {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
