@@ -125,6 +125,8 @@ interface ListInjectedScriptsToolParam {
 const injectedTabs = new Map<number, InjectedTabEntry>();
 class InjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.INJECT_SCRIPT;
+  static readonly mutates = true;
+
   async execute(args: InjectScriptParam & ScriptConfig): Promise<ToolResult> {
     try {
       const { url, type, jsScript, tabId, windowId, background = true } = args;
@@ -230,6 +232,8 @@ class InjectScriptTool extends BaseBrowserToolExecutor {
 
 class SendCommandToInjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT;
+  static readonly mutates = true;
+
   async execute(args: SendCommandToInjectScriptToolParam): Promise<ToolResult> {
     try {
       const { tabId, eventName, payload } = args;

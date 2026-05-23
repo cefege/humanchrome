@@ -128,7 +128,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0151 · chrome_inject_script + chrome_send_command_to_inject_script missing `static mutates = true` — auto-spawn/pacing bypass (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-23; landed via IMP-0156, multi-tab Phase 1)
 - **Why**: InjectScriptTool (inject-script.ts:126) and SendCommandToInjectScriptTool (inject-script.ts:231) both inject and dispatch into page state but neither declares `static readonly mutates = true`. The base class default is `mutates = false` (base-browser.ts:26). Effect: the dispatchers IMP-0086 multi-client invariants are bypassed — anonymous calls do NOT auto-spawn a fresh owned tab and DO NOT participate in per-tab lock queueing / pacing. Two concurrent clients calling chrome_inject_script with no tabId land on whichever active tab Chrome resolves (the cross-window fallback at inject-script.ts:174), which silently collides with another clients owned tab. RemoveInjectedScriptTool correctly declares `mutates = true` at line 480 — so the declaration is missing from exactly the two tools that perform the actual write.
 - **Cost**: S
 - **Value**: M
@@ -137,7 +137,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0154 · Tab-less mutating tools auto-spawn unused tabs — clipboard/notifications/alarms/action_badge/keep_awake missing autoSpawnTab=false (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-23; landed via IMP-0156, multi-tab Phase 1)
 - **Why**: Five mutating tools that do not target a tab are missing `static readonly autoSpawnTab = false`: chrome_clipboard, chrome_notifications, chrome_alarms, chrome_action_badge, chrome_keep_awake. Per the dispatcher at tools/index.ts:451-453, any mutating tool called without an explicit tabId by a known clientId triggers `autoSpawnOwnedTab(clientId)` — which calls `chrome.tabs.create({active:false})`, claims the tab for the client, and stamps `args.tabId` with the new id. None of these five tools use args.tabId (their schemas dont even list it). Net effect: every fresh MCP client that calls chrome_clipboard/chrome_notifications/etc. as its FIRST tool gets a blank background tab silently opened in its window. Subsequent calls reuse the owned tab (no further spawns) but the orphan tab sticks around until the user closes it or `browser_close_my_tabs` runs. Mild garbage but breaks the principle of least surprise — a clipboard read should NOT open a tab. CLAUDE.md explicitly calls out this opt-out pattern (`opt out by setting static readonly autoSpawnTab = false on tools that dont need a tab`); pace_get and get_windows_and_tabs already do it.
 - **Cost**: S
 - **Value**: M
@@ -632,6 +632,16 @@ The order of items inside ## Active is sorted by score descending.
   5-file recipe. New `app/chrome-extension/entrypoints/background/tools/browser/set-checked.ts`. Params: `{selector?, selectorType?, ref?, index?, multi?, checked: boolean, tabId?, frameId?, actionabilityTimeoutMs?, force?}`. ISOLATED-world shim: resolves the target via shared `_selector-resolve`; verifies the element is a checkable (input[type=checkbox]|input[type=radio]|[role=checkbox]|[role=radio]|[role=switch]) and returns INVALID_ARGS otherwise with details.tagName/role for diagnostics; runs awaitActionable with the click matrix (visible+stable+enabled+hit-test); compares current `element.checked` (or aria-checked for role-based) to requested `checked` — no-op if already matched (returns `{checked: true, changed: false, priorChecked, tabId}`); otherwise dispatches a native click via the existing click-helper (so React/Vue onChange fires; respects framework controlled-component reconciliation) and verifies post-click state; returns `{checked: true, changed, priorChecked, tabId}`. For radio groups, checking sets the target and uncheck of the prior sibling is the browser default — no extra logic. multi:true applies to each match. Pairs with chrome_assert(kind:js) for state verification across complex toggle UIs. Tests: native checkbox check/uncheck/idempotent, radio group set, ARIA role=switch via space-key, already-checked no-op, disabled returns NOT_ACTIONABLE, non-checkable element returns INVALID_ARGS, multi:true batch.
 
 ## Done
+
+### IMP-0156 · Multi-tab Phase 1 — close IMP-0151 + IMP-0154 + add tools-static-flags contract test (chore) · score: 6
+
+- **Proposed by**: claude · 2026-05-23 (first PR of the multi-tab-by-design rollout)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: Set `static readonly mutates = true` on `InjectScriptTool` + `SendCommandToInjectScriptTool` (closes IMP-0151 — anonymous inject calls now go through the dispatcher's IMP-0086 ownership + auto-spawn path instead of landing on the globally-active tab). Set `static readonly autoSpawnTab = false` on `ClipboardTool`, `NotificationsTool`, `AlarmsTool`, `ActionBadgeTool`, `KeepAwakeTool` (closes IMP-0154 — first anonymous call to these tab-less tools no longer silently spawns a blank `about:blank` tab). New contract test at `tests/tools/tools-static-flags.contract.test.ts` (8 cases) locks in both fixes and adds a forward guard against the same class of regression. Test imports `@/entrypoints/background/tools` first to avoid a circular load through `native-host.ts` when the barrel pulls in individual tool singletons. Full vitest gate: tools-static-flags + lazy-tool-registry + dispatcher-auto-spawn + dispatcher-tab-queueing + inject-script + clipboard + alarms + action-badge + notifications + keep-awake = 82 pass; `tsc --noEmit` clean.
+- **Why**: First step of the multi-tab-by-design rollout (`/Users/mike/.claude/plans/how-can-we-make-sleepy-treehouse.md`). Phase 1 lays the foundation by fixing the two existing flag-drift bugs that would otherwise produce false-positive dispatcher matrix results in later phases. The contract test is the ratchet that future PRs in the rollout depend on.
+- **Cost**: S
+- **Value**: M
 
 ### IMP-0155 · Matrix runner regression — actionability deadline not honored on the sliding-btn fixture (bug) · score: 7
 

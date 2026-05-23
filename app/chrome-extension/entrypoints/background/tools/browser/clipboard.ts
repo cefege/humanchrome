@@ -21,6 +21,7 @@ interface OffscreenResponse {
 class ClipboardTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.CLIPBOARD;
   static readonly mutates = true;
+  static readonly autoSpawnTab = false;
 
   async execute(args: ClipboardParams): Promise<ToolResult> {
     const action = args?.action;

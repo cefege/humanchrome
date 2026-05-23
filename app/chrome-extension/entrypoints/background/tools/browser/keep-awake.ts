@@ -14,6 +14,7 @@ interface KeepAwakeParams {
 class KeepAwakeTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.KEEP_AWAKE;
   static readonly mutates = true;
+  static readonly autoSpawnTab = false;
 
   async execute(args: KeepAwakeParams): Promise<ToolResult> {
     const action = args?.action;

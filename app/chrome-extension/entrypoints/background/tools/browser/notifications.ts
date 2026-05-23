@@ -22,6 +22,7 @@ const DEFAULT_ICON = 'icon/128.png';
 class NotificationsTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.NOTIFICATIONS;
   static readonly mutates = true;
+  static readonly autoSpawnTab = false;
 
   async execute(args: NotificationsParams): Promise<ToolResult> {
     const action = args?.action;

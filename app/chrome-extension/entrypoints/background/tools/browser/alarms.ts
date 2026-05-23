@@ -47,6 +47,7 @@ function installFiredListener(): void {
 class AlarmsTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.ALARMS;
   static readonly mutates = true;
+  static readonly autoSpawnTab = false;
 
   async execute(args: AlarmsParams): Promise<ToolResult> {
     const action = args?.action;
