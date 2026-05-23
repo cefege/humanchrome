@@ -39,11 +39,11 @@ class NetworkRequestTool extends BaseBrowserToolExecutor {
     }
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs[0]?.id) {
+      const owned = await this.getOwnedTab({ isRead: true, required: false });
+      if (!owned?.id) {
         return createErrorResponse('No active tab found or tab has no ID.');
       }
-      const activeTabId = tabs[0].id;
+      const activeTabId = owned.id;
 
       // Ensure content script is available in the target tab
       await this.injectContentScript(activeTabId, ['inject-scripts/network-helper.js']);

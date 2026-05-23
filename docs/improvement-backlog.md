@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0159 · Multi-tab Phase 2 — migrate 5 tools off direct chrome.tabs.query (batch 1/2) (refactor) · score: 5
+
+- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: Converted the implicit active-tab fallback in 5 tools to `this.getOwnedTab({ isRead: true, required: false })` (the helper added in IMP-0157). Each callsite previously called `chrome.tabs.query({active:true,currentWindow:true})` directly, which bypasses per-client ownership (IMP-0086) and could land a read on another client's tab when the calling client had its own owned set. Files: `console.ts:262` (active-tab fallback when neither `tabId` nor `url` provided), `web-fetcher.ts:121-124` (web-fetcher fallback) and `:342` (`GetInteractiveElementsTool` body), `bookmark.ts:395-396` (bookmark URL inference), `network-request.ts:42` (target tab for in-page fetch), `userscript.ts` (deleted the module-scope `getActiveTab()` helper and routed its 3 callsites through `this.getOwnedTab` directly — `:477` create, `:716` delete cleanup, `:738` sendCommand). Behavior preserved: when the caller has an owned tab, the call lands there; when they don't, the response is identical (`No active tab found` / `TAB_NOT_FOUND`). The remaining `chrome.tabs.query` calls in these files are not active-tab fallbacks (`console.ts:418` queries by URL for tab navigation, `tab-groups.ts:216` queries by groupId, `history.ts:183` queries all tabs to dedupe, `web-fetcher.ts:107` queries all for URL match) and stay. Focused vitest gate 65/65 pass; `tsc --noEmit` clean. Full suite background-run: 1671/1691 pass + 19 skipped + 1 unrelated flake on `wait-helper.test.ts > waitFor (text-presence)` that passes in isolation (pre-existing timing-under-load).
+- **Why**: Canary batch for the bulk tool migration ahead of the IMP-0161 contract ban. Read-only first so a wrong resolution surfaces as a query mismatch instead of a state mutation. Unblocks IMP-0160 (mutating-tool batch).
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0158 · Multi-tab Phase 1 — introduce OwnedRegistry helper for (clientId, tabId)-keyed module state (feat) · score: 5
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 1 Foundations)
