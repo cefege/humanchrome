@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0158 · Multi-tab Phase 1 — introduce OwnedRegistry helper for (clientId, tabId)-keyed module state (feat) · score: 5
+
+- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 1 Foundations)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: New `app/chrome-extension/entrypoints/background/utils/owned-registry.ts` exports `createOwnedRegistry<V>()` returning a registry keyed by `(clientId, tabId)` instead of the `Map<tabId, V>` shape that six tools currently use. Internally a `Map<string, Map<number, V>>` so `forgetClient` is O(1) and `forgetTab` walks one shallow dimension. Self-registers two evictions: `chrome.tabs.onRemoved` and a new `subscribeOnClientReleased` hook on `utils/client-state.ts` invoked from `releaseClient`. Consumers can pass an `onEvict(entry)` callback for per-entry teardown (CDP detach, injection cancel, recorder stop) — errors swallowed so one bad teardown can't block the rest. `skipAutoSubscribe` is a test escape hatch. Undefined/empty clientId routes to a reserved `__system` bucket (exported as `OWNED_REGISTRY_SYSTEM_CLIENT`) for callsites with no request context. 9 unit tests cover isolation, eviction paths, system bucket, dispose, and onEvict error tolerance. Ships with zero callers — IMP-0162 migrates inject-script, userscript, locator-handler, dialog, gif-auto-capture, performance, and the three network-capture variants onto it.
+- **Why**: Without this primitive, the IMP-0162 registry migration becomes a 6-tool atomic conversion at ~600 LoC. Landing the helper first lets IMP-0162 be reviewed against a stable, tested abstraction. The `subscribeOnClientReleased` hook in `client-state.ts` is reusable beyond registries — recorder de-singleton (IMP-0165) and gif-recorder de-singleton (IMP-0166) consume it too.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0157 · Multi-tab Phase 1 — add client-aware getOwnedTab helper to BaseBrowserToolExecutor (feat) · score: 6
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 1 Foundations)
