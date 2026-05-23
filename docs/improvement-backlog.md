@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0161 · Multi-tab Phase 2 — ratchet test banning direct chrome.tabs.query in tools/browser (test) · score: 5
+
+- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations — completes Phase 2)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: New contract test at `tests/tools/contract-no-direct-tab-query.test.ts` walks `entrypoints/background/tools/browser/**/*.ts` and fails if any file matches `chrome.tabs.query({...active:true...})` or `chrome.tabs.query({...currentWindow:true...})` outside a small allowlist (`window.ts`, `close-tabs-matching.ts`, `close-my-tabs.ts`, `claim-tab.ts` — each annotated with its one-line justification). Second test checks the allowlist for stale entries — if an allowlisted file is renamed away, the test fails so the entry can't shadow a future violation. Verified the ratchet catches additions by adding a temporary file under `tools/browser/` containing the forbidden call — the test failed; after removal, green. Drift guard for IMP-0162 and beyond: any future refactor that re-introduces an implicit active-tab path in `tools/browser/` will be caught at CI time, not in production.
+- **Why**: Completes Phase 2 of the multi-tab-by-design rollout. With IMP-0156 → IMP-0161 landed, every browser-tool active-tab fallback now honors the calling client's owned set (IMP-0086), and the ratchet ensures no future PR can silently regress it. Unblocks Phase 3 (CDP per-client owner tags + event fan-out) and Phase 4 (tab aliasing + parallel dispatch).
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0160 · Multi-tab Phase 2 — migrate 7 mutating tools off direct chrome.tabs.query (batch 2/2) (refactor) · score: 6
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations)
