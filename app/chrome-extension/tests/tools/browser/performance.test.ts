@@ -20,6 +20,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// IMP-0157 / IMP-0160: `runWithContext` and `client-state` are imported
+// dynamically inside the helpers below so each `vi.resetModules()` call
+// in `loadTools` sees the same singleton the freshly-loaded tools see.
+
+const TEST_CLIENT = 'perf-test-client';
+const TEST_TAB_ID = 7;
+
 const stubs = vi.hoisted(() => ({
   attach: vi.fn(),
   detach: vi.fn(),
@@ -49,9 +56,24 @@ let debuggerListeners: DebuggerListener[];
 
 function installChromeMock() {
   debuggerListeners = [];
+  // IMP-0157: the tool resolves the active tab through getOwnedTab now,
+  // which calls chrome.tabs.get(tabId) on the caller's owned-tab pick.
+  // Keep the legacy tabs.query stub for any non-migrated paths, but the
+  // real source of truth is the claim in `beforeEach` + the per-test
+  // runWithContext wrapper.
   (globalThis.chrome as any).tabs.query = vi
     .fn()
-    .mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
+    .mockResolvedValue([{ id: TEST_TAB_ID, url: 'https://example.com/' }]);
+  (globalThis.chrome as any).tabs.get = vi
+    .fn()
+    .mockResolvedValue({ id: TEST_TAB_ID, windowId: 1, url: 'https://example.com/' });
+  (globalThis.chrome as any).storage = {
+    session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+  };
+  (globalThis.chrome as any).windows = {
+    ...(((globalThis.chrome as any).windows ?? {})),
+    onRemoved: { addListener: () => undefined },
+  };
   (globalThis.chrome as any).debugger = {
     onEvent: {
       addListener: vi.fn((listener: DebuggerListener) => {
@@ -75,9 +97,19 @@ function fireDebuggerEvent(tabId: number, method: string, params?: any) {
   }
 }
 
+// IMP-0157: the performance tools import client-state for the
+// dispatcher-shared `getOwnedTab` helper. Reseting modules forks a fresh
+// client-state singleton, so the claim has to live inside loadTools().
 async function loadTools() {
   vi.resetModules();
-  return await import('@/entrypoints/background/tools/browser/performance');
+  const tools = await import('@/entrypoints/background/tools/browser/performance');
+  // The freshly-loaded client-state module is what the tools reach into;
+  // we must claim against that instance, not the one this test file
+  // pinned at the top via the static import.
+  const cs = await import('@/entrypoints/background/utils/client-state');
+  cs._resetClientStateForTests();
+  cs.claimTabForClient(TEST_CLIENT, TEST_TAB_ID, 1);
+  return tools;
 }
 
 beforeEach(() => {
@@ -92,11 +124,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Wraps a tool execution in the test client's request context so
+// `getOwnedTab` (IMP-0157) resolves to TEST_TAB_ID. Must use the post-
+// `vi.resetModules()` `request-context` module so the snapshot lands on
+// the same singleton the freshly-loaded tools read from.
+async function asClient<T>(fn: () => Promise<T>): Promise<T> {
+  const rc = await import('@/entrypoints/background/utils/request-context');
+  return rc.runWithContext({ clientId: TEST_CLIENT }, fn);
+}
+
+async function clearOwnedTabs() {
+  const cs = await import('@/entrypoints/background/utils/client-state');
+  cs._resetClientStateForTests();
+}
+
 describe('PerformanceStartTraceTool', () => {
   it('starts a trace and returns isError:false on the happy path', async () => {
     const { performanceStartTraceTool } = await loadTools();
 
-    const res = await performanceStartTraceTool.execute({});
+    const res = await asClient(() => performanceStartTraceTool.execute({}));
 
     expect(res.isError).toBe(false);
     const body = JSON.parse((res.content[0] as any).text);
@@ -111,10 +157,10 @@ describe('PerformanceStartTraceTool', () => {
   it('IMP-0048: returns isError:true when a trace is already running', async () => {
     const { performanceStartTraceTool } = await loadTools();
 
-    const first = await performanceStartTraceTool.execute({});
+    const first = await asClient(() => performanceStartTraceTool.execute({}));
     expect(first.isError).toBe(false);
 
-    const second = await performanceStartTraceTool.execute({});
+    const second = await asClient(() => performanceStartTraceTool.execute({}));
 
     expect(second.isError).toBe(true);
     // Error envelope should clearly say "already" for human readers,
@@ -122,11 +168,12 @@ describe('PerformanceStartTraceTool', () => {
     expect((second.content[0] as any).text).toMatch(/already recording|already running/i);
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab', async () => {
+  it('returns TAB_NOT_FOUND when the caller has no owned tab', async () => {
     const { performanceStartTraceTool } = await loadTools();
-    (globalThis.chrome as any).tabs.query = vi.fn().mockResolvedValue([]);
+    // Release the seeded tab so the resolver returns null (IMP-0157).
+    await clearOwnedTabs();
 
-    const res = await performanceStartTraceTool.execute({});
+    const res = await asClient(() => performanceStartTraceTool.execute({}));
 
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toMatch(/no active tab/i);
@@ -137,17 +184,17 @@ describe('PerformanceAnalyzeInsightTool', () => {
   it('IMP-0051: returns isError:true when no trace has been recorded', async () => {
     const { performanceAnalyzeInsightTool } = await loadTools();
 
-    const res = await performanceAnalyzeInsightTool.execute({});
+    const res = await asClient(() => performanceAnalyzeInsightTool.execute({}));
 
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toMatch(/no recorded trace/i);
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab', async () => {
+  it('returns TAB_NOT_FOUND when the caller has no owned tab', async () => {
     const { performanceAnalyzeInsightTool } = await loadTools();
-    (globalThis.chrome as any).tabs.query = vi.fn().mockResolvedValue([]);
+    await clearOwnedTabs();
 
-    const res = await performanceAnalyzeInsightTool.execute({});
+    const res = await asClient(() => performanceAnalyzeInsightTool.execute({}));
 
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toMatch(/no active tab/i);
@@ -162,7 +209,7 @@ describe('PerformanceStopTraceTool — preserved behavior', () => {
   it('keeps the existing isError:false response when no session exists', async () => {
     const { performanceStopTraceTool } = await loadTools();
 
-    const res = await performanceStopTraceTool.execute({ saveToDownloads: false });
+    const res = await asClient(() => performanceStopTraceTool.execute({ saveToDownloads: false }));
 
     expect(res.isError).toBe(false);
     expect((res.content[0] as any).text).toMatch(/no performance trace session/i);
@@ -173,7 +220,7 @@ describe('PerformanceStopTraceTool — preserved behavior', () => {
       await loadTools();
 
     // 1. Start
-    const start = await performanceStartTraceTool.execute({});
+    const start = await asClient(() => performanceStartTraceTool.execute({}));
     expect(start.isError).toBe(false);
 
     // 2. Drive the trace event lifecycle
@@ -183,7 +230,7 @@ describe('PerformanceStopTraceTool — preserved behavior', () => {
     // next tick so the awaited promise can resolve naturally.
     queueMicrotask(() => fireDebuggerEvent(7, 'Tracing.tracingComplete'));
 
-    const stop = await performanceStopTraceTool.execute({ saveToDownloads: false });
+    const stop = await asClient(() => performanceStopTraceTool.execute({ saveToDownloads: false }));
 
     expect(stop.isError).toBe(false);
     const stopBody = JSON.parse((stop.content[0] as any).text);
@@ -192,7 +239,7 @@ describe('PerformanceStopTraceTool — preserved behavior', () => {
 
     // 3. After a successful stop, analyze should now succeed (post-IMP-0051
     //    it returns isError:true only when no trace exists for the tab).
-    const analyze = await performanceAnalyzeInsightTool.execute({});
+    const analyze = await asClient(() => performanceAnalyzeInsightTool.execute({}));
 
     expect(analyze.isError).toBe(false);
     const analyzeBody = JSON.parse((analyze.content[0] as any).text);

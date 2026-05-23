@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0160 · Multi-tab Phase 2 — migrate 7 mutating tools off direct chrome.tabs.query (batch 2/2) (refactor) · score: 6
+
+- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: Converted 12 active-tab fallback sites across 7 tools to `this.getOwnedTab({ isRead: true, required: false })` (IMP-0157). Files: `inject-script.ts:172` (InjectScriptTool active-tab fallback) and `:254` (RemoveInjectedScriptTool fallback), `performance.ts:162/262/364` (Start/Stop/AnalyzeInsight), `network-capture.ts:276` (unified flush primary-tab selection), `network-capture-debugger.ts:902` (start) and `:1011` (stop), `network-capture-web-request.ts:912` (start) and `:999` (stop), `common.ts:846` (CloseTabsTool empty-args close). These are the load-bearing mutating call sites where the dispatcher pre-stamps `tabId` for anonymous calls — the fallback only fires when callers explicitly clear `tabId`. Behavior preserved for the single-tab case. Updated two test files to thread request-context: `performance.test.ts` (replaced `chrome.tabs.query` mock with `claimTabForClient` + `runWithContext`; uses dynamic re-imports of `request-context` and `client-state` post-`vi.resetModules()` so the test client and tool share the same singleton — 7/7 pass), `network-capture-flush.test.ts` (one test seeded an owned tab + ran inside client context — 20/20 pass). Focused gate 116/116 pass; `tsc --noEmit` clean.
+- **Why**: With both batches landed, every active-tab fallback in `tools/browser/` either honors client ownership or is a `query-by-URL`/`query-all` (non-implicit-active) path. Unblocks IMP-0161 (contract test banning direct `chrome.tabs.query({active,currentWindow})` in `tools/browser/`).
+- **Cost**: M
+- **Value**: M
+
 ### IMP-0159 · Multi-tab Phase 2 — migrate 5 tools off direct chrome.tabs.query (batch 1/2) (refactor) · score: 5
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations)

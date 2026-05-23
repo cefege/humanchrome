@@ -908,12 +908,12 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       } else {
-        // Use current active tab
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0]) {
+        // Per-client owned tab (IMP-0157).
+        const owned = await this.getOwnedTab({ isRead: true, required: false });
+        if (!owned) {
           return createErrorResponse('No active tab found');
         }
-        tabToOperateOn = tabs[0];
+        tabToOperateOn = owned;
       }
 
       if (!tabToOperateOn?.id) {
@@ -995,9 +995,9 @@ class NetworkCaptureStopTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active network captures found in any tab.');
       }
 
-      // Get current active tab
-      const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const activeTabId = activeTabs[0]?.id;
+      // Per-client owned tab (IMP-0157).
+      const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
+      const activeTabId = ownedActive?.id;
 
       // Determine the primary tab to stop
       let primaryTabId: number;

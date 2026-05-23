@@ -159,7 +159,10 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
     const { reload = false, autoStop = false, durationMs = 5000 } = args || {};
 
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      // Per-client owned tab (IMP-0157). Performance traces are
+      // long-running and tab-bound — pick the caller's tab, not the
+      // browser's globally-active one.
+      const activeTab = await this.getOwnedTab({ isRead: true, required: false });
       if (!activeTab?.id) {
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       }
@@ -259,7 +262,8 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
   async execute(args: StopTraceParams): Promise<ToolResult> {
     const { saveToDownloads = true, filenamePrefix } = args || {};
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      // Per-client owned tab (IMP-0157).
+      const activeTab = await this.getOwnedTab({ isRead: true, required: false });
       if (!activeTab?.id)
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       const tabId = activeTab.id;
@@ -361,7 +365,8 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
   async execute(args: AnalyzeInsightParams): Promise<ToolResult> {
     const { insightName } = args || {};
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      // Per-client owned tab (IMP-0157).
+      const activeTab = await this.getOwnedTab({ isRead: true, required: false });
       if (!activeTab?.id)
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       const tabId = activeTab.id;

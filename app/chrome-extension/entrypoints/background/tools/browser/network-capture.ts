@@ -271,10 +271,11 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
       return createErrorResponse('No active network captures found in any tab.');
     }
 
-    // Mirror the stop-tool's tab-selection precedence: active tab if it
-    // happens to be one of the captured tabs, otherwise the first ongoing.
-    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const activeTabId = activeTabs[0]?.id;
+    // Mirror the stop-tool's tab-selection precedence: caller's owned
+    // active tab if it happens to be one of the captured tabs (IMP-0157),
+    // otherwise the first ongoing.
+    const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
+    const activeTabId = ownedActive?.id;
     const primaryTabId =
       typeof activeTabId === 'number' && ongoing.includes(activeTabId) ? activeTabId : ongoing[0];
 

@@ -899,9 +899,10 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
           await new Promise((resolve) => setTimeout(resolve, 500)); // Short delay
         }
       } else {
-        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTabs.length > 0 && activeTabs[0]?.id) {
-          tabToOperateOn = activeTabs[0];
+        // Per-client owned tab (IMP-0157).
+        const owned = await this.getOwnedTab({ isRead: true, required: false });
+        if (owned?.id) {
+          tabToOperateOn = owned;
         } else {
           return createErrorResponse(
             'No active tab found and no URL provided.',
@@ -1007,9 +1008,9 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
       return createErrorResponse('No active network captures found in any tab.');
     }
 
-    // Get current active tab
-    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const activeTabId = activeTabs[0]?.id;
+    // Per-client owned tab (IMP-0157).
+    const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
+    const activeTabId = ownedActive?.id;
 
     // Determine the primary tab to stop
     let primaryTabId: number;
