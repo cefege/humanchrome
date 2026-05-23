@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0157 · Multi-tab Phase 1 — add client-aware getOwnedTab helper to BaseBrowserToolExecutor (feat) · score: 6
+
+- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 1 Foundations)
+- **Status**: done
+- **Completed**: 2026-05-23
+- **Summary**: Added `protected async getOwnedTab(opts?)` to `BaseBrowserToolExecutor` (`app/chrome-extension/entrypoints/background/tools/base-browser.ts`). Reads `clientId` from `getCurrentRequestContext()` (no signature change on `execute` so the ~60 subclasses don't have to migrate at once) and delegates to `resolveOwnedTabIdForClient` from `utils/client-state.ts:364` — same priority the dispatcher uses (explicit → activeTabId → most-recently-inserted owned). Conflicts become `TAB_NOT_OWNED`; missing tabs become `TAB_NOT_FOUND` with `details.reason ∈ {'no-owned-tab','closed','window-mismatch'}`. `opts.windowId` filters the *picked* tab — never re-queries `chrome.tabs.query({active:true})`, which is the implicit-global-tab path this helper exists to replace. `opts.required: false` returns `null` instead of throwing. `getActiveTabOrThrow` / `getActiveTabInWindow` / `getActiveTabOrThrowInWindow` stay in place with `@deprecated` JSDoc pointing at `getOwnedTab` and IMP-0169 (deletion). 8 new vitest cases in `tests/tools/base-browser-getOwnedTab.test.ts` cover the resolution priority, conflict, isRead bypass, missing tab, closed tab, window-mismatch, required=false, and no-context paths. Full tools vitest 747/747 pass; `tsc --noEmit` clean.
+- **Why**: Side-by-side prerequisite for the bulk tool-migration PRs (IMP-0159, IMP-0160). Hard renaming the helpers would force a 25-tool atomic conversion. Adding the new helper first lets each migration PR pick its own batch and lands the `chrome.tabs.query` ban (IMP-0161) after the bulk is done.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0156 · Multi-tab Phase 1 — close IMP-0151 + IMP-0154 + add tools-static-flags contract test (chore) · score: 6
 
 - **Proposed by**: claude · 2026-05-23 (first PR of the multi-tab-by-design rollout)
