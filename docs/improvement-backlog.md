@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0165 · Multi-tab Phase 5a — recorder per-client sessions (de-singleton v2 RecordingSessionManager) (refactor) · score: 5
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 5a)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: De-singletoned `app/chrome-extension/entrypoints/background/record-replay/recording/session-manager.ts`. Pre-fix `recordingSession` was a single module-scope `new RecordingSessionManager()` instance shared across the extension — two MCP clients calling the recorder concurrently would clobber each other's `originTabId` / `flow` / `activeTabs` / `status`. Now: a `Map<clientId, RecordingSessionManager>` plus a Proxy at the module boundary that routes property access to the caller's manager via `getCurrentRequestContext()?.clientId`. The 14+ callsites in `recorder-manager.ts`, `flow-builder.ts`, and `record-replay/index.ts` keep the same import surface — zero changes outside `session-manager.ts`. Callers without a request context (content-script step messages, tab event handlers, recorder-manager bootstrap) fall back to a `__system` bucket so legacy single-client behavior is preserved. Per-tab exclusivity across clients (the `RECORDING_IN_PROGRESS` error from the plan) is deferred to a follow-up — this PR is "de-singleton, don't regress" — and is documented at the top of the new per-client section. 7 new contract tests at `tests/record-replay/recording-isolation.contract.test.ts` lock in: two clients get distinct manager instances, idempotent lookup per clientId, Proxy routes based on request context, A-stopping doesn't affect B, system-bucket fallback works, `_resetRecordingSessionsForTest` clears all managers, every RecordingSessionManager method is reachable through the Proxy. Full gate: 964/964 pass (tools + utils + record-replay); tsc clean; pnpm e2e:isolated 16/16 PASS on the migrated build.
+- **Why**: Phase 5a of the multi-tab-by-design rollout. Foundation for IMP-0166 (gif-recorder de-singleton — same pattern, can copy the Proxy approach) and for the eventual cross-client recording exclusivity check.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0164 · Multi-tab Phase 3 — migrate 6 module-scope registries onto OwnedRegistry (refactor) · score: 6
 
 - **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 3 Registries)
