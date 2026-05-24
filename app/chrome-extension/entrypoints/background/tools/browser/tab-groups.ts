@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
@@ -105,21 +105,18 @@ class TabGroupsTool extends BaseBrowserToolExecutor {
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // chrome.tabGroups uses "No group with id" / "No tab with id" — classify
-      // distinctly so callers can retry vs. give up.
+      // chrome.tabGroups uses "No group with id" — classify distinctly so
+      // callers can retry vs. give up. "No tab with id" is delegated to
+      // classifyTabError below.
       if (/no group with id/i.test(msg)) {
         return createErrorResponse(`Tab group ${args.groupId} not found`, ToolErrorCode.UNKNOWN, {
           groupId: args.groupId,
         });
       }
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(msg, ToolErrorCode.TAB_CLOSED, {
-          tabIds: args.tabIds,
-        });
-      }
       console.error('Error in TabGroupsTool.execute:', error);
-      return createErrorResponse(`chrome_tab_groups failed: ${msg}`, ToolErrorCode.UNKNOWN, {
-        action,
+      return classifyTabError(error, {
+        toolName: TOOL_NAMES.BROWSER.TAB_GROUPS,
+        extraDetails: { action, tabIds: args.tabIds },
       });
     }
   }

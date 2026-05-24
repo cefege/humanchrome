@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
@@ -209,13 +209,10 @@ class GetAttributesTool extends BaseBrowserToolExecutor {
         computedStyles: single?.computedStyles ?? {},
       });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_CLOSED, { tabId });
-      }
-      return createErrorResponse(`chrome_get_attributes failed: ${msg}`, ToolErrorCode.UNKNOWN, {
+      return classifyTabError(error, {
+        toolName: TOOL_NAMES.BROWSER.GET_ATTRIBUTES,
         tabId,
-        frameId: args.frameId,
+        extraDetails: { frameId: args.frameId },
       });
     }
   }

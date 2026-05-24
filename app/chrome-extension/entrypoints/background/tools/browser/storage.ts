@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -132,21 +132,20 @@ class StorageTool extends BaseBrowserToolExecutor {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // Tab gone mid-call: classify distinctly so callers can retry.
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_CLOSED, {
-          tabId,
-        });
-      }
-      // Frame mismatch surfaces with a specific Chrome message.
-      if (/frame|frameid/i.test(msg)) {
+      // Frame mismatch surfaces with a specific Chrome message — keep it
+      // distinct so callers can retry with a valid frameId.
+      if (!/no tab with id/i.test(msg) && /frame|frameid/i.test(msg)) {
         return createErrorResponse(msg, ToolErrorCode.INVALID_ARGS, {
           tabId,
           frameId: args.frameId,
         });
       }
       console.error('Error in StorageTool.execute:', error);
-      return createErrorResponse(`chrome_storage failed: ${msg}`);
+      return classifyTabError(error, {
+        toolName: TOOL_NAMES.BROWSER.STORAGE,
+        tabId,
+        extraDetails: { frameId: args.frameId, scope, action },
+      });
     }
   }
 }
