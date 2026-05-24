@@ -129,6 +129,7 @@ export const TOOL_NAMES = {
     SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
     ARIA_SNAPSHOT: 'chrome_aria_snapshot',
     EMULATE: 'chrome_emulate',
+    GET_ATTRIBUTES: 'chrome_get_attributes',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3284,6 +3285,30 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.GET_ATTRIBUTES,
+    description:
+      'Read DOM attributes, properties, and computed CSS by selector or ref. Read-only. Closes the gap between `chrome_assert` (boolean-only), `chrome_read_page` (whole tree, no computed styles), and `chrome_javascript` (forces JS authoring + trips redactor). Single tool, no action enum. Params: `{selector? | ref?, selectorType?, index?, multi?, attributes?, properties?, computedStyles?, tabId?, windowId?, frameId?}`. When `attributes` is omitted it defaults to `[id, class, href, src, value, title, role, aria-label]`. When `properties` is omitted it defaults to `[tagName, checked, disabled, selected, value]` — captures DOM-property-only fields like `checked`/`value`/`selectedIndex` that don\'t mirror to attributes. `computedStyles` defaults to empty (opt-in only). Pass `[]` to opt out of a group entirely. `multi:true` returns an array under `matches`; single-match flattens directly into the response. Use this instead of `chrome_javascript` for scraping data-attributes (LinkedIn URNs from `data-entity-urn`), reading `<input value>` after fill, or asserting computed color matches a brand spec.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string' },
+        index: { type: 'number' },
+        multi: { type: 'boolean' },
+        attributes: { type: 'array', items: { type: 'string' } },
+        properties: { type: 'array', items: { type: 'string' } },
+        computedStyles: { type: 'array', items: { type: 'string' } },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.EMULATE,
     description:
       'Per-tab CDP `Emulation.*` overrides (UA, locale, timezone, geolocation, device metrics, color-scheme, prefers-reduced-motion). Persistent across navigations within the tab until `reset_all` or tab close. Pairs naturally with `chrome_proxy`: when running through a region-specific proxy, set timezone + locale + geolocation in one tool call so anti-bot platforms can\'t cross-check the mismatch. Actions: `set_device` ({width, height, deviceScaleFactor?, mobile?, hasTouch?} OR `{preset:"iphone-15"|"iphone-15-pro-max"|"pixel-7"|"pixel-7-pro"|"ipad-mini"|"desktop"}` — explicit fields override preset); `set_ua` ({userAgent, acceptLanguage?, platform?}); `set_locale` ({locale: BCP47}); `set_timezone` ({timezone: IANA name}); `set_geolocation` ({latitude, longitude, accuracy?=100}); `set_color_scheme` ({colorScheme?:"light"|"dark"|"no-preference", reducedMotion?:"reduce"|"no-preference"}); `reset_all` ({tabId}) clears everything best-effort; `get_state` ({tabId}) returns the current overrides.',
@@ -3485,6 +3510,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',
   [TOOL_NAMES.BROWSER.ARIA_SNAPSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.EMULATE]: 'State',
+  [TOOL_NAMES.BROWSER.GET_ATTRIBUTES]: 'Reading',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

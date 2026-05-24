@@ -303,6 +303,24 @@ Playwright-style compact ARIA tree snapshot for token-efficient page reads. Retu
 | `interactiveOnly` | boolean |  | Include only interactive elements (default true). Set false for structure dumps. |
 | `includeRefs` | boolean |  | Print `[ref=...]` markers so the LLM can pivot to ref-based selectors. Default true. |
 
+### `chrome_get_attributes`
+
+Read DOM attributes, properties, and computed CSS by selector or ref. Read-only. Closes the gap between `chrome_assert` (boolean-only), `chrome_read_page` (whole tree, no computed styles), and `chrome_javascript` (forces JS authoring + trips redactor). Single tool, no action enum. Params: `{selector? | ref?, selectorType?, index?, multi?, attributes?, properties?, computedStyles?, tabId?, windowId?, frameId?}`. When `attributes` is omitted it defaults to `[id, class, href, src, value, title, role, aria-label]`. When `properties` is omitted it defaults to `[tagName, checked, disabled, selected, value]` — captures DOM-property-only fields like `checked`/`value`/`selectedIndex` that don't mirror to attributes. `computedStyles` defaults to empty (opt-in only). Pass `[]` to opt out of a group entirely. `multi:true` returns an array under `matches`; single-match flattens directly into the response. Use this instead of `chrome_javascript` for scraping data-attributes (LinkedIn URNs from `data-entity-urn`), reading `<input value>` after fill, or asserting computed color matches a brand spec.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  |  |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  |  |
+| `index` | number |  |  |
+| `multi` | boolean |  |  |
+| `attributes` | array<string> |  |  |
+| `properties` | array<string> |  |  |
+| `computedStyles` | array<string> |  |  |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ## Interaction
 
 ### `chrome_computer`
