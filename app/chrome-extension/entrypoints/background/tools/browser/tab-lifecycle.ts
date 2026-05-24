@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
@@ -83,16 +83,11 @@ class TabLifecycleTool extends BaseBrowserToolExecutor {
       }
       return jsonOk({ ok: true, action, tab: serializeTab(updated) });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(`Tab ${args.tabId} not found`, ToolErrorCode.TAB_CLOSED, {
-          tabId: args.tabId,
-        });
-      }
       console.error('Error in TabLifecycleTool.execute:', error);
-      return createErrorResponse(`chrome_tab_lifecycle failed: ${msg}`, ToolErrorCode.UNKNOWN, {
-        action,
+      return classifyTabError(error, {
+        toolName: TOOL_NAMES.BROWSER.TAB_LIFECYCLE,
         tabId: args.tabId,
+        extraDetails: { action },
       });
     }
   }

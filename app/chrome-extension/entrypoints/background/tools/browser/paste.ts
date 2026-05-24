@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
@@ -149,14 +149,11 @@ class PasteTool extends BaseBrowserToolExecutor {
         clipboardSeedWarning,
       });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_CLOSED, { tabId });
-      }
       console.error('Error in PasteTool.execute:', error);
-      return createErrorResponse(`chrome_paste failed: ${msg}`, ToolErrorCode.UNKNOWN, {
+      return classifyTabError(error, {
+        toolName: TOOL_NAMES.BROWSER.PASTE,
         tabId,
-        frameId: args.frameId,
+        extraDetails: { frameId: args.frameId },
       });
     }
   }

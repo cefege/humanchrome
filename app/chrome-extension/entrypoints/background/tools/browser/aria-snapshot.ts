@@ -1,6 +1,6 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolError, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 
 /**
@@ -131,16 +131,10 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
         isError: false,
       };
     } catch (err) {
-      // Preserve structured ToolError codes (e.g. TAB_NOT_FOUND from
-      // getOwnedTab) instead of collapsing every failure to UNKNOWN.
-      if (err instanceof ToolError) {
-        return createErrorResponse(err.message, err.code, err.details);
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/no tab with id/i.test(msg)) {
-        return createErrorResponse(msg, ToolErrorCode.TAB_CLOSED);
-      }
-      return createErrorResponse(msg, ToolErrorCode.UNKNOWN);
+      // classifyTabError preserves structured ToolError codes (e.g.
+      // TAB_NOT_FOUND from getOwnedTab) and handles the "no tab with id"
+      // → TAB_CLOSED mapping.
+      return classifyTabError(err, { toolName: TOOL_NAMES.BROWSER.ARIA_SNAPSHOT });
     }
   }
 }

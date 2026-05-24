@@ -1,4 +1,4 @@
-import { createErrorResponse, ToolResult } from '@/common/tool-handler';
+import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 
@@ -46,18 +46,10 @@ class ListFramesTool extends BaseBrowserToolExecutor {
       try {
         rawFrames = await chrome.webNavigation.getAllFrames({ tabId });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        // Tab gone mid-call: classify distinctly so callers can retry.
-        if (/no tab with id/i.test(msg)) {
-          return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_CLOSED, {
-            tabId,
-          });
-        }
-        return createErrorResponse(
-          `chrome.webNavigation.getAllFrames failed: ${msg}`,
-          ToolErrorCode.UNKNOWN,
-          { tabId },
-        );
+        return classifyTabError(err, {
+          toolName: TOOL_NAMES.BROWSER.LIST_FRAMES,
+          tabId,
+        });
       }
 
       // chrome.webNavigation.getAllFrames returns null when the tab is
