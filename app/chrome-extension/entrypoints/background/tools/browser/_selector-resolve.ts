@@ -249,8 +249,8 @@ export async function resolveToShimInputs(
   tool: BaseBrowserToolExecutor,
   args: ResolveToShimInputsArgs,
 ): Promise<ShimSelectorInputs> {
-  let shimSelector: string | null = args.selector ?? null;
-  let shimRef: string | null = args.ref ?? null;
+  const shimSelector: string | null = args.selector ?? null;
+  const shimRef: string | null = args.ref ?? null;
 
   // Only structured/xpath/prefixed-CSS need round-tripping through the
   // resolver. Plain `selectorType:'css'` with a non-prefixed string and
