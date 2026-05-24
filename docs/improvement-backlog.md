@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0167 · Multi-tab Phase 6a — per-window UI clientId stamping (feat) · score: 4
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 6a)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: `stampUiClientId` in `app/chrome-extension/entrypoints/background/native-host.ts` now suffixes each surface tag (`__ui:popup` / `__ui:sidepanel` / `__ui:options` / `__ui:quickpanel`) with the originating windowId — so a popup opened in Chrome window 42 stamps `__ui:popup:42` instead of bare `__ui:popup`. Pre-fix every popup in every window shared one ownership lane; two popups in different windows fought over the same owned-tab set. Resolution order: `sender.tab?.windowId` (content-script messages) → `chrome.windows.getLastFocused({windowTypes:['normal']})` (popup/sidepanel/options pages aren't tabs) → `:0` fallback so the format stays parseable. The `__ui:` prefix is still reserved by `normalizeSessionName` (`session-name.ts:33`) so the appended windowId doesn't open a back-door for MCP clients to claim a UI lane. Function became async; callsite at native-host.ts:704 chains through the new Promise without touching sendResponse semantics. 6 new contract tests at `tests/native-host/stamp-ui-clientid.contract.test.ts` cover: tab-bearing sender, lastFocused fallback, every surface (popup/sidepanel/options/quickpanel), windowId-unavailable :0 fallback, unknown surface. Gate: 6/6 stamp tests + 22/22 dispatcher tests pass; tsc + lint clean.
+- **Why**: Phase 6a of the multi-tab-by-design rollout. Foundation for the "Tabs owned by this client" panel (IMP-0170) — each popup window will show its own owned tabs instead of one global set.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0166 · Multi-tab Phase 5b — gif-recorder cross-client ownership gate (refactor) · score: 4
 
 - **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 5b)
