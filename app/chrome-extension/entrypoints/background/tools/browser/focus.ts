@@ -234,7 +234,9 @@ function focusShim(selector: string | null, ref: string | null, force: boolean):
     if (style.display === 'none') return 'not_visible';
     if (style.visibility === 'hidden' || style.visibility === 'collapse') return 'not_visible';
     if (Number(style.opacity) === 0) return 'not_visible';
-    if (style.pointerEvents === 'none') return 'not_visible';
+    // IMP-0153: pointer-events:none is a mouse-event gate and does NOT
+    // block element.focus(). Click/hover correctly treat it as a
+    // blocker (those routes through pointer events); focus does not.
     const rect = target.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return 'not_visible';
     return null;
