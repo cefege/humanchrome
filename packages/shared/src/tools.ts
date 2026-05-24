@@ -133,6 +133,7 @@ export const TOOL_NAMES = {
     HOVER: 'chrome_hover',
     TYPE_INTO: 'chrome_type_into',
     HAR_EXPORT: 'chrome_har_export',
+    MOCK_RESPONSE: 'chrome_mock_response',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3288,6 +3289,40 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.MOCK_RESPONSE,
+    description:
+      'Synthesize fake response bodies for matched URLs via CDP `Fetch.enable` + `Fetch.requestPaused` + `Fetch.fulfillRequest`. The page fires its real request; this tool intercepts the pre-flight and returns a synthesized response before the network layer ever leaves the browser. Closes the missing in-flight synthesis primitive — `chrome_block_or_redirect` can drop or rewrite URLs, `chrome_intercept_response` can only WAIT, but neither can synthesize. Real-world: test the logged-in flow when the real endpoint would 429 (return a fake 200); deterministic fixture replay; demo a flow when the back-end is down. Actions: `register` (default; installs a handler), `list_mocks`, `unregister_mock` ({handlerId}), `clear` (drops all on the tab). Pattern syntax mirrors `chrome_intercept_response`: substring (`"voyager/api"`) or wrapped slashes with flags (`"/voyager\\\\/api.*foo/i"`). `bodyJson` auto-serializes + sets `Content-Type: application/json` if no content-type in headers. `once` (default true) auto-unregisters after the first match. `delayMs` adds artificial latency.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['register', 'list_mocks', 'unregister_mock', 'clear'],
+        },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        urlPattern: {
+          type: 'string',
+          description: 'Required for action:"register". Substring or /regex/flags.',
+        },
+        method: { type: 'string', description: 'Optional HTTP method filter (case-insensitive).' },
+        status: { type: 'number', description: 'Response status. Default 200.' },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        body: { type: 'string', description: 'Response body. Mutex with bodyJson.' },
+        bodyJson: {
+          description:
+            'Response body — auto-serialized to JSON + sets Content-Type:application/json if absent. Mutex with body.',
+        },
+        delayMs: { type: 'number', description: 'Artificial latency before the fake response.' },
+        once: {
+          type: 'boolean',
+          description: 'Auto-unregister after first match. Default true.',
+        },
+        handlerId: { type: 'string', description: 'Required for action:"unregister_mock".' },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.HAR_EXPORT,
     description:
       'Emit captured network data as standard HAR 1.2 JSON. `chrome_network_capture` collects rich per-request data in two backends (debugger + web-request); this tool is a pure formatter that shapes whichever backend is currently running for the tab into the format every external tool (Chrome DevTools "Save all as HAR", Charles Proxy import, Playwright trace viewer, Sentry session replay, har-validator-based test harnesses) expects. Read-only. Actions: `export_from_active` ({tabId?}) returns the HAR JSON inline in the response. `save_to_downloads` ({tabId?, filename?}) writes the HAR to ~/Downloads via chrome.downloads.download and returns the download id + filename — useful when the HAR is large enough to bloat the LLM context. Response bodies still honor the 1 MiB cap; per-entry truncation is surfaced via a JSON comment on `content.comment` so HAR viewers display the file without rejecting it. Default action: `export_from_active`.',
@@ -3599,6 +3634,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.HOVER]: 'Interaction',
   [TOOL_NAMES.BROWSER.TYPE_INTO]: 'Interaction',
   [TOOL_NAMES.BROWSER.HAR_EXPORT]: 'Network',
+  [TOOL_NAMES.BROWSER.MOCK_RESPONSE]: 'Network',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
