@@ -220,10 +220,9 @@ function matchUrl(patterns: string[], url?: string): boolean {
   return false;
 }
 
-async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tabs[0] || null;
-}
+// Per-client owned-tab resolution moved to `this.getOwnedTab` at each
+// callsite (IMP-0157). The standalone helper was a chrome.tabs.query
+// shim and would have bypassed the dispatcher's IMP-0086 ownership.
 
 async function insertCssToTab(tabId: number, css: string, allFrames: boolean) {
   await chrome.scripting.insertCSS({ target: { tabId, allFrames }, css });
@@ -474,7 +473,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
   }
 
   private async create(args: CreateArgs): Promise<ToolResult> {
-    const active = await getActiveTab();
+    const active = await this.getOwnedTab({ isRead: true, required: false });
     if (!active || !active.id)
       return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
     const currentUrl = active.url;
@@ -713,7 +712,7 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     await saveAllRecords(all);
 
     // Attempt cleanup on active tab
-    const active = await getActiveTab();
+    const active = await this.getOwnedTab({ isRead: true, required: false });
     if (active && active.id) {
       try {
         if (rec.sourceType === 'CSS') {
@@ -735,7 +734,9 @@ class UserscriptTool extends BaseBrowserToolExecutor {
     const { id, payload, tabId } = args || {};
     if (!id)
       return createErrorResponse('id is required', ToolErrorCode.INVALID_ARGS, { arg: 'id' });
-    const tab = tabId ? await chrome.tabs.get(tabId).catch(() => null) : await getActiveTab();
+    const tab = tabId
+      ? await chrome.tabs.get(tabId).catch(() => null)
+      : await this.getOwnedTab({ isRead: true, required: false });
     if (!tab || !tab.id)
       return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND, { tabId });
 

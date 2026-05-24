@@ -313,6 +313,19 @@ export function findTabOwner(tabId: number): string | null {
 }
 
 /**
+ * Subscribers notified after `releaseClient` clears a client's owned set.
+ * Used by `owned-registry.ts` (IMP-0158) so per-client state stored outside
+ * `ClientState` (inject-script registry, CDP owner tags, recorder sessions,
+ * etc.) can drop its entries when the client disconnects.
+ */
+const clientReleasedSubscribers = new Set<(clientId: string) => void>();
+
+export function subscribeOnClientReleased(cb: (clientId: string) => void): () => void {
+  clientReleasedSubscribers.add(cb);
+  return () => clientReleasedSubscribers.delete(cb);
+}
+
+/**
  * Release every tab owned by `clientId` back to the unowned pool. The
  * client entry itself stays (with `lastSeenAt` updated) so a reconnect
  * under the same sessionName can re-establish from the persisted snapshot.
@@ -328,6 +341,13 @@ export function releaseClient(clientId: string | undefined): number {
   state.activeTabId = undefined;
   state.lastSeenAt = Date.now();
   schedulePersist();
+  for (const cb of clientReleasedSubscribers) {
+    try {
+      cb(clientId);
+    } catch {
+      // subscribers must not break ownership eviction
+    }
+  }
   return released;
 }
 
@@ -458,6 +478,7 @@ export function getClientState(clientId: string | undefined): ClientState | unde
 /** Test helper. Not exported via the barrel intentionally. */
 export function _resetClientStateForTests(): void {
   STATE.clear();
+  clientReleasedSubscribers.clear();
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = undefined;

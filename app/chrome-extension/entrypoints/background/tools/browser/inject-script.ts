@@ -125,6 +125,8 @@ interface ListInjectedScriptsToolParam {
 const injectedTabs = new Map<number, InjectedTabEntry>();
 class InjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.INJECT_SCRIPT;
+  static readonly mutates = true;
+
   async execute(args: InjectScriptParam & ScriptConfig): Promise<ToolResult> {
     try {
       const { url, type, jsScript, tabId, windowId, background = true } = args;
@@ -167,15 +169,20 @@ class InjectScriptTool extends BaseBrowserToolExecutor {
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       } else {
-        // Use active tab (prefer the specified window)
-        const tabs =
-          typeof windowId === 'number'
-            ? await chrome.tabs.query({ active: true, windowId })
-            : await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0]) {
+        // Resolve via the caller's owned tab set (IMP-0157). With
+        // `mutates=true` on this tool (IMP-0151/0156) the dispatcher
+        // pre-stamps `tabId` for anonymous calls, so this branch only
+        // fires when the caller explicitly cleared tabId — treat the
+        // request as a read of the owned set.
+        const owned = await this.getOwnedTab({
+          windowId: typeof windowId === 'number' ? windowId : undefined,
+          isRead: true,
+          required: false,
+        });
+        if (!owned) {
           return createErrorResponse('No active tab found');
         }
-        tab = tabs[0];
+        tab = owned;
       }
 
       if (!tab.id) {
@@ -230,6 +237,8 @@ class InjectScriptTool extends BaseBrowserToolExecutor {
 
 class SendCommandToInjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT;
+  static readonly mutates = true;
+
   async execute(args: SendCommandToInjectScriptToolParam): Promise<ToolResult> {
     try {
       const { tabId, eventName, payload } = args;
@@ -248,12 +257,14 @@ class SendCommandToInjectScriptTool extends BaseBrowserToolExecutor {
       let finalTabId: number | undefined = tabId;
 
       if (finalTabId === undefined) {
-        // Use active tab
-        const tabs = await chrome.tabs.query({ active: true });
-        if (!tabs[0]) {
+        // Per-client owned tab (IMP-0157). Anonymous calls hit the
+        // dispatcher's auto-spawn first; this is the explicit-no-tabId
+        // fallback for clients that haven't seeded an owned tab yet.
+        const owned = await this.getOwnedTab({ isRead: true, required: false });
+        if (!owned?.id) {
           return createErrorResponse('No active tab found');
         }
-        finalTabId = tabs[0].id;
+        finalTabId = owned.id;
       }
 
       if (!finalTabId) {

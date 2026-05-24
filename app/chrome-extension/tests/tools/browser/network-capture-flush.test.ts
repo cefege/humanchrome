@@ -39,6 +39,13 @@ import {
   networkDebuggerStopTool,
 } from '@/entrypoints/background/tools/browser/network-capture-debugger';
 import { networkCaptureTool } from '@/entrypoints/background/tools/browser/network-capture';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'net-flush-test';
 
 interface RawRequest {
   requestId: string;
@@ -155,6 +162,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearBackendState();
+  _resetClientStateForTests();
 });
 
 describe('webRequest backend — flushCapture', () => {
@@ -387,11 +395,20 @@ describe('unified chrome_network_capture — action: flush', () => {
   });
 
   it('prefers the active tab when it is among the ongoing captures', async () => {
-    (globalThis.chrome as any).tabs.query = vi.fn().mockResolvedValue([{ id: 12 }]);
+    // IMP-0157: the unified tool now resolves the active tab via
+    // getOwnedTab(). Stamp tab 12 as the test client's owned tab and
+    // call inside that client's request context.
+    (globalThis.chrome as any).tabs.get = vi
+      .fn()
+      .mockResolvedValue({ id: 12, windowId: 1 });
+    _resetClientStateForTests();
+    claimTabForClient(TEST_CLIENT, 12, 1);
     seedWebCapture(11, [{ requestId: 'a1', url: 'https://a', method: 'GET' }]);
     seedWebCapture(12, [{ requestId: 'b1', url: 'https://b', method: 'GET' }]);
 
-    const res = await networkCaptureTool.execute({ action: 'flush' });
+    const res = await runWithContext({ clientId: TEST_CLIENT }, () =>
+      networkCaptureTool.execute({ action: 'flush' }),
+    );
 
     expect(res.isError).toBe(false);
     const body = JSON.parse((res.content[0] as any).text);

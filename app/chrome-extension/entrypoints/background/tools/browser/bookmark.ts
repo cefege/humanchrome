@@ -392,9 +392,9 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
       let bookmarkTitle = title;
 
       if (!bookmarkUrl) {
-        // Get current active tab
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0] || !tabs[0].url) {
+        // Resolve via the caller's owned tab set (IMP-0157).
+        const ownedTab = await this.getOwnedTab({ isRead: true, required: false });
+        if (!ownedTab || !ownedTab.url) {
           // tab.url might be undefined (e.g., chrome:// pages)
           return createErrorResponse(
             'No active tab with valid URL found, and no URL provided',
@@ -402,9 +402,9 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
           );
         }
 
-        bookmarkUrl = tabs[0].url;
+        bookmarkUrl = ownedTab.url;
         if (!bookmarkTitle) {
-          bookmarkTitle = tabs[0].title || bookmarkUrl; // If tab title is empty, use URL as title
+          bookmarkTitle = ownedTab.title || bookmarkUrl; // If tab title is empty, use URL as title
         }
       }
 

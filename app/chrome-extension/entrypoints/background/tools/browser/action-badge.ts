@@ -26,6 +26,7 @@ function hexToRgba(hex: string): [number, number, number, number] {
 class ActionBadgeTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.ACTION_BADGE;
   static readonly mutates = true;
+  static readonly autoSpawnTab = false;
 
   async execute(args: ActionBadgeParams): Promise<ToolResult> {
     const action = args?.action;

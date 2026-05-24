@@ -3,6 +3,7 @@ import type { ToolResult } from '@/common/tool-handler';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 import { ToolError, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../utils/request-context';
+import { resolveOwnedTabIdForClient } from '../utils/client-state';
 import { debugLog } from '../utils/debug-log';
 
 const PING_TIMEOUT_MS = 300;
@@ -279,6 +280,14 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
 
   /**
    * Get the active tab in the current window. Throws when not found.
+   *
+   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
+   *   `getOwnedTab()` — falling back to the globally-active tab lets one
+   *   client land on another client's tab. The contract test in
+   *   `tests/tools/contract-no-direct-tab-query.test.ts` (IMP-0161) will
+   *   ban direct `chrome.tabs.query({active:true})` from `tools/browser/`
+   *   once every callsite has migrated; this helper is deleted in
+   *   IMP-0169 (cleanup).
    */
   protected async getActiveTabOrThrow(): Promise<chrome.tabs.Tab> {
     const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -308,6 +317,9 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
 
   /**
    * Get the active tab. When windowId provided, search within that window; otherwise currentWindow.
+   *
+   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
+   *   `getOwnedTab({ windowId, required: false })`.
    */
   protected async getActiveTabInWindow(windowId?: number): Promise<chrome.tabs.Tab | null> {
     if (typeof windowId === 'number') {
@@ -320,11 +332,88 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
 
   /**
    * Same as getActiveTabInWindow, but throws if not found.
+   *
+   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
+   *   `getOwnedTab({ windowId })`.
    */
   protected async getActiveTabOrThrowInWindow(windowId?: number): Promise<chrome.tabs.Tab> {
     const tab = await this.getActiveTabInWindow(windowId);
     if (!tab || !tab.id) {
       throw new ToolError(ToolErrorCode.TAB_NOT_FOUND, 'Active tab not found', { windowId });
+    }
+    return tab;
+  }
+
+  /**
+   * Resolve the tab this tool should operate on, honoring the caller's
+   * per-client ownership (IMP-0086) — mirror image of the dispatcher's
+   * resolution priority. Prefer this over `getActiveTabOrThrow*` in any
+   * tool migrated for the multi-tab-by-design rollout: it never falls
+   * back to the globally-active tab, so two clients can't accidentally
+   * step on each other.
+   *
+   * Resolution priority (delegates to `resolveOwnedTabIdForClient`):
+   *   1. `opts.explicit` if a finite number — ownership-checked unless
+   *      `opts.isRead`.
+   *   2. The caller's `activeTabId` if still owned.
+   *   3. The most-recently-inserted entry in the caller's owned set.
+   *   4. If `opts.required !== false`: throws `TAB_NOT_FOUND` with
+   *      `details.reason ∈ {'no-owned-tab','closed','window-mismatch'}`.
+   *      If `opts.required === false`: returns `null`.
+   *
+   * `opts.windowId` filters AFTER the owned-set pick — we never run
+   * `chrome.tabs.query({windowId, active:true})`, which would re-introduce
+   * the implicit-global-tab path this helper exists to replace.
+   */
+  protected async getOwnedTab(
+    opts: {
+      explicit?: number;
+      isRead?: boolean;
+      windowId?: number;
+      required?: boolean;
+    } = {},
+  ): Promise<chrome.tabs.Tab | null> {
+    const required = opts.required !== false;
+    const clientId = getCurrentRequestContext()?.clientId;
+    const resolved = resolveOwnedTabIdForClient(clientId, opts.explicit, { isRead: opts.isRead });
+    if (resolved.conflict) {
+      throw new ToolError(
+        ToolErrorCode.TAB_NOT_OWNED,
+        `Tab ${resolved.conflict.tabId} is owned by client ${resolved.conflict.owner}`,
+        { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
+      );
+    }
+    if (resolved.tabId === undefined) {
+      if (required) {
+        throw new ToolError(ToolErrorCode.TAB_NOT_FOUND, 'No owned tab for this client', {
+          reason: 'no-owned-tab',
+          clientId,
+        });
+      }
+      return null;
+    }
+    let tab: chrome.tabs.Tab;
+    try {
+      tab = await chrome.tabs.get(resolved.tabId);
+    } catch {
+      if (required) {
+        throw new ToolError(
+          ToolErrorCode.TAB_NOT_FOUND,
+          `Owned tab ${resolved.tabId} no longer exists`,
+          { tabId: resolved.tabId, reason: 'closed' },
+        );
+      }
+      return null;
+    }
+    if (typeof opts.windowId === 'number' && tab.windowId !== opts.windowId) {
+      if (required) {
+        throw new ToolError(
+          ToolErrorCode.TAB_NOT_FOUND,
+          `Owned tab ${resolved.tabId} is not in window ${opts.windowId}`,
+          { tabId: resolved.tabId, windowId: opts.windowId, reason: 'window-mismatch' },
+        );
+      }
+      return null;
     }
     return tab;
   }

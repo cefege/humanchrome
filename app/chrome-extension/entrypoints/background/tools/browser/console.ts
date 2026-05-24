@@ -259,18 +259,20 @@ class ConsoleTool extends BaseBrowserToolExecutor {
         // Navigate to the specified URL
         targetTab = await this.navigateToUrl(url, background === true, windowId);
       } else {
-        // Use current active tab
-        const [activeTab] =
-          typeof windowId === 'number'
-            ? await chrome.tabs.query({ active: true, windowId })
-            : await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!activeTab?.id) {
+        // Resolve via the caller's owned tab set (IMP-0157). Read-only —
+        // an explicit tabId is honored even if owned by another client.
+        const ownedTab = await this.getOwnedTab({
+          windowId: typeof windowId === 'number' ? windowId : undefined,
+          isRead: true,
+          required: false,
+        });
+        if (!ownedTab?.id) {
           return createErrorResponse(
             'No active tab found and no URL provided.',
             ToolErrorCode.TAB_NOT_FOUND,
           );
         }
-        targetTab = activeTab;
+        targetTab = ownedTab;
       }
 
       if (!targetTab?.id) {

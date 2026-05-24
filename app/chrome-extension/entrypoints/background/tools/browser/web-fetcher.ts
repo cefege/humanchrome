@@ -118,12 +118,14 @@ class WebFetcherTool extends BaseBrowserToolExecutor {
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       } else {
-        const tabs =
-          typeof windowId === 'number'
-            ? await chrome.tabs.query({ active: true, windowId })
-            : await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tabs[0]) return createErrorResponse('No active tab found');
-        tab = tabs[0];
+        // Per-client owned tab (IMP-0157). Read-only.
+        const owned = await this.getOwnedTab({
+          windowId: typeof windowId === 'number' ? windowId : undefined,
+          isRead: true,
+          required: false,
+        });
+        if (!owned) return createErrorResponse('No active tab found');
+        tab = owned;
       }
 
       if (!tab.id) return createErrorResponse('Tab has no ID');
@@ -339,9 +341,8 @@ class GetInteractiveElementsTool extends BaseBrowserToolExecutor {
     const { textQuery, selector, includeCoordinates = true, types } = args;
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs[0]) return createErrorResponse('No active tab found');
-      const tab = tabs[0];
+      const tab = await this.getOwnedTab({ isRead: true, required: false });
+      if (!tab) return createErrorResponse('No active tab found');
       if (!tab.id) return createErrorResponse('Active tab has no ID');
 
       await this.injectContentScript(tab.id, ['inject-scripts/interactive-elements-helper.js']);

@@ -829,9 +829,14 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
         };
       }
 
-      // If no tabIds or URL provided, close the current active tab
-      console.log('No tabIds or URL provided, closing active tab');
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      // If no tabIds or URL provided, close the caller's owned tab
+      // (IMP-0157). A close operation should never reach into another
+      // client's owned set; isRead:true would also be wrong here because
+      // we're about to mutate, but `mutates=true` on CloseTabsTool means
+      // the dispatcher already pre-stamps tabId for anonymous calls and
+      // this branch only fires for explicit empty-args invocations.
+      console.log('No tabIds or URL provided, closing owned tab');
+      const activeTab = await this.getOwnedTab({ required: false });
 
       if (!activeTab || !activeTab.id) {
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
