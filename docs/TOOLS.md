@@ -583,6 +583,23 @@ Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter po
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 
+### `chrome_hover`
+
+Programmatic mouse hover to trigger tooltips and dropdown menus. Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, nav-bar dropdowns) is unreachable without dispatching a real mouseover chain — `chrome_focus` only focuses, `chrome_click` clicks, `chrome_javascript` synthesizes events but skips actionability. This tool resolves the target via the same `_selector-resolve` engine that click uses, runs a visibility + hit-test check, then dispatches `pointermove` → `mouseover` → `mouseenter` → `pointerenter` exactly as a real mouse would. Returns `{hovered, bbox, point, tagName}`. Pair with `chrome_await_element` after dispatch to wait for the revealed UI before clicking it. Params: `{selector? | ref?, selectorType?, index?, multi?, position?:{x,y} (relative to bbox top-left, defaults to center), force?, tabId?, windowId?, frameId?}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  |  |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  |  |
+| `index` | number |  |  |
+| `multi` | boolean |  |  |
+| `position` | object |  |  |
+| `force` | boolean |  | Skip the visibility + hit-test check. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ## Scripting
 
 ### `chrome_userscript`

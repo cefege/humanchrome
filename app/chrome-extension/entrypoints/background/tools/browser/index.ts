@@ -85,3 +85,4 @@ export { extraHttpHeadersTool } from './extra-http-headers';
 export { ariaSnapshotTool } from './aria-snapshot';
 export { emulateTool } from './emulate';
 export { getAttributesTool } from './get-attributes';
+export { hoverTool } from './hover';

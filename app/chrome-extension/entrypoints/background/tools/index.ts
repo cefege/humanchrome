@@ -112,6 +112,7 @@ import { extraHttpHeadersTool } from './browser/extra-http-headers';
 import { ariaSnapshotTool } from './browser/aria-snapshot';
 import { emulateTool } from './browser/emulate';
 import { getAttributesTool } from './browser/get-attributes';
+import { hoverTool } from './browser/hover';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 // Eager imports for tools that USED to be lazy but landed in their own
 // Rolldown chunk — bug #216. Chrome forbids dynamic `import()` of new
@@ -229,6 +230,7 @@ const eagerTools: ToolInstance[] = [
   ariaSnapshotTool,
   emulateTool,
   getAttributesTool,
+  hoverTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,
