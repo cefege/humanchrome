@@ -135,6 +135,7 @@ export const TOOL_NAMES = {
     HAR_EXPORT: 'chrome_har_export',
     MOCK_RESPONSE: 'chrome_mock_response',
     BASIC_AUTH: 'chrome_basic_auth',
+    SET_CHECKED: 'chrome_set_checked',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3290,6 +3291,30 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.SET_CHECKED,
+    description:
+      'Idempotent checkbox / radio state set. Caller says "I want this checked:true" and the runtime makes it so, returning whether it had to do anything (`changed`) and what the prior state was (`priorChecked`). Saves a read-then-click round-trip and removes the "what if I clicked it twice" ambiguity that plagues flows built on top of `chrome_click_element` for toggles. Matches Playwright\'s `locator.setChecked(boolean)`. Accepts native `<input type="checkbox">` / `<input type="radio">` and ARIA `[role="checkbox|radio|switch"]`. Non-checkable elements return `INVALID_ARGS` with `details.tagName` / `details.role` for diagnostics. Disabled / aria-disabled / not-visible return `NOT_ACTIONABLE`. Mutates state via a native `.click()` so framework `onChange` handlers fire (no direct `.checked = X`). Returns `{checked, changed, priorChecked, tagName, role}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string' },
+        index: { type: 'number' },
+        multi: { type: 'boolean' },
+        checked: { type: 'boolean', description: 'Target state. Required.' },
+        force: { type: 'boolean', description: 'Skip the visibility/disabled check.' },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+      required: ['checked'],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.BASIC_AUTH,
     description:
       'Autoresponder for HTTP Basic / Digest auth prompts via CDP `Fetch.enable({handleAuthRequests:true})` + `Fetch.authRequired` + `Fetch.continueWithAuth`. Many internal corporate sites and staging environments sit behind 401-challenge dialogs that `chrome_handle_dialog` cannot answer (it handles JS dialogs only, not the native auth UI). Without this tool, agents stall indefinitely on the first auth-protected page. Passwords are stored in-memory only — never persisted to chrome.storage, never echoed in `list` output, never logged. Origin match is exact (e.g. "https://api.example.com") with a "*" wildcard fallback. `scheme` ∈ {basic, digest, any} — default any. Unmatched challenges get `Default` (Chrome shows the native dialog as fallback). Actions: `register` (default), `unregister` ({origin}), `list` (origins without passwords), `clear` (drops all on the tab). Per-tab state with auto-cleanup on tab close.',
@@ -3660,6 +3685,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.HAR_EXPORT]: 'Network',
   [TOOL_NAMES.BROWSER.MOCK_RESPONSE]: 'Network',
   [TOOL_NAMES.BROWSER.BASIC_AUTH]: 'Network',
+  [TOOL_NAMES.BROWSER.SET_CHECKED]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
