@@ -304,6 +304,149 @@ const MATRIX = [
   // IMP-0170 dispatcher-tabAlias rows land alongside that PR — adding them
   // now would fail since main doesn't yet resolve `tabAlias` in the
   // dispatcher.
+  // ============================================================================
+  // E2E coverage for the 6 tools shipped in #256-#264 that lacked matrix rows.
+  // ============================================================================
+  {
+    imp: 'IMP-0127',
+    name: 'chrome_aria_snapshot returns indented role/name/ref tree',
+    run: () => callTool('chrome_aria_snapshot', { interactiveOnly: true }),
+    check: (res) => {
+      const p = res.parsed;
+      const ok =
+        !res.isError &&
+        p?.success === true &&
+        typeof p?.snapshot === 'string' &&
+        // Fixture #role-selectors has `<button id="submit-btn" type="button">Submit</button>`.
+        /^-\s+button\s+"Submit"\s+\[ref=ref_/m.test(p.snapshot);
+      return assert(
+        ok,
+        `expected snapshot containing 'button "Submit" [ref=ref_…]', got ${JSON.stringify(res).slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0126',
+    name: 'chrome_get_attributes reads href + aria-label',
+    run: () => callTool('chrome_get_attributes', { selector: '#attr-target' }),
+    check: (res) => {
+      const p = res.parsed;
+      const ok =
+        !res.isError &&
+        p?.ok === true &&
+        p?.attributes?.href === '/x' &&
+        p?.attributes?.['aria-label'] === 'hi';
+      return assert(ok, `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`);
+    },
+  },
+  {
+    imp: 'IMP-0125',
+    name: 'chrome_hover reveals tooltip',
+    run: async () => {
+      const hoverRes = await callTool('chrome_hover', { selector: '#hover-target' });
+      // The `:hover` pseudo-class only stays applied while the mouse pointer
+      // is over the element; synthesizing pointer events doesn't trip it in
+      // Chromium. Instead the fixture flips the tooltip on `mouseover` via
+      // a tiny inline listener that sets `.tooltip-active`, and `mouseout`
+      // clears it. We assert visibility via `chrome_get_attributes` reading
+      // the class list rather than racing the await-element timeout.
+      const attrRes = await callTool('chrome_get_attributes', {
+        selector: '#hover-tooltip',
+        attributes: ['class'],
+      });
+      return { hoverRes, attrRes };
+    },
+    check: ({ hoverRes, attrRes }) => {
+      const hb = hoverRes?.parsed;
+      const ab = attrRes?.parsed;
+      const hoverOk = !hoverRes?.isError && hb?.ok === true && hb?.hovered === true;
+      const tooltipShown =
+        !attrRes?.isError &&
+        typeof ab?.attributes?.class === 'string' &&
+        ab.attributes.class.includes('tooltip-active');
+      return assert(
+        hoverOk && tooltipShown,
+        `hover=${JSON.stringify(hoverRes).slice(0, 200)} attr=${JSON.stringify(attrRes).slice(0, 200)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0143',
+    name: 'chrome_type_into delivers each character + finalValue',
+    run: async () => {
+      // Ensure a clean slate — earlier runs may have left state in the input.
+      await callTool('chrome_fill_or_select', { selector: '#type-target', value: '' });
+      return callTool('chrome_type_into', {
+        selector: '#type-target',
+        text: 'hello',
+        perKeyDelayMs: 0,
+        jitterMs: 0,
+      });
+    },
+    check: (res) => {
+      const p = res.parsed;
+      const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
+      return assert(
+        ok,
+        `expected typed:5 + finalValue:"hello", got ${JSON.stringify(res).slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0124',
+    name: 'chrome_emulate set_device(iphone-15) changes innerWidth',
+    run: async () => {
+      const emulateRes = await callTool('chrome_emulate', {
+        action: 'set_device',
+        preset: 'iphone-15',
+      });
+      const jsRes = await callTool('chrome_javascript', {
+        code: 'innerWidth',
+        awaitPromise: false,
+      });
+      // Restore so subsequent rows see the original viewport.
+      await callTool('chrome_emulate', { action: 'reset_all' });
+      return { emulateRes, jsRes };
+    },
+    check: ({ emulateRes, jsRes }) => {
+      const eb = emulateRes?.parsed;
+      const jb = jsRes?.parsed;
+      const emulateOk = !emulateRes?.isError && eb?.success === true && eb?.device?.width === 393;
+      // chrome_javascript returns `{result: 393}` (or a stringified form depending on caller schema).
+      const jsValue = typeof jb?.result === 'number' ? jb.result : Number(jb?.result);
+      const innerWidthOk = !jsRes?.isError && jsValue === 393;
+      return assert(
+        emulateOk && innerWidthOk,
+        `emulate=${JSON.stringify(emulateRes).slice(0, 200)} js=${JSON.stringify(jsRes).slice(0, 200)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0142',
+    name: 'chrome_set_extra_http_headers + clear roundtrip',
+    run: async () => {
+      const setRes = await callTool('chrome_set_extra_http_headers', {
+        action: 'set',
+        headers: { 'X-Humanchrome-Test': '1' },
+      });
+      const getRes = await callTool('chrome_set_extra_http_headers', { action: 'get' });
+      const clearRes = await callTool('chrome_set_extra_http_headers', { action: 'clear' });
+      return { setRes, getRes, clearRes };
+    },
+    check: ({ setRes, getRes, clearRes }) => {
+      const sb = setRes?.parsed;
+      const gb = getRes?.parsed;
+      const cb = clearRes?.parsed;
+      const setOk =
+        !setRes?.isError && sb?.success === true && sb?.headers?.['X-Humanchrome-Test'] === '1';
+      const getOk = !getRes?.isError && gb?.headers?.['X-Humanchrome-Test'] === '1';
+      const clearOk = !clearRes?.isError && cb?.cleared === true;
+      return assert(
+        setOk && getOk && clearOk,
+        `set=${JSON.stringify(setRes).slice(0, 150)} get=${JSON.stringify(getRes).slice(0, 150)} clear=${JSON.stringify(clearRes).slice(0, 150)}`,
+      );
+    },
+  },
 ];
 
 async function waitForFreshSw(priorBuildHash, priorAvailable) {

@@ -189,6 +189,32 @@ and starting `chrome_intercept_response` against it. Verify
 DevTools on the same tab mid-wait and confirm the tool returns
 `CDP_DETACHED` immediately rather than hanging.
 
+### IMP-0124..0143 — new-tools coverage (matrix rows added 2026-05-24)
+
+Six matrix rows added in the same PR that ships this section. Each
+asserts the canonical happy path for tools that previously had only
+vitest coverage:
+
+- **IMP-0127** `chrome_aria_snapshot` — output contains
+  `- button "Submit" [ref=ref_…]` against the existing
+  `#role-selectors` section.
+- **IMP-0126** `chrome_get_attributes` — reads `href=/x` +
+  `aria-label=hi` from `#attr-target`.
+- **IMP-0125** `chrome_hover` — dispatches hover, then verifies the
+  fixture's `mouseover` listener added the `.tooltip-active` class
+  via `chrome_get_attributes`. (`:hover` pseudo-class doesn't fire
+  from synthesized pointer events in Chromium, so the fixture flips a
+  class instead.)
+- **IMP-0143** `chrome_type_into` — types `hello` into `#type-target`
+  with `perKeyDelayMs:0, jitterMs:0`; asserts `finalValue === 'hello'`.
+- **IMP-0124** `chrome_emulate` — `set_device({preset:'iphone-15'})`
+  then `chrome_javascript({code:'innerWidth'})` returns 393. Calls
+  `reset_all` at the end so subsequent rows see the original viewport.
+- **IMP-0142** `chrome_set_extra_http_headers` — set/get/clear
+  roundtrip on the in-memory tab map (doesn't issue a network request
+  against an echo server — that needs httpbin.org and would make the
+  row flaky).
+
 ## Reporting
 
 End with a single table:
