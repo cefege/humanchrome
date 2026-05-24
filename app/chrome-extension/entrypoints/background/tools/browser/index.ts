@@ -82,3 +82,4 @@ export { devReloadTool } from './dev-reload';
 export { runtimeInfoTool } from './runtime-info';
 export { aliasTabTool } from './alias-tab';
 export { extraHttpHeadersTool } from './extra-http-headers';
+export { ariaSnapshotTool } from './aria-snapshot';

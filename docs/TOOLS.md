@@ -290,6 +290,19 @@ Save a tab as PDF via the Chrome DevTools Protocol (`Page.printToPDF`). Returns 
 | `marginLeftIn` | number |  | Left margin in inches. Default 0.4. |
 | `pageRanges` | string |  | Page ranges to print, e.g. `"1-5,8,11-13"`. Empty = all pages. |
 
+### `chrome_aria_snapshot`
+
+Playwright-style compact ARIA tree snapshot for token-efficient page reads. Returns indented `- role "name" [ref=ref_N]` lines with stable refs that round-trip into `selectorType:"ref"`. 4-6x smaller than `chrome_read_page` on rich pages (LinkedIn feed, dashboards, message threads) — LLMs scan it in ~half the tokens. Read-only; reuses the same accessibility-tree-helper that `chrome_read_page` uses (no new inject-script). Params: `tabId?`, `windowId?`, `refId?` (snapshot a subtree), `maxDepth?` (clamp traversal), `interactiveOnly?` (default true — set false for layout dumps), `includeRefs?` (default true). Output capped at 1 MiB with truncation envelope. Use this as the default page-read; fall back to `chrome_read_page` only when you need bounding-box coordinates.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Target tab. Defaults to caller's owned tab. |
+| `windowId` | number |  | Optional window-id filter on the owned-tab pick. |
+| `refId` | string |  | Snapshot a subtree rooted at this ref instead of the whole page. |
+| `maxDepth` | number |  | Cap traversal depth. The helper enforces a hard ceiling regardless. |
+| `interactiveOnly` | boolean |  | Include only interactive elements (default true). Set false for structure dumps. |
+| `includeRefs` | boolean |  | Print `[ref=...]` markers so the LLM can pivot to ref-based selectors. Default true. |
+
 ## Interaction
 
 ### `chrome_computer`

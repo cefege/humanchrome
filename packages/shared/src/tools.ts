@@ -127,6 +127,7 @@ export const TOOL_NAMES = {
     OWNED_TABS: 'chrome_owned_tabs',
     ALIAS_TAB: 'browser_alias_tab',
     SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
+    ARIA_SNAPSHOT: 'chrome_aria_snapshot',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3254,6 +3255,34 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.ARIA_SNAPSHOT,
+    description:
+      'Playwright-style compact ARIA tree snapshot for token-efficient page reads. Returns indented `- role "name" [ref=ref_N]` lines with stable refs that round-trip into `selectorType:"ref"`. 4-6x smaller than `chrome_read_page` on rich pages (LinkedIn feed, dashboards, message threads) — LLMs scan it in ~half the tokens. Read-only; reuses the same accessibility-tree-helper that `chrome_read_page` uses (no new inject-script). Params: `tabId?`, `windowId?`, `refId?` (snapshot a subtree), `maxDepth?` (clamp traversal), `interactiveOnly?` (default true — set false for layout dumps), `includeRefs?` (default true). Output capped at 1 MiB with truncation envelope. Use this as the default page-read; fall back to `chrome_read_page` only when you need bounding-box coordinates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'number', description: 'Target tab. Defaults to caller\'s owned tab.' },
+        windowId: { type: 'number', description: 'Optional window-id filter on the owned-tab pick.' },
+        refId: {
+          type: 'string',
+          description: 'Snapshot a subtree rooted at this ref instead of the whole page.',
+        },
+        maxDepth: {
+          type: 'number',
+          description: 'Cap traversal depth. The helper enforces a hard ceiling regardless.',
+        },
+        interactiveOnly: {
+          type: 'boolean',
+          description: 'Include only interactive elements (default true). Set false for structure dumps.',
+        },
+        includeRefs: {
+          type: 'boolean',
+          description: 'Print `[ref=...]` markers so the LLM can pivot to ref-based selectors. Default true.',
+        },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS,
     description:
       'Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.',
@@ -3412,6 +3441,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',
+  [TOOL_NAMES.BROWSER.ARIA_SNAPSHOT]: 'Reading',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
