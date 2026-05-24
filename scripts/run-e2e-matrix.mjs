@@ -322,20 +322,87 @@ function readRegistry() {
   return out;
 }
 
-async function findSpawnedBridge(extensionId, afterMs, deadlineMs) {
+async function findSpawnedBridge(extensionId, afterMs, deadlineMs, { wakeCdpUrl } = {}) {
   // Poll the on-disk registry written by the bridge after it binds its HTTP
   // port (IMP-0115). Returns the most recently-started bridge for the given
   // extension whose startedAt >= afterMs. Lets us route to the bridge owned
   // by the Chrome we just spawned, without contending with the user's
   // existing Chrome.
+  //
+  // IMP-0162: MV3 service workers are lazy on a fresh `--user-data-dir`
+  // profile — Chrome spends 1–5 minutes on first-run component_updater
+  // housekeeping before triggering `chrome.runtime.onInstalled` for the
+  // unpacked extension. We can't make Chrome faster, so we (a) wait
+  // longer (deadlineMs is now caller-supplied with a 180s default),
+  // (b) print progress every 15s so the run doesn't look hung, and
+  // (c) actively wake the SW via the remote-debugging-port by GET'ing
+  // the SW's URL — Chrome boots the SW on demand when an inspector or
+  // a fetch lands on the chrome-extension://... origin.
+  const start = Date.now();
+  let lastProgressAt = start;
+  let lastWakeAt = 0;
+  let warnedIdMismatch = false;
   let delay = 200;
   while (Date.now() < deadlineMs) {
-    const entries = readRegistry().filter(
-      (e) => e.extensionId === extensionId && new Date(e.startedAt).getTime() >= afterMs,
+    // IMP-0162: the registry dir is isolated per spawn (`HC_INSTANCE_REGISTRY_DIR`
+    // is set to a matrix-only path before Chrome launches), so any entry that
+    // appears after `afterMs` IS the bridge owned by the Chrome we spawned —
+    // even when CFT computes a different extension ID than the manifest's
+    // pinned `key`. CI is the canonical case: chrome.exe gives the unpacked
+    // extension an unstable ID (e.g. `dmjkiedo...`) instead of `hbdgbgag...`,
+    // so the old `extensionId === expected` filter never matched.
+    //
+    // Strategy: prefer the expected-ID entry if present (so a stale orphan
+    // bridge from a previous run doesn't shadow the real one), but accept
+    // the most-recent-after-afterMs entry regardless of ID. Warn once when
+    // the ID disagrees so manifest-key drift is visible.
+    const fresh = readRegistry().filter(
+      (e) => new Date(e.startedAt).getTime() >= afterMs,
     );
-    if (entries.length > 0) {
-      entries.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
-      return entries[0];
+    if (fresh.length > 0) {
+      fresh.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+      const byExpectedId = fresh.find((e) => e.extensionId === extensionId);
+      const chosen = byExpectedId ?? fresh[0];
+      if (!byExpectedId && !warnedIdMismatch) {
+        console.warn(
+          `[e2e]   note: spawned bridge has extensionId=${chosen.extensionId} (expected ${extensionId}). Accepting anyway — registry dir is isolated.`,
+        );
+        warnedIdMismatch = true;
+      }
+      return chosen;
+    }
+    // Try waking the SW every 5s through the CDP devtools URL. The SW boots
+    // lazily on a fresh profile and may need an external trigger after
+    // first-run setup completes — onInstalled doesn't fire reliably under
+    // --load-extension until Chrome is fully idle.
+    if (wakeCdpUrl && Date.now() - lastWakeAt > 5000) {
+      lastWakeAt = Date.now();
+      try {
+        const res = await fetch(`${wakeCdpUrl}/json/list`);
+        if (res.ok) {
+          const targets = await res.json();
+          // CFT may load the extension with an unpinned ID — match on
+          // type only, not URL, so the wake-up still triggers when the
+          // expected ID isn't honored.
+          const swTarget = targets.find((t) => t.type === 'service_worker');
+          if (swTarget?.url) {
+            // Hitting the SW URL forces Chrome to start it (and keeps it
+            // alive briefly). The 404 it returns is fine — we just need
+            // the side effect.
+            await fetch(swTarget.url.replace(/^chrome-extension/, 'http')).catch(() => {});
+          }
+        }
+      } catch {
+        /* CDP not ready yet — keep polling */
+      }
+    }
+    // Periodic progress so a long wait doesn't look like a hang.
+    if (Date.now() - lastProgressAt > 15000) {
+      lastProgressAt = Date.now();
+      const elapsedS = Math.round((Date.now() - start) / 1000);
+      console.log(
+        `[e2e]   waiting for SW handshake… ${elapsedS}s elapsed (deadline ${Math.round((deadlineMs - start) / 1000)}s)`,
+      );
     }
     await sleep(delay);
     delay = Math.min(delay * 1.5, 1500);
@@ -571,6 +638,51 @@ function launchChrome() {
   return { pid: child.pid, profile, spawnedAt, matrixRegistry, chromeLogPath };
 }
 
+/**
+ * IMP-0162: ensure a fixture HTTP server is live on port 4173.
+ *
+ * `pnpm e2e:isolated` (the local convenience target) spawns its own Chrome,
+ * but expected someone else to start the fixture server. The CI workflow
+ * starts python3's http.server explicitly; local users had no equivalent,
+ * so every fixture row failed with "Frame with ID 0 is showing error page".
+ * Probe first — if 4173 is already serving, reuse it. Otherwise spawn a
+ * detached http.server and shut it down at exit.
+ */
+async function ensureFixtureServer() {
+  const FIXTURE_DIR = resolve(REPO_ROOT, 'app/chrome-extension/tests/e2e/fixtures');
+  const probeUrl = 'http://127.0.0.1:4173/playwright-parity.html';
+  try {
+    const res = await fetch(probeUrl, { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      console.log(`[e2e] fixture server already live on :4173`);
+      return null;
+    }
+  } catch {
+    /* not running — fall through and spawn */
+  }
+  console.log(`[e2e] spawning fixture server: python3 -m http.server 4173 -d ${FIXTURE_DIR}`);
+  const child = spawn('python3', ['-m', 'http.server', '4173', '--directory', FIXTURE_DIR], {
+    stdio: 'ignore',
+    detached: true,
+  });
+  child.unref();
+  // Wait up to 5s for the port to come up.
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(probeUrl, { signal: AbortSignal.timeout(500) });
+      if (res.ok) {
+        console.log(`[e2e]   fixture server ready (pid=${child.pid})`);
+        return child;
+      }
+    } catch {
+      await sleep(200);
+    }
+  }
+  console.warn(`[e2e]   fixture server didn't respond in 5s — matrix rows will probably fail.`);
+  return child;
+}
+
 async function main() {
   console.log(`[e2e] bridge=${BRIDGE_BASE} fixture=${FIXTURE_URL} clientId=${CLIENT_ID}`);
 
@@ -579,6 +691,19 @@ async function main() {
     run('pnpm', ['build:shared']);
     run('pnpm', ['build:native']);
     run('pnpm', ['build:extension']);
+  }
+
+  // IMP-0162: auto-start fixture server if missing (was: silently expected
+  // someone else to serve port 4173).
+  const fixtureServer = await ensureFixtureServer();
+  if (fixtureServer) {
+    process.on('exit', () => {
+      try {
+        process.kill(-fixtureServer.pid, 'SIGTERM');
+      } catch {
+        /* best effort */
+      }
+    });
   }
 
   let spawned = null;
@@ -593,10 +718,23 @@ async function main() {
     // bridge in the on-disk instance registry (IMP-0115). Once we know the
     // port, route all subsequent HTTP calls there — even if the user's
     // regular Chrome's bridge is also bound (on a different port).
+    // IMP-0162: bump 30s → 180s. MV3 SW start under --load-extension on a
+    // fresh profile waits for Chrome's first-run component_updater dance,
+    // which routinely takes 1–5 minutes on macOS even with no real work
+    // happening (chrome_debug.log evidence: first SW console line lands
+    // ~6 min after Chrome spawn). Subsequent runs against the same profile
+    // are fast, but the matrix scrubs `--user-data-dir` each run for
+    // isolation, so we pay the cost every time.
+    const handshakeDeadline =
+      Date.now() + Number(process.env.HC_E2E_HANDSHAKE_TIMEOUT_MS || 180_000);
     const entry = await findSpawnedBridge(
       EXPECTED_EXTENSION_ID,
       spawned.spawnedAt,
-      Date.now() + 30_000,
+      handshakeDeadline,
+      // The matrix already opened CDP on 9333 (`--remote-debugging-port=9333`).
+      // findSpawnedBridge uses it to actively wake the SW once first-run
+      // setup completes — see the IMP-0162 comment inside the helper.
+      { wakeCdpUrl: 'http://127.0.0.1:9333' },
     );
     if (!entry) {
       // IMP-0139: self-diagnostic dump. Most common cause is Chrome not
@@ -605,7 +743,9 @@ async function main() {
       // work). The matrix runner stages copies at every documented path
       // in stageNativeMessagingHost, but if the source manifest itself
       // is missing or stale, that staging silently does nothing useful.
-      console.error('[e2e] spawned Chrome did not register a bridge within 30s.');
+      console.error(
+        `[e2e] spawned Chrome did not register a bridge within ${Math.round((handshakeDeadline - spawned.spawnedAt) / 1000)}s.`,
+      );
       console.error(`[e2e] registry dir: ${REGISTRY_DIR}`);
       console.error('[e2e] diagnostic checklist:');
       const sourceManifest = nativeMessagingHostManifestSource();

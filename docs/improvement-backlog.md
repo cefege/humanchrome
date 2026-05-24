@@ -49,6 +49,17 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 7
+
+- **Proposed by**: claude · 2026-05-24 (follow-up to IMP-0162 — partial fix unblocked local but not CI)
+- **Status**: proposed
+- **Why**: IMP-0162 fixed two harness bugs in `scripts/run-e2e-matrix.mjs` (30s SW handshake timeout, missing fixture server). Local `pnpm e2e:isolated` now reliably reports 16/16 PASS in ~3 minutes. CI's matrix job remains red on a third, separate failure: the bridge spawns via Chrome's native messaging child but exits within ~50ms, so no `~/Library/Application Support/humanchrome-bridge/e2e-registry/instances/<pid>.json` file is ever written and `findSpawnedBridge` times out at 180s. The matrix has been failing on every PR since 2026-05-19 with this exact shape. Workflow: CI's `e2e-fixture.yml` installs CFT via `@puppeteer/browsers install chrome@stable`, runs `humanchrome-bridge register`, then `pnpm e2e:matrix --launch-chrome`. Chrome boots fine (SW logs `[OffscreenKeepalive] acquire(native-host)` within ~2s), but each NM connection drops immediately with `[humanchrome] Native connection disconnected`. The SW retries with exponential backoff but the bridge never stays alive long enough to write its registry entry.
+- **Cost**: M
+- **Value**: M
+- **Repro**: Push any change touching `app/chrome-extension/` to a PR. The `e2e-fixture` workflow's `matrix` job will hit "spawned Chrome did not register a bridge within 180s" (with the IMP-0162 amend in place) after ~3 minutes.
+- **Fix sketch**: Investigate why the NM-spawned bridge exits immediately on CI's macos-latest runner. Candidates: (a) `run_host.sh` path resolution — `cli.js register` writes a manifest pointing at the runner's installed `dist/run_host.sh`, but the bridge child may resolve paths differently from a CI shell; (b) Code-signing / Gatekeeper restrictions on @puppeteer/browsers CFT preventing the NM child from execve'ing the bridge cleanly; (c) Env var propagation — `HC_INSTANCE_REGISTRY_DIR` and `HC_BRIDGE_DAEMON_SOCKET` are set in `spawn()` env when launching Chrome, but Chrome may not forward them to NM child processes the same way locally vs CI; (d) FD limits — bridge daemon UDS bind fails silently in CI's constrained env. Add `console.error` instrumentation to the bridge's startup path (pre-registry-write) and chrome.runtime.onConnect.onDisconnect's `lastError` in the SW, so the next CI run dumps the actual reason. Once root cause known, the fix is likely a 1–2 line patch to the bridge or the manifest path.
+- **Notes**: This is the third stacked failure mode in the matrix CI gate (after IMP-0139 NM-path and IMP-0162 timeout). Until fixed, the `e2e-fixture` job remains a red gate on every PR; humans have been merging through it. Doesn't block local matrix verification — `pnpm e2e:isolated` works correctly post-IMP-0162.
+
 ### IMP-0103 · Installed bridge is stale — IMP-0098/0100/0101/0102 surface rejected at MCP layer (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-05-16
