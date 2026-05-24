@@ -779,6 +779,20 @@ Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Usefu
 | `bypassList` | array<string> |  | For `set` with mode="fixed_servers". Optional list of host patterns the proxy is bypassed for. |
 | `pacUrl` | string |  | For `set` with mode="pac_script". URL of the PAC script. |
 
+### `chrome_basic_auth`
+
+Autoresponder for HTTP Basic / Digest auth prompts via CDP `Fetch.enable({handleAuthRequests:true})` + `Fetch.authRequired` + `Fetch.continueWithAuth`. Many internal corporate sites and staging environments sit behind 401-challenge dialogs that `chrome_handle_dialog` cannot answer (it handles JS dialogs only, not the native auth UI). Without this tool, agents stall indefinitely on the first auth-protected page. Passwords are stored in-memory only — never persisted to chrome.storage, never echoed in `list` output, never logged. Origin match is exact (e.g. "https://api.example.com") with a "*" wildcard fallback. `scheme` ∈ {basic, digest, any} — default any. Unmatched challenges get `Default` (Chrome shows the native dialog as fallback). Actions: `register` (default), `unregister` ({origin}), `list` (origins without passwords), `clear` (drops all on the tab). Per-tab state with auto-cleanup on tab close.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `register` \| `unregister` \| `list` \| `clear` |  |  |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `origin` | string |  | Required for register/unregister. Origin like "https://api.example.com" or "*" wildcard. |
+| `username` | string |  | Required for register. |
+| `password` | string |  | Required for register. Never echoed back. |
+| `scheme` | `basic` \| `digest` \| `any` |  |  |
+
 ### `chrome_mock_response`
 
 Synthesize fake response bodies for matched URLs via CDP `Fetch.enable` + `Fetch.requestPaused` + `Fetch.fulfillRequest`. The page fires its real request; this tool intercepts the pre-flight and returns a synthesized response before the network layer ever leaves the browser. Closes the missing in-flight synthesis primitive — `chrome_block_or_redirect` can drop or rewrite URLs, `chrome_intercept_response` can only WAIT, but neither can synthesize. Real-world: test the logged-in flow when the real endpoint would 429 (return a fake 200); deterministic fixture replay; demo a flow when the back-end is down. Actions: `register` (default; installs a handler), `list_mocks`, `unregister_mock` ({handlerId}), `clear` (drops all on the tab). Pattern syntax mirrors `chrome_intercept_response`: substring (`"voyager/api"`) or wrapped slashes with flags (`"/voyager\\/api.*foo/i"`). `bodyJson` auto-serializes + sets `Content-Type: application/json` if no content-type in headers. `once` (default true) auto-unregisters after the first match. `delayMs` adds artificial latency.
