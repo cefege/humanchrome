@@ -558,7 +558,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0133 · Lazy-load network-capture-web-request.ts (1084 LoC currently eager) — frees ~40-60 KB from SW boot (perf) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: wontdo (2026-05-24; lazy-loading a 1084 LoC module via dynamic `import()` reproduces bug #216 — Chromium bans `import()` in `ServiceWorkerGlobalScope` and Rolldown splits modules wider than ~3 KB into their own chunk. The existing eager-imports comment in `tools/index.ts:120-135` documents this exact constraint; the `lazyLoaders` Map's surviving entries (screenshot, intercept-response, etc.) only work because their chunks happen to be inlined back into background.js, which is unpredictable. Reviving lazy-loading for a 1 KLoC module would either crash at runtime or regress randomly across builds. Real fix requires the offscreen-document pattern (see vector-search.ts as the precedent), which is a much larger refactor than the original IMP scope. Closing in favor of opening a follow-up IMP if/when the offscreen pattern is adopted as a general approach.)
 - **Why**: network-capture-web-request.ts (1084 LoC) is statically imported in the eager dispatcher at tools/index.ts:73 + :179 — parsed on every SW boot even when nothing in the session ever calls `chrome_network_capture_start`. Its peer network-capture-debugger.ts (1116 LoC) was already lazied in IMP-0056. The blocker is one eager `chrome.tabs.onRemoved` listener installed at line 148 of the constructor; lift that out and the whole class lazies cleanly. Estimated savings: 40-60 KB off background.js (currently 760 KB).
 - **Cost**: M
 - **Value**: M
