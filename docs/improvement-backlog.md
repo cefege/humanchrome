@@ -49,6 +49,17 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0176 · chrome_type_into CDP keystrokes don't land on focused input — missing `code`/`windowsVirtualKeyCode` (bug) · score: 6
+
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: proposed
+- **Why**: Matrix run #26367039557's chrome_type_into row returned `{ok:true, typed:5, finalValue:""}` — the tool dispatched 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs against a focused `<input id="type-target">`, but no characters landed (input value stayed empty). `focusForTyping` succeeded; `sendChar` populates `type`/`text`/`unmodifiedText`/`key` but NOT `code` (e.g. `'KeyH'`) or `windowsVirtualKeyCode` (e.g. 72 for `'H'`). Chromium's CDP renderer needs both for printable ASCII chars to register as text input rather than be discarded as unmapped control keys.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Push any change bundling `app/chrome-extension/entrypoints/background/tools/browser/type-into.ts` and re-enable the matrix row deferred in `scripts/run-e2e-matrix.mjs` (search for "IMP-0176"). The row PASSes only when sendChar populates code+windowsVirtualKeyCode for each ASCII char.
+- **Fix sketch**: Add a `charToKey(ch: string) → {code, windowsVirtualKeyCode}` helper. Letters: `code: 'Key' + ch.toUpperCase()`, `windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0)`. Digits: `Digit{n}` / 48-57. Symbols: lookup table from US QWERTY. Forward through `sendChar` alongside the existing fields. Verify via re-enabling the matrix row.
+- **Notes**: Unit tests in `tests/tools/browser/type-into.test.ts` pass because they assert the call shape, not actual char delivery — the mock doesn't validate that Chrome would have accepted the event. The chrome_keyboard tool already does this correctly; cross-reference its `KEY_ALIASES` map and adapt.
+
 ### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 6
 
 - **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
