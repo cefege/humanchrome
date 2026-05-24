@@ -39,7 +39,10 @@ import { runWithContext } from '../utils/request-context';
 // shape; this dispatcher just doesn't use it.
 // =============================================================================
 
-import { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './browser/common';
+import { navigateTool } from './browser/common';
+import { navigateBatchTool } from './browser/navigate-batch';
+import { closeTabsTool } from './browser/close-tabs';
+import { switchTabTool } from './browser/switch-tab';
 import { closeTabsMatchingTool } from './browser/close-tabs-matching';
 import { tabGroupsTool } from './browser/tab-groups';
 import { notificationsTool } from './browser/notifications';
