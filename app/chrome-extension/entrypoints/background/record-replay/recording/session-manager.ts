@@ -567,7 +567,11 @@ export const recordingSession = new Proxy({} as RecordingSessionManager, {
   get(_target, prop: keyof RecordingSessionManager) {
     const target = getRecordingSessionForClient();
     const value = target[prop];
-    return typeof value === 'function' ? (value as Function).bind(target) : value;
+    // ESLint bans the bare `Function` type — use the precise call
+    // signature so `this` binds correctly for any method.
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
   },
   has(_target, prop: PropertyKey) {
     return prop in getRecordingSessionForClient();
