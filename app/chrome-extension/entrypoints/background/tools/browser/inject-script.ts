@@ -3,6 +3,8 @@ import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
+import { createOwnedRegistry, OWNED_REGISTRY_SYSTEM_CLIENT } from '../../utils/owned-registry';
+import { getCurrentRequestContext } from '../../utils/request-context';
 
 // Bug #217: `chrome.scripting.executeScript` calls used to be unbounded —
 // when a page silently absorbed the injection (e.g., freelancermap.de's
@@ -122,7 +124,26 @@ interface ListInjectedScriptsToolParam {
   tabId?: number;
 }
 
-const injectedTabs = new Map<number, InjectedTabEntry>();
+// IMP-0164: (clientId, tabId)-keyed registry. Self-subscribes to
+// chrome.tabs.onRemoved and to client-release (via OwnedRegistry's
+// internal hooks) so we no longer need the standalone tab-close
+// listener that lived at the bottom of this file. Cross-client
+// safety: two clients can each have their own injection in the
+// same tab without clobbering — when the dispatcher's IMP-0086
+// ownership routes the call, getCurrentRequestContext gives us the
+// caller's clientId for the lookup.
+const injectedTabs = createOwnedRegistry<InjectedTabEntry>({
+  onEvict: ({ tabId, clientId }) => {
+    // Tab closed or client released — nothing to send to the page (tab
+    // is gone or unowned). handleCleanup is the orchestrator for the
+    // live-tab cleanup path; this only handles the auto-eviction case.
+    console.log(`inject-script: evicted clientId=${clientId} tabId=${tabId} (tab-close or client-release)`);
+  },
+});
+
+function callerClientId(): string | undefined {
+  return getCurrentRequestContext()?.clientId;
+}
 class InjectScriptTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.INJECT_SCRIPT;
   static readonly mutates = true;
@@ -271,7 +292,7 @@ class SendCommandToInjectScriptTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active tab found');
       }
 
-      const entry = injectedTabs.get(finalTabId);
+      const entry = injectedTabs.get(callerClientId(), finalTabId);
       if (!entry) {
         throw new Error('No script injected in this tab.');
       }
@@ -315,7 +336,8 @@ async function isTabExists(tabId: number) {
  * @param {object} scriptConfig - The configuration object for the script.
  */
 async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<InjectOutcome> {
-  if (injectedTabs.has(tabId)) {
+  const clientId = callerClientId();
+  if (injectedTabs.has(clientId, tabId)) {
     // If already injected, run cleanup first to ensure a clean state.
     console.log(`Tab ${tabId} already has injections. Cleaning up first.`);
     await handleCleanup(tabId);
@@ -406,7 +428,7 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
     if (failure) return failure;
   }
 
-  injectedTabs.set(tabId, { ...scriptConfig, injectedAt: Date.now() });
+  injectedTabs.set(clientId, tabId, { ...scriptConfig, injectedAt: Date.now() });
   console.log(`Scripts successfully injected into tab ${tabId}.`);
   return { injected: true, success: true };
 }
@@ -416,15 +438,16 @@ async function handleInject(tabId: number, scriptConfig: ScriptConfig): Promise<
  * @param {number} tabId - The ID of the target tab.
  */
 async function handleCleanup(tabId: number) {
-  if (!injectedTabs.has(tabId)) return;
+  const clientId = callerClientId();
+  if (!injectedTabs.has(clientId, tabId)) return;
   // Send cleanup signal. The bridge will forward it to the MAIN world.
   chrome.tabs
     .sendMessage(tabId, { type: 'humanchrome:cleanup' })
-    .catch((err) =>
+    .catch(() =>
       console.warn(`Could not send cleanup message to tab ${tabId}. It might have been closed.`),
     );
 
-  injectedTabs.delete(tabId);
+  injectedTabs.delete(clientId, tabId);
   console.log(`Cleanup signal sent to tab ${tabId}. State cleared.`);
 }
 
@@ -448,13 +471,21 @@ class ListInjectedScriptsTool extends BaseBrowserToolExecutor {
       injectedAt: number;
     }> = [];
 
-    for (const [tabId, entry] of injectedTabs) {
+    // IMP-0164: scope to the caller's owned entries. Cross-client
+    // listing would leak the existence of other clients' injections;
+    // anyone with legitimate need can read across clients via
+    // chrome_debug_dump. Callers without a request context (UI,
+    // legacy tests) resolve to the system bucket so they still see
+    // entries seeded under no clientId.
+    const ownClientId = callerClientId() ?? OWNED_REGISTRY_SYSTEM_CLIENT;
+    for (const { clientId, tabId, value } of injectedTabs.entries()) {
+      if (clientId !== ownClientId) continue;
       if (filterTabId !== undefined && tabId !== filterTabId) continue;
       items.push({
         tabId,
-        world: entry.type,
-        scriptLength: typeof entry.jsScript === 'string' ? entry.jsScript.length : 0,
-        injectedAt: entry.injectedAt,
+        world: value.type,
+        scriptLength: typeof value.jsScript === 'string' ? value.jsScript.length : 0,
+        injectedAt: value.injectedAt,
       });
     }
 
@@ -501,7 +532,7 @@ class RemoveInjectedScriptTool extends BaseBrowserToolExecutor {
       return createErrorResponse('Active tab has no ID', ToolErrorCode.TAB_NOT_FOUND);
     }
 
-    if (!injectedTabs.has(tabId)) {
+    if (!injectedTabs.has(callerClientId(), tabId)) {
       return jsonOk({ removed: false, tabId });
     }
     try {
@@ -528,22 +559,38 @@ export const listInjectedScriptsTool = new ListInjectedScriptsTool();
 export const sendCommandToInjectScriptTool = new SendCommandToInjectScriptTool();
 export const removeInjectedScriptTool = new RemoveInjectedScriptTool();
 
-/** Test-only — seed the injectedTabs map without going through the public inject path. */
+/**
+ * Test-only — seed the injectedTabs registry without going through the
+ * public inject path. The `clientId` parameter is required so tests
+ * exercise the same (clientId, tabId) keying the runtime uses post-
+ * IMP-0164.
+ */
 export function _seedInjectedTabForTest(
-  tabId: number,
-  entry: { type: ExecutionWorld; jsScript: string; injectedAt?: number },
+  clientIdOrTabId: string | number,
+  tabIdOrEntry: number | { type: ExecutionWorld; jsScript: string; injectedAt?: number },
+  maybeEntry?: { type: ExecutionWorld; jsScript: string; injectedAt?: number },
 ): void {
-  injectedTabs.set(tabId, {
+  // Back-compat: when called as `_seedInjectedTabForTest(tabId, entry)`,
+  // route the entry into the system bucket so the legacy two-arg shape
+  // keeps working. New tests should pass clientId explicitly.
+  if (typeof clientIdOrTabId === 'number' && typeof tabIdOrEntry !== 'number') {
+    injectedTabs.set(undefined, clientIdOrTabId, {
+      type: tabIdOrEntry.type,
+      jsScript: tabIdOrEntry.jsScript,
+      injectedAt: tabIdOrEntry.injectedAt ?? Date.now(),
+    });
+    return;
+  }
+  const clientId = clientIdOrTabId as string;
+  const tabId = tabIdOrEntry as number;
+  const entry = maybeEntry!;
+  injectedTabs.set(clientId, tabId, {
     type: entry.type,
     jsScript: entry.jsScript,
     injectedAt: entry.injectedAt ?? Date.now(),
   });
 }
 
-// --- Automatic Cleanup Listeners ---
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (injectedTabs.has(tabId)) {
-    console.log(`Tab ${tabId} closed. Cleaning up state.`);
-    injectedTabs.delete(tabId);
-  }
-});
+// IMP-0164: `injectedTabs` (OwnedRegistry) self-subscribes to
+// chrome.tabs.onRemoved internally, so the standalone tab-close
+// listener that lived here is no longer needed.

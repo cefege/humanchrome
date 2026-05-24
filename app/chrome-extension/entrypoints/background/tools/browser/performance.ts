@@ -2,6 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { createOwnedRegistry } from '../../utils/owned-registry';
 import { sendNativeRequest } from '@/entrypoints/background/native-host';
 import { DEFAULT_PERF_TRACE_MAX_DURATION_MS, MAX_TOOL_TIMEOUT_MS } from '../../utils/timeouts';
 
@@ -37,18 +38,21 @@ interface TraceSessionState {
   stopPromise?: Promise<{ completed: boolean }>;
 }
 
-const sessions = new Map<number, TraceSessionState>();
-const LAST_RESULTS = new Map<
-  number,
-  {
-    events: TraceEvent[];
-    startedAt: number;
-    endedAt: number;
-    tabUrl: string;
-    saved?: { downloadId?: number; filename?: string; fullPath?: string };
-    metrics?: Record<string, number>;
-  }
->();
+// IMP-0164: backed by `OwnedRegistry` for auto-eviction on tab close.
+// Trace sessions are per-tab metadata; all entries route to the system
+// bucket. Tab-close eviction prevents `sessions` leaks (previously
+// closed tabs left dangling TraceSessionState until restart).
+const sessions = createOwnedRegistry<TraceSessionState>();
+
+type LastResult = {
+  events: TraceEvent[];
+  startedAt: number;
+  endedAt: number;
+  tabUrl: string;
+  saved?: { downloadId?: number; filename?: string; fullPath?: string };
+  metrics?: Record<string, number>;
+};
+const LAST_RESULTS = createOwnedRegistry<LastResult>();
 
 function tracingCategories(): string[] {
   // Keep broadly consistent with other project
@@ -167,7 +171,7 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       }
       const tabId = activeTab.id;
-      const existed = sessions.get(tabId);
+      const existed = sessions.get(undefined, tabId);
       if (existed?.recording) {
         return createErrorResponse(
           'A performance trace is already recording for this tab. Call chrome_performance_stop_trace first.',
@@ -201,7 +205,7 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
         },
       };
       chrome.debugger.onEvent.addListener(state.listener);
-      sessions.set(tabId, state);
+      sessions.set(undefined, tabId, state);
 
       // Start tracing with categories
       const cats = tracingCategories().join(',');
@@ -267,7 +271,7 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
       if (!activeTab?.id)
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       const tabId = activeTab.id;
-      const session = sessions.get(tabId);
+      const session = sessions.get(undefined, tabId);
       if (!session) {
         return {
           content: [
@@ -317,7 +321,7 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
         }
       }
 
-      LAST_RESULTS.set(tabId, {
+      LAST_RESULTS.set(undefined, tabId, {
         events: session.events,
         startedAt: session.startedAt,
         endedAt,
@@ -326,7 +330,7 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
         metrics,
       });
 
-      sessions.delete(tabId);
+      sessions.delete(undefined, tabId);
 
       return {
         content: [
@@ -370,7 +374,7 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
       if (!activeTab?.id)
         return createErrorResponse('No active tab found', ToolErrorCode.TAB_NOT_FOUND);
       const tabId = activeTab.id;
-      const result = LAST_RESULTS.get(tabId);
+      const result = LAST_RESULTS.get(undefined, tabId);
       if (!result) {
         return createErrorResponse(
           'No recorded trace for this tab. Call chrome_performance_start_trace then chrome_performance_stop_trace first.',

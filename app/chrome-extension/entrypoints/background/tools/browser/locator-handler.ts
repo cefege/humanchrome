@@ -2,6 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { createOwnedRegistry } from '../../utils/owned-registry';
 
 /**
  * chrome_locator_handler (IMP-0101) — Playwright-style auto-dismiss of sticky
@@ -84,13 +85,21 @@ function nextHandlerId(): string {
   return `lh_${handlerCounter}`;
 }
 
-const tabHandlers: Map<number, Map<string, RegisteredHandler>> = new Map();
+// IMP-0164: backed by `OwnedRegistry` for auto-eviction on tab close
+// (previously this map leaked entries — only the explicit
+// `releaseLocatorHandlersForTabs` and a manual tabs.onRemoved listener
+// kept it pruned). Per the plan, locator handlers are page-scoped
+// (migrate policy on force-claim), so all entries route to the system
+// bucket rather than being per-client. `releaseLocatorHandlersForTabs`
+// stays as the explicit by-tab clear that the bridge calls on client
+// disconnect.
+const tabHandlers = createOwnedRegistry<Map<string, RegisteredHandler>>();
 
 function getOrCreateTabBucket(tabId: number): Map<string, RegisteredHandler> {
-  let bucket = tabHandlers.get(tabId);
+  let bucket = tabHandlers.get(undefined, tabId);
   if (!bucket) {
     bucket = new Map();
-    tabHandlers.set(tabId, bucket);
+    tabHandlers.set(undefined, tabId, bucket);
   }
   return bucket;
 }
@@ -141,7 +150,7 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
         // Tab raced closure between our resolve and the injection — drop any
         // cached state for this tab and report TAB_CLOSED so callers can
         // either retry against a fresh tab or give up cleanly.
-        tabHandlers.delete(tabId);
+        tabHandlers.delete(undefined, tabId);
         return createErrorResponse(`Tab ${tabId} closed during call`, ToolErrorCode.TAB_CLOSED, {
           tabId,
         });
@@ -226,7 +235,7 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
   }
 
   private async actionList(tabId: number): Promise<ToolResult> {
-    const bucket = tabHandlers.get(tabId);
+    const bucket = tabHandlers.get(undefined, tabId);
     if (!bucket || bucket.size === 0) {
       // Don't bother injecting just to read an empty list — the background
       // map is the source of truth for `list`. Live dismissedCount only
@@ -277,9 +286,11 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
         { arg: 'handlerId' },
       );
     }
-    const bucket = tabHandlers.get(tabId);
+    const bucket = tabHandlers.get(undefined, tabId);
     const wasInBg = !!bucket?.delete(handlerId);
-    if (bucket && bucket.size === 0) tabHandlers.delete(tabId);
+    if (bucket && bucket.size === 0) tabHandlers.delete(undefined, tabId);
+    // Note: the second .delete is the post-remove cleanup; the helper
+    // returns false if the entry was already gone, which is fine.
 
     // Best-effort tell the page to forget it too. If the page has navigated
     // away the message will fail; the background entry is the canonical
@@ -303,9 +314,9 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
   }
 
   private async actionClear(tabId: number): Promise<ToolResult> {
-    const bucket = tabHandlers.get(tabId);
+    const bucket = tabHandlers.get(undefined, tabId);
     const clearedInBg = bucket ? bucket.size : 0;
-    tabHandlers.delete(tabId);
+    tabHandlers.delete(undefined, tabId);
 
     let clearedInPage = 0;
     try {
@@ -393,7 +404,10 @@ export const locatorHandlerTool = new LocatorHandlerTool();
  * `keyboard.ts` and the `_seedXForTest` convention from `inject-script.ts`.
  */
 export function _resetLocatorHandlersForTest(): void {
-  tabHandlers.clear();
+  // OwnedRegistry doesn't expose `clear()` — iterate evict per known tab.
+  for (const { tabId } of [...tabHandlers.entries()]) {
+    tabHandlers.delete(undefined, tabId);
+  }
   handlerCounter = 0;
 }
 
@@ -408,7 +422,7 @@ export function _resetLocatorHandlersForTest(): void {
 export function releaseLocatorHandlersForTabs(tabIds: Iterable<number>): number[] {
   const released: number[] = [];
   for (const tabId of tabIds) {
-    if (tabHandlers.delete(tabId)) released.push(tabId);
+    if (tabHandlers.delete(undefined, tabId)) released.push(tabId);
   }
   return released;
 }
@@ -421,22 +435,15 @@ export function _getLocatorHandlerStateForTest(): {
   tabs: Array<{ tabId: number; handlerIds: string[] }>;
 } {
   const tabs: Array<{ tabId: number; handlerIds: string[] }> = [];
-  for (const [tabId, bucket] of tabHandlers) {
+  for (const { tabId, value: bucket } of tabHandlers.entries()) {
     tabs.push({ tabId, handlerIds: [...bucket.keys()] });
   }
   return { tabs };
 }
 
-// --- Cleanup listeners ---
-// Closed tabs lose every handler. Persistent handlers replay on the same tab
-// after navigation, but a fully-removed tab has nothing to replay against.
-if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
-  chrome.tabs.onRemoved.addListener((tabId) => {
-    if (tabHandlers.has(tabId)) {
-      tabHandlers.delete(tabId);
-    }
-  });
-}
+// IMP-0164: `tabHandlers` (OwnedRegistry) self-subscribes to
+// chrome.tabs.onRemoved internally, so the standalone tab-close
+// listener that lived here is no longer needed.
 
 // Persistent handlers re-arm after navigation via webNavigation.onDOMContentLoaded.
 // Only the main frame triggers replay — we don't want to fire N times for sites
@@ -444,7 +451,7 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved?.addListener) {
 if (typeof chrome !== 'undefined' && chrome.webNavigation?.onDOMContentLoaded?.addListener) {
   chrome.webNavigation.onDOMContentLoaded.addListener(async (details) => {
     if (details.frameId !== 0) return;
-    const bucket = tabHandlers.get(details.tabId);
+    const bucket = tabHandlers.get(undefined, details.tabId);
     if (!bucket || bucket.size === 0) return;
     // Partition in one pass so non-persistent handlers drop on navigation
     // (by design — list/remove must not surface stale entries) regardless
@@ -454,7 +461,7 @@ if (typeof chrome !== 'undefined' && chrome.webNavigation?.onDOMContentLoaded?.a
       if (handler.persistent) persistent.push(handler);
       else bucket.delete(handler.handlerId);
     }
-    if (bucket.size === 0) tabHandlers.delete(details.tabId);
+    if (bucket.size === 0) tabHandlers.delete(undefined, details.tabId);
     // Replay in parallel — handlers are independent.
     await Promise.all(
       persistent.map((handler) =>

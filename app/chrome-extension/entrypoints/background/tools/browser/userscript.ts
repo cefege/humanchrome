@@ -3,6 +3,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld, STORAGE_KEYS } from '@/common/constants';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { createOwnedRegistry } from '../../utils/owned-registry';
 
 type UserscriptAction =
   | 'create'
@@ -62,9 +63,18 @@ interface UserscriptRecord {
   cspBlocked?: boolean;
 }
 
-// In-memory tracking of active injections per tab
+// In-memory tracking of active injections per tab.
+//
+// IMP-0164: backed by `OwnedRegistry` so the entry is auto-evicted
+// when the tab closes (previously this cache leaked on every tab
+// close — no listener swept it). Userscript records themselves live
+// in chrome.storage.local (global, not per-client); this cache only
+// tracks which `(tab, scriptId)` pairs are live in-page. Per the
+// multi-tab-by-design plan, userscripts use the "migrate" policy on
+// force-claim — effectively page-scoped — so all entries route to
+// the system bucket rather than being per-client.
 type ActiveInjection = { kind: 'css' | 'js'; world?: 'ISOLATED' | 'MAIN' };
-const activeInjections: Map<number, Map<string, ActiveInjection>> = new Map();
+const activeInjections = createOwnedRegistry<Map<string, ActiveInjection>>();
 
 async function loadAllRecords(): Promise<Record<string, UserscriptRecord>> {
   const res = await chrome.storage.local.get([STORAGE_KEYS.USERSCRIPTS]);
@@ -331,16 +341,17 @@ async function injectJsPersistent(
 }
 
 function setActiveInjection(tabId: number, id: string, inj: ActiveInjection) {
-  let m = activeInjections.get(tabId);
+  // IMP-0164: route through the system bucket — see registry declaration.
+  let m = activeInjections.get(undefined, tabId);
   if (!m) {
     m = new Map();
-    activeInjections.set(tabId, m);
+    activeInjections.set(undefined, tabId, m);
   }
   m.set(id, inj);
 }
 
 function clearActiveInjection(tabId: number, id: string) {
-  const m = activeInjections.get(tabId);
+  const m = activeInjections.get(undefined, tabId);
   if (m) m.delete(id);
 }
 

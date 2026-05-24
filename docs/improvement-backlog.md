@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0164 · Multi-tab Phase 3 — migrate 6 module-scope registries onto OwnedRegistry (refactor) · score: 6
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 3 Registries)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: Migrated 6 module-scope `Map<tabId, V>` registries onto the `OwnedRegistry` helper added in IMP-0158, so they all share one auto-eviction story instead of each tool re-implementing its own tab-close listener. Files: `inject-script.ts` (`injectedTabs`), `userscript.ts` (`activeInjections`), `locator-handler.ts` (`tabHandlers`), `dialog.ts` (`defaults` — onEvict tears down the CDP onEvent listener + detach), `gif-auto-capture.ts` (`tabStates`), `performance.ts` (`sessions` + `LAST_RESULTS`). For dialog defaults the explicit listener-remove + detach in `clearDefaultForTab` / `register_default`'s replace branch / external-detach handler all became redundant once `onEvict` owns the lifecycle — net diff is smaller than the raw migration delta. Eviction policy decisions per the plan: `inject-script` is per-client (uses `getCurrentRequestContext` for the clientId); the other 5 route all entries through the system bucket because they're page-scoped behaviors where per-client distinction adds no value (dialog handler can only respond once per dialog; locator handlers / userscripts / gif-auto-capture / perf traces are page-scoped state). Removed 4 standalone `chrome.tabs.onRemoved` listeners (inject-script, locator-handler, dialog, gif-auto-capture's was implicit) — OwnedRegistry self-subscribes once on creation. Closes a class of leaks: closed tabs used to leak entries in gif-auto-capture and performance because neither had a tab-close listener at all. Full focused gate: 831/831 vitest pass; tsc clean; `pnpm e2e:isolated` 16/16 PASS in 3 min on the migrated build.
+- **Why**: Phase 3 of the multi-tab-by-design rollout. Foundation for Phase 5 (CDP per-client owner tags / event fan-out) — once the registry pattern is in place, the CDP work can adopt the same primitive without re-deriving the eviction contract. Also fixes the leaks where closed tabs left dangling state in gif-auto-capture and performance registries.
+- **Cost**: M
+- **Value**: M
+
 ### IMP-0161 · Multi-tab Phase 2 — ratchet test banning direct chrome.tabs.query in tools/browser (test) · score: 5
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations — completes Phase 2)
