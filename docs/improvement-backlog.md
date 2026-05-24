@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0168 · Multi-tab Phase 6b — chrome_owned_tabs tool (feat) · score: 4
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 6b)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: New tool `chrome_owned_tabs` returns the tabs currently owned by the calling MCP client (or UI surface). Distinct from `chrome_get_windows_and_tabs` (whole-browser catalog with owner column) — `chrome_owned_tabs` answers the narrower "what does THIS client own" question with one flat array, refreshed metadata, and an `isPinnedActive` flag marking the dispatcher's `activeTabId`. Optional `tabId` arg filters to one row for "is this still mine?" checks. Powers the "Tabs owned by this client" panel that lives in the popup/sidepanel UIs (next IMP). Read-only (no `mutates`); `autoSpawnTab=false` so a fresh client with no claims gets `{count:0, ownedTabs:[]}` instead of an unexpected blank tab. Standard 5-file recipe per CLAUDE.md: tool at `tools/browser/owned-tabs.ts`, registry/schema/category in `packages/shared/src/tools.ts` (append-only), barrel + dispatcher in `tools/browser/index.ts` + `tools/index.ts`, 7 tests in `tests/tools/browser/owned-tabs.test.ts` (INVALID_ARGS without context, empty for new client, rows with metadata, `isPinnedActive`, tabId filter, skip-closed-tabs, cross-client isolation, sort order). docs/TOOLS.md regenerated. Gate: 16/16 (owned-tabs + lazy-tool-registry) pass; tsc + lint clean.
+- **Why**: Phase 6b of the multi-tab-by-design rollout. The panel in the next IMP needs this tool to render. Also useful standalone for MCP clients introspecting their own ownership state without parsing the whole-browser tree.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0167 · Multi-tab Phase 6a — per-window UI clientId stamping (feat) · score: 4
 
 - **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 6a)

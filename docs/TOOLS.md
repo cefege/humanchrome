@@ -177,6 +177,14 @@ Close every tab currently owned by the calling MCP client. Opt-in cleanup — di
 |-------|------|----------|-------------|
 | `keep` | array<number> |  | Tab IDs to preserve (kept owned by the calling client, not closed). Each id must be in the caller's owned set; non-owned ids are silently dropped from `kept`. |
 
+### `chrome_owned_tabs`
+
+Return the tabs currently owned by the calling MCP client (or, for UI surfaces, the calling __ui:* lane). Distinct from `chrome_get_windows_and_tabs` — that is the whole-browser catalog; this answers the narrower "what does THIS client own" question without forcing the caller to filter a multi-window tree by an owner column. Output: `{success, clientId, count, ownedTabs: [{tabId, windowId, url, title, active, isActive, status, isPinnedActive}], activeTabId?, lastWindowId?}`. `isPinnedActive` marks the tab the dispatcher will pick when the caller omits `tabId` from a mutating tool. Empty `ownedTabs` for a fresh client with no claims. Optional `tabId` filters to one row, useful for "is this tab still mine?" checks. Powers the "Tabs owned by this client" panel in popup/sidepanel UIs.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tabId` | number |  | Optional filter — return only the row matching this tabId, if owned. |
+
 ## Reading
 
 ### `chrome_read_page`

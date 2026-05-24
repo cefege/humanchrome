@@ -101,6 +101,7 @@ import { waitForTool } from './browser/wait-for';
 import { paceTool, paceGetTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
 import { closeMyTabsTool } from './browser/close-my-tabs';
+import { ownedTabsTool } from './browser/owned-tabs';
 import { queueInspectTool } from './browser/queue-inspect';
 import { locatorHandlerTool } from './browser/locator-handler';
 import { devReloadTool } from './browser/dev-reload';
@@ -212,6 +213,7 @@ const eagerTools: ToolInstance[] = [
   paceGetTool,
   claimTabTool,
   closeMyTabsTool,
+  ownedTabsTool,
   queueInspectTool,
   locatorHandlerTool,
   devReloadTool,
