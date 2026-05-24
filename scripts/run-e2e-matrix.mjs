@@ -310,7 +310,19 @@ const MATRIX = [
   {
     imp: 'IMP-0127',
     name: 'chrome_aria_snapshot returns indented role/name/ref tree',
-    run: () => callTool('chrome_aria_snapshot', { interactiveOnly: true }),
+    // Re-navigate to the fixture before snapshot so we don't race a
+    // stale tab. The matrix's initial navigate happens once at the top
+    // of the run; intervening rows can leave the dispatcher's
+    // most-recently-touched tab pointing elsewhere when the read-only
+    // resolver picks a tab from the owned set.
+    run: async () => {
+      const navRes = await callTool('chrome_navigate', { url: FIXTURE_URL });
+      const navTabId = navRes?.parsed?.tabId;
+      return callTool('chrome_aria_snapshot', {
+        interactiveOnly: true,
+        ...(typeof navTabId === 'number' ? { tabId: navTabId } : {}),
+      });
+    },
     check: (res) => {
       const p = res.parsed;
       // The acc-tree-helper indents children under their parents
