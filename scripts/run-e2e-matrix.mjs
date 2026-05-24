@@ -27,12 +27,49 @@ import {
   cpSync,
   statSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { platform, homedir } from 'node:os';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXPECTED_EXTENSION_ID = 'hbdgbgagpkpjffpklnamcljpakneikee';
+
+/**
+ * IMP-0163: derive the deterministic extension ID Chrome assigns to an
+ * unpacked extension loaded via `--load-extension`. Algorithm matches
+ * Chromium's `Extension::GenerateIdForPath` in
+ * `extensions/common/extension.cc`: SHA-256 the absolute path's UTF-8
+ * bytes, hex-encode the first 16 bytes (= 32 hex chars), then map each
+ * hex digit through the a-p alphabet (0→a, 9→j, a→k, f→p).
+ *
+ * Used to patch the NM manifest's `allowed_origins` when the manifest
+ * `key` field isn't honored — which happens whenever the `CHROME_EXTENSION_KEY`
+ * env var isn't set at build time. CI runners don't have it; local
+ * dev builds do. Pre-IMP-0163 the matrix's NM manifest only listed
+ * the keyed ID `hbdgbgag...`, and CI's unpacked extension loaded as
+ * the path-derived ID `dmjkiedo...`, so Chrome refused to spawn the
+ * bridge with "Access to the specified native messaging host is
+ * forbidden."
+ */
+function deriveUnpackedExtensionId(absolutePath) {
+  const hash = createHash('sha256').update(absolutePath, 'utf8').digest('hex');
+  const first32 = hash.slice(0, 32);
+  let out = '';
+  for (const c of first32) {
+    const code = c.charCodeAt(0);
+    if (code >= 0x30 && code <= 0x39) {
+      // '0'-'9' → 'a'-'j' (+49)
+      out += String.fromCharCode(code + 49);
+    } else if (code >= 0x61 && code <= 0x66) {
+      // 'a'-'f' → 'k'-'p' (+10)
+      out += String.fromCharCode(code + 10);
+    } else {
+      throw new Error(`unexpected hex char: ${c}`);
+    }
+  }
+  return out;
+}
 let REGISTRY_DIR =
   process.env.HC_INSTANCE_REGISTRY_DIR ||
   resolve(homedir(), 'Library/Application Support/humanchrome-bridge/instances');
@@ -475,7 +512,7 @@ function nativeMessagingHostTargets() {
   ];
 }
 
-function stageNativeMessagingHost(profile) {
+function stageNativeMessagingHost(profile, extensionPath) {
   // Per IMP-0139: Chrome on macOS does NOT scan `<user-data-dir>/NativeMessagingHosts/`.
   // The pre-IMP-0139 implementation copied here, which only worked by
   // accident — the same user happened to have the manifest staged at a
@@ -492,36 +529,56 @@ function stageNativeMessagingHost(profile) {
     );
     return;
   }
-  // Log the source manifest so a stale `path` field is visible in the run log
-  // — saved us hours debugging "bridge spawned but exits immediately" before.
+  // IMP-0163: derive the path-based extension ID Chrome will assign
+  // to the staged extension and add it to allowed_origins. The user's
+  // local Chrome honors the manifest `key` (via the CHROME_EXTENSION_KEY
+  // env var at build time) and loads the extension as the pinned ID,
+  // but CI builds don't set that env var → no `key` in manifest.json
+  // → Chrome falls back to the path-derived ID. Without the path-ID in
+  // allowed_origins, Chrome refuses to spawn the bridge with "Access
+  // to the specified native messaging host is forbidden."
+  let manifest;
   try {
     const stat = statSync(src);
     const raw = readFileSync(src, 'utf8');
-    const parsed = JSON.parse(raw);
+    manifest = JSON.parse(raw);
     console.log(`[e2e] NM manifest source: ${src} (${stat.size} bytes)`);
     console.log(
-      `[e2e]   name=${parsed.name} path=${parsed.path} allowed_origins=${JSON.stringify(parsed.allowed_origins)}`,
+      `[e2e]   name=${manifest.name} path=${manifest.path} allowed_origins=${JSON.stringify(manifest.allowed_origins)}`,
     );
   } catch (err) {
     console.warn(`[e2e]   failed to read/parse source manifest: ${err.message}`);
+    return;
   }
+
+  if (extensionPath) {
+    const derivedId = deriveUnpackedExtensionId(extensionPath);
+    const derivedOrigin = `chrome-extension://${derivedId}/`;
+    const allowed = new Set(manifest.allowed_origins || []);
+    if (!allowed.has(derivedOrigin)) {
+      allowed.add(derivedOrigin);
+      manifest.allowed_origins = [...allowed];
+      console.log(`[e2e]   derived extension id for ${extensionPath} = ${derivedId}`);
+      console.log(`[e2e]   appended ${derivedOrigin} to allowed_origins`);
+    }
+  }
+  const manifestJson = JSON.stringify(manifest, null, 2);
+
   // Profile-relative copy for back-compat with any future Chrome version
   // that *does* honor profile-relative paths (today none on macOS, but
   // cheap to keep).
   mkdirSync(profileLocal, { recursive: true });
-  cpSync(src, resolve(profileLocal, 'com.humanchrome.nativehost.json'));
+  writeFileSync(resolve(profileLocal, 'com.humanchrome.nativehost.json'), manifestJson);
   console.log(`[e2e]   profile-relative (back-compat) = ${profileLocal}/`);
   // User-level copies — the paths Chrome actually scans on macOS.
+  // IMP-0163: ALWAYS write our patched version (with path-derived ID in
+  // allowed_origins). Pre-fix we skipped if a manifest already existed,
+  // which kept the user-installed pinned-ID-only manifest in place and
+  // is exactly why CI was failing.
   for (const dst of nativeMessagingHostTargets()) {
     const dstFile = resolve(dst, 'com.humanchrome.nativehost.json');
-    if (existsSync(dstFile)) {
-      // Don't clobber a user-installed working manifest — they may have
-      // a hand-edited `path` pointing at a non-default dist.
-      console.log(`[e2e]   user-level present, leaving alone: ${dstFile}`);
-      continue;
-    }
     mkdirSync(dst, { recursive: true });
-    cpSync(src, dstFile);
+    writeFileSync(dstFile, manifestJson);
     console.log(`[e2e]   user-level (staged) = ${dstFile}`);
   }
 }
@@ -531,7 +588,7 @@ function launchChrome() {
   const ext = stageExtensionForChrome();
   if (existsSync(profile)) rmSync(profile, { recursive: true, force: true });
   mkdirSync(profile, { recursive: true });
-  stageNativeMessagingHost(profile);
+  stageNativeMessagingHost(profile, ext);
 
   // IMP-0120: isolate the matrix bridge from the user's main Chrome's
   // daemon UDS by giving it its own registry dir + daemon socket. Without
