@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 7
 
 - **Proposed by**: claude · 2026-05-24 (follow-up to IMP-0162 — partial fix unblocked local but not CI)
-- **Status**: proposed
+- **Status**: done (2026-05-24; resolved by the path-derived extension ID approach added to scripts/run-e2e-matrix.mjs — `deriveUnpackedExtensionId` patches the NM manifest's allowed_origins for CI's unpacked load so the bridge accepts the NM connection. Matrix has been green across the entire #254-#266 session post-fix.)
 - **Why**: IMP-0162 fixed two harness bugs in `scripts/run-e2e-matrix.mjs` (30s SW handshake timeout, missing fixture server). Local `pnpm e2e:isolated` now reliably reports 16/16 PASS in ~3 minutes. CI's matrix job remains red on a third, separate failure: the bridge spawns via Chrome's native messaging child but exits within ~50ms, so no `~/Library/Application Support/humanchrome-bridge/e2e-registry/instances/<pid>.json` file is ever written and `findSpawnedBridge` times out at 180s. The matrix has been failing on every PR since 2026-05-19 with this exact shape. Workflow: CI's `e2e-fixture.yml` installs CFT via `@puppeteer/browsers install chrome@stable`, runs `humanchrome-bridge register`, then `pnpm e2e:matrix --launch-chrome`. Chrome boots fine (SW logs `[OffscreenKeepalive] acquire(native-host)` within ~2s), but each NM connection drops immediately with `[humanchrome] Native connection disconnected`. The SW retries with exponential backoff but the bridge never stays alive long enough to write its registry entry.
 - **Cost**: M
 - **Value**: M
@@ -169,7 +169,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0110 · CI e2e-fixture workflow gates chrome-extension PRs (feat) · score: 5
 
 - **Proposed by**: user · 2026-05-16
-- **Status**: proposed
+- **Status**: done (2026-05-24; `.github/workflows/e2e-fixture.yml` has been committed + active since IMP-0162. Triggers on PRs touching `app/chrome-extension/**`, `packages/shared/**`, the runner, or workflow file. Required-status enforcement is a GitHub branch-protection toggle — owner-only, no further code changes needed.)
 - **Why**: CLAUDE.md hard-rules "E2E verification mandatory for every chrome-extension change", but until IMP-0109 landed (the `pnpm e2e:full` runner) there was no automatable way to enforce it. Now that the matrix runner is HTTP-only and JSON-emitting, a CI job can run it on every PR touching `app/chrome-extension/**` and fail the merge gate when the matrix regresses. Closes the gap that let IMP-0104..0108 slip through review unnoticed.
 - **Cost**: M
 - **Value**: L
@@ -318,7 +318,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0140 · Split common.ts (920 LoC) — extract NavigateBatchTool, CloseTabsTool, SwitchTabTool into siblings (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #265 — common.ts trimmed to NavigateTool only; navigate-batch.ts / close-tabs.ts / switch-tab.ts now sibling files. Dispatcher + barrel updated. 1794/1794 tests pass.)
 - **Why**: `common.ts` jams 4 unrelated tools (Navigate/NavigateBatch/CloseTabs/SwitchTab) into one 920-LoC file with overlapping URL-matching helpers (`buildUrlPatterns`, `pickBestMatch`, `normalizePath`). New tools (IMP-0050 close_tabs_matching, etc.) keep landing here because the file is the catch-all. Splitting clarifies ownership and shrinks per-file blast radius for unrelated edits.
 - **Cost**: S
 - **Value**: M
@@ -335,7 +335,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0141 · Extract AgentEngineBase — claude.ts + codex.ts share 6 identical helpers (~150 LoC dedupe) (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #265 — `app/native-server/src/agent/engines/base.ts` extracted with 5 shared helpers + MAX_STDERR_LINES. claude.ts: -73 LoC, codex.ts: -66 LoC. pickFirstString left in both — codex's version has an extra object-key recursion branch that claude lacks. 168/168 bridge tests pass.)
 - **Why**: Both engines (claude.ts 1733 LoC, codex.ts 1078 LoC) carry the same `pickFirstString`, `resolveRepoPath`, `encodeHash`, `writeAttachmentToTemp`, `MAX_STDERR_LINES` constant, and a 30-line `dispatchToolMessageRun` that differs only by the `cli_type` metadata key. Each future bug fix has to be applied twice; IMP-0009 / IMP-0049 (split initializeAndRun) will only get harder until the shared spine is extracted.
 - **Cost**: M
 - **Value**: M
@@ -350,7 +350,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0143 · chrome_type_into — char-by-char keystroke typing into a selector with per-key delay (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #264 — ISOLATED focus shim + CDP Input.dispatchKeyEvent keyDown/keyUp per char with perKeyDelayMs ± jitterMs. clearFirst via Ctrl+A+Delete; pressEnter at end; finalValue read-back. 27/27 unit tests + matrix row in PR #267.)
 - **Why**: chrome_fill_or_select sets `el.value` instantly + dispatches one `input` event — anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence and skip suggestions / shadowban the session. chrome_keyboard fires keystrokes at the window (no focus-pin to the target element). chrome_paste pastes a single buffer. There is no primitive for "focus this input and type these N characters one keystroke at a time with realistic delay between keys" — exactly what humans look like and what the hard platforms expect for a typed search. Today the agent has to chain chrome_focus + N chrome_keyboard calls (and the delay between calls is the bridge round-trip, not human-shaped). One tool collapses N round-trips into one and surfaces realistic-cadence input as a first-class primitive.
 - **Cost**: S
 - **Value**: M
