@@ -55,6 +55,15 @@ interface ClientState {
   lastWindowId?: number;
   lastSeenAt: number;
   pacing?: PacingState;
+  /**
+   * IMP-0169: named handles for owned tabs. Map<alias, tabId>. Aliases
+   * are per-client (alice's 'checkout' is not bob's), validated against
+   * the regex `^[a-z][a-z0-9_-]{0,31}$`, and self-evict when the
+   * underlying tab closes or the client releases. Reusing an alias on
+   * the same client overwrites the prior mapping and returns the
+   * previous tabId so the LLM caller sees the change.
+   */
+  aliases?: Map<string, number>;
 }
 
 /**
@@ -112,6 +121,8 @@ interface PersistedClientEntry {
   activeTabId?: number;
   lastWindowId?: number;
   lastSeenAt: number;
+  /** IMP-0169: alias→tabId map serialized as a plain object for storage.session. */
+  aliases?: Record<string, number>;
 }
 
 type PersistedSnapshot = Record<string, PersistedClientEntry>;
@@ -139,6 +150,9 @@ async function persistNow(): Promise<void> {
       activeTabId: s.activeTabId,
       lastWindowId: s.lastWindowId,
       lastSeenAt: s.lastSeenAt,
+      ...(s.aliases && s.aliases.size > 0
+        ? { aliases: Object.fromEntries(s.aliases) }
+        : {}),
     };
   }
   try {
@@ -184,6 +198,19 @@ export async function loadPersistedClientState(): Promise<void> {
       (id) => typeof id === 'number' && (aliveTabIds.size === 0 || aliveTabIds.has(id)),
     );
     if (liveTabIds.length === 0) continue;
+    // IMP-0169: rebuild alias map, dropping aliases whose tab no longer
+    // exists in the live owned set. Persisted as Record<string, number>;
+    // deserialized as Map for runtime use.
+    let aliases: Map<string, number> | undefined;
+    if (entry.aliases && typeof entry.aliases === 'object') {
+      aliases = new Map<string, number>();
+      for (const [alias, tabId] of Object.entries(entry.aliases)) {
+        if (typeof tabId === 'number' && liveTabIds.includes(tabId)) {
+          aliases.set(alias, tabId);
+        }
+      }
+      if (aliases.size === 0) aliases = undefined;
+    }
     const s: ClientState = {
       ownedTabs: new Set(liveTabIds),
       activeTabId:
@@ -192,6 +219,7 @@ export async function loadPersistedClientState(): Promise<void> {
           : undefined,
       lastWindowId: typeof entry.lastWindowId === 'number' ? entry.lastWindowId : undefined,
       lastSeenAt: typeof entry.lastSeenAt === 'number' ? entry.lastSeenAt : now,
+      ...(aliases ? { aliases } : {}),
     };
     STATE.set(clientId, s);
   }
@@ -339,6 +367,8 @@ export function releaseClient(clientId: string | undefined): number {
   const released = state.ownedTabs.size;
   state.ownedTabs.clear();
   state.activeTabId = undefined;
+  // IMP-0169: aliases are client-scoped — they go away with the client.
+  state.aliases = undefined;
   state.lastSeenAt = Date.now();
   schedulePersist();
   for (const cb of clientReleasedSubscribers) {
@@ -475,6 +505,84 @@ export function getClientState(clientId: string | undefined): ClientState | unde
   return STATE.get(clientId);
 }
 
+// =============================================================================
+// IMP-0169: tab aliases — named handles for the caller's owned tabs
+// =============================================================================
+
+/**
+ * Validation per the plan: starts with a lowercase letter, then up to
+ * 31 chars of [a-z0-9_-]. Total cap 32. Schema-validated by
+ * `browser_alias_tab` so the LLM gets a clear error message before
+ * the alias lands in state.
+ */
+export const ALIAS_REGEX = /^[a-z][a-z0-9_-]{0,31}$/;
+
+export interface AliasResolveResult {
+  /** Resolved tab id for the alias, if known and still owned. */
+  tabId?: number;
+  /** Reason the alias didn't resolve: 'unknown-alias' or 'tab-closed'. */
+  reason?: 'unknown-alias' | 'tab-closed';
+}
+
+/**
+ * Set or overwrite an alias for a client-owned tab. Returns the prior
+ * tabId for this alias (or undefined). Callers are responsible for
+ * validating the alias against `ALIAS_REGEX` first (the
+ * `browser_alias_tab` tool does this) and for confirming `tabId` is in
+ * the client's owned set (the dispatcher's ownership gate does this).
+ */
+export function setAliasForClient(
+  clientId: string | undefined,
+  alias: string,
+  tabId: number,
+): { previousTabId?: number } {
+  if (!clientId) return {};
+  const state = ensureState(clientId, Date.now());
+  if (!state.aliases) state.aliases = new Map<string, number>();
+  const previousTabId = state.aliases.get(alias);
+  state.aliases.set(alias, tabId);
+  schedulePersist();
+  return previousTabId !== undefined ? { previousTabId } : {};
+}
+
+/**
+ * Look up a tab by alias. Returns `{tabId}` on hit, `{reason}` on miss.
+ * `tab-closed` fires if the alias was set but the underlying tab has
+ * since been evicted from `ownedTabs` (closed or released) without the
+ * alias being cleaned up — defensive in case `onRemoved` missed an
+ * event in test contexts.
+ */
+export function resolveAliasForClient(
+  clientId: string | undefined,
+  alias: string,
+): AliasResolveResult {
+  if (!clientId) return { reason: 'unknown-alias' };
+  const state = STATE.get(clientId);
+  if (!state || !state.aliases) return { reason: 'unknown-alias' };
+  const tabId = state.aliases.get(alias);
+  if (typeof tabId !== 'number') return { reason: 'unknown-alias' };
+  if (!state.ownedTabs.has(tabId)) {
+    // Defensive cleanup — onRemoved should have caught this, but the
+    // alias points at a tab the client no longer owns. Drop it and
+    // report tab-closed so the caller can re-alias.
+    state.aliases.delete(alias);
+    if (state.aliases.size === 0) state.aliases = undefined;
+    schedulePersist();
+    return { reason: 'tab-closed' };
+  }
+  return { tabId };
+}
+
+/** Snapshot the alias→tabId map for a client (for `chrome_owned_tabs`). */
+export function listAliasesForClient(
+  clientId: string | undefined,
+): Record<string, number> {
+  if (!clientId) return {};
+  const state = STATE.get(clientId);
+  if (!state || !state.aliases) return {};
+  return Object.fromEntries(state.aliases);
+}
+
 /** Test helper. Not exported via the barrel intentionally. */
 export function _resetClientStateForTests(): void {
   STATE.clear();
@@ -498,6 +606,15 @@ export function _handleTabRemovedForTests(tabId: number): void {
     if (s.activeTabId === tabId) {
       s.activeTabId = undefined;
       touched = true;
+    }
+    if (s.aliases) {
+      for (const [alias, t] of s.aliases) {
+        if (t === tabId) {
+          s.aliases.delete(alias);
+          touched = true;
+        }
+      }
+      if (s.aliases.size === 0) s.aliases = undefined;
     }
   }
   if (touched) schedulePersist();
@@ -532,6 +649,16 @@ try {
       if (s.activeTabId === closedTabId) {
         s.activeTabId = undefined;
         touched = true;
+      }
+      // IMP-0169: drop any alias mapping to the closed tab.
+      if (s.aliases) {
+        for (const [alias, tabId] of s.aliases) {
+          if (tabId === closedTabId) {
+            s.aliases.delete(alias);
+            touched = true;
+          }
+        }
+        if (s.aliases.size === 0) s.aliases = undefined;
       }
     }
     if (touched) schedulePersist();
