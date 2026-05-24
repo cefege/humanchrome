@@ -16,7 +16,7 @@ vi.mock('@/entrypoints/background/tools/browser/gif-recorder', () => ({
   captureFrameOnAction: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { navigateBatchTool } from '@/entrypoints/background/tools/browser/common';
+import { navigateBatchTool } from '@/entrypoints/background/tools/browser/navigate-batch';
 
 interface OnUpdatedListener {
   (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab): void;

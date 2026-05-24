@@ -1,4 +1,7 @@
-export { navigateTool, navigateBatchTool, closeTabsTool, switchTabTool } from './common';
+export { navigateTool } from './common';
+export { navigateBatchTool } from './navigate-batch';
+export { closeTabsTool } from './close-tabs';
+export { switchTabTool } from './switch-tab';
 export { closeTabsMatchingTool } from './close-tabs-matching';
 export { tabGroupsTool } from './tab-groups';
 export { notificationsTool } from './notifications';
