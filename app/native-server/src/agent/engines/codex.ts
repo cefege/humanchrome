@@ -25,8 +25,9 @@ import {
   DEFAULT_CODEX_CONFIG,
   type CodexEngineConfig,
 } from 'humanchrome-shared';
-import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './types';
-import type { AgentMessage, RealtimeEvent } from '../types';
+import type { EngineExecutionContext, EngineInitOptions } from './types';
+import type { AgentMessage } from '../types';
+import { AgentEngineBase, type EngineDispatchScope } from './base';
 import { AgentToolBridge } from '../tool-bridge';
 import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
@@ -55,12 +56,11 @@ type CodexToolDispatcher = (
 
 // Per-run state threaded into `dispatchToolMessageRun` so the method
 // stays unit-testable without reconstructing the in-loop closure.
-interface CodexDispatchScope {
-  sessionId: string;
-  requestId?: string;
-  streamedToolHashes: Set<string>;
-  emit: (event: RealtimeEvent) => void;
-}
+//
+// Aliased from the shared {@link EngineDispatchScope} for documentation —
+// the two shapes are intentionally identical so the base-class dispatcher
+// can serve both engines.
+type CodexDispatchScope = EngineDispatchScope;
 
 /**
  * CodexEngine integrates the Codex CLI as an AgentEngine implementation.
@@ -69,19 +69,15 @@ interface CodexDispatchScope {
  * it focuses on streaming Codex JSON events into RealtimeEvent envelopes that the
  * sidepanel UI can consume.
  */
-export class CodexEngine implements AgentEngine {
+export class CodexEngine extends AgentEngineBase {
   public readonly name = 'codex' as const;
   public readonly supportsMcp = false;
   private readonly toolBridge: AgentToolBridge;
 
   constructor(toolBridge?: AgentToolBridge) {
+    super();
     this.toolBridge = toolBridge ?? new AgentToolBridge();
   }
-
-  /**
-   * Maximum number of stderr lines to keep in memory to avoid unbounded growth.
-   */
-  private static readonly MAX_STDERR_LINES = 200;
 
   async initializeAndRun(options: EngineInitOptions, ctx: EngineExecutionContext): Promise<void> {
     const {
@@ -632,12 +628,6 @@ export class CodexEngine implements AgentEngine {
     });
   }
 
-  private resolveRepoPath(projectRoot?: string): string {
-    const base =
-      (projectRoot && projectRoot.trim()) || process.env.MCP_AGENT_PROJECT_ROOT || process.cwd();
-    return path.resolve(base);
-  }
-
   /**
    * Append project context (file listing) to the prompt.
    * Aligned with other/cweb implementation.
@@ -781,30 +771,6 @@ Work directly in the current directory. Do not create subdirectories unless spec
     args.push('-c', `instructions=${JSON.stringify(config.autoInstructions)}`);
 
     return args;
-  }
-
-  /**
-   * Write an attachment to a temporary file and return its path.
-   */
-  private async writeAttachmentToTemp(attachment: {
-    type: string;
-    name: string;
-    mimeType: string;
-    dataBase64: string;
-  }): Promise<string> {
-    const os = await import('node:os');
-    const fs = await import('node:fs/promises');
-
-    const tempDir = os.tmpdir();
-    const ext = attachment.mimeType.split('/')[1] || 'bin';
-    const sanitizedName = attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `mcp-agent-${Date.now()}-${sanitizedName}.${ext}`;
-    const filePath = path.join(tempDir, fileName);
-
-    const buffer = Buffer.from(attachment.dataBase64, 'base64');
-    await fs.writeFile(filePath, buffer);
-
-    return filePath;
   }
 
   private buildCodexEnv(): NodeJS.ProcessEnv {
@@ -1029,50 +995,18 @@ Work directly in the current directory. Do not create subdirectories unless spec
   }
 
   /**
-   * Build + emit one tool message into the realtime stream. Dedup is
-   * scoped by content+metadata+sessionId+requestId so the same payload
-   * from two CLI events doesn't double-fire the UI; the dedup set lives
-   * on the scope so each run gets a fresh window.
+   * Build + emit one tool message into the realtime stream. Thin override
+   * of {@link AgentEngineBase.dispatchToolMessageRun} that pins the
+   * `cli_type` literal to `'codex'`. The full implementation (dedup hashing,
+   * scope writes, envelope shape) lives on the base class — see `base.ts`.
    */
-  private dispatchToolMessageRun(
+  protected dispatchToolMessageRun(
     scope: CodexDispatchScope,
     content: string,
     metadata: Record<string, unknown>,
     messageType: 'tool_use' | 'tool_result',
     isStreaming: boolean,
   ): void {
-    const trimmed = content.trim();
-    if (!trimmed) return;
-
-    // Use the full base64 hash, not a 16-char prefix. The previous 16-
-    // char slice collided for small metadata diffs (`{k:1}` vs `{k:2}`
-    // share their first 16 base64 chars), causing the second message to
-    // be silently dropped as a duplicate. Set lookup is still O(1) on
-    // the longer key.
-    const hash = this.encodeHash(
-      `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${scope.sessionId}:${scope.requestId || ''}`,
-    );
-    if (scope.streamedToolHashes.has(hash)) return;
-    scope.streamedToolHashes.add(hash);
-
-    const message: AgentMessage = {
-      id: randomUUID(),
-      sessionId: scope.sessionId,
-      role: 'tool',
-      content: trimmed,
-      messageType,
-      cliSource: this.name,
-      requestId: scope.requestId,
-      isStreaming,
-      isFinal: !isStreaming,
-      createdAt: new Date().toISOString(),
-      metadata: { cli_type: 'codex', ...metadata },
-    };
-
-    scope.emit({ type: 'message', data: message });
-  }
-
-  private encodeHash(value: string): string {
-    return Buffer.from(value, 'utf-8').toString('base64');
+    super.dispatchToolMessageRun(scope, content, metadata, messageType, isStreaming, 'codex');
   }
 }

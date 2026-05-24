@@ -20,8 +20,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './types';
-import type { AgentMessage, RealtimeEvent } from '../types';
+import type { EngineExecutionContext, EngineInitOptions } from './types';
+import type { AgentMessage } from '../types';
+import { AgentEngineBase, type EngineDispatchScope } from './base';
 import { detectCcr, validateCcrConfig } from '../ccr-detector';
 import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
@@ -44,13 +45,12 @@ type ClaudeToolDispatcher = (
 /**
  * Per-run state threaded into `dispatchToolMessageRun` so the method
  * stays unit-testable without reconstructing the in-loop closure.
+ *
+ * Aliased from the shared {@link EngineDispatchScope} for documentation —
+ * the two shapes are intentionally identical so the base-class dispatcher
+ * can serve both engines.
  */
-interface ClaudeDispatchScope {
-  sessionId: string;
-  requestId?: string;
-  streamedToolHashes: Set<string>;
-  emit: (event: RealtimeEvent) => void;
-}
+type ClaudeDispatchScope = EngineDispatchScope;
 
 /**
  * Input bag for {@link ClaudeEngine.buildRunOptions}.
@@ -117,14 +117,9 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
  * This engine uses the @anthropic-ai/claude-agent-sdk to interact with Claude,
  * streaming events back to the sidepanel UI via RealtimeEvent envelopes.
  */
-export class ClaudeEngine implements AgentEngine {
+export class ClaudeEngine extends AgentEngineBase {
   public readonly name = 'claude' as const;
   public readonly supportsMcp = true;
-
-  /**
-   * Maximum number of stderr lines to keep in memory.
-   */
-  private static readonly MAX_STDERR_LINES = 200;
 
   async initializeAndRun(options: EngineInitOptions, ctx: EngineExecutionContext): Promise<void> {
     const {
@@ -1065,15 +1060,6 @@ export class ClaudeEngine implements AgentEngine {
   }
 
   /**
-   * Resolve project root path.
-   */
-  private resolveRepoPath(projectRoot?: string): string {
-    const base =
-      (projectRoot && projectRoot.trim()) || process.env.MCP_AGENT_PROJECT_ROOT || process.cwd();
-    return path.resolve(base);
-  }
-
-  /**
    * Load the Claude Agent SDK at runtime. Dynamic import avoids a hard
    * dependency on `@anthropic-ai/claude-agent-sdk` — the package is
    * optional and only required for callers that actually use this engine.
@@ -1430,49 +1416,20 @@ export class ClaudeEngine implements AgentEngine {
   }
 
   /**
-   * Build + emit one tool message into the realtime stream, with
-   * per-run deduplication. Dedup is content+metadata+sessionId+requestId
-   * scoped, so the same payload from two SDK events doesn't double-fire
-   * the UI. Slice 3 of IMP-0009 — extracts the closure body that the
-   * in-loop `dispatchToolMessage` wrapper now delegates to. Mirrors the
-   * IMP-0049 slice 3 pattern in codex.ts.
-   *
-   * Uses the FULL base64 hash, not a 16-char prefix. The previous slice
-   * collided for small metadata diffs — different `{k:1}` vs `{k:2}`
-   * payloads shared their first 16 base64 chars and the second message
-   * was silently dropped. Set lookup is still O(1) on the longer key.
+   * Build + emit one tool message into the realtime stream, with per-run
+   * deduplication. Thin override of {@link AgentEngineBase.dispatchToolMessageRun}
+   * that pins the `cli_type` literal to `'claude'`. The full implementation
+   * (dedup hashing, scope writes, envelope shape) lives on the base class —
+   * see `base.ts` for the IMP-0009 / IMP-0049 history.
    */
-  private dispatchToolMessageRun(
+  protected dispatchToolMessageRun(
     scope: ClaudeDispatchScope,
     content: string,
     metadata: Record<string, unknown>,
     messageType: 'tool_use' | 'tool_result',
     isStreaming: boolean,
   ): void {
-    const trimmed = content.trim();
-    if (!trimmed) return;
-
-    const hash = this.encodeHash(
-      `${messageType}:${trimmed}:${JSON.stringify(metadata)}:${scope.sessionId}:${scope.requestId || ''}`,
-    );
-    if (scope.streamedToolHashes.has(hash)) return;
-    scope.streamedToolHashes.add(hash);
-
-    const message: AgentMessage = {
-      id: randomUUID(),
-      sessionId: scope.sessionId,
-      role: 'tool',
-      content: trimmed,
-      messageType,
-      cliSource: this.name,
-      requestId: scope.requestId,
-      isStreaming,
-      isFinal: !isStreaming,
-      createdAt: new Date().toISOString(),
-      metadata: { cli_type: 'claude', ...metadata },
-    };
-
-    scope.emit({ type: 'message', data: message });
+    super.dispatchToolMessageRun(scope, content, metadata, messageType, isStreaming, 'claude');
   }
 
   /**
@@ -1700,34 +1657,4 @@ export class ClaudeEngine implements AgentEngine {
     return undefined;
   }
 
-  /**
-   * Encode string to base64 for hashing.
-   */
-  private encodeHash(value: string): string {
-    return Buffer.from(value, 'utf-8').toString('base64');
-  }
-
-  /**
-   * Write an attachment to a temporary file and return its path.
-   */
-  private async writeAttachmentToTemp(attachment: {
-    type: string;
-    name: string;
-    mimeType: string;
-    dataBase64: string;
-  }): Promise<string> {
-    const os = await import('node:os');
-    const fs = await import('node:fs/promises');
-
-    const tempDir = os.tmpdir();
-    const ext = attachment.mimeType.split('/')[1] || 'bin';
-    const sanitizedName = attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `mcp-agent-${Date.now()}-${sanitizedName}.${ext}`;
-    const filePath = path.join(tempDir, fileName);
-
-    const buffer = Buffer.from(attachment.dataBase64, 'base64');
-    await fs.writeFile(filePath, buffer);
-
-    return filePath;
-  }
 }
