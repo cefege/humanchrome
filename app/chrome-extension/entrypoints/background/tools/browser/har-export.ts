@@ -317,7 +317,7 @@ function toHarEntry(e: NormalizedEntry): HarEntry {
     queryString: url.queryString,
     cookies: [],
     headersSize: -1,
-    bodySize: e.requestBody ? Buffer.byteLength(e.requestBody, 'utf8') : 0,
+    bodySize: e.requestBody ? utf8ByteLength(e.requestBody) : 0,
   };
   if (e.requestBody) {
     request.postData = {
@@ -370,16 +370,22 @@ function headersOf(rec: Record<string, string>): HarHeader[] {
   return Object.entries(rec).map(([name, value]) => ({ name, value }));
 }
 
+// Service workers have no Node `Buffer`. TextEncoder is the
+// standards-compliant way to measure / encode UTF-8 byte length.
+function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
 function capBody(body: string): { text: string; truncated: boolean; originalSize: number } {
-  const size = Buffer.byteLength(body, 'utf8');
+  const size = utf8ByteLength(body);
   if (size <= MAX_RESPONSE_BODY_BYTES) return { text: body, truncated: false, originalSize: size };
-  // Slice by chars then re-measure. UTF-8 multi-byte chars at the boundary
-  // could push us over; cap conservatively at MAX/4 chars then trim until
-  // bytes ≤ MAX. The constant factor is to avoid an O(N) trim loop on
-  // worst-case multi-byte content.
+  // Slice by chars then re-measure. UTF-8 multi-byte chars at the
+  // boundary could push us over; cap conservatively at MAX/1.2 chars
+  // then trim until bytes ≤ MAX. The constant factor avoids an O(N)
+  // trim loop on worst-case multi-byte content.
   const approx = Math.min(body.length, Math.floor(MAX_RESPONSE_BODY_BYTES / 1.2));
   let text = body.slice(0, approx);
-  while (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BODY_BYTES && text.length > 0) {
+  while (utf8ByteLength(text) > MAX_RESPONSE_BODY_BYTES && text.length > 0) {
     text = text.slice(0, text.length - 256);
   }
   return { text, truncated: true, originalSize: size };
