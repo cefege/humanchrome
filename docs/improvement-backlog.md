@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0166 · Multi-tab Phase 5b — gif-recorder cross-client ownership gate (refactor) · score: 4
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 5b)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: Added a cross-client ownership gate to `app/chrome-extension/entrypoints/background/tools/browser/gif-recorder.ts`. The gif recorder is genuinely singleton (one CDP screencast per Chrome at a time), so per-client de-singleton like IMP-0165 doesn't apply. Instead: `startRecording` now stamps `currentRecordingClientId` from `getCurrentRequestContext()?.clientId`, and a second client trying to start gets `error: Recording already in progress (owned by client X)` — the message names the owning client so the second caller knows who to coordinate with. `stopRecording` rejects non-owners with `error: Recording owned by client X; client Y cannot stop it`. The `__system` bucket (used by internal cleanup paths like tab-close auto-stop) is allowed to bypass the gate so legacy paths still work. Ownership is cleared on stop, on start-failure rollback, and via the test seam `_setRecordingOwnerForTest`/`_resetRecordingOwnerForTest`. 5 new contract tests at `tests/tools/browser/gif-recorder-ownership.contract.test.ts` cover: start-reject by owner id; system-bucket as owner; stop-reject by non-owner; system-bucket bypass; reset-clears-stamp. Cross-client `lastRecordedGif` cache split is deferred to a follow-up — it's bounded by the 5-minute EXPORT_CACHE_LIFETIME_MS and strictly less impactful than the cross-client collision this gate prevents. Gate: 962/962 vitest pass; tsc + lint clean.
+- **Why**: Phase 5b of the multi-tab-by-design rollout. Together with IMP-0165 (v2 recorder per-client), neither recording surface silently collides between MCP clients.
+- **Cost**: S
+- **Value**: M
+
 ### IMP-0165 · Multi-tab Phase 5a — recorder per-client sessions (de-singleton v2 RecordingSessionManager) (refactor) · score: 5
 
 - **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 5a)

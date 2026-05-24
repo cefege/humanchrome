@@ -16,6 +16,7 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
+import { getCurrentRequestContext } from '../../utils/request-context';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import {
   MessageTarget,
@@ -139,6 +140,20 @@ interface GifResult {
 let recordingState: RecordingState | null = null;
 let stopPromise: Promise<GifResult> | null = null;
 
+// IMP-0166: which client owns the in-flight singleton recording. Multi-tab-
+// by-design: only one GIF recording can be active at a time because the
+// underlying CDP screencast is a single per-Chrome resource — but we now
+// gate it on a client identity so a second client gets a clear
+// "owned by client X" error instead of silently colliding. `null` when no
+// recording is active. Set when startRecording/startAutoCapture succeed;
+// cleared in stopRecording / stopAutoCapture / on tab close.
+const SYSTEM_CLIENT = '__system';
+let currentRecordingClientId: string | null = null;
+
+function callerClientId(): string {
+  return getCurrentRequestContext()?.clientId ?? SYSTEM_CLIENT;
+}
+
 // Auto-capture mode state
 interface AutoCaptureMetadata {
   tabId: number;
@@ -160,6 +175,12 @@ interface ExportableGif {
   createdAt: number;
 }
 let lastRecordedGif: ExportableGif | null = null;
+// IMP-0166 note: `lastRecordedGif` stays singleton for this PR — the
+// per-client cache will land in a follow-up. The cross-client visibility
+// leak (client B's `action:'export'` can surface client A's last gif)
+// is bounded by the 5-minute EXPORT_CACHE_LIFETIME_MS and is strictly
+// less impactful than the cross-client *collision* this PR's
+// `currentRecordingClientId` gate prevents.
 
 // Maximum cache lifetime for exportable GIF (5 minutes)
 const EXPORT_CACHE_LIFETIME_MS = 5 * 60 * 1000;
@@ -323,10 +344,16 @@ async function startRecording(
   filename?: string,
 ): Promise<GifResult> {
   if (stopPromise || recordingState?.isRecording || recordingState?.isStopping) {
+    // IMP-0166: tell the caller WHICH client owns the in-flight recording
+    // so a second client gets actionable error context instead of a
+    // generic "already in progress". The underlying CDP screencast is a
+    // single per-Chrome resource — only one gif at a time, regardless
+    // of which client started it.
+    const owner = currentRecordingClientId ?? SYSTEM_CLIENT;
     return {
       success: false,
       action: 'start',
-      error: 'Recording already in progress',
+      error: `Recording already in progress (owned by client ${owner})`,
     };
   }
 
@@ -378,6 +405,9 @@ async function startRecording(
     };
 
     recordingState = state;
+    // IMP-0166: stamp the owning client so subsequent stop/start calls
+    // from other clients can be rejected with `owner=<id>` context.
+    currentRecordingClientId = callerClientId();
 
     // Capture first frame eagerly so start() fails fast if capture/encoding is broken
     await captureAndEncodeFrame(state);
@@ -396,6 +426,9 @@ async function startRecording(
     };
   } catch (error) {
     recordingState = null;
+    // IMP-0166: roll back ownership if start failed mid-init so the
+    // next start() isn't blocked by a stale ownership stamp.
+    currentRecordingClientId = null;
     try {
       await cdpSessionManager.detach(tabId, CDP_SESSION_KEY);
     } catch {
@@ -419,6 +452,21 @@ async function stopRecording(): Promise<GifResult> {
       success: false,
       action: 'stop',
       error: 'No recording in progress',
+    };
+  }
+
+  // IMP-0166: only the client that started the recording can stop it.
+  // Cross-client stop is rejected with the owner's id so the caller knows
+  // who to coordinate with. The exception is the system bucket — internal
+  // callers (auto-cleanup on tab close, tests via the singleton path) can
+  // always stop.
+  const owner = currentRecordingClientId;
+  const caller = callerClientId();
+  if (owner !== null && owner !== SYSTEM_CLIENT && caller !== SYSTEM_CLIENT && owner !== caller) {
+    return {
+      success: false,
+      action: 'stop',
+      error: `Recording owned by client ${owner}; client ${caller} cannot stop it`,
     };
   }
 
@@ -561,6 +609,9 @@ async function stopRecording(): Promise<GifResult> {
         // ignore
       }
       recordingState = null;
+      // IMP-0166: clear ownership so the next start() from any client
+      // is unblocked.
+      currentRecordingClientId = null;
     }
   })();
 
@@ -1233,6 +1284,57 @@ class GifRecorderTool extends BaseBrowserToolExecutor {
 }
 
 export const gifRecorderTool = new GifRecorderTool();
+
+/**
+ * IMP-0166 test seam — let tests assert the cross-client ownership gate
+ * without spinning up the full offscreen + CDP + capture pipeline.
+ *
+ * Use `_setRecordingOwnerForTest('alice')` to mark the gif recorder as
+ * "owned by alice", then verify that bob's start/stop is rejected with the
+ * owner naming alice. `_resetRecordingOwnerForTest()` clears the stamp
+ * between tests.
+ *
+ * Production code MUST NOT call these — they bypass the ordinary
+ * recordingState lifecycle.
+ */
+export function _setRecordingOwnerForTest(
+  clientId: string | null,
+  alsoSetMockState: boolean = true,
+): void {
+  currentRecordingClientId = clientId;
+  if (alsoSetMockState && clientId !== null) {
+    // The ownership gate inside startRecording short-circuits on
+    // `recordingState?.isRecording`, so flip that bit too if we want a
+    // second-start attempt to actually hit the owner-id error path.
+    recordingState = {
+      isRecording: true,
+      isStopping: false,
+      tabId: 1,
+      width: 0,
+      height: 0,
+      fps: 1,
+      durationMs: 0,
+      frameIntervalMs: 0,
+      frameDelayCs: 1,
+      maxFrames: 0,
+      maxColors: 0,
+      frameCount: 0,
+      startTime: Date.now(),
+      captureTimer: null,
+      captureInProgress: null,
+      canvas: null as unknown as OffscreenCanvas,
+      ctx: null as unknown as OffscreenCanvasRenderingContext2D,
+    };
+  } else if (clientId === null) {
+    recordingState = null;
+  }
+}
+
+export function _resetRecordingOwnerForTest(): void {
+  currentRecordingClientId = null;
+  recordingState = null;
+  stopPromise = null;
+}
 
 // Re-export auto-capture utilities for use by other tools (e.g., chrome_computer, chrome_navigate)
 export {
