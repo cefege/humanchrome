@@ -124,6 +124,7 @@ export const TOOL_NAMES = {
     LOCATOR_HANDLER: 'chrome_locator_handler',
     DEV_RELOAD: 'chrome_dev_reload',
     RUNTIME_INFO: 'chrome_runtime_info',
+    OWNED_TABS: 'chrome_owned_tabs',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3216,6 +3217,20 @@ export const TOOL_SCHEMAS: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.OWNED_TABS,
+    description:
+      'Return the tabs currently owned by the calling MCP client (or, for UI surfaces, the calling __ui:* lane). Distinct from `chrome_get_windows_and_tabs` — that is the whole-browser catalog; this answers the narrower "what does THIS client own" question without forcing the caller to filter a multi-window tree by an owner column. Output: `{success, clientId, count, ownedTabs: [{tabId, windowId, url, title, active, isActive, status, isPinnedActive}], activeTabId?, lastWindowId?}`. `isPinnedActive` marks the tab the dispatcher will pick when the caller omits `tabId` from a mutating tool. Empty `ownedTabs` for a fresh client with no claims. Optional `tabId` filters to one row, useful for "is this tab still mine?" checks. Powers the "Tabs owned by this client" panel in popup/sidepanel UIs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Optional filter — return only the row matching this tabId, if owned.',
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -3348,6 +3363,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
   [TOOL_NAMES.BROWSER.DEV_RELOAD]: 'System',
   [TOOL_NAMES.BROWSER.RUNTIME_INFO]: 'System',
+  [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

@@ -75,6 +75,7 @@ export { waitForTool } from './wait-for';
 export { paceTool, paceGetTool } from './pace';
 export { claimTabTool } from './claim-tab';
 export { closeMyTabsTool } from './close-my-tabs';
+export { ownedTabsTool } from './owned-tabs';
 export { queueInspectTool } from './queue-inspect';
 export { locatorHandlerTool } from './locator-handler';
 export { devReloadTool } from './dev-reload';
