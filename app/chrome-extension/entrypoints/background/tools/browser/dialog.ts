@@ -2,6 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { createOwnedRegistry } from '../../utils/owned-registry';
 
 /**
  * Default-dialog-handler behaviors. `accept` is the canonical answer for
@@ -91,8 +92,32 @@ const OWNER_TAG = 'dialog-default';
  * Module-scope registry. Tab close, client disconnect, and external CDP
  * detach all funnel through `clearDefaultForTab`, so the cleanup paths
  * agree on what "release" means.
+ *
+ * IMP-0164: backed by `OwnedRegistry` for auto-eviction on tab close
+ * (replacing the standalone tabs.onRemoved listener). Dialog policies
+ * are effectively page-scoped — `Page.handleJavaScriptDialog` only
+ * accepts one response per dialog, so per-client entries wouldn't add
+ * value — so all entries route to the system bucket.
+ * `releaseDialogDefaultsForTabs` stays as the explicit by-tab clear
+ * the bridge calls on client disconnect.
  */
-const defaults = new Map<number, DefaultPolicy>();
+const defaults = createOwnedRegistry<DefaultPolicy>({
+  onEvict: ({ tabId, value }) => {
+    // Auto-eviction (tab close) — tear down the policy's listener and
+    // best-effort detach the CDP session. Chrome already auto-detaches
+    // on tab close, but cdpSessionManager's refcount needs the explicit
+    // release so other consumers (network-capture etc.) don't see a
+    // stale lease.
+    try {
+      chrome.debugger.onEvent.removeListener(value.listener);
+    } catch {
+      // best-effort
+    }
+    void cdpSessionManager.detach(tabId, OWNER_TAG).catch(() => {
+      // best-effort — tab is gone, refcount may already be cleared
+    });
+  },
+});
 
 /**
  * onDetach handler installed once. If Chrome detaches the debugger out
@@ -111,21 +136,15 @@ function ensureDetachListener() {
   chrome.debugger.onDetach.addListener((source, reason) => {
     const tabId = source.tabId;
     if (typeof tabId !== 'number') return;
-    if (!defaults.has(tabId)) return;
+    if (!defaults.has(undefined, tabId)) return;
     console.warn(
       `[chrome_handle_dialog] CDP detached from tab ${tabId} (reason: ${reason}); clearing default policy.`,
     );
-    // External detach — we only need to drop our bookkeeping. cdpSessionManager
-    // has already cleared its own state via the same onDetach signal.
-    const policy = defaults.get(tabId);
-    if (policy) {
-      try {
-        chrome.debugger.onEvent.removeListener(policy.listener);
-      } catch {
-        // best-effort — onEvent may already have been torn down
-      }
-    }
-    defaults.delete(tabId);
+    // IMP-0164: registry's onEvict handles listener removal +
+    // best-effort detach. We just delete; cdpSessionManager has already
+    // cleared its own state via the same onDetach signal so its detach
+    // call inside onEvict is a no-op.
+    defaults.delete(undefined, tabId);
   });
 }
 
@@ -146,7 +165,7 @@ function buildLogEntry(
 }
 
 async function handleDialogEvent(tabId: number, params: DialogOpeningParams): Promise<void> {
-  const policy = defaults.get(tabId);
+  const policy = defaults.get(undefined, tabId);
   if (!policy) return;
 
   const accept = policy.behavior !== 'dismiss';
@@ -175,24 +194,10 @@ async function handleDialogEvent(tabId: number, params: DialogOpeningParams): Pr
 }
 
 async function clearDefaultForTab(tabId: number): Promise<boolean> {
-  const policy = defaults.get(tabId);
-  if (!policy) return false;
-  try {
-    chrome.debugger.onEvent.removeListener(policy.listener);
-  } catch {
-    // best-effort
-  }
-  defaults.delete(tabId);
-  try {
-    await cdpSessionManager.detach(tabId, OWNER_TAG);
-  } catch (err) {
-    console.warn(
-      `[chrome_handle_dialog] Detach during unregister failed for tab ${tabId}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-  return true;
+  // IMP-0164: the OwnedRegistry's onEvict handles listener teardown +
+  // CDP detach. We just trigger the delete and the registry calls
+  // onEvict synchronously. Detach is best-effort inside onEvict.
+  return defaults.delete(undefined, tabId);
 }
 
 /**
@@ -356,25 +361,13 @@ class HandleDialogTool extends BaseBrowserToolExecutor {
     const tabId = resolved;
 
     // Re-registering on the same tab replaces the previous policy without
-    // erroring. Drop the prior listener but keep the prior CDP attach
-    // so refcount stays at 1 (we'll attach again below and the manager
-    // refcount will reach 1 after the matching detach below it).
-    const existing = defaults.get(tabId);
+    // erroring. The OwnedRegistry's onEvict callback handles both
+    // listener teardown and the CDP detach atomically — see the registry
+    // declaration above. (IMP-0164 — the explicit listener-remove +
+    // detach that used to live here is now redundant.)
+    const existing = defaults.get(undefined, tabId);
     if (existing) {
-      try {
-        chrome.debugger.onEvent.removeListener(existing.listener);
-      } catch {
-        // best-effort
-      }
-      defaults.delete(tabId);
-      // Release the existing attach now; we'll re-attach as a fresh owner
-      // below. Detach is refcounted, so this only actually detaches if no
-      // other tool is using the CDP session on this tab.
-      try {
-        await cdpSessionManager.detach(tabId, OWNER_TAG);
-      } catch {
-        // best-effort
-      }
+      defaults.delete(undefined, tabId);
     }
 
     try {
@@ -416,7 +409,7 @@ class HandleDialogTool extends BaseBrowserToolExecutor {
       listener,
       log: [],
     };
-    defaults.set(tabId, policy);
+    defaults.set(undefined, tabId, policy);
 
     return {
       content: [
@@ -471,7 +464,7 @@ class HandleDialogTool extends BaseBrowserToolExecutor {
       registeredAt: number;
       log: DialogLogEntry[];
     }> = [];
-    for (const [id, policy] of defaults) {
+    for (const { tabId: id, value: policy } of defaults.entries()) {
       if (filterId !== undefined && id !== filterId) continue;
       entries.push({
         tabId: id,
@@ -511,7 +504,7 @@ export function _seedDialogDefaultForTest(
     log?: DialogLogEntry[];
   },
 ): void {
-  defaults.set(tabId, {
+  defaults.set(undefined, tabId, {
     behavior: policy.behavior,
     promptText: policy.promptText,
     registeredAt: policy.registeredAt ?? Date.now(),
@@ -522,19 +515,17 @@ export function _seedDialogDefaultForTest(
 
 /** Test-only — clear the entire defaults registry. */
 export function _resetDialogDefaultsForTest(): void {
-  for (const policy of defaults.values()) {
-    try {
-      chrome.debugger.onEvent.removeListener(policy.listener);
-    } catch {
-      // best-effort
-    }
+  // OwnedRegistry doesn't expose `.clear()` — `delete` per-entry. The
+  // onEvict callback on the registry handles listener removal + CDP
+  // detach, so we don't need to repeat that here.
+  for (const { tabId } of [...defaults.entries()]) {
+    defaults.delete(undefined, tabId);
   }
-  defaults.clear();
 }
 
 /** Test-only — inspect a policy by tab id. */
 export function _getDialogDefaultForTest(tabId: number): DefaultPolicy | undefined {
-  return defaults.get(tabId);
+  return defaults.get(undefined, tabId);
 }
 
 /** Test-only — dispatch a synthetic javascriptDialogOpening event. */
@@ -545,24 +536,6 @@ export async function _dispatchDialogEventForTest(
   await handleDialogEvent(tabId, params);
 }
 
-// --- Automatic Cleanup ---
-//
-// Tab close: drop the policy + release the CDP attach. We don't need to
-// call chrome.debugger.detach explicitly because Chrome auto-detaches on
-// tab close; clearing our bookkeeping is enough.
-try {
-  chrome.tabs?.onRemoved?.addListener((closedTabId) => {
-    if (!defaults.has(closedTabId)) return;
-    const policy = defaults.get(closedTabId);
-    if (policy) {
-      try {
-        chrome.debugger.onEvent.removeListener(policy.listener);
-      } catch {
-        // best-effort
-      }
-    }
-    defaults.delete(closedTabId);
-  });
-} catch {
-  // non-extension test context — listener is best-effort
-}
+// IMP-0164: tab-close auto-eviction is handled by `defaults`
+// (OwnedRegistry) via its `onEvict` callback, so the standalone
+// tabs.onRemoved listener that lived here is no longer needed.
