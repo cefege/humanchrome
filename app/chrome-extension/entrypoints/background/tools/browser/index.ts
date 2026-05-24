@@ -86,3 +86,4 @@ export { ariaSnapshotTool } from './aria-snapshot';
 export { emulateTool } from './emulate';
 export { getAttributesTool } from './get-attributes';
 export { hoverTool } from './hover';
+export { typeIntoTool } from './type-into';
