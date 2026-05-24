@@ -262,6 +262,48 @@ const MATRIX = [
       return assert(!res.isError && p?.success === true && p?.absent === true, JSON.stringify(res));
     },
   },
+  {
+    imp: 'IMP-0168',
+    name: 'chrome_owned_tabs returns the caller-owned set',
+    run: () => callTool('chrome_owned_tabs', {}),
+    check: (res) => {
+      const p = res.parsed;
+      const ok =
+        !res.isError &&
+        p?.success === true &&
+        typeof p?.clientId === 'string' &&
+        p.clientId.length > 0 &&
+        Array.isArray(p?.ownedTabs) &&
+        typeof p?.count === 'number';
+      return assert(
+        ok,
+        `expected {success:true, clientId, count, ownedTabs[]}, got ${JSON.stringify(res).slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0169',
+    name: 'browser_alias_tab + owned-tabs roundtrip',
+    run: async () => {
+      const alias = `e2e_${Math.random().toString(36).slice(2, 8)}`;
+      const setRes = await callTool('browser_alias_tab', { alias });
+      const listRes = await callTool('chrome_owned_tabs', {});
+      return { setRes, listRes, alias };
+    },
+    check: ({ setRes, listRes, alias }) => {
+      const setBody = setRes?.parsed;
+      const listBody = listRes?.parsed;
+      const setOk = !setRes?.isError && setBody?.success === true && setBody?.alias === alias;
+      const listOk = !listRes?.isError && listBody?.success === true;
+      return assert(
+        setOk && listOk,
+        `setRes=${JSON.stringify(setRes).slice(0, 200)} listRes=${JSON.stringify(listRes).slice(0, 200)}`,
+      );
+    },
+  },
+  // IMP-0170 dispatcher-tabAlias rows land alongside that PR — adding them
+  // now would fail since main doesn't yet resolve `tabAlias` in the
+  // dispatcher.
 ];
 
 async function waitForFreshSw(priorBuildHash, priorAvailable) {

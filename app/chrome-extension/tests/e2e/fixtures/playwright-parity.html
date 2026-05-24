@@ -368,6 +368,34 @@
       </div>
     </section>
 
+    <section id="multi-tab-isolation">
+      <h2>IMP-0156..0170 — Multi-tab by design (cross-section)</h2>
+      <p class="muted">
+        These rows exercise tools that <em>don't</em> care about page DOM — they verify the
+        per-client ownership and alias contracts the dispatcher enforces. The matrix runner uses
+        the same single tab for all rows in this section; what varies is the args + sequence
+        each row sends.
+      </p>
+      <div class="row">
+        <span id="multi-tab-owned-tabs-marker"></span>
+        <span
+          >IMP-0168: <code>chrome_owned_tabs({})</code> returns
+          <code>{count >= 1, ownedTabs:[…the matrix's auto-spawned tab…]}</code> with the
+          caller's <code>clientId</code> populated. No <code>tabId</code> arg needed; no auto-spawn
+          (read-only).</span
+        >
+      </div>
+      <div class="row">
+        <span id="multi-tab-alias-marker"></span>
+        <span
+          >IMP-0169: <code>browser_alias_tab({alias:'fixture'})</code> succeeds, then
+          <code>chrome_owned_tabs({})</code> shows the alias in the response's
+          <code>aliases</code> (via state). Aliases are per-MCP-client and self-evict when the
+          tab closes.</span
+        >
+      </div>
+    </section>
+
     <script>
       // Surface dialog-policy log entries on the page for human-visible verification.
       const dialogLog = document.getElementById('dialog-log');
