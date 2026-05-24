@@ -779,6 +779,17 @@ Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Usefu
 | `bypassList` | array<string> |  | For `set` with mode="fixed_servers". Optional list of host patterns the proxy is bypassed for. |
 | `pacUrl` | string |  | For `set` with mode="pac_script". URL of the PAC script. |
 
+### `chrome_har_export`
+
+Emit captured network data as standard HAR 1.2 JSON. `chrome_network_capture` collects rich per-request data in two backends (debugger + web-request); this tool is a pure formatter that shapes whichever backend is currently running for the tab into the format every external tool (Chrome DevTools "Save all as HAR", Charles Proxy import, Playwright trace viewer, Sentry session replay, har-validator-based test harnesses) expects. Read-only. Actions: `export_from_active` ({tabId?}) returns the HAR JSON inline in the response. `save_to_downloads` ({tabId?, filename?}) writes the HAR to ~/Downloads via chrome.downloads.download and returns the download id + filename — useful when the HAR is large enough to bloat the LLM context. Response bodies still honor the 1 MiB cap; per-entry truncation is surfaced via a JSON comment on `content.comment` so HAR viewers display the file without rejecting it. Default action: `export_from_active`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `export_from_active` \| `save_to_downloads` |  | Operation. Defaults to "export_from_active". |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `filename` | string |  | Optional filename for save_to_downloads. Defaults to humanchrome-tab-<id>-<ts>.har. Non-filesystem-safe chars are stripped. |
+
 ### `chrome_set_extra_http_headers`
 
 Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.
