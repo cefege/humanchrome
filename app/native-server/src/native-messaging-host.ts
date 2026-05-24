@@ -12,6 +12,7 @@ interface PendingRequest {
   resolve: (value: any) => void;
   reject: (reason?: any) => void;
   timeoutId: NodeJS.Timeout;
+  clientId?: string;
 }
 
 // IMP-0120: source-closed callback so the orchestrator can decide whether
@@ -29,6 +30,14 @@ export class NativeMessagingHost {
   private associatedServer: Server | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private static readonly MAX_PENDING_REQUESTS = 1000;
+  // IMP-0173: per-client backpressure. The global cap (1000) protects the
+  // bridge from a process-wide leak, but doesn't stop one runaway client
+  // from monopolizing it and starving every other MCP session. 50 is well
+  // above any legitimate batch use (the dispatcher serializes per-tab
+  // anyway), well below the global cap. Tracked separately because
+  // legacy/system calls (no clientId) shouldn't count toward any
+  // per-client tally.
+  private static readonly MAX_PENDING_PER_CLIENT = 50;
   // IMP-0115: identity the SW announces in the START message payload, used
   // to stamp the instance-registry record so multi-Chrome callers can route.
   private remoteExtensionId: string | null = null;
@@ -373,12 +382,28 @@ export class NativeMessagingHost {
         return;
       }
 
+      // IMP-0173: per-client backpressure (see MAX_PENDING_PER_CLIENT).
+      if (clientId) {
+        let perClient = 0;
+        for (const p of this.pendingRequests.values()) {
+          if (p.clientId === clientId) perClient += 1;
+        }
+        if (perClient >= NativeMessagingHost.MAX_PENDING_PER_CLIENT) {
+          reject(
+            new Error(
+              `CLIENT_BUSY: client "${clientId}" has ${perClient} requests in flight (cap ${NativeMessagingHost.MAX_PENDING_PER_CLIENT}). Wait for prior calls to complete before issuing more.`,
+            ),
+          );
+          return;
+        }
+      }
+
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`Request timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      this.pendingRequests.set(id, { resolve, reject, timeoutId });
+      this.pendingRequests.set(id, { resolve, reject, timeoutId, clientId });
 
       try {
         let envelope: Record<string, unknown>;
