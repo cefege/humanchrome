@@ -192,6 +192,16 @@ class WaitForTool extends BaseBrowserToolExecutor {
           },
           args.frameId,
         );
+        // IMP-0150: wait-helper.js always emits `found:true` on success
+        // regardless of state. For `state:absent` that means callers
+        // conditioning on `found:false` to confirm the element was waited
+        // away saw a misleading `found:true`. Mirror await-element.ts's
+        // contract: post-wait DOM truth, plus an explicit `absent` twin.
+        if (resp && resp.success === true) {
+          const isPresentSuccess = elementState === 'present';
+          (resp as Record<string, unknown>).found = isPresentSuccess;
+          (resp as Record<string, unknown>).absent = !isPresentSuccess;
+        }
         return this.shapeResponse('element', resp, timeoutMs, start, {
           selector: args.selector,
           ref: args.ref,

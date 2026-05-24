@@ -517,6 +517,67 @@ describe('chrome_wait_for kind validation', () => {
 });
 
 /**
+ * IMP-0150: wait-helper.js always emits `found: true` on success regardless
+ * of `state`. chrome_await_element compensates by overriding `found` per
+ * IMP-0095; the chrome_wait_for(kind:element) twin was missed. Without the
+ * fix, `state:absent` callers see `found:true` AFTER the element disappeared
+ * — the opposite of the intuitive meaning. These tests pin the contract:
+ * `found` mirrors post-wait DOM truth, plus an `absent` field as the twin
+ * boolean for callers that want a single positive signal.
+ */
+describe('chrome_wait_for kind="element" — IMP-0150 found/absent contract', () => {
+  beforeEach(() => {
+    // Helper always reports `found:true` on success regardless of state.
+    (globalThis.chrome as any).tabs.sendMessage = vi
+      .fn()
+      .mockResolvedValue({ success: true, found: true, matched: { ref: 'r1' } });
+  });
+
+  it('state:absent success returns found:false + absent:true (DOM truth, not helper raw)', async () => {
+    const res = await waitForTool.execute({
+      kind: 'element',
+      selector: '#modal',
+      state: 'absent',
+      tabId: TAB_ID,
+      timeoutMs: 1000,
+    });
+    const body = parseBody(res);
+    expect(res.isError).toBe(false);
+    expect(body.success).toBe(true);
+    expect(body.found).toBe(false);
+    expect(body.absent).toBe(true);
+    expect(body.state).toBe('absent');
+  });
+
+  it('state:present success returns found:true + absent:false', async () => {
+    const res = await waitForTool.execute({
+      kind: 'element',
+      selector: '#button',
+      state: 'present',
+      tabId: TAB_ID,
+      timeoutMs: 1000,
+    });
+    const body = parseBody(res);
+    expect(res.isError).toBe(false);
+    expect(body.found).toBe(true);
+    expect(body.absent).toBe(false);
+    expect(body.state).toBe('present');
+  });
+
+  it('state defaults to present when omitted', async () => {
+    const res = await waitForTool.execute({
+      kind: 'element',
+      selector: '#x',
+      tabId: TAB_ID,
+      timeoutMs: 1000,
+    });
+    const body = parseBody(res);
+    expect(body.found).toBe(true);
+    expect(body.absent).toBe(false);
+  });
+});
+
+/**
  * IMP-0135 race regressions. The pre-fix implementation awaited
  * `readReadyState` / `chrome.tabs.get` BEFORE installing the webNavigation
  * listener — during that gap the load event could fire unobserved and the
