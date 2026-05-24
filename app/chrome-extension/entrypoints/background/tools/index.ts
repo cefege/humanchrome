@@ -108,6 +108,7 @@ import { locatorHandlerTool } from './browser/locator-handler';
 import { devReloadTool } from './browser/dev-reload';
 import { runtimeInfoTool } from './browser/runtime-info';
 import { aliasTabTool } from './browser/alias-tab';
+import { extraHttpHeadersTool } from './browser/extra-http-headers';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 // Eager imports for tools that USED to be lazy but landed in their own
 // Rolldown chunk — bug #216. Chrome forbids dynamic `import()` of new
@@ -221,6 +222,7 @@ const eagerTools: ToolInstance[] = [
   devReloadTool,
   runtimeInfoTool,
   aliasTabTool,
+  extraHttpHeadersTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,

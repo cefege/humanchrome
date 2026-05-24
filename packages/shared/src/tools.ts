@@ -126,6 +126,7 @@ export const TOOL_NAMES = {
     RUNTIME_INFO: 'chrome_runtime_info',
     OWNED_TABS: 'chrome_owned_tabs',
     ALIAS_TAB: 'browser_alias_tab',
+    SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3252,6 +3253,30 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['alias'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS,
+    description:
+      'Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['set', 'get', 'clear', 'list_tabs'],
+          description: 'Operation to perform. Defaults to "set".',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Target tab. Required for set/get/clear (defaults to caller\'s owned tab); ignored for list_tabs.',
+        },
+        headers: {
+          type: 'object',
+          description: 'Map of {headerName: value}. Required when action="set". All values must be strings.',
+          additionalProperties: { type: 'string' },
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -3386,6 +3411,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.RUNTIME_INFO]: 'System',
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
+  [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
