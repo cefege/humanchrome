@@ -6,6 +6,14 @@ import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import { NETWORK_FILTERS } from '@/common/constants';
 import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
+import {
+  NetworkCaptureBase,
+  type BaseCaptureInfo,
+  type BaseNetworkRequestInfo,
+  DEFAULT_INACTIVITY_TIMEOUT_MS,
+  DEFAULT_MAX_CAPTURE_TIME_MS,
+  MAX_REQUESTS_PER_CAPTURE,
+} from './network-capture-base';
 
 interface NetworkDebuggerStartToolParams {
   url?: string; // URL to navigate to or focus. If not provided, uses active tab.
@@ -20,16 +28,10 @@ interface NetworkDebuggerStartToolParams {
   background?: boolean;
 }
 
-// Network request object interface
-interface NetworkRequestInfo {
-  requestId: string;
-  url: string;
-  method: string;
-  requestHeaders?: Record<string, string>; // Will be removed after common headers extraction
-  responseHeaders?: Record<string, string>; // Will be removed after common headers extraction
-  requestTime?: number; // Timestamp of the request
-  responseTime?: number; // Timestamp of the response
-  type: string; // Resource type (e.g., Document, XHR, Fetch, Script, Stylesheet)
+// Debugger-backend per-request shape. Extends the shared minimum with the
+// CDP-specific fields the Network domain surfaces (loaderId, frameId,
+// responseBody + base64Encoded + truncation envelope, encodedDataLength).
+interface NetworkRequestInfo extends BaseNetworkRequestInfo {
   status: string; // 'pending', 'complete', 'error'
   statusCode?: number;
   statusText?: string;
@@ -49,33 +51,33 @@ interface NetworkRequestInfo {
     unit: TruncateUnit;
   };
   encodedDataLength?: number; // Actual bytes received
-  errorText?: string; // If loading failed
   canceled?: boolean; // If loading was canceled
-  mimeType?: string;
-  specificRequestHeaders?: Record<string, string>; // Headers unique to this request
-  specificResponseHeaders?: Record<string, string>; // Headers unique to this response
   [key: string]: any; // Allow other properties from debugger events
 }
 
-const DEBUGGER_PROTOCOL_VERSION = '1.3';
+// Debugger-backend per-tab capture buffer. Status (`limitReached`,
+// `lastFlushAt`) live on the shared base; the debugger backend has no
+// extra fields beyond the base, but we name the type for self-doc.
+type DebuggerCaptureInfo = BaseCaptureInfo<NetworkRequestInfo>;
+
 // Re-export under the file-local name so the existing call sites keep working.
 const MAX_RESPONSE_BODY_SIZE_BYTES = MAX_RESPONSE_BODY_BYTES;
-const DEFAULT_MAX_CAPTURE_TIME_MS = 3 * 60 * 1000; // 3 minutes
-const DEFAULT_INACTIVITY_TIMEOUT_MS = 60 * 1000; // 1 minute
 
 /**
  * Network capture start tool - uses Chrome Debugger API to start capturing network requests
  */
-class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
+class NetworkDebuggerStartTool extends NetworkCaptureBase<
+  NetworkRequestInfo,
+  DebuggerCaptureInfo
+> {
   name = TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START;
-  private captureData: Map<number, any> = new Map(); // tabId -> capture data
-  private captureTimers: Map<number, NodeJS.Timeout> = new Map(); // tabId -> max capture timer
-  private inactivityTimers: Map<number, NodeJS.Timeout> = new Map(); // tabId -> inactivity timer
-  private lastActivityTime: Map<number, number> = new Map(); // tabId -> timestamp of last network activity
   private pendingResponseBodies: Map<string, Promise<any>> = new Map(); // requestId -> promise for getResponseBody
-  private requestCounters: Map<number, number> = new Map(); // tabId -> count of captured requests (after filtering)
-  private static MAX_REQUESTS_PER_CAPTURE = 100; // Max requests to store to prevent memory issues
+  private static MAX_REQUESTS_PER_CAPTURE = MAX_REQUESTS_PER_CAPTURE; // Max requests to store to prevent memory issues
   public static instance: NetworkDebuggerStartTool | null = null;
+
+  protected logLabel(): string {
+    return 'NetworkDebuggerStartTool';
+  }
 
   constructor() {
     super();
@@ -86,59 +88,7 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
 
     chrome.debugger.onEvent.addListener(this.handleDebuggerEvent.bind(this));
     chrome.debugger.onDetach.addListener(this.handleDebuggerDetach.bind(this));
-    chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
-    chrome.tabs.onCreated.addListener(this.handleTabCreated.bind(this));
-  }
-
-  private handleTabRemoved(tabId: number) {
-    if (this.captureData.has(tabId)) {
-      console.log(`NetworkDebuggerStartTool: Tab ${tabId} was closed, cleaning up resources.`);
-      this.cleanupCapture(tabId);
-    }
-  }
-
-  /**
-   * Handle tab creation events
-   * If a new tab is opened from a tab that is currently capturing, automatically start capturing the new tab's requests
-   */
-  private async handleTabCreated(tab: chrome.tabs.Tab) {
-    try {
-      // Check if there are any tabs currently capturing
-      if (this.captureData.size === 0) return;
-
-      // Get the openerTabId of the new tab (ID of the tab that opened this tab)
-      const openerTabId = tab.openerTabId;
-      if (!openerTabId) return;
-
-      // Check if the opener tab is currently capturing
-      if (!this.captureData.has(openerTabId)) return;
-
-      // Get the new tab's ID
-      const newTabId = tab.id;
-      if (!newTabId) return;
-
-      console.log(
-        `NetworkDebuggerStartTool: New tab ${newTabId} created from capturing tab ${openerTabId}, will extend capture to it.`,
-      );
-
-      // Get the opener tab's capture settings
-      const openerCaptureInfo = this.captureData.get(openerTabId);
-      if (!openerCaptureInfo) return;
-
-      // Wait a short time to ensure the tab is ready
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Start capturing requests for the new tab
-      await this.startCaptureForTab(newTabId, {
-        maxCaptureTime: openerCaptureInfo.maxCaptureTime,
-        inactivityTimeout: openerCaptureInfo.inactivityTimeout,
-        includeStatic: openerCaptureInfo.includeStatic,
-      });
-
-      console.log(`NetworkDebuggerStartTool: Successfully extended capture to new tab ${newTabId}`);
-    } catch (error) {
-      console.error(`NetworkDebuggerStartTool: Error extending capture to new tab:`, error);
-    }
+    this.installSharedTabListeners();
   }
 
   /**
@@ -146,7 +96,7 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
    * @param tabId Tab ID
    * @param options Capture options
    */
-  private async startCaptureForTab(
+  protected async startCaptureForTab(
     tabId: number,
     options: {
       maxCaptureTime: number;
@@ -184,8 +134,8 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
       // Initialize capture data
       this.captureData.set(tabId, {
         startTime: Date.now(),
-        tabUrl: tab.url,
-        tabTitle: tab.title,
+        tabUrl: tab.url || '',
+        tabTitle: tab.title || '',
         maxCaptureTime,
         inactivityTimeout,
         includeStatic,
@@ -266,54 +216,6 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
       // Potentially inform the user or log the result if the detachment was unexpected
       this.cleanupCapture(source.tabId); // Ensure cleanup happens
     }
-  }
-
-  private updateLastActivityTime(tabId: number) {
-    this.lastActivityTime.set(tabId, Date.now());
-    const captureInfo = this.captureData.get(tabId);
-
-    if (captureInfo && captureInfo.inactivityTimeout > 0) {
-      if (this.inactivityTimers.has(tabId)) {
-        clearTimeout(this.inactivityTimers.get(tabId)!);
-      }
-      this.inactivityTimers.set(
-        tabId,
-        setTimeout(() => this.checkInactivity(tabId), captureInfo.inactivityTimeout),
-      );
-    }
-  }
-
-  private checkInactivity(tabId: number) {
-    const captureInfo = this.captureData.get(tabId);
-    if (!captureInfo) return;
-
-    const lastActivity = this.lastActivityTime.get(tabId) || captureInfo.startTime; // Use startTime if no activity yet
-    const now = Date.now();
-    const inactiveTime = now - lastActivity;
-
-    if (inactiveTime >= captureInfo.inactivityTimeout) {
-      console.log(
-        `NetworkDebuggerStartTool: No activity for ${inactiveTime}ms (threshold: ${captureInfo.inactivityTimeout}ms), stopping capture for tab ${tabId}`,
-      );
-      this.stopCaptureByInactivity(tabId);
-    } else {
-      // Reschedule check for the remaining time, this handles system sleep or other interruptions
-      const remainingTime = Math.max(0, captureInfo.inactivityTimeout - inactiveTime);
-      this.inactivityTimers.set(
-        tabId,
-        setTimeout(() => this.checkInactivity(tabId), remainingTime),
-      );
-    }
-  }
-
-  private async stopCaptureByInactivity(tabId: number) {
-    const captureInfo = this.captureData.get(tabId);
-    if (!captureInfo) return;
-
-    console.log(`NetworkDebuggerStartTool: Stopping capture due to inactivity for tab ${tabId}.`);
-    // Potentially, we might want to notify the client/user that this happened.
-    // For now, just stop and make the results available if StopTool is called.
-    await this.stopCapture(tabId, true); // Pass a flag indicating it's an auto-stop
   }
 
   /**
@@ -569,19 +471,8 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
     return responseBodyPromise;
   }
 
-  private cleanupCapture(tabId: number) {
-    if (this.captureTimers.has(tabId)) {
-      clearTimeout(this.captureTimers.get(tabId)!);
-      this.captureTimers.delete(tabId);
-    }
-    if (this.inactivityTimers.has(tabId)) {
-      clearTimeout(this.inactivityTimers.get(tabId)!);
-      this.inactivityTimers.delete(tabId);
-    }
-
-    this.lastActivityTime.delete(tabId);
-    this.captureData.delete(tabId);
-    this.requestCounters.delete(tabId);
+  protected cleanupCapture(tabId: number) {
+    this.clearSharedTimersAndState(tabId);
 
     // Abort pending getResponseBody calls for this tab
     // Note: Promises themselves cannot be "aborted" externally in a standard way once created.
@@ -673,7 +564,7 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
   }
 
   // isAutoStop is true if stop was triggered by timeout, false if by user/explicit call
-  async stopCapture(tabId: number, isAutoStop: boolean = false): Promise<any> {
+  public async stopCapture(tabId: number, isAutoStop: boolean = false): Promise<any> {
     const captureInfo = this.captureData.get(tabId);
     if (!captureInfo) {
       return { success: false, message: 'No capture in progress for this tab.' };
@@ -757,12 +648,7 @@ class NetworkDebuggerStartTool extends BaseBrowserToolExecutor {
       const baseResult = this.buildResultData(captureInfo, tabId, flushedAt);
 
       // Reset buffered state but keep the debugger session attached
-      captureInfo.requests = {};
-      captureInfo.limitReached = false;
-      captureInfo.lastFlushAt = flushedAt;
-      this.requestCounters.set(tabId, 0);
-
-      this.updateLastActivityTime(tabId);
+      this.resetBufferAfterFlush(captureInfo, tabId, flushedAt);
 
       console.log(
         `NetworkDebuggerStartTool: Flushed ${baseResult.requestCount} requests for tab ${tabId}; capture continues.`,

@@ -1,7 +1,15 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
-import { LIMITS, NETWORK_FILTERS } from '@/common/constants';
+import { NETWORK_FILTERS } from '@/common/constants';
+import {
+  NetworkCaptureBase,
+  type BaseCaptureInfo,
+  type BaseNetworkRequestInfo,
+  DEFAULT_INACTIVITY_TIMEOUT_MS,
+  DEFAULT_MAX_CAPTURE_TIME_MS,
+  MAX_REQUESTS_PER_CAPTURE,
+} from './network-capture-base';
 
 // Static resource file extensions
 const STATIC_RESOURCE_EXTENSIONS = [
@@ -52,57 +60,33 @@ interface NetworkCaptureStartToolParams {
   includeStatic?: boolean; // Whether to include static resources
 }
 
-interface NetworkRequestInfo {
-  requestId: string;
-  url: string;
-  method: string;
-  type: string;
+interface NetworkRequestInfo extends BaseNetworkRequestInfo {
   requestTime: number;
-  requestHeaders?: Record<string, string>;
   requestBody?: string;
-  responseHeaders?: Record<string, string>;
-  responseTime?: number;
   status?: number;
   statusText?: string;
   responseSize?: number;
   responseType?: string;
   responseBody?: string;
-  errorText?: string;
-  specificRequestHeaders?: Record<string, string>;
-  specificResponseHeaders?: Record<string, string>;
-  mimeType?: string; // Response MIME type
 }
 
-interface CaptureInfo {
+interface CaptureInfo extends BaseCaptureInfo<NetworkRequestInfo> {
   tabId: number;
-  tabUrl: string;
-  tabTitle: string;
-  startTime: number;
   endTime?: number;
-  requests: Record<string, NetworkRequestInfo>;
-  maxCaptureTime: number;
-  inactivityTimeout: number;
-  includeStatic: boolean;
-  limitReached?: boolean; // Whether request count limit is reached
-  // Timestamp of the last flush() that returned & cleared the buffer.
-  // Echoed back in the next flush/stop envelope so callers can stitch
-  // multiple drains together unambiguously. Null until first flush.
-  lastFlushAt?: number | null;
 }
 
 /**
  * Network Capture Start Tool V2 - Uses Chrome webRequest API to start capturing network requests
  */
-class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
+class NetworkCaptureStartTool extends NetworkCaptureBase<NetworkRequestInfo, CaptureInfo> {
   name = TOOL_NAMES.BROWSER.NETWORK_CAPTURE_START;
   public static instance: NetworkCaptureStartTool | null = null;
-  public captureData: Map<number, CaptureInfo> = new Map(); // tabId -> capture data
-  private captureTimers: Map<number, NodeJS.Timeout> = new Map(); // tabId -> max capture timer
-  private inactivityTimers: Map<number, NodeJS.Timeout> = new Map(); // tabId -> inactivity timer
-  private lastActivityTime: Map<number, number> = new Map(); // tabId -> timestamp of last activity
-  private requestCounters: Map<number, number> = new Map(); // tabId -> count of captured requests
-  public static MAX_REQUESTS_PER_CAPTURE = LIMITS.MAX_NETWORK_REQUESTS; // Maximum capture request count
+  public static MAX_REQUESTS_PER_CAPTURE = MAX_REQUESTS_PER_CAPTURE; // Maximum capture request count
   private listeners: { [key: string]: ((details: any) => void) | undefined } = {};
+
+  protected logLabel(): string {
+    return 'NetworkCaptureV2';
+  }
 
   // Static resource MIME types list (for filtering)
   private static STATIC_MIME_TYPES_TO_FILTER = [
@@ -144,64 +128,7 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
     }
     NetworkCaptureStartTool.instance = this;
 
-    // Listen for tab close events
-    chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
-    // Listen for tab creation events
-    chrome.tabs.onCreated.addListener(this.handleTabCreated.bind(this));
-  }
-
-  /**
-   * Handle tab close events
-   */
-  private handleTabRemoved(tabId: number) {
-    if (this.captureData.has(tabId)) {
-      console.log(`NetworkCaptureV2: Tab ${tabId} was closed, cleaning up resources.`);
-      this.cleanupCapture(tabId);
-    }
-  }
-
-  /**
-   * Handle tab creation events
-   * If a new tab is opened from a tab being captured, automatically start capturing the new tab's requests
-   */
-  private async handleTabCreated(tab: chrome.tabs.Tab) {
-    try {
-      // Check if there are any tabs currently capturing
-      if (this.captureData.size === 0) return;
-
-      // Get the openerTabId of the new tab (ID of the tab that opened this tab)
-      const openerTabId = tab.openerTabId;
-      if (!openerTabId) return;
-
-      // Check if the opener tab is currently capturing
-      if (!this.captureData.has(openerTabId)) return;
-
-      // Get the new tab's ID
-      const newTabId = tab.id;
-      if (!newTabId) return;
-
-      console.log(
-        `NetworkCaptureV2: New tab ${newTabId} created from capturing tab ${openerTabId}, will extend capture to it.`,
-      );
-
-      // Get the opener tab's capture settings
-      const openerCaptureInfo = this.captureData.get(openerTabId);
-      if (!openerCaptureInfo) return;
-
-      // Wait a short time to ensure the tab is ready
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Start capturing requests for the new tab
-      await this.startCaptureForTab(newTabId, {
-        maxCaptureTime: openerCaptureInfo.maxCaptureTime,
-        inactivityTimeout: openerCaptureInfo.inactivityTimeout,
-        includeStatic: openerCaptureInfo.includeStatic,
-      });
-
-      console.log(`NetworkCaptureV2: Successfully extended capture to new tab ${newTabId}`);
-    } catch (error) {
-      console.error(`NetworkCaptureV2: Error extending capture to new tab:`, error);
-    }
+    this.installSharedTabListeners();
   }
 
   /**
@@ -267,84 +194,13 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
   }
 
   /**
-   * Update last activity time and reset inactivity timer
+   * Clean up capture resources. Wipes the shared per-tab maps; this backend
+   * has no extra state beyond the base (the webRequest listeners are
+   * removed in `removeListeners()` when the last tab finishes — they're
+   * shared across tabs, so per-tab cleanup doesn't touch them).
    */
-  private updateLastActivityTime(tabId: number): void {
-    const captureInfo = this.captureData.get(tabId);
-    if (!captureInfo) return;
-
-    this.lastActivityTime.set(tabId, Date.now());
-
-    // Reset inactivity timer
-    if (this.inactivityTimers.has(tabId)) {
-      clearTimeout(this.inactivityTimers.get(tabId)!);
-    }
-
-    if (captureInfo.inactivityTimeout > 0) {
-      this.inactivityTimers.set(
-        tabId,
-        setTimeout(() => this.checkInactivity(tabId), captureInfo.inactivityTimeout),
-      );
-    }
-  }
-
-  /**
-   * Check for inactivity
-   */
-  private checkInactivity(tabId: number): void {
-    const captureInfo = this.captureData.get(tabId);
-    if (!captureInfo) return;
-
-    const lastActivity = this.lastActivityTime.get(tabId) || captureInfo.startTime;
-    const now = Date.now();
-    const inactiveTime = now - lastActivity;
-
-    if (inactiveTime >= captureInfo.inactivityTimeout) {
-      console.log(
-        `NetworkCaptureV2: No activity for ${inactiveTime}ms, stopping capture for tab ${tabId}`,
-      );
-      this.stopCaptureByInactivity(tabId);
-    } else {
-      // If inactivity time hasn't been reached yet, continue checking
-      const remainingTime = captureInfo.inactivityTimeout - inactiveTime;
-      this.inactivityTimers.set(
-        tabId,
-        setTimeout(() => this.checkInactivity(tabId), remainingTime),
-      );
-    }
-  }
-
-  /**
-   * Stop capture due to inactivity
-   */
-  private async stopCaptureByInactivity(tabId: number): Promise<void> {
-    const captureInfo = this.captureData.get(tabId);
-    if (!captureInfo) return;
-
-    console.log(`NetworkCaptureV2: Stopping capture due to inactivity for tab ${tabId}`);
-    await this.stopCapture(tabId);
-  }
-
-  /**
-   * Clean up capture resources
-   */
-  private cleanupCapture(tabId: number): void {
-    // Clear timers
-    if (this.captureTimers.has(tabId)) {
-      clearTimeout(this.captureTimers.get(tabId)!);
-      this.captureTimers.delete(tabId);
-    }
-
-    if (this.inactivityTimers.has(tabId)) {
-      clearTimeout(this.inactivityTimers.get(tabId)!);
-      this.inactivityTimers.delete(tabId);
-    }
-
-    // Remove data
-    this.lastActivityTime.delete(tabId);
-    this.captureData.delete(tabId);
-    this.requestCounters.delete(tabId);
-
+  protected cleanupCapture(tabId: number): void {
+    this.clearSharedTimersAndState(tabId);
     console.log(`NetworkCaptureV2: Cleaned up all resources for tab ${tabId}`);
   }
 
@@ -567,7 +423,7 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
    * @param tabId Tab ID
    * @param options Capture options
    */
-  private async startCaptureForTab(
+  protected async startCaptureForTab(
     tabId: number,
     options: {
       maxCaptureTime: number;
@@ -792,14 +648,7 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
       const resultData = this.buildResultData(captureInfo, tabId, flushedAt);
 
       // Reset buffered state but keep listeners/timers attached
-      captureInfo.requests = {};
-      captureInfo.limitReached = false;
-      captureInfo.lastFlushAt = flushedAt;
-      this.requestCounters.set(tabId, 0);
-
-      // Refresh activity so the inactivity watchdog doesn't fire as a
-      // side effect of the buffer-drain pause.
-      this.updateLastActivityTime(tabId);
+      this.resetBufferAfterFlush(captureInfo, tabId, flushedAt);
 
       console.log(
         `NetworkCaptureV2: Flushed ${resultData.requestCount} requests for tab ${tabId}; capture continues.`,
@@ -880,8 +729,8 @@ class NetworkCaptureStartTool extends BaseBrowserToolExecutor {
   async execute(args: NetworkCaptureStartToolParams): Promise<ToolResult> {
     const {
       url: targetUrl,
-      maxCaptureTime = 3 * 60 * 1000, // Default 3 minutes
-      inactivityTimeout = 60 * 1000, // Default 1 minute of inactivity before auto-stop
+      maxCaptureTime = DEFAULT_MAX_CAPTURE_TIME_MS,
+      inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT_MS,
       includeStatic = false, // Default: don't include static resources
     } = args;
 
