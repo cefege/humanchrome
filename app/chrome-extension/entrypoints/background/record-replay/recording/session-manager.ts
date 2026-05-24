@@ -2,6 +2,7 @@ import type { Edge, Flow, NodeBase, Step, VariableDef } from '../types';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { NODE_TYPES } from '@/common/node-types';
 import { mapStepToNodeConfig, stepsToDAG, EDGE_LABELS } from 'humanchrome-shared';
+import { getCurrentRequestContext } from '../../utils/request-context';
 
 /**
  * Recording status state machine:
@@ -491,5 +492,84 @@ export class RecordingSessionManager {
   }
 }
 
-// Singleton for wiring convenience
-export const recordingSession = new RecordingSessionManager();
+// =============================================================================
+// IMP-0165: per-client recording sessions (was: single module-scope singleton)
+//
+// Two MCP clients can now each have their own RecordingSessionManager — calls
+// from client A's request context don't see/clobber client B's session. A
+// Proxy at the module boundary keeps the existing `recordingSession` import
+// surface unchanged (~14 callsites in recorder-manager + flow-builder +
+// record-replay/index.ts), so the de-singleton is invisible to callers.
+//
+// Routing uses `getCurrentRequestContext()?.clientId`. Contexts without a
+// request (content-script step messages, tab event handlers, the v2
+// recorder-manager bootstrap) fall back to the `__system` bucket — which
+// means a single client's recorder still works exactly as before for any
+// legacy caller. Multi-client isolation only kicks in when the calling
+// code actually has a different clientId on the context stack.
+//
+// Per-tab exclusivity (one tab can host at most one active recording even
+// across clients) is NOT enforced in this PR — a follow-up IMP can add the
+// `RECORDING_IN_PROGRESS` error if two clients try to record the same tab.
+// Today: two clients recording the same tab would both send start/stop
+// messages to the content script, which is undefined behavior we'd rather
+// catch than tolerate, but the PR scope is "de-singleton, don't regress."
+// =============================================================================
+
+const SYSTEM_CLIENT = '__system';
+const sessions = new Map<string, RecordingSessionManager>();
+
+function currentClientId(): string {
+  return getCurrentRequestContext()?.clientId ?? SYSTEM_CLIENT;
+}
+
+export function getRecordingSessionForClient(clientId?: string): RecordingSessionManager {
+  const key = clientId ?? currentClientId();
+  let s = sessions.get(key);
+  if (!s) {
+    s = new RecordingSessionManager();
+    sessions.set(key, s);
+  }
+  return s;
+}
+
+/** Test-only — drop every per-client manager so each test starts fresh. */
+export function _resetRecordingSessionsForTest(): void {
+  sessions.clear();
+}
+
+/**
+ * Test-only — enumerate every (clientId, sessionId, status) triple so
+ * isolation tests can assert "client A's session is recording, B's is idle"
+ * without poking at internals.
+ */
+export function _listRecordingSessionsForTest(): Array<{
+  clientId: string;
+  sessionId: string;
+  status: RecordingStatus;
+}> {
+  const out: Array<{ clientId: string; sessionId: string; status: RecordingStatus }> = [];
+  for (const [clientId, mgr] of sessions) {
+    const session = mgr.getSession();
+    out.push({ clientId, sessionId: session.sessionId, status: mgr.getStatus() });
+  }
+  return out;
+}
+
+/**
+ * Back-compat singleton handle. Every property access routes to the
+ * per-client manager resolved by the current request context. Existing
+ * callers (`recorder-manager.ts`, `flow-builder.ts`, `record-replay/index.ts`)
+ * see the same shape they always did — they just operate on the right
+ * client's state automatically.
+ */
+export const recordingSession = new Proxy({} as RecordingSessionManager, {
+  get(_target, prop: keyof RecordingSessionManager) {
+    const target = getRecordingSessionForClient();
+    const value = target[prop];
+    return typeof value === 'function' ? (value as Function).bind(target) : value;
+  },
+  has(_target, prop: PropertyKey) {
+    return prop in getRecordingSessionForClient();
+  },
+});
