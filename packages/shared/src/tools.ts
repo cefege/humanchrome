@@ -125,6 +125,7 @@ export const TOOL_NAMES = {
     DEV_RELOAD: 'chrome_dev_reload',
     RUNTIME_INFO: 'chrome_runtime_info',
     OWNED_TABS: 'chrome_owned_tabs',
+    ALIAS_TAB: 'browser_alias_tab',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3231,6 +3232,26 @@ export const TOOL_SCHEMAS: Tool[] = [
       },
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.ALIAS_TAB,
+    description:
+      'Give an owned tab a human-friendly name so subsequent tool calls can target it without juggling raw tab ids. Aliases are per-client (alice\'s "checkout" is not bob\'s), self-evict when the underlying tab closes or the client releases, and don\'t transfer on force-claim. After aliasing, callers should pass `tabAlias: "name"` instead of `tabId` to other browser tools (once that arg ships — currently aliases are queryable via `chrome_owned_tabs`). Reusing an alias overwrites the prior mapping; the response carries `previousTabId` so the LLM sees the change. Input: `{alias: string, tabId?: number}` — `alias` must match `^[a-z][a-z0-9_-]{0,31}$`; `tabId` defaults to the caller\'s `activeTabId`. The tab must be in the caller\'s owned set; otherwise TAB_NOT_OWNED (use `browser_claim_tab` first). Output: `{success, alias, tabId, clientId, previousTabId?}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        alias: {
+          type: 'string',
+          description:
+            'Alias name. Must match ^[a-z][a-z0-9_-]{0,31}$ (lowercase, 1-32 chars, starts with a letter).',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Tab to alias. Defaults to the caller\'s activeTabId.',
+        },
+      },
+      required: ['alias'],
+    },
+  },
 ];
 
 /**
@@ -3364,6 +3385,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DEV_RELOAD]: 'System',
   [TOOL_NAMES.BROWSER.RUNTIME_INFO]: 'System',
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
+  [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

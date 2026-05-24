@@ -633,6 +633,16 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Done
 
+### IMP-0169 · Multi-tab Phase 4a — browser_alias_tab + per-client ClientState.aliases (feat) · score: 5
+
+- **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 4a)
+- **Status**: done
+- **Completed**: 2026-05-24
+- **Summary**: New tool `browser_alias_tab({tabId?, alias})` lets a client name an owned tab so subsequent tool calls can target it by name. Aliases live in `ClientState.aliases: Map<string, number>` (added to `utils/client-state.ts`), persisted to `chrome.storage.session` alongside ownedTabs, validated against `ALIAS_REGEX = /^[a-z][a-z0-9_-]{0,31}$/`. Per-client by design (alice's `'checkout'` is not bob's). Self-evict in `chrome.tabs.onRemoved` and `_handleTabRemovedForTests`. Don't survive `releaseClient` (client-scoped, per the plan). Reusing an alias overwrites and returns `previousTabId` in the response. New `resolveAliasForClient` / `setAliasForClient` / `listAliasesForClient` helpers. Tool gates: requires clientId on request context (INVALID_ARGS otherwise); validates alias regex (INVALID_ARGS); defaults tabId to activeTabId (INVALID_ARGS if neither resolvable); rejects cross-client tabs with TAB_NOT_OWNED. Standard 5-file recipe + 11 contract tests at `tests/tools/browser/alias-tab.test.ts`. docs/TOOLS.md regenerated. Gate: 19/19 vitest pass; tsc + lint clean.
+- **Why**: Phase 4a of the multi-tab-by-design rollout. The tool ships now so callers can start naming tabs; the matching `tabAlias?` arg on every browser tool — the actual "drive 3 tabs in parallel by name" workflow — lands in a follow-up Phase 4b PR that touches the dispatcher.
+- **Cost**: M
+- **Value**: M
+
 ### IMP-0168 · Multi-tab Phase 6b — chrome_owned_tabs tool (feat) · score: 4
 
 - **Proposed by**: claude · 2026-05-24 (multi-tab-by-design rollout, Phase 6b)

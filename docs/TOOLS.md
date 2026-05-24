@@ -185,6 +185,15 @@ Return the tabs currently owned by the calling MCP client (or, for UI surfaces, 
 |-------|------|----------|-------------|
 | `tabId` | number |  | Optional filter — return only the row matching this tabId, if owned. |
 
+### `browser_alias_tab`
+
+Give an owned tab a human-friendly name so subsequent tool calls can target it without juggling raw tab ids. Aliases are per-client (alice's "checkout" is not bob's), self-evict when the underlying tab closes or the client releases, and don't transfer on force-claim. After aliasing, callers should pass `tabAlias: "name"` instead of `tabId` to other browser tools (once that arg ships — currently aliases are queryable via `chrome_owned_tabs`). Reusing an alias overwrites the prior mapping; the response carries `previousTabId` so the LLM sees the change. Input: `{alias: string, tabId?: number}` — `alias` must match `^[a-z][a-z0-9_-]{0,31}$`; `tabId` defaults to the caller's `activeTabId`. The tab must be in the caller's owned set; otherwise TAB_NOT_OWNED (use `browser_claim_tab` first). Output: `{success, alias, tabId, clientId, previousTabId?}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `alias` | string | ✓ | Alias name. Must match ^[a-z][a-z0-9_-]{0,31}$ (lowercase, 1-32 chars, starts with a letter). |
+| `tabId` | number |  | Tab to alias. Defaults to the caller's activeTabId. |
+
 ## Reading
 
 ### `chrome_read_page`

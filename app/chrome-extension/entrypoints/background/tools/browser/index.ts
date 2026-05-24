@@ -80,3 +80,4 @@ export { queueInspectTool } from './queue-inspect';
 export { locatorHandlerTool } from './locator-handler';
 export { devReloadTool } from './dev-reload';
 export { runtimeInfoTool } from './runtime-info';
+export { aliasTabTool } from './alias-tab';
