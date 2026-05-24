@@ -191,8 +191,10 @@ class ComputerTool extends BaseBrowserToolExecutor {
     if (!params.action) return createErrorResponse('Action parameter is required');
 
     try {
-      const explicit = await this.tryGetTab(args.tabId);
-      const tab = explicit || (await this.getActiveTabOrThrowInWindow(args.windowId));
+      const tab = await this.getOwnedTab({
+        explicit: args.tabId,
+        windowId: args.windowId,
+      });
       if (!tab.id)
         return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
 

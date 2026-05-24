@@ -271,8 +271,10 @@ class HandleDialogTool extends BaseBrowserToolExecutor {
 
   private async resolveTabId(args: HandleDialogParams): Promise<number | { error: ToolResult }> {
     try {
-      const explicit = await this.tryGetTab(args?.tabId);
-      const tab = explicit || (await this.getActiveTabOrThrowInWindow(args?.windowId));
+      const tab = await this.getOwnedTab({
+        explicit: args?.tabId,
+        windowId: args?.windowId,
+      });
       if (!tab.id) {
         return {
           error: createErrorResponse('No target tab found', ToolErrorCode.TAB_NOT_FOUND),

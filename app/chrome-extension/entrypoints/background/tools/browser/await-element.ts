@@ -75,8 +75,11 @@ class AwaitElementTool extends BaseBrowserToolExecutor {
     const timeoutMs = Math.max(0, Math.min(requestedTimeout, MAX_TIMEOUT_MS));
 
     try {
-      const explicit = await this.tryGetTab(args.tabId);
-      const tab = explicit || (await this.getActiveTabOrThrowInWindow(args.windowId));
+      const tab = await this.getOwnedTab({
+        explicit: args.tabId,
+        windowId: args.windowId,
+        isRead: true,
+      });
       if (!tab.id) {
         return createErrorResponse(ERROR_MESSAGES.TAB_NOT_FOUND + ': Active tab has no ID');
       }

@@ -36,7 +36,7 @@ class ConsoleClearTool extends BaseBrowserToolExecutor {
           );
         }
       } else {
-        targetTab = await this.getActiveTabOrThrowInWindow(windowId);
+        targetTab = await this.getOwnedTab({ windowId });
       }
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);

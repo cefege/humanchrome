@@ -126,8 +126,11 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
     console.log(`Starting screenshot with options:`, args);
 
     // Resolve target tab (explicit or active)
-    const explicit = await this.tryGetTab(args.tabId);
-    const tab = explicit || (await this.getActiveTabOrThrowInWindow(args.windowId));
+    const tab = await this.getOwnedTab({
+      explicit: args.tabId,
+      windowId: args.windowId,
+      isRead: true,
+    });
 
     // Check URL restrictions
     if (

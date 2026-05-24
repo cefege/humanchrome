@@ -122,7 +122,7 @@ class LocatorHandlerTool extends BaseBrowserToolExecutor {
       typeof args.tabId === 'number' && Number.isFinite(args.tabId) ? args.tabId : undefined;
     if (tabId === undefined) {
       try {
-        const tab = await this.getActiveTabOrThrowInWindow(args.windowId);
+        const tab = await this.getOwnedTab({ windowId: args.windowId });
         tabId = tab.id;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
