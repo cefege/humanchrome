@@ -332,20 +332,75 @@ async function dragDropShim(
     // window.__actionability — duplicate the visible/stable/hit-test
     // logic here. Drag specifically runs visible+stable+hit-test on
     // BOTH endpoints (Playwright matches this).
-    const scrollIfNeeded = (el: HTMLElement): void => {
+    //
+    // IMP-0152: ports two IMP-0113 fixes that were missing here —
+    //   1. Offscreen recovery is gated by isOffscreenButPresent and run
+    //      INSIDE the actionability poll loop so a lazy-loaded list item
+    //      can be scrolled-and-rechecked rather than failing on the
+    //      first poll.
+    //   2. checkStable diffs getComputedStyle(el).transform alongside
+    //      getBoundingClientRect so a `transform: translateX()` animation
+    //      with sub-pixel motion doesn't pixel-round to identical coords
+    //      and report stable while still mid-animation.
+
+    const isCssHidden = (el: HTMLElement): boolean => {
       try {
-        const r = el.getBoundingClientRect();
-        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-        if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) {
-          el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-        }
+        const style = getComputedStyle(el);
+        if (!style) return true;
+        if (style.display === 'none') return true;
+        if (style.visibility === 'hidden' || style.visibility === 'collapse') return true;
+        if (Number(style.opacity) === 0) return true;
+        if (style.pointerEvents === 'none') return true;
+        return false;
       } catch {
-        // ignore
+        return true;
       }
     };
-    scrollIfNeeded(fromEl);
-    scrollIfNeeded(toEl);
+
+    const isOutOfViewport = (r: DOMRect): boolean => {
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      return r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw;
+    };
+
+    const isOffscreenButPresent = (el: HTMLElement): boolean => {
+      if (!el || !el.isConnected) return false;
+      if (isCssHidden(el)) return false;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return false;
+      return isOutOfViewport(r);
+    };
+
+    const scrollCenter = (el: HTMLElement): void => {
+      try {
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior });
+      } catch {
+        try {
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const waitOneFrameOrDeadline = (deadline: number): Promise<void> => {
+      return new Promise((res) => {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          res();
+          return;
+        }
+        const raf =
+          typeof window.requestAnimationFrame === 'function'
+            ? window.requestAnimationFrame
+            : (cb: FrameRequestCallback) => window.setTimeout(cb, 16);
+        const timer = window.setTimeout(() => res(), Math.min(remaining, 50));
+        raf(() => {
+          window.clearTimeout(timer);
+          res();
+        });
+      });
+    };
 
     const checkVisible = (el: HTMLElement): string | null => {
       if (!el.isConnected) return 'not_visible';
@@ -356,28 +411,41 @@ async function dragDropShim(
       if (style.pointerEvents === 'none') return 'not_visible';
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return 'not_visible';
-      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-      if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) return 'not_visible';
+      if (isOutOfViewport(r)) return 'not_visible';
       return null;
+    };
+
+    const readTransform = (el: HTMLElement): string => {
+      try {
+        return getComputedStyle(el).transform || '';
+      } catch {
+        return '';
+      }
     };
 
     const checkStable = (el: HTMLElement): Promise<string | null> => {
       return new Promise((resolveStability) => {
         let frames = 0;
-        let prev = el.getBoundingClientRect();
+        let prevRect = el.getBoundingClientRect();
+        let prevTransform = readTransform(el);
         const tick = () => {
-          const cur = el.getBoundingClientRect();
+          const curRect = el.getBoundingClientRect();
+          const curTransform = readTransform(el);
+          // IMP-0152: a sub-pixel `transform: translateX()` animation
+          // would pixel-round to identical bboxes and falsely report
+          // stable. Diff the matrix string too.
           if (
-            prev.x === cur.x &&
-            prev.y === cur.y &&
-            prev.width === cur.width &&
-            prev.height === cur.height
+            prevRect.x === curRect.x &&
+            prevRect.y === curRect.y &&
+            prevRect.width === curRect.width &&
+            prevRect.height === curRect.height &&
+            prevTransform === curTransform
           ) {
             resolveStability(null);
             return;
           }
-          prev = cur;
+          prevRect = curRect;
+          prevTransform = curTransform;
           frames += 1;
           if (frames >= 6) {
             resolveStability('unstable_bbox');
@@ -418,14 +486,25 @@ async function dragDropShim(
 
     const runActionability = async (
       el: HTMLElement,
-      label: 'from' | 'to',
+      _label: 'from' | 'to',
     ): Promise<{ ok: true } | { ok: false; failures: string[] }> => {
       if (force) return { ok: true };
       const deadline = Date.now() + Math.max(0, actionabilityTimeoutMs);
       let lastFailures: string[] = [];
+      let triedScrollRecovery = false;
       while (true) {
         const failures: string[] = [];
-        const v = checkVisible(el);
+        let v = checkVisible(el);
+        // IMP-0152: one scroll-and-recheck attempt when the only failure
+        // is "offscreen but present" (matches IMP-0113's actionability
+        // contract). Skipped for genuinely hidden / detached elements so
+        // we don't burn a rAF on a wasted scroll.
+        if (v === 'not_visible' && !triedScrollRecovery && isOffscreenButPresent(el)) {
+          triedScrollRecovery = true;
+          scrollCenter(el);
+          await waitOneFrameOrDeadline(deadline);
+          v = checkVisible(el);
+        }
         if (v) failures.push(v);
         if (failures.length === 0) {
           const s = await checkStable(el);
