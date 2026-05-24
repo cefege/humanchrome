@@ -710,6 +710,16 @@ Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Usefu
 | `bypassList` | array<string> |  | For `set` with mode="fixed_servers". Optional list of host patterns the proxy is bypassed for. |
 | `pacUrl` | string |  | For `set` with mode="pac_script". URL of the PAC script. |
 
+### `chrome_set_extra_http_headers`
+
+Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `set` \| `get` \| `clear` \| `list_tabs` |  | Operation to perform. Defaults to "set". |
+| `tabId` | number |  | Target tab. Required for set/get/clear (defaults to caller's owned tab); ignored for list_tabs. |
+| `headers` | object |  | Map of {headerName: value}. Required when action="set". All values must be strings. |
+
 ## Files
 
 ### `chrome_handle_download`
