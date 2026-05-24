@@ -130,6 +130,7 @@ export const TOOL_NAMES = {
     ARIA_SNAPSHOT: 'chrome_aria_snapshot',
     EMULATE: 'chrome_emulate',
     GET_ATTRIBUTES: 'chrome_get_attributes',
+    HOVER: 'chrome_hover',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3285,6 +3286,33 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.HOVER,
+    description:
+      'Programmatic mouse hover to trigger tooltips and dropdown menus. Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, nav-bar dropdowns) is unreachable without dispatching a real mouseover chain — `chrome_focus` only focuses, `chrome_click` clicks, `chrome_javascript` synthesizes events but skips actionability. This tool resolves the target via the same `_selector-resolve` engine that click uses, runs a visibility + hit-test check, then dispatches `pointermove` → `mouseover` → `mouseenter` → `pointerenter` exactly as a real mouse would. Returns `{hovered, bbox, point, tagName}`. Pair with `chrome_await_element` after dispatch to wait for the revealed UI before clicking it. Params: `{selector? | ref?, selectorType?, index?, multi?, position?:{x,y} (relative to bbox top-left, defaults to center), force?, tabId?, windowId?, frameId?}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string' },
+        index: { type: 'number' },
+        multi: { type: 'boolean' },
+        position: {
+          type: 'object',
+          properties: { x: { type: 'number' }, y: { type: 'number' } },
+          required: ['x', 'y'],
+        },
+        force: { type: 'boolean', description: 'Skip the visibility + hit-test check.' },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.GET_ATTRIBUTES,
     description:
       'Read DOM attributes, properties, and computed CSS by selector or ref. Read-only. Closes the gap between `chrome_assert` (boolean-only), `chrome_read_page` (whole tree, no computed styles), and `chrome_javascript` (forces JS authoring + trips redactor). Single tool, no action enum. Params: `{selector? | ref?, selectorType?, index?, multi?, attributes?, properties?, computedStyles?, tabId?, windowId?, frameId?}`. When `attributes` is omitted it defaults to `[id, class, href, src, value, title, role, aria-label]`. When `properties` is omitted it defaults to `[tagName, checked, disabled, selected, value]` — captures DOM-property-only fields like `checked`/`value`/`selectedIndex` that don\'t mirror to attributes. `computedStyles` defaults to empty (opt-in only). Pass `[]` to opt out of a group entirely. `multi:true` returns an array under `matches`; single-match flattens directly into the response. Use this instead of `chrome_javascript` for scraping data-attributes (LinkedIn URNs from `data-entity-urn`), reading `<input value>` after fill, or asserting computed color matches a brand spec.',
@@ -3511,6 +3539,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.ARIA_SNAPSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.EMULATE]: 'State',
   [TOOL_NAMES.BROWSER.GET_ATTRIBUTES]: 'Reading',
+  [TOOL_NAMES.BROWSER.HOVER]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
