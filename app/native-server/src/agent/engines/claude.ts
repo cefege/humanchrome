@@ -28,6 +28,15 @@ import { getProject } from '../project-service';
 import { getHumanChromeUrl } from '../../constant';
 import { withContext } from '../../util/logger';
 import { type Logger } from 'pino';
+import { pickFirstString } from './claude/extractors';
+import {
+  createRunState,
+  emitAssistantMessage,
+  cleanupTempFiles,
+} from './claude/run-helpers';
+import { handleStreamEvent } from './claude/stream-event-handlers';
+import { handleSdkMessage } from './claude/message-type-handlers';
+import type { HandlerDeps } from './claude/types';
 
 const log = withContext({ component: 'claude-engine' });
 
@@ -80,38 +89,6 @@ interface ClaudeRunOptionsInput {
 // Claude Code CLI reads images from local paths, so we write base64 images to temp files and reference them.
 
 /**
- * Tool action type for categorizing tool operations.
- */
-type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
-
-/**
- * Map of tool names to their corresponding actions.
- */
-const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
-  read: 'Read',
-  read_file: 'Read',
-  write: 'Created',
-  write_file: 'Created',
-  create_file: 'Created',
-  edit: 'Edited',
-  edit_file: 'Edited',
-  apply_patch: 'Edited',
-  patch_file: 'Edited',
-  remove_file: 'Deleted',
-  delete_file: 'Deleted',
-  list_files: 'Searched',
-  glob: 'Searched',
-  glob_files: 'Searched',
-  search_files: 'Searched',
-  grep: 'Searched',
-  bash: 'Executed',
-  run: 'Executed',
-  shell: 'Executed',
-  todo_write: 'Generated',
-  plan_write: 'Generated',
-};
-
-/**
  * ClaudeEngine integrates the Claude Agent SDK as an AgentEngine implementation.
  *
  * This engine uses the @anthropic-ai/claude-agent-sdk to interact with Claude,
@@ -160,60 +137,12 @@ export class ClaudeEngine extends AgentEngineBase {
 
     // State management
     const stderrBuffer: string[] = [];
-    let assistantBuffer = '';
-    let assistantMessageId: string | null = null;
-    let assistantCreatedAt: string | null = null;
-    let lastAssistantEmitted: { content: string; isFinal: boolean } | null = null;
     const streamedToolHashes = new Set<string>();
 
-    // Tool input accumulation for streaming tool_use blocks
-    // Key: content block index, Value: { toolName, toolId, inputJson }
-    const pendingToolInputs = new Map<
-      number,
-      { toolName: string; toolId: string; inputJsonParts: string[] }
-    >();
-    let currentContentBlockIndex = -1;
+    const runLog = log.child({ sessionId, requestId, projectId, model: resolvedModel });
 
-    /**
-     * Emit assistant message to the stream.
-     * Includes deduplication to prevent multiple identical final emissions.
-     */
-    const emitAssistant = (isFinal: boolean): void => {
-      const content = assistantBuffer.trim();
-      if (!content) return;
-
-      // Deduplicate: skip if same content and isFinal state was already emitted
-      if (
-        lastAssistantEmitted &&
-        lastAssistantEmitted.content === content &&
-        lastAssistantEmitted.isFinal === isFinal
-      ) {
-        return;
-      }
-      lastAssistantEmitted = { content, isFinal };
-
-      if (!assistantMessageId) {
-        assistantMessageId = randomUUID();
-      }
-      if (!assistantCreatedAt) {
-        assistantCreatedAt = new Date().toISOString();
-      }
-
-      const message: AgentMessage = {
-        id: assistantMessageId,
-        sessionId,
-        role: 'assistant',
-        content,
-        messageType: 'chat',
-        cliSource: this.name,
-        requestId,
-        isStreaming: !isFinal,
-        isFinal,
-        createdAt: assistantCreatedAt,
-      };
-
-      ctx.emit({ type: 'message', data: message });
-    };
+    // Per-run state bag — handlers in `./claude/*` mutate this directly.
+    const runState = createRunState({ sessionId, requestId, runLog });
 
     // Per-run dispatch scope: built once and threaded into the class
     // method so the in-loop closure stays a thin wrapper. Mirrors the
@@ -233,196 +162,16 @@ export class ClaudeEngine extends AgentEngineBase {
       this.dispatchToolMessageRun(dispatchScope, content, metadata, messageType, isStreaming);
     };
 
-    /**
-     * Infer tool action from tool name.
-     */
-    const inferActionFromToolName = (toolName: unknown): ToolAction | undefined => {
-      if (typeof toolName !== 'string') return undefined;
-      const normalized = toolName.trim().toLowerCase();
-      if (!normalized) return undefined;
-
-      if (TOOL_NAME_ACTION_MAP[normalized]) {
-        return TOOL_NAME_ACTION_MAP[normalized];
-      }
-
-      // Try suffix after colon (e.g., "mcp__server__tool" -> "tool")
-      const suffix = normalized.split(':').pop() ?? normalized;
-      if (suffix && TOOL_NAME_ACTION_MAP[suffix]) {
-        return TOOL_NAME_ACTION_MAP[suffix];
-      }
-
-      // Infer from name patterns
-      if (
-        normalized.includes('edit') ||
-        normalized.includes('modify') ||
-        normalized.includes('patch')
-      ) {
-        return 'Edited';
-      }
-      if (normalized.includes('write') || normalized.includes('create')) {
-        return 'Created';
-      }
-      if (normalized.includes('read') || normalized.includes('view')) {
-        return 'Read';
-      }
-      if (normalized.includes('delete') || normalized.includes('remove')) {
-        return 'Deleted';
-      }
-      if (
-        normalized.includes('search') ||
-        normalized.includes('find') ||
-        normalized.includes('glob') ||
-        normalized.includes('grep')
-      ) {
-        return 'Searched';
-      }
-      if (
-        normalized.includes('bash') ||
-        normalized.includes('shell') ||
-        normalized.includes('exec')
-      ) {
-        return 'Executed';
-      }
-      if (normalized.includes('todo') || normalized.includes('plan')) {
-        return 'Generated';
-      }
-
-      return undefined;
-    };
-
-    /**
-     * Build tool metadata from content block with detailed tool-specific information.
-     */
-    const buildToolMetadata = (contentBlock: Record<string, unknown>): Record<string, unknown> => {
-      const toolName = this.pickFirstString(contentBlock.name) || 'unknown';
-      const toolId = this.pickFirstString(contentBlock.id);
-      const input = contentBlock.input as Record<string, unknown> | undefined;
-      const action = inferActionFromToolName(toolName);
-
-      const metadata: Record<string, unknown> = {
-        toolName,
-        tool_name: toolName,
-        toolId,
-        action,
-      };
-
-      if (!input) {
-        return metadata;
-      }
-
-      // Extract tool-specific details
-      const normalizedName = toolName.toLowerCase();
-
-      // File operations (read, write, edit)
-      if (typeof input.file_path === 'string') {
-        metadata.filePath = input.file_path;
-      }
-
-      // Edit tool - extract diff information
-      if (
-        normalizedName.includes('edit') ||
-        normalizedName === 'apply_patch' ||
-        normalizedName === 'patch_file'
-      ) {
-        if (typeof input.old_string === 'string') {
-          metadata.oldString = input.old_string;
-          metadata.deletedLines = input.old_string.split('\n').length;
-        }
-        if (typeof input.new_string === 'string') {
-          metadata.newString = input.new_string;
-          metadata.addedLines = input.new_string.split('\n').length;
-        }
-        if (typeof input.replace_all === 'boolean') {
-          metadata.replaceAll = input.replace_all;
-        }
-      }
-
-      // Write tool - content preview
-      if (normalizedName.includes('write') || normalizedName === 'create_file') {
-        if (typeof input.content === 'string') {
-          metadata.contentPreview = input.content.slice(0, 200);
-          metadata.totalLines = input.content.split('\n').length;
-        }
-      }
-
-      // Read tool - offset/limit
-      if (normalizedName.includes('read')) {
-        if (typeof input.offset === 'number') metadata.offset = input.offset;
-        if (typeof input.limit === 'number') metadata.limit = input.limit;
-      }
-
-      // Bash/shell - command
-      if (
-        normalizedName === 'bash' ||
-        normalizedName.includes('shell') ||
-        normalizedName === 'run'
-      ) {
-        if (typeof input.command === 'string') {
-          metadata.command = input.command;
-        }
-        if (typeof input.description === 'string') {
-          metadata.commandDescription = input.description;
-        }
-      }
-
-      // Search tools (grep, glob)
-      if (normalizedName === 'grep' || normalizedName.includes('search')) {
-        if (typeof input.pattern === 'string') metadata.pattern = input.pattern;
-        if (typeof input.path === 'string') metadata.searchPath = input.path;
-        if (typeof input.glob === 'string') metadata.glob = input.glob;
-        if (typeof input.output_mode === 'string') metadata.outputMode = input.output_mode;
-      }
-
-      if (normalizedName === 'glob' || normalizedName === 'glob_files') {
-        if (typeof input.pattern === 'string') metadata.pattern = input.pattern;
-        if (typeof input.path === 'string') metadata.searchPath = input.path;
-      }
-
-      // TodoWrite
-      if (normalizedName === 'todo_write' || normalizedName === 'todowrite') {
-        if (Array.isArray(input.todos)) {
-          metadata.todoCount = input.todos.length;
-          metadata.todos = input.todos;
-        }
-      }
-
-      // Store raw input for debugging (truncated)
-      metadata.rawInput = JSON.stringify(input).slice(0, 1000);
-
-      return metadata;
-    };
-
-    // State for temp file cleanup
-    const tempFiles: string[] = [];
-    const cleanupTempFiles = async (): Promise<void> => {
-      if (tempFiles.length === 0) return;
-
-      try {
-        const fs = await import('node:fs/promises');
-        for (const filePath of tempFiles) {
-          try {
-            await fs.unlink(filePath);
-            log.debug({ filePath }, 'cleaned up temp file');
-          } catch (err) {
-            // Best-effort cleanup; ignore failures (file may already be deleted)
-            log.warn(
-              { filePath, err: err instanceof Error ? err.message : String(err) },
-              'failed to cleanup temp file',
-            );
-          }
-        }
-      } catch (err) {
-        log.warn(
-          { err: err instanceof Error ? err.message : String(err) },
-          'failed to cleanup temp files',
-        );
-      }
+    // Handler deps bundle — passed to every extracted handler.
+    const handlerDeps: HandlerDeps = {
+      ctx,
+      emitAssistant: (isFinal: boolean) => emitAssistantMessage(runState, ctx, isFinal),
+      dispatchToolMessage,
     };
 
     // Build prompt instruction (may be modified if images are attached)
     let promptInstruction = normalizedInstruction;
 
-    const runLog = log.child({ sessionId, requestId, projectId, model: resolvedModel });
     try {
       runLog.info({ repoPath }, 'starting Claude query');
 
@@ -454,7 +203,7 @@ export class ClaudeEngine extends AgentEngineBase {
           for (let index = 0; index < imageAttachments.length; index++) {
             const attachment = imageAttachments[index];
             const tempFilePath = await this.writeAttachmentToTemp(attachment);
-            tempFiles.push(tempFilePath);
+            runState.tempFiles.push(tempFilePath);
             imageLines.push(`Image #${index + 1} path: ${tempFilePath}`);
           }
         }
@@ -507,7 +256,10 @@ export class ClaudeEngine extends AgentEngineBase {
         options: queryOptions,
       });
 
-      // Process streaming response
+      // Process streaming response. The stream-event and SDK message
+      // dispatchers live in sibling modules under `./claude/` (IMP-0149);
+      // the body here is intentionally a thin loop so the per-event /
+      // per-message-type logic can be unit-tested in isolation.
       for await (const message of response) {
         // Check for cancellation before processing each message
         if (signal?.aborted) {
@@ -519,446 +271,19 @@ export class ClaudeEngine extends AgentEngineBase {
 
         if (message.type === 'stream_event') {
           const event = (message as unknown as { event?: Record<string, unknown> }).event ?? {};
-          const eventType = this.pickFirstString(event.type);
-
-          switch (eventType) {
-            case 'message_start': {
-              // Reset assistant state for new message
-              assistantBuffer = '';
-              assistantMessageId = randomUUID();
-              assistantCreatedAt = new Date().toISOString();
-              lastAssistantEmitted = null;
-              break;
-            }
-
-            case 'content_block_start': {
-              const contentBlock = event.content_block as Record<string, unknown> | undefined;
-              const blockIndex =
-                typeof event.index === 'number' ? event.index : ++currentContentBlockIndex;
-              currentContentBlockIndex = blockIndex;
-
-              if (contentBlock && contentBlock.type === 'tool_use') {
-                const toolName = this.pickFirstString(contentBlock.name) || 'tool';
-                const toolId = this.pickFirstString(contentBlock.id) || '';
-
-                // Store pending tool input for accumulation
-                // Don't emit message here - wait for content_block_stop with complete input
-                pendingToolInputs.set(blockIndex, {
-                  toolName,
-                  toolId,
-                  inputJsonParts: [],
-                });
-              } else if (contentBlock && contentBlock.type === 'tool_result') {
-                // Handle tool_result in content_block_start
-                const metadata = this.buildToolResultMetadata(contentBlock);
-                const content = this.extractToolResultContent(contentBlock);
-                const isError = contentBlock.is_error === true;
-
-                dispatchToolMessage(
-                  isError
-                    ? `Error: ${content || 'Tool execution failed'}`
-                    : content || 'Tool completed',
-                  metadata,
-                  'tool_result',
-                  false,
-                );
-              }
-              break;
-            }
-
-            case 'content_block_stop': {
-              const blockIndex =
-                typeof event.index === 'number' ? event.index : currentContentBlockIndex;
-
-              // Check if we have accumulated tool input for this block
-              if (pendingToolInputs.has(blockIndex)) {
-                const pending = pendingToolInputs.get(blockIndex)!;
-                pendingToolInputs.delete(blockIndex);
-
-                // Parse the accumulated JSON
-                const fullJsonStr = pending.inputJsonParts.join('');
-                let input: Record<string, unknown> = {};
-                try {
-                  if (fullJsonStr) {
-                    input = JSON.parse(fullJsonStr);
-                  }
-                } catch (e) {
-                  runLog.warn(
-                    { err: e instanceof Error ? e.message : String(e) },
-                    'failed to parse tool input JSON',
-                  );
-                }
-
-                runLog.debug(
-                  {
-                    toolName: pending.toolName,
-                    inputPreview: JSON.stringify(input).slice(0, 500),
-                  },
-                  'content_block_stop',
-                );
-
-                // Build metadata with full input
-                const metadata = buildToolMetadata({
-                  name: pending.toolName,
-                  id: pending.toolId,
-                  input,
-                });
-
-                // Build informative content
-                let content = `Using tool: ${pending.toolName}`;
-                if (input.command) content = `Running: ${input.command}`;
-                else if (input.file_path) content = `Operating on: ${input.file_path}`;
-                else if (input.pattern) content = `Searching: ${input.pattern}`;
-                else if (input.query) content = `Searching: ${input.query}`;
-
-                // Emit final tool_use message with complete metadata
-                dispatchToolMessage(content, metadata, 'tool_use', false);
-              }
-
-              // Check if this block was a tool_result
-              const contentBlock = event.content_block as Record<string, unknown> | undefined;
-              if (contentBlock && contentBlock.type === 'tool_result') {
-                const metadata = this.buildToolResultMetadata(contentBlock);
-                const content = this.extractToolResultContent(contentBlock);
-                const isError = contentBlock.is_error === true;
-
-                dispatchToolMessage(
-                  isError
-                    ? `Error: ${content || 'Tool execution failed'}`
-                    : content || 'Tool completed',
-                  metadata,
-                  'tool_result',
-                  false,
-                );
-              }
-              break;
-            }
-
-            case 'content_block_delta': {
-              const delta = event.delta as Record<string, unknown> | string | undefined;
-              const blockIndex =
-                typeof event.index === 'number' ? event.index : currentContentBlockIndex;
-
-              // Check if this is a tool_use input_json_delta
-              if (delta && typeof delta === 'object' && delta.type === 'input_json_delta') {
-                const partialJson = delta.partial_json as string | undefined;
-                if (partialJson && pendingToolInputs.has(blockIndex)) {
-                  pendingToolInputs.get(blockIndex)!.inputJsonParts.push(partialJson);
-                }
-                break;
-              }
-
-              // Handle text delta for assistant messages
-              let textChunk = '';
-
-              if (typeof delta === 'string') {
-                textChunk = delta;
-              } else if (delta && typeof delta === 'object') {
-                if (typeof delta.text === 'string') {
-                  textChunk = delta.text;
-                } else if (typeof delta.delta === 'string') {
-                  textChunk = delta.delta;
-                } else if (typeof delta.partial === 'string') {
-                  textChunk = delta.partial;
-                }
-              }
-
-              if (textChunk) {
-                assistantBuffer += textChunk;
-                emitAssistant(false);
-              }
-              break;
-            }
-
-            case 'message_delta': {
-              // message_delta usually contains metadata only (stop_reason, usage)
-              // Don't emit final here to avoid duplicate finals
-              break;
-            }
-
-            case 'message_stop': {
-              // Emit final assistant message only on message_stop
-              emitAssistant(true);
-              break;
-            }
-
-            default:
-              // Other stream events are ignored
-              break;
-          }
-        } else if (message.type === 'assistant') {
-          // Fallback for non-streaming assistant messages
-          const content = this.extractMessageContent(message);
-          if (content) {
-            assistantBuffer = content;
-            emitAssistant(true);
-          }
-        } else if (message.type === 'result') {
-          // Final result - check for errors first
-          const resultRecord = message as unknown as Record<string, unknown>;
-
-          // Log full result for debugging
-          runLog.debug({ result: resultRecord }, 'claude result message');
-
-          // Extract and emit usage statistics
-          const usage = resultRecord.usage as Record<string, unknown> | undefined;
-          const totalCostUsd =
-            typeof resultRecord.total_cost_usd === 'number' ? resultRecord.total_cost_usd : 0;
-          const durationMs =
-            typeof resultRecord.duration_ms === 'number' ? resultRecord.duration_ms : 0;
-          const numTurns = typeof resultRecord.num_turns === 'number' ? resultRecord.num_turns : 0;
-
-          if (usage || totalCostUsd > 0) {
-            ctx.emit({
-              type: 'usage',
-              data: {
-                sessionId,
-                requestId,
-                inputTokens: typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0,
-                outputTokens: typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0,
-                cacheReadInputTokens:
-                  typeof usage?.cache_read_input_tokens === 'number'
-                    ? usage.cache_read_input_tokens
-                    : undefined,
-                cacheCreationInputTokens:
-                  typeof usage?.cache_creation_input_tokens === 'number'
-                    ? usage.cache_creation_input_tokens
-                    : undefined,
-                totalCostUsd,
-                durationMs,
-                numTurns,
-              },
-            });
-          }
-
-          // Check if result contains errors (SDK puts error details here)
-          // Note: is_error can be true even with empty errors array
-          if (resultRecord.is_error) {
-            const errors = resultRecord.errors as string[] | undefined;
-            const resultText = resultRecord.result as string | undefined;
-            const errorMsg = errors?.length
-              ? errors.join('; ')
-              : resultText || 'Unknown error from Claude Code';
-            runLog.error({ errorMsg }, 'claude result error');
-
-            // Check if this is a resume failure
-            const isResumeFailure =
-              errorMsg.includes('No conversation found') ||
-              errorMsg.includes('Failed to resume session') ||
-              errorMsg.includes('session ID');
-
-            if (isResumeFailure && resumeClaudeSessionId) {
-              // Clear the stored session ID so next request starts fresh
-              if (ctx.persistClaudeSessionId && projectId) {
-                try {
-                  // Pass empty string to clear the session
-                  await ctx.persistClaudeSessionId('');
-                  runLog.warn('cleared invalid session ID');
-                } catch {
-                  // Ignore clear errors
-                }
-              }
-              throw new Error(
-                `Resume failed: ${errorMsg}. Session has been cleared - please retry.`,
-              );
-            }
-
-            throw new Error(errorMsg);
-          }
-
-          // Extract content from successful result
-          const resultContent = this.extractMessageContent(message);
-          if (resultContent && resultContent !== assistantBuffer.trim()) {
-            assistantBuffer = resultContent;
-            emitAssistant(true);
-          }
-        } else if (message.type === 'system') {
-          // Handle system messages
-          const record = message as unknown as Record<string, unknown>;
-          const subtype = this.pickFirstString(record.subtype);
-
-          if (subtype === 'init') {
-            // system:init - contains session_id and management information
-            const claudeSessionId = record.session_id ? String(record.session_id) : undefined;
-
-            if (claudeSessionId) {
-              runLog.info({ claudeSessionId }, 'claude session initialized');
-
-              // Persist the session ID if callback is provided and projectId exists
-              if (ctx.persistClaudeSessionId && projectId) {
-                try {
-                  await ctx.persistClaudeSessionId(claudeSessionId);
-                  runLog.debug({ projectId }, 'claude session id persisted for project');
-                } catch (persistError) {
-                  runLog.warn(
-                    {
-                      err:
-                        persistError instanceof Error ? persistError.message : String(persistError),
-                    },
-                    'failed to persist session id',
-                  );
-                }
-              }
-            }
-
-            // Extract and persist management information
-            if (ctx.persistManagementInfo) {
-              try {
-                const managementInfo = {
-                  tools: Array.isArray(record.tools)
-                    ? record.tools.filter((t): t is string => typeof t === 'string')
-                    : undefined,
-                  agents: Array.isArray(record.agents)
-                    ? record.agents.filter((a): a is string => typeof a === 'string')
-                    : undefined,
-                  // SDK returns plugins as { name, path }[] objects
-                  plugins: Array.isArray(record.plugins)
-                    ? (record.plugins as Array<{ name?: string; path?: string }>)
-                        .filter((p) => p && typeof p.name === 'string')
-                        .map((p) => ({
-                          name: String(p.name),
-                          path: p.path ? String(p.path) : undefined,
-                        }))
-                    : undefined,
-                  skills: Array.isArray(record.skills)
-                    ? record.skills.filter((s): s is string => typeof s === 'string')
-                    : undefined,
-                  mcpServers: Array.isArray(record.mcp_servers)
-                    ? (record.mcp_servers as Array<{ name?: string; status?: string }>)
-                        .filter((s) => s && typeof s.name === 'string')
-                        .map((s) => ({
-                          name: String(s.name),
-                          status: String(s.status || 'unknown'),
-                        }))
-                    : undefined,
-                  slashCommands: Array.isArray(record.slash_commands)
-                    ? record.slash_commands.filter((c): c is string => typeof c === 'string')
-                    : undefined,
-                  model: this.pickFirstString(record.model),
-                  permissionMode: this.pickFirstString(record.permissionMode),
-                  cwd: this.pickFirstString(record.cwd),
-                  outputStyle: this.pickFirstString(record.output_style),
-                  betas: Array.isArray(record.betas)
-                    ? record.betas.filter((b): b is string => typeof b === 'string')
-                    : undefined,
-                  claudeCodeVersion: this.pickFirstString(record.claude_code_version),
-                  apiKeySource: this.pickFirstString(record.apiKeySource),
-                };
-
-                await ctx.persistManagementInfo(managementInfo);
-                runLog.debug('management info persisted');
-              } catch (persistError) {
-                runLog.warn(
-                  {
-                    err:
-                      persistError instanceof Error ? persistError.message : String(persistError),
-                  },
-                  'failed to persist management info',
-                );
-              }
-            }
-          } else if (subtype === 'status') {
-            // system:status - log for debugging (e.g., compacting)
-            const statusText = this.pickFirstString(record.status);
-            runLog.debug({ statusText: statusText || 'unknown' }, 'claude system status');
-          }
-        } else if (message.type === 'auth_status') {
-          // Handle authentication status - SDK fields: isAuthenticating, output, error
-          const record = message as unknown as Record<string, unknown>;
-          const isAuthenticating = record.isAuthenticating === true;
-          const output = Array.isArray(record.output)
-            ? record.output.filter((o): o is string => typeof o === 'string')
-            : [];
-          const authError = this.pickFirstString(record.error);
-
-          runLog.info({ isAuthenticating, hasError: !!authError }, 'claude auth status');
-
-          // Build content from output or error
-          const content = authError || output.join('\n') || 'Authentication in progress...';
-
-          // Determine if login is required:
-          // - Not currently authenticating AND (has error OR output contains login keywords)
-          const outputText = output.join(' ').toLowerCase();
-          const requiresLogin =
-            !isAuthenticating &&
-            (!!authError ||
-              outputText.includes('login') ||
-              outputText.includes('authenticate') ||
-              outputText.includes('sign in'));
-
-          // Emit auth status as a system message so UI can display login prompts
-          const authSystemMessage: AgentMessage = {
-            id: randomUUID(),
-            sessionId,
-            role: 'system',
-            content,
-            messageType: 'status',
-            cliSource: this.name,
-            requestId,
-            isStreaming: false,
-            isFinal: !isAuthenticating,
-            createdAt: new Date().toISOString(),
-            metadata: {
-              cli_type: 'claude',
-              event_type: 'auth_status',
-              isAuthenticating,
-              output,
-              error: authError,
-              requires_login: requiresLogin,
-            },
-          };
-
-          ctx.emit({ type: 'message', data: authSystemMessage });
-        } else if (message.type === 'tool_progress') {
-          // Handle tool progress - SDK fields: tool_use_id, tool_name, parent_tool_use_id, elapsed_time_seconds
-          const record = message as unknown as Record<string, unknown>;
-          const toolUseId = this.pickFirstString(record.tool_use_id);
-          const toolName = this.pickFirstString(record.tool_name);
-          const parentToolUseId = this.pickFirstString(record.parent_tool_use_id);
-          const elapsedTimeSeconds =
-            typeof record.elapsed_time_seconds === 'number'
-              ? record.elapsed_time_seconds
-              : undefined;
-
-          if (toolName || toolUseId) {
-            const displayName = toolName || toolUseId || 'tool';
-            const elapsedStr =
-              elapsedTimeSeconds !== undefined ? ` (${elapsedTimeSeconds.toFixed(1)}s)` : '';
-            runLog.debug({ tool: displayName, elapsedTimeSeconds }, 'claude tool progress');
-
-            // Use tool_use_id as message id if available, so UI can update the same progress entry
-            const messageId = toolUseId ? `progress-${toolUseId}` : randomUUID();
-
-            // Emit tool progress as a tool message
-            const progressMessage: AgentMessage = {
-              id: messageId,
-              sessionId,
-              role: 'tool',
-              content: `${displayName} in progress${elapsedStr}`,
-              messageType: 'tool_use',
-              cliSource: this.name,
-              requestId,
-              isStreaming: true,
-              isFinal: false,
-              createdAt: new Date().toISOString(),
-              metadata: {
-                cli_type: 'claude',
-                event_type: 'tool_progress',
-                toolUseId,
-                toolName,
-                parentToolUseId,
-                elapsedTimeSeconds,
-              },
-            };
-
-            ctx.emit({ type: 'message', data: progressMessage });
-          }
+          const eventType = pickFirstString(event.type);
+          handleStreamEvent(eventType, event, runState, handlerDeps);
+        } else {
+          await handleSdkMessage(runState, message as { type: string }, handlerDeps, {
+            projectId,
+            resumeClaudeSessionId,
+          });
         }
       }
 
       // Ensure final message is emitted
-      if (assistantBuffer.trim()) {
-        emitAssistant(true);
+      if (runState.assistantBuffer.trim()) {
+        handlerDeps.emitAssistant(true);
       }
 
       runLog.info('claude query completed successfully');
@@ -1000,7 +325,7 @@ export class ClaudeEngine extends AgentEngineBase {
       throw new Error(`ClaudeEngine: ${errorMessage}`, { cause: error });
     } finally {
       // Always cleanup temp files, even on error
-      await cleanupTempFiles();
+      await cleanupTempFiles(runState);
     }
   }
 
@@ -1433,79 +758,6 @@ export class ClaudeEngine extends AgentEngineBase {
   }
 
   /**
-   * Pick first string value from unknown input.
-   */
-  private pickFirstString(value: unknown): string | undefined {
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      return trimmed.length > 0 ? trimmed : undefined;
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') {
-      return String(value);
-    }
-    if (Array.isArray(value)) {
-      for (const entry of value) {
-        const candidate = this.pickFirstString(entry);
-        if (candidate) return candidate;
-      }
-      return undefined;
-    }
-    return undefined;
-  }
-
-  /**
-   * Extract content from SDK message.
-   * Handles various message structures from Claude Agent SDK:
-   * - result.result (final result text)
-   * - assistant.message (nested message content)
-   * - content/text (direct content fields)
-   * - content[] (array of content blocks)
-   *
-   * @param message - The message object to extract content from
-   * @param depth - Current recursion depth (max 3 to prevent infinite loops)
-   */
-  private extractMessageContent(message: unknown, depth = 0): string | undefined {
-    // Prevent infinite recursion
-    if (depth > 3 || !message || typeof message !== 'object') return undefined;
-    const record = message as Record<string, unknown>;
-
-    // Handle result message: result field contains final text
-    if (typeof record.result === 'string') {
-      return record.result.trim();
-    }
-
-    // Handle assistant message: message field may contain nested content
-    if (record.message && typeof record.message === 'object') {
-      const nested = this.extractMessageContent(record.message, depth + 1);
-      if (nested) return nested;
-    }
-
-    // Try common content fields
-    if (typeof record.content === 'string') {
-      return record.content.trim();
-    }
-    if (typeof record.text === 'string') {
-      return record.text.trim();
-    }
-    if (Array.isArray(record.content)) {
-      const textParts: string[] = [];
-      for (const part of record.content) {
-        if (part && typeof part === 'object' && (part as Record<string, unknown>).type === 'text') {
-          const text = (part as Record<string, unknown>).text;
-          if (typeof text === 'string') {
-            textParts.push(text);
-          }
-        }
-      }
-      if (textParts.length > 0) {
-        return textParts.join('').trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
    * Format error message for user display.
    * Preserves the original error message and only appends stderr context if useful.
    */
@@ -1622,39 +874,6 @@ export class ClaudeEngine extends AgentEngineBase {
       '',
       `Fix: ${suggestion}`,
     ].join('\n');
-  }
-
-  /**
-   * Build metadata for tool result events.
-   */
-  private buildToolResultMetadata(block: Record<string, unknown>): Record<string, unknown> {
-    const toolUseId = this.pickFirstString(block.tool_use_id);
-    const isError = block.is_error === true;
-
-    return {
-      toolUseId,
-      is_error: isError,
-      status: isError ? 'failed' : 'completed',
-      cli_type: 'claude',
-    };
-  }
-
-  /**
-   * Extract content from a tool_result block.
-   */
-  private extractToolResultContent(block: Record<string, unknown>): string | undefined {
-    const content = block.content;
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      const textParts = content
-        .filter((c) => c && typeof c === 'object' && (c as Record<string, unknown>).type === 'text')
-        .map((c) => (c as Record<string, unknown>).text as string)
-        .filter(Boolean);
-      if (textParts.length > 0) {
-        return textParts.join('\n');
-      }
-    }
-    return undefined;
   }
 
 }
