@@ -647,25 +647,63 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
  * prefix is reserved by `normalizeSessionName` so bridge clients can never
  * claim one of these names.
  */
-function stampUiClientId(sender: chrome.runtime.MessageSender | undefined): string {
+/**
+ * IMP-0167: also suffix the surface tag with the originating windowId so
+ * popups/sidepanels opened in different Chrome windows each get their own
+ * ownership lane. Pre-IMP-0167 every popup share `__ui:popup` regardless
+ * of which window opened them — opening one popup in window A and
+ * another in window B meant they fought over the same owned-tab set.
+ *
+ * Resolution order for windowId:
+ *   1. `sender.tab?.windowId` — present for content-script messages
+ *      (not for popup/sidepanel/options pages, which aren't tabs).
+ *   2. `chrome.windows.getLastFocused()` — Chrome's notion of "the
+ *      window the user is interacting with right now," which is
+ *      reliably the popup/sidepanel's host window at the moment its
+ *      message arrives. Racy in theory; reliable in practice.
+ *   3. `:0` fallback so the format stays parseable even on failure.
+ *
+ * The `__ui:` prefix is still reserved by `normalizeSessionName` (it
+ * rejects anything starting with `__`), so the appended `:<windowId>`
+ * doesn't open a back-door for MCP clients to claim a UI lane.
+ */
+async function stampUiClientId(sender: chrome.runtime.MessageSender | undefined): Promise<string> {
   const url = sender?.url || '';
-  if (url.includes('/popup/') || url.endsWith('/popup.html') || url.includes('popup.html'))
-    return '__ui:popup';
-  if (
+  let surface: string;
+  if (url.includes('/popup/') || url.endsWith('/popup.html') || url.includes('popup.html')) {
+    surface = '__ui:popup';
+  } else if (
     url.includes('/sidepanel/') ||
     url.endsWith('/sidepanel.html') ||
     url.includes('sidepanel.html')
-  )
-    return '__ui:sidepanel';
-  if (url.includes('/options/') || url.endsWith('/options.html') || url.includes('options.html'))
-    return '__ui:options';
-  if (
+  ) {
+    surface = '__ui:sidepanel';
+  } else if (
+    url.includes('/options/') ||
+    url.endsWith('/options.html') ||
+    url.includes('options.html')
+  ) {
+    surface = '__ui:options';
+  } else if (
     url.includes('/quickpanel/') ||
     url.endsWith('/quickpanel.html') ||
     url.includes('quickpanel.html')
-  )
-    return '__ui:quickpanel';
-  return '__ui:unknown';
+  ) {
+    surface = '__ui:quickpanel';
+  } else {
+    surface = '__ui:unknown';
+  }
+
+  let windowId: number | undefined = sender?.tab?.windowId;
+  if (typeof windowId !== 'number') {
+    try {
+      const focused = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+      if (focused && typeof focused.id === 'number') windowId = focused.id;
+    } catch {
+      // chrome.windows unavailable (test context) — fall through to :0
+    }
+  }
+  return `${surface}:${typeof windowId === 'number' ? windowId : 0}`;
 }
 
 /**
@@ -710,8 +748,12 @@ export const initNativeHostListener = () => {
     // popup/sidepanel/options each get their own ownership lane and don't
     // collide with MCP clients or with each other.
     if (message && message.type === 'call_tool' && message.name) {
-      const uiClientId = stampUiClientId(_sender);
-      handleCallTool({ name: message.name, args: message.args }, undefined, uiClientId)
+      // IMP-0167: stamping is now async (windowId lookup). Chain off the
+      // promise; sendResponse stays valid because we return true below.
+      stampUiClientId(_sender)
+        .then((uiClientId) =>
+          handleCallTool({ name: message.name, args: message.args }, undefined, uiClientId),
+        )
         .then((res) => sendResponse({ success: true, result: res }))
         .catch((err) =>
           sendResponse({ success: false, error: err instanceof Error ? err.message : String(err) }),
