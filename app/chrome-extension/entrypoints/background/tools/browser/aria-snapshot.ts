@@ -2,6 +2,7 @@ import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
+import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
 
 /**
  * chrome_aria_snapshot — IMP-0127.
@@ -41,7 +42,8 @@ interface AriaSnapshotParams {
   includeRefs?: boolean;
 }
 
-const MAX_OUTPUT_BYTES = 1 * 1024 * 1024; // 1 MiB — matches the global response-body cap.
+// 1 MiB cap shared with the network-capture / intercept-response paths.
+const MAX_OUTPUT_BYTES = MAX_RESPONSE_BODY_BYTES;
 
 class AriaSnapshotTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.ARIA_SNAPSHOT;
@@ -83,20 +85,24 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
       });
 
       // 1 MiB cap mirrors network-capture / intercept-response. On overflow,
-      // truncate by line count (preserving structure) and report.
+      // truncate by line count (preserves tree structure rather than cutting
+      // mid-element). Maintain a running byte total so the loop stays O(N)
+      // instead of the O(N²) "re-measure ever-growing acc" pattern.
       let snapshot = stripped;
       let truncated = false;
       const originalSize = Buffer.byteLength(snapshot, 'utf8');
       if (originalSize > MAX_OUTPUT_BYTES) {
-        // Drop trailing lines until we fit.
         const lines = snapshot.split('\n');
-        let acc = '';
-        for (const line of lines) {
-          const next = acc.length === 0 ? line : `${acc}\n${line}`;
-          if (Buffer.byteLength(next, 'utf8') > MAX_OUTPUT_BYTES) break;
-          acc = next;
+        let bytes = 0;
+        let cutAt = 0;
+        for (let i = 0; i < lines.length; i++) {
+          // +1 for the '\n' joiner (except before the first line).
+          const lineBytes = Buffer.byteLength(lines[i], 'utf8') + (i === 0 ? 0 : 1);
+          if (bytes + lineBytes > MAX_OUTPUT_BYTES) break;
+          bytes += lineBytes;
+          cutAt = i + 1;
         }
-        snapshot = acc;
+        snapshot = lines.slice(0, cutAt).join('\n');
         truncated = true;
       }
 

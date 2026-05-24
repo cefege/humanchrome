@@ -345,7 +345,9 @@ class EmulateTool extends BaseBrowserToolExecutor {
         case 'reset_all': {
           // Best-effort: send the clears we know about; ignore individual
           // command rejections (the override may not have been set in the
-          // first place) but surface a transport-level failure.
+          // first place) but surface a transport-level failure. The 7 calls
+          // are independent — run them in parallel so reset_all costs one
+          // RTT instead of seven.
           await cdpSessionManager.withSession(tabId, OWNER, async () => {
             const safe = async (method: string, params?: object) => {
               try {
@@ -354,13 +356,15 @@ class EmulateTool extends BaseBrowserToolExecutor {
                 /* ignore — override may not have been set */
               }
             };
-            await safe('Emulation.clearDeviceMetricsOverride');
-            await safe('Emulation.setTouchEmulationEnabled', { enabled: false });
-            await safe('Emulation.setUserAgentOverride', { userAgent: '' });
-            await safe('Emulation.setLocaleOverride', {});
-            await safe('Emulation.setTimezoneOverride', { timezoneId: '' });
-            await safe('Emulation.clearGeolocationOverride');
-            await safe('Emulation.setEmulatedMedia', { features: [] });
+            await Promise.all([
+              safe('Emulation.clearDeviceMetricsOverride'),
+              safe('Emulation.setTouchEmulationEnabled', { enabled: false }),
+              safe('Emulation.setUserAgentOverride', { userAgent: '' }),
+              safe('Emulation.setLocaleOverride', {}),
+              safe('Emulation.setTimezoneOverride', { timezoneId: '' }),
+              safe('Emulation.clearGeolocationOverride'),
+              safe('Emulation.setEmulatedMedia', { features: [] }),
+            ]);
           });
           TAB_STATE.delete(tabId);
           return this.ok({ tabId, cleared: true });
