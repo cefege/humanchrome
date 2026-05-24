@@ -90,14 +90,17 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
       // instead of the O(N²) "re-measure ever-growing acc" pattern.
       let snapshot = stripped;
       let truncated = false;
-      const originalSize = Buffer.byteLength(snapshot, 'utf8');
+      // Service workers have no Node `Buffer`. TextEncoder is the
+      // standards-compliant UTF-8 byte-length measure.
+      const enc = new TextEncoder();
+      const originalSize = enc.encode(snapshot).length;
       if (originalSize > MAX_OUTPUT_BYTES) {
         const lines = snapshot.split('\n');
         let bytes = 0;
         let cutAt = 0;
         for (let i = 0; i < lines.length; i++) {
           // +1 for the '\n' joiner (except before the first line).
-          const lineBytes = Buffer.byteLength(lines[i], 'utf8') + (i === 0 ? 0 : 1);
+          const lineBytes = enc.encode(lines[i]).length + (i === 0 ? 0 : 1);
           if (bytes + lineBytes > MAX_OUTPUT_BYTES) break;
           bytes += lineBytes;
           cutAt = i + 1;
