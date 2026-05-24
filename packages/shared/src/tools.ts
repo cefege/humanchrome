@@ -134,6 +134,7 @@ export const TOOL_NAMES = {
     TYPE_INTO: 'chrome_type_into',
     HAR_EXPORT: 'chrome_har_export',
     MOCK_RESPONSE: 'chrome_mock_response',
+    BASIC_AUTH: 'chrome_basic_auth',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3289,6 +3290,29 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.BASIC_AUTH,
+    description:
+      'Autoresponder for HTTP Basic / Digest auth prompts via CDP `Fetch.enable({handleAuthRequests:true})` + `Fetch.authRequired` + `Fetch.continueWithAuth`. Many internal corporate sites and staging environments sit behind 401-challenge dialogs that `chrome_handle_dialog` cannot answer (it handles JS dialogs only, not the native auth UI). Without this tool, agents stall indefinitely on the first auth-protected page. Passwords are stored in-memory only — never persisted to chrome.storage, never echoed in `list` output, never logged. Origin match is exact (e.g. "https://api.example.com") with a "*" wildcard fallback. `scheme` ∈ {basic, digest, any} — default any. Unmatched challenges get `Default` (Chrome shows the native dialog as fallback). Actions: `register` (default), `unregister` ({origin}), `list` (origins without passwords), `clear` (drops all on the tab). Per-tab state with auto-cleanup on tab close.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['register', 'unregister', 'list', 'clear'],
+        },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        origin: {
+          type: 'string',
+          description: 'Required for register/unregister. Origin like "https://api.example.com" or "*" wildcard.',
+        },
+        username: { type: 'string', description: 'Required for register.' },
+        password: { type: 'string', description: 'Required for register. Never echoed back.' },
+        scheme: { type: 'string', enum: ['basic', 'digest', 'any'] },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.MOCK_RESPONSE,
     description:
       'Synthesize fake response bodies for matched URLs via CDP `Fetch.enable` + `Fetch.requestPaused` + `Fetch.fulfillRequest`. The page fires its real request; this tool intercepts the pre-flight and returns a synthesized response before the network layer ever leaves the browser. Closes the missing in-flight synthesis primitive — `chrome_block_or_redirect` can drop or rewrite URLs, `chrome_intercept_response` can only WAIT, but neither can synthesize. Real-world: test the logged-in flow when the real endpoint would 429 (return a fake 200); deterministic fixture replay; demo a flow when the back-end is down. Actions: `register` (default; installs a handler), `list_mocks`, `unregister_mock` ({handlerId}), `clear` (drops all on the tab). Pattern syntax mirrors `chrome_intercept_response`: substring (`"voyager/api"`) or wrapped slashes with flags (`"/voyager\\\\/api.*foo/i"`). `bodyJson` auto-serializes + sets `Content-Type: application/json` if no content-type in headers. `once` (default true) auto-unregisters after the first match. `delayMs` adds artificial latency.',
@@ -3635,6 +3659,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.TYPE_INTO]: 'Interaction',
   [TOOL_NAMES.BROWSER.HAR_EXPORT]: 'Network',
   [TOOL_NAMES.BROWSER.MOCK_RESPONSE]: 'Network',
+  [TOOL_NAMES.BROWSER.BASIC_AUTH]: 'Network',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
