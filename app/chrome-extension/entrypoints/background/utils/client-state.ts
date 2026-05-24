@@ -394,6 +394,19 @@ export interface ResolveResult {
    * The dispatcher converts this into a `TAB_NOT_OWNED` ToolError.
    */
   conflict?: { tabId: number; owner: string };
+  /**
+   * IMP-0170: set when the caller passed `tabAlias` but the alias is
+   * either unknown or points at a tab the client no longer owns. The
+   * dispatcher converts this into a `TAB_NOT_FOUND` ToolError with
+   * `details.reason ∈ {'unknown-alias', 'tab-closed'}`.
+   */
+  aliasMiss?: { alias: string; reason: 'unknown-alias' | 'tab-closed' };
+  /**
+   * IMP-0170: set when the caller passed BOTH `tabId` and `tabAlias`.
+   * The two are mutually exclusive — dispatcher converts to
+   * `INVALID_ARGS`.
+   */
+  conflictingArgs?: { tabId: number; alias: string };
 }
 
 /**

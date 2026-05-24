@@ -7,6 +7,7 @@ import {
   consumePacingDelay,
   recordClientTab,
   recordClientWindow,
+  resolveAliasForClient,
   resolveOwnedTabIdForClient,
   resolveOwnedWindowIdForClient,
   type ResolveResult,
@@ -323,6 +324,28 @@ export interface ToolCallParam {
  */
 function resolveTargetTab(args: any, clientId: string | undefined, isRead: boolean): ResolveResult {
   const explicit = typeof args?.tabId === 'number' ? (args.tabId as number) : undefined;
+  const alias = typeof args?.tabAlias === 'string' ? args.tabAlias.trim() : '';
+  // IMP-0170: `tabId` and `tabAlias` are mutually exclusive. If the caller
+  // supplies both, we surface a dedicated error rather than silently
+  // picking one — silent precedence would mask LLM-side bugs where the
+  // caller thought they were targeting a different tab.
+  if (typeof explicit === 'number' && alias.length > 0) {
+    return { conflictingArgs: { tabId: explicit, alias } };
+  }
+  if (alias.length > 0) {
+    const hit = resolveAliasForClient(clientId, alias);
+    if (typeof hit.tabId === 'number') {
+      // Resolved via alias → re-enter the normal owned-tab resolver so
+      // ownership-conflict semantics apply (alias-on-force-claimed-tab
+      // path). For the client's own tab this is a no-op; for the cross-
+      // client edge case where the alias hasn't been evicted yet, the
+      // standard conflict path fires.
+      return resolveOwnedTabIdForClient(clientId, hit.tabId, { isRead });
+    }
+    return {
+      aliasMiss: { alias, reason: hit.reason ?? 'unknown-alias' },
+    };
+  }
   return resolveOwnedTabIdForClient(clientId, explicit, { isRead });
 }
 
@@ -426,6 +449,22 @@ export const handleCallTool = async (
 
   // Resolve target tab against ownership BEFORE injecting into args.
   const resolved = resolveTargetTab(param.args, clientId, !mutates);
+  if (resolved.conflictingArgs) {
+    // IMP-0170: mutually-exclusive args.
+    return createErrorResponse(
+      `Cannot pass both \`tabId\` and \`tabAlias\` — choose one.`,
+      ToolErrorCode.INVALID_ARGS,
+      resolved.conflictingArgs,
+    );
+  }
+  if (resolved.aliasMiss) {
+    // IMP-0170: alias unknown or pointed at an evicted tab.
+    return createErrorResponse(
+      `No tab aliased as "${resolved.aliasMiss.alias}" for this client (${resolved.aliasMiss.reason}). Use browser_alias_tab to set it first.`,
+      ToolErrorCode.TAB_NOT_FOUND,
+      { alias: resolved.aliasMiss.alias, reason: resolved.aliasMiss.reason },
+    );
+  }
   if (resolved.conflict) {
     earlyLog.warn('tab not owned', {
       data: { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
@@ -491,6 +530,13 @@ export const handleCallTool = async (
     }
     if ('tabLockTimeoutMs' in next) {
       delete next.tabLockTimeoutMs;
+      mutated = true;
+    }
+    // IMP-0170: strip `tabAlias` from forwarded args. It was just a
+    // dispatcher-level pointer to the tab; the tool sees the resolved
+    // `tabId` instead and never needs to know about the alias.
+    if ('tabAlias' in next) {
+      delete next.tabAlias;
       mutated = true;
     }
     if (mutated) param = { ...param, args: next };
