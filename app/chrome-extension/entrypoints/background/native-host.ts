@@ -581,8 +581,17 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
     });
 
     nativePort.onDisconnect.addListener(() => {
-      log.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, {
-        data: { lastError: chrome.runtime.lastError?.message },
+      // IMP-0163: inline the lastError message into the log line itself
+      // (was: only in the structured data, which renders as "[object
+      // Object]" in the runner's --enable-logging output). The actual
+      // disconnect reason is essential for debugging "bridge spawns but
+      // exits immediately" — common causes are "Specified native
+      // messaging host not found", "Native host has exited" (bridge
+      // crashed), or "Access to the specified native messaging host is
+      // forbidden" (sandboxing).
+      const lastErr = chrome.runtime.lastError?.message ?? '<no lastError>';
+      log.warn(`${ERROR_MESSAGES.NATIVE_DISCONNECTED}: ${lastErr}`, {
+        data: { lastError: lastErr },
       });
       nativePort = null;
       // Reject any in-flight direct-to-native requests so callers don't hang
