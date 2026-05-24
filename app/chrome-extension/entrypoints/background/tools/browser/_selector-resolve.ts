@@ -215,3 +215,71 @@ export async function resolveSelectorToRef(
 
 /** Re-export for type narrowing in callers. */
 export type { PrefixedSelectorKind };
+
+/**
+ * Inputs for the per-tool ISOLATED-world shim — either a raw CSS selector
+ * the shim's `document.querySelector` can handle, or a ref that resolves
+ * via `window.__claudeElementMap`. Structured selector kinds (`role`,
+ * `label`, `placeholder`, etc.) and prefixed CSS strings (`role:button…`)
+ * get pre-resolved to a ref here so the shim only has to handle two shapes.
+ */
+export type ShimSelectorInputs =
+  | { ok: true; shimSelector: string | null; shimRef: string | null }
+  | { ok: false; error: ToolResult };
+
+export interface ResolveToShimInputsArgs {
+  selector?: string;
+  selectorType?: SelectorType;
+  ref?: string;
+  index?: number;
+  multi?: boolean;
+  tabId: number;
+  frameId?: number;
+}
+
+/**
+ * The pre-shim resolution dance every "single element + shim" tool runs:
+ * if the caller gave us a structured/prefixed selector, resolve it to a
+ * ref via the accessibility-tree-helper; otherwise pass the raw selector/
+ * ref straight through. Shared because the IIFE that decides "does this
+ * need resolving?" was copy-pasted across focus / hover / type-into /
+ * get-attributes — flagged by /simplify against the IMP-0125-0143 batch.
+ */
+export async function resolveToShimInputs(
+  tool: BaseBrowserToolExecutor,
+  args: ResolveToShimInputsArgs,
+): Promise<ShimSelectorInputs> {
+  let shimSelector: string | null = args.selector ?? null;
+  let shimRef: string | null = args.ref ?? null;
+
+  // Only structured/xpath/prefixed-CSS need round-tripping through the
+  // resolver. Plain `selectorType:'css'` with a non-prefixed string and
+  // `ref` callers pass straight through.
+  const needsResolve =
+    !shimRef &&
+    !!shimSelector &&
+    (() => {
+      if (args.selectorType && STRUCTURED_SELECTOR_KINDS.includes(args.selectorType)) return true;
+      if (args.selectorType === 'xpath') return true;
+      if (!args.selectorType || args.selectorType === 'css') {
+        const parsed = parsePrefixedSelector(shimSelector!);
+        return parsed.kind !== 'css';
+      }
+      return false;
+    })();
+
+  if (!needsResolve) {
+    return { ok: true, shimSelector, shimRef };
+  }
+
+  const resolved = await resolveSelectorToRef(tool, {
+    tabId: args.tabId,
+    frameId: args.frameId,
+    selector: shimSelector!,
+    selectorType: (args.selectorType ?? 'css') as SelectorType,
+    index: args.index,
+    multi: args.multi,
+  });
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  return { ok: true, shimSelector: null, shimRef: resolved.ref };
+}

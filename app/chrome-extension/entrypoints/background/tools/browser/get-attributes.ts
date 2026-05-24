@@ -2,12 +2,7 @@ import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
-import {
-  resolveSelectorToRef,
-  STRUCTURED_SELECTOR_KINDS,
-  type SelectorType,
-} from './_selector-resolve';
-import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
+import { resolveToShimInputs, type SelectorType } from './_selector-resolve';
 
 /**
  * chrome_get_attributes — IMP-0126.
@@ -119,33 +114,17 @@ class GetAttributesTool extends BaseBrowserToolExecutor {
 
     // Resolve structured/prefixed selectors to a ref first, so the shim
     // only handles raw CSS / ref like the focus/click tools do.
-    let shimSelector: string | null = args.selector ?? null;
-    let shimRef: string | null = args.ref ?? null;
-    const wantStructuredResolve =
-      !shimRef &&
-      shimSelector &&
-      (() => {
-        if (args.selectorType && STRUCTURED_SELECTOR_KINDS.includes(args.selectorType)) return true;
-        if (args.selectorType === 'xpath') return true;
-        if (!args.selectorType || args.selectorType === 'css') {
-          const parsed = parsePrefixedSelector(shimSelector);
-          return parsed.kind !== 'css';
-        }
-        return false;
-      })();
-    if (wantStructuredResolve) {
-      const resolved = await resolveSelectorToRef(this, {
-        tabId,
-        frameId: args.frameId,
-        selector: shimSelector!,
-        selectorType: (args.selectorType ?? 'css') as SelectorType,
-        index: args.index,
-        multi: args.multi,
-      });
-      if (!resolved.ok) return resolved.error;
-      shimRef = resolved.ref;
-      shimSelector = null;
-    }
+    const resolved = await resolveToShimInputs(this, {
+      selector: args.selector,
+      selectorType: args.selectorType,
+      ref: args.ref,
+      index: args.index,
+      multi: args.multi,
+      tabId,
+      frameId: args.frameId,
+    });
+    if (!resolved.ok) return resolved.error;
+    const { shimSelector, shimRef } = resolved;
 
     const attributes = args.attributes ?? [...DEFAULT_ATTRIBUTES];
     const properties = args.properties ?? [...DEFAULT_PROPERTIES];
