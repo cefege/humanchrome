@@ -128,6 +128,7 @@ export const TOOL_NAMES = {
     ALIAS_TAB: 'browser_alias_tab',
     SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
     ARIA_SNAPSHOT: 'chrome_aria_snapshot',
+    EMULATE: 'chrome_emulate',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3283,6 +3284,47 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.EMULATE,
+    description:
+      'Per-tab CDP `Emulation.*` overrides (UA, locale, timezone, geolocation, device metrics, color-scheme, prefers-reduced-motion). Persistent across navigations within the tab until `reset_all` or tab close. Pairs naturally with `chrome_proxy`: when running through a region-specific proxy, set timezone + locale + geolocation in one tool call so anti-bot platforms can\'t cross-check the mismatch. Actions: `set_device` ({width, height, deviceScaleFactor?, mobile?, hasTouch?} OR `{preset:"iphone-15"|"iphone-15-pro-max"|"pixel-7"|"pixel-7-pro"|"ipad-mini"|"desktop"}` — explicit fields override preset); `set_ua` ({userAgent, acceptLanguage?, platform?}); `set_locale` ({locale: BCP47}); `set_timezone` ({timezone: IANA name}); `set_geolocation` ({latitude, longitude, accuracy?=100}); `set_color_scheme` ({colorScheme?:"light"|"dark"|"no-preference", reducedMotion?:"reduce"|"no-preference"}); `reset_all` ({tabId}) clears everything best-effort; `get_state` ({tabId}) returns the current overrides.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'set_device',
+            'set_ua',
+            'set_locale',
+            'set_timezone',
+            'set_geolocation',
+            'set_color_scheme',
+            'reset_all',
+            'get_state',
+          ],
+        },
+        tabId: { type: 'number' },
+        preset: { type: 'string', description: 'Device preset name (set_device).' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        deviceScaleFactor: { type: 'number' },
+        mobile: { type: 'boolean' },
+        hasTouch: { type: 'boolean' },
+        userAgent: { type: 'string' },
+        acceptLanguage: { type: 'string' },
+        platform: { type: 'string' },
+        locale: { type: 'string', description: 'BCP 47 tag, e.g. "en-US".' },
+        timezone: { type: 'string', description: 'IANA timezone name, e.g. "America/New_York".' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+        accuracy: { type: 'number' },
+        colorScheme: { type: 'string', enum: ['light', 'dark', 'no-preference'] },
+        reducedMotion: { type: 'string', enum: ['reduce', 'no-preference'] },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS,
     description:
       'Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.',
@@ -3442,6 +3484,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',
   [TOOL_NAMES.BROWSER.ARIA_SNAPSHOT]: 'Reading',
+  [TOOL_NAMES.BROWSER.EMULATE]: 'State',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

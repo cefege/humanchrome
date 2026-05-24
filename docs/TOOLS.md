@@ -967,6 +967,31 @@ Wipe browsing-data stores via `chrome.browsingData.remove`. Useful for sanitizin
 | `since` | number |  | Epoch ms cutoff — only data created after this time is removed. Default 0 (all time). |
 | `origins` | array<string> |  | Optional origin-scoped filter (e.g. ["https://example.com"]). When omitted, applies to all origins. |
 
+### `chrome_emulate`
+
+Per-tab CDP `Emulation.*` overrides (UA, locale, timezone, geolocation, device metrics, color-scheme, prefers-reduced-motion). Persistent across navigations within the tab until `reset_all` or tab close. Pairs naturally with `chrome_proxy`: when running through a region-specific proxy, set timezone + locale + geolocation in one tool call so anti-bot platforms can't cross-check the mismatch. Actions: `set_device` ({width, height, deviceScaleFactor?, mobile?, hasTouch?} OR `{preset:"iphone-15"|"iphone-15-pro-max"|"pixel-7"|"pixel-7-pro"|"ipad-mini"|"desktop"}` — explicit fields override preset); `set_ua` ({userAgent, acceptLanguage?, platform?}); `set_locale` ({locale: BCP47}); `set_timezone` ({timezone: IANA name}); `set_geolocation` ({latitude, longitude, accuracy?=100}); `set_color_scheme` ({colorScheme?:"light"|"dark"|"no-preference", reducedMotion?:"reduce"|"no-preference"}); `reset_all` ({tabId}) clears everything best-effort; `get_state` ({tabId}) returns the current overrides.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `set_device` \| `set_ua` \| `set_locale` \| `set_timezone` \| `set_geolocation` \| `set_color_scheme` \| `reset_all` \| `get_state` | ✓ |  |
+| `tabId` | number |  |  |
+| `preset` | string |  | Device preset name (set_device). |
+| `width` | number |  |  |
+| `height` | number |  |  |
+| `deviceScaleFactor` | number |  |  |
+| `mobile` | boolean |  |  |
+| `hasTouch` | boolean |  |  |
+| `userAgent` | string |  |  |
+| `acceptLanguage` | string |  |  |
+| `platform` | string |  |  |
+| `locale` | string |  | BCP 47 tag, e.g. "en-US". |
+| `timezone` | string |  | IANA timezone name, e.g. "America/New_York". |
+| `latitude` | number |  |  |
+| `longitude` | number |  |  |
+| `accuracy` | number |  |  |
+| `colorScheme` | `light` \| `dark` \| `no-preference` |  |  |
+| `reducedMotion` | `reduce` \| `no-preference` |  |  |
+
 ## System
 
 ### `chrome_notifications`
