@@ -396,6 +396,47 @@
       </div>
     </section>
 
+    <!-- ============================================================== -->
+    <section id="new-tools-coverage">
+      <h2>IMP-0124..0143 — Coverage for tools shipped without matrix rows</h2>
+      <p class="muted">
+        Sections below are exercised by the matrix runner; each section maps to one row. The
+        markup is deliberately minimal so the row assertions stay focused on tool behaviour
+        rather than CSS or layout.
+      </p>
+
+      <h3>IMP-0126 — <code>chrome_get_attributes</code></h3>
+      <p class="muted">Row reads href + aria-label from a single anchor.</p>
+      <a id="attr-target" href="/x" data-testid="t" aria-label="hi">link</a>
+
+      <h3>IMP-0125 — <code>chrome_hover</code> reveals tooltip</h3>
+      <p class="muted">
+        Pure-CSS <code>:hover</code> doesn't fire from synthesized pointer events in Chromium,
+        so a small inline listener flips a class on <code>mouseover</code> / off on
+        <code>mouseout</code>. The row asserts the class lands by reading it via
+        <code>chrome_get_attributes</code> after the hover dispatches.
+      </p>
+      <div class="row">
+        <button id="hover-target" type="button">Hover me</button>
+        <span id="hover-tooltip">tooltip</span>
+      </div>
+
+      <h3>IMP-0143 — <code>chrome_type_into</code> char-by-char typing</h3>
+      <p class="muted">Row types "hello" with perKeyDelayMs:0 jitterMs:0 and asserts finalValue.</p>
+      <input id="type-target" type="text" placeholder="type here" />
+    </section>
+
+    <script>
+      // Hover-tooltip class flip (chrome_hover row depends on this).
+      (() => {
+        const target = document.getElementById('hover-target');
+        const tooltip = document.getElementById('hover-tooltip');
+        if (!target || !tooltip) return;
+        target.addEventListener('mouseover', () => tooltip.classList.add('tooltip-active'));
+        target.addEventListener('mouseout', () => tooltip.classList.remove('tooltip-active'));
+      })();
+    </script>
+
     <script>
       // Surface dialog-policy log entries on the page for human-visible verification.
       const dialogLog = document.getElementById('dialog-log');

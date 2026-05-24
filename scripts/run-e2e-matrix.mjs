@@ -304,6 +304,135 @@ const MATRIX = [
   // IMP-0170 dispatcher-tabAlias rows land alongside that PR — adding them
   // now would fail since main doesn't yet resolve `tabAlias` in the
   // dispatcher.
+  // ============================================================================
+  // E2E coverage for the 6 tools shipped in #256-#264 that lacked matrix rows.
+  // ============================================================================
+  {
+    imp: 'IMP-0127',
+    name: 'chrome_aria_snapshot returns indented role/name/ref tree',
+    // Re-navigate to the fixture before snapshot so we don't race a
+    // stale tab. The matrix's initial navigate happens once at the top
+    // of the run; intervening rows can leave the dispatcher's
+    // most-recently-touched tab pointing elsewhere when the read-only
+    // resolver picks a tab from the owned set.
+    run: async () => {
+      const navRes = await callTool('chrome_navigate', { url: FIXTURE_URL });
+      const navTabId = navRes?.parsed?.tabId;
+      return callTool('chrome_aria_snapshot', {
+        interactiveOnly: true,
+        ...(typeof navTabId === 'number' ? { tabId: navTabId } : {}),
+      });
+    },
+    check: (res) => {
+      const p = res.parsed;
+      // The acc-tree-helper indents children under their parents
+      // (`'  '.repeat(depth)`), so anchoring with `^-` would miss the
+      // Submit button when it lives under an intermediate role. Substring
+      // match is the right contract: the snapshot must mention this
+      // role+name+ref pattern somewhere.
+      const ok =
+        !res.isError &&
+        p?.success === true &&
+        typeof p?.snapshot === 'string' &&
+        /\bbutton\s+"Submit"\s+\[ref=ref_/.test(p.snapshot);
+      return assert(
+        ok,
+        `expected snapshot containing 'button "Submit" [ref=ref_…]', got ${JSON.stringify(res).slice(0, 300)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0126',
+    name: 'chrome_get_attributes reads href + aria-label',
+    run: () => callTool('chrome_get_attributes', { selector: '#attr-target' }),
+    check: (res) => {
+      const p = res.parsed;
+      const ok =
+        !res.isError &&
+        p?.ok === true &&
+        p?.attributes?.href === '/x' &&
+        p?.attributes?.['aria-label'] === 'hi';
+      return assert(ok, `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`);
+    },
+  },
+  // IMP-0125 chrome_hover row deferred — first matrix run surfaced an
+  // "<minified-var> is not defined" runtime error inside the production
+  // build of hover.ts's shim. TypeScript-only types serialize fine; the
+  // Rolldown minification of closure variables in the shim is the
+  // suspect. Unit tests against the chrome.scripting.executeScript mock
+  // pass cleanly, so the regression is real-browser-only. Filed as
+  // IMP-0175; row lands when that IMP closes.
+  // IMP-0143 chrome_type_into row deferred — first matrix run reported
+  // `typed:5, finalValue:""` against #type-target. The tool dispatches
+  // 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs, but the chars
+  // never land on the focused input. Likely cause: sendChar only sets
+  // `text` / `unmodifiedText` / `key` on the event; Chrome's renderer
+  // needs `code` + `windowsVirtualKeyCode` for printable ASCII chars
+  // to register as text input rather than control keys. Filed as
+  // IMP-0176; row lands when that IMP closes.
+  {
+    imp: 'IMP-0124',
+    name: 'chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride',
+    run: async () => {
+      const emulateRes = await callTool('chrome_emulate', {
+        action: 'set_device',
+        preset: 'iphone-15',
+      });
+      const stateRes = await callTool('chrome_emulate', { action: 'get_state' });
+      // Restore so subsequent rows see the original viewport.
+      await callTool('chrome_emulate', { action: 'reset_all' });
+      return { emulateRes, stateRes };
+    },
+    check: ({ emulateRes, stateRes }) => {
+      const eb = emulateRes?.parsed;
+      const sb = stateRes?.parsed;
+      // Verify the tool dispatched the override AND remembered it in
+      // its per-tab map. We don't poke innerWidth via chrome_javascript
+      // here — its return shape varies across paths (string vs number)
+      // which would make this row flaky.
+      const emulateOk =
+        !emulateRes?.isError &&
+        eb?.success === true &&
+        eb?.device?.width === 393 &&
+        eb?.device?.height === 852 &&
+        eb?.device?.mobile === true;
+      const stateOk =
+        !stateRes?.isError &&
+        sb?.success === true &&
+        sb?.state?.device?.width === 393 &&
+        sb?.state?.device?.preset === 'iphone-15';
+      return assert(
+        emulateOk && stateOk,
+        `emulate=${JSON.stringify(emulateRes).slice(0, 200)} state=${JSON.stringify(stateRes).slice(0, 200)}`,
+      );
+    },
+  },
+  {
+    imp: 'IMP-0142',
+    name: 'chrome_set_extra_http_headers + clear roundtrip',
+    run: async () => {
+      const setRes = await callTool('chrome_set_extra_http_headers', {
+        action: 'set',
+        headers: { 'X-Humanchrome-Test': '1' },
+      });
+      const getRes = await callTool('chrome_set_extra_http_headers', { action: 'get' });
+      const clearRes = await callTool('chrome_set_extra_http_headers', { action: 'clear' });
+      return { setRes, getRes, clearRes };
+    },
+    check: ({ setRes, getRes, clearRes }) => {
+      const sb = setRes?.parsed;
+      const gb = getRes?.parsed;
+      const cb = clearRes?.parsed;
+      const setOk =
+        !setRes?.isError && sb?.success === true && sb?.headers?.['X-Humanchrome-Test'] === '1';
+      const getOk = !getRes?.isError && gb?.headers?.['X-Humanchrome-Test'] === '1';
+      const clearOk = !clearRes?.isError && cb?.cleared === true;
+      return assert(
+        setOk && getOk && clearOk,
+        `set=${JSON.stringify(setRes).slice(0, 150)} get=${JSON.stringify(getRes).slice(0, 150)} clear=${JSON.stringify(clearRes).slice(0, 150)}`,
+      );
+    },
+  },
 ];
 
 async function waitForFreshSw(priorBuildHash, priorAvailable) {

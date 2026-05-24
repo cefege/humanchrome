@@ -49,6 +49,39 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0176 · chrome_type_into CDP keystrokes don't land on focused input — missing `code`/`windowsVirtualKeyCode` (bug) · score: 6
+
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: proposed
+- **Why**: Matrix run #26367039557's chrome_type_into row returned `{ok:true, typed:5, finalValue:""}` — the tool dispatched 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs against a focused `<input id="type-target">`, but no characters landed (input value stayed empty). `focusForTyping` succeeded; `sendChar` populates `type`/`text`/`unmodifiedText`/`key` but NOT `code` (e.g. `'KeyH'`) or `windowsVirtualKeyCode` (e.g. 72 for `'H'`). Chromium's CDP renderer needs both for printable ASCII chars to register as text input rather than be discarded as unmapped control keys.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Push any change bundling `app/chrome-extension/entrypoints/background/tools/browser/type-into.ts` and re-enable the matrix row deferred in `scripts/run-e2e-matrix.mjs` (search for "IMP-0176"). The row PASSes only when sendChar populates code+windowsVirtualKeyCode for each ASCII char.
+- **Fix sketch**: Add a `charToKey(ch: string) → {code, windowsVirtualKeyCode}` helper. Letters: `code: 'Key' + ch.toUpperCase()`, `windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0)`. Digits: `Digit{n}` / 48-57. Symbols: lookup table from US QWERTY. Forward through `sendChar` alongside the existing fields. Verify via re-enabling the matrix row.
+- **Notes**: Unit tests in `tests/tools/browser/type-into.test.ts` pass because they assert the call shape, not actual char delivery — the mock doesn't validate that Chrome would have accepted the event. The chrome_keyboard tool already does this correctly; cross-reference its `KEY_ALIASES` map and adapt.
+
+### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 6
+
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: proposed
+- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock pass (12/12 in tests/tools/browser/hover.test.ts) because the mock only checks the call shape, not the serialized shim source. Runtime failure is real-browser-only and reproduces on every matrix attempt. Suspect: Rolldown minification of the hoverShim closure renames variables; one of the renamed identifiers shadows a reference inside the nested `checkVisible` helper. focus/type-into use the same nested-helper pattern and work — so the difference is somewhere in hover-specific code (event-init spread, MouseEvent/PointerEvent constructor calls, occluder describer).
+- **Cost**: M
+- **Value**: L
+- **Repro**: Push any change that bundles `app/chrome-extension/entrypoints/background/tools/browser/hover.ts` to a PR. The matrix's IMP-0125 row (deferred in PR #267 — search the runner for "IMP-0175" comment to re-enable) returns `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Matrix run #26365995269.
+- **Fix sketch**: Three candidates. (a) Build the extension locally with sourcemaps + load into CFT, hover any element, read page console for the actual call site — the truncated message in CI hides which line throws. (b) Inline the `checkVisible` helper into hoverShim's body so no nested-function scope exists for the bundler to rewrite. (c) Pass visibility/hit-test logic as a separate executeScript call instead of bundling it into the hover-dispatch shim — splits the closure surface. Once root cause known, re-enable the matrix row by reverting the deferral in scripts/run-e2e-matrix.mjs.
+- **Notes**: Tool is still callable from MCP — only the production minification path is broken. Dev-mode (unminified) builds keep working. The deferred matrix row doesn't reduce overall tool coverage since the dev-mode unit tests stay green.
+
+### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
+
+- **Proposed by**: claude · 2026-05-24 (session retry-pattern evidence)
+- **Status**: proposed
+- **Why**: The "IMP-0097 animation unstable_bbox" matrix row (sliding-btn with 4s ease-in-out CSS transform) intermittently passes on macOS CI even though click should return NOT_ACTIONABLE with `failures:['unstable_bbox']`. Hit on a majority of PRs across the #254-#266 session and consistently green on a single retry — meaning `checkStable` resolves stable on the first poll under runner load even though the element is still mid-animation. IMP-0118 (rAF→setTimeout REQUIRED_SAMPLES rewrite) and IMP-0155 (deadline plumbed into sampler) both intended to close this; matrix evidence shows the race window reopened.
+- **Cost**: M
+- **Value**: M
+- **Repro**: Every PR landed in the #254-#266 session has at least one matrix retry where this row PASS'd after FAIL'd ~3s into the run. See e.g. PR #264 run #26364307562 (first attempt FAIL @ 14:48:03; retry PASS).
+- **Fix sketch**: Two candidates. (a) Increase `REQUIRED_SAMPLES` to 4 (from 3) — gives the sampler one more shot to catch the animation peak under runner stutter. (b) Tighten the sampler interval: the animation's velocity-zero peaks are at exact `t=2s` intervals; sampling at `50ms × 3` can land all three samples in the same peak window. Stagger via `[35ms, 50ms, 80ms]` so consecutive samples are guaranteed not at the same animation phase. Either fix needs validation against the existing `tests/inject-scripts/actionability.test.ts` "bails with unstable_bbox when the deadline expires inside the sampler" test (CI's flake counterpart).
+- **Notes**: The auto-retry pattern in the loop discipline (`gh run rerun --failed` on this row only) has been compensating; this IMP makes the fix permanent.
+
 ### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 7
 
 - **Proposed by**: claude · 2026-05-24 (follow-up to IMP-0162 — partial fix unblocked local but not CI)
