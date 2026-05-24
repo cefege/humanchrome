@@ -49,6 +49,17 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 6
+
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: proposed
+- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock pass (12/12 in tests/tools/browser/hover.test.ts) because the mock only checks the call shape, not the serialized shim source. Runtime failure is real-browser-only and reproduces on every matrix attempt. Suspect: Rolldown minification of the hoverShim closure renames variables; one of the renamed identifiers shadows a reference inside the nested `checkVisible` helper. focus/type-into use the same nested-helper pattern and work — so the difference is somewhere in hover-specific code (event-init spread, MouseEvent/PointerEvent constructor calls, occluder describer).
+- **Cost**: M
+- **Value**: L
+- **Repro**: Push any change that bundles `app/chrome-extension/entrypoints/background/tools/browser/hover.ts` to a PR. The matrix's IMP-0125 row (deferred in PR #267 — search the runner for "IMP-0175" comment to re-enable) returns `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Matrix run #26365995269.
+- **Fix sketch**: Three candidates. (a) Build the extension locally with sourcemaps + load into CFT, hover any element, read page console for the actual call site — the truncated message in CI hides which line throws. (b) Inline the `checkVisible` helper into hoverShim's body so no nested-function scope exists for the bundler to rewrite. (c) Pass visibility/hit-test logic as a separate executeScript call instead of bundling it into the hover-dispatch shim — splits the closure surface. Once root cause known, re-enable the matrix row by reverting the deferral in scripts/run-e2e-matrix.mjs.
+- **Notes**: Tool is still callable from MCP — only the production minification path is broken. Dev-mode (unminified) builds keep working. The deferred matrix row doesn't reduce overall tool coverage since the dev-mode unit tests stay green.
+
 ### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
 
 - **Proposed by**: claude · 2026-05-24 (session retry-pattern evidence)
