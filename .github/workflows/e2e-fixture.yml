@@ -55,7 +55,19 @@ jobs:
         # Stable Chrome killed --load-extension in 137+; CFT is the only
         # public Chromium-family build that still honors unpacked extensions.
         # @puppeteer/browsers drops it under <repo>/chrome/.
-        run: npx --yes @puppeteer/browsers install chrome@stable
+        #
+        # IMP-0163: pin to CFT 148. Chrome 149+ stopped honoring the
+        # manifest `key` field for unpacked extensions, so the extension
+        # loads with a path-derived ID instead of the pinned
+        # `hbdgbgagpkpjffpklnamcljpakneikee`. The NM manifest's
+        # `allowed_origins` only lists the pinned ID, so Chrome refuses
+        # to spawn the bridge with "Access to the specified native
+        # messaging host is forbidden." (Surfaced by the IMP-0163
+        # diagnostic instrumentation that landed in PR #246.) Pinning
+        # to 148 sidesteps the change; a follow-up will teach the
+        # matrix runner to compute the unpacked-extension ID and patch
+        # `allowed_origins` so we can move to a fresh CFT again.
+        run: npx --yes @puppeteer/browsers install chrome@148.0.7778.167
 
       - name: Register native messaging host
         # `humanchrome-bridge register` writes the NM manifest to the user
