@@ -110,7 +110,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0142 · chrome_set_extra_http_headers — per-tab header injection via CDP Network.setExtraHTTPHeaders (feat) · score: 6
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #256 — multi-action tool: set/get/clear/list_tabs, per-tab Map evicted on chrome.tabs.onRemoved, forbidden-headers rejected with details.header, CDP_BUSY classification)
 - **Why**: Many adversarial workflows need to inject Authorization / X-Csrf-Token / custom session-bridge headers on EVERY request a tab makes (LinkedIn Voyager calls, internal company APIs behind corporate auth, mock-server impersonation in test runs). Today the only knobs are chrome_set_cookie (cookies only — no Bearer token surface), chrome_inject_script (have to monkey-patch fetch/XHR per-script — page CSP often blocks), and chrome_proxy (network-layer, can't alter headers). CDP Network.setExtraHTTPHeaders does exactly this in one call; we already have the debugger permission. No equivalent surface today.
 - **Cost**: S
 - **Value**: L
@@ -119,7 +119,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0150 · chrome_wait_for(kind:element, state:absent) returns found:true after element disappears (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #255 — wait-for now mirrors await-element's `found` semantics: success against state:absent returns found:false + absent:true twin)
 - **Why**: IMP-0095 fixed the same shape bug for chrome_await_element but the twin in chrome_wait_for was missed. wait-helper.js always emits `found:true` regardless of state; chrome_await_element overrides via `isPresentSuccess = state === present`, but chrome_wait_for.shapeResponse spreads the raw helper response unchanged. Caller calling `chrome_wait_for({kind:element, state:absent, selector:#modal})` sees `found:true` AFTER the modal disappears — same surprise as IMP-0095, masking the success of the absent wait. Agents conditioning on `found:false` to confirm an element was successfully waited away cannot use chrome_wait_for for that purpose.
 - **Cost**: S
 - **Value**: M
@@ -194,7 +194,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0124 · chrome_emulate — device/UA/locale/timezone/geolocation/color-scheme overrides via CDP (feat) · score: 5
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #258 — 8 actions: set_device/ua/locale/timezone/geolocation/color_scheme/reset_all/get_state, device presets iphone-15/pixel-7/etc, per-tab state evicted on tab close, CDP_BUSY classification)
 - **Why**: Anti-bot platforms (LinkedIn, Tinder) cross-check timezone/geolocation/UA vs IP. Mobile-only flows (Instagram DMs, WhatsApp Web mobile UI) need device emulation. Today the only emulation tool is chrome_network_emulate (throughput/latency only) and chrome_proxy (IP). No primitive for UA, timezone, geolocation, locale, color-scheme, viewport size, deviceScaleFactor, prefers-reduced-motion. Agents currently fail silently when these mismatch the proxy region — or fall back to chrome_javascript injection that does not persist across navigations.
 - **Cost**: M
 - **Value**: L
@@ -203,7 +203,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0127 · chrome_aria_snapshot — Playwright-style compact ARIA tree snapshot for token-efficient page reads (feat) · score: 5
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #257 — thin formatter over the existing accessibility-tree-helper, strips coord/attr decorations to leave just role+name+ref; 1 MiB output cap; interactiveOnly + includeRefs flags)
 - **Why**: chrome_read_page returns the full accessibility tree as nested JSON — verbose, blows agent context fast on rich pages (LinkedIn feed renders 30 KB+ per call). Playwright introduced page snapshot text format which renders the ARIA tree as compact YAML-like text with stable refs that round-trip into selectorType:ref. On a typical LinkedIn message thread it is 4-6x smaller than chrome_read_page output and easier for an LLM to scan. Anthropic/OpenAI agent harnesses standardized on this format. Today there is no equivalent in humanchrome.
 - **Cost**: M
 - **Value**: L
@@ -221,7 +221,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0152 · chrome_drag_drop inlined actionability suite missing IMP-0113 fixes — offscreen never recovered, transform animations pass stable (bug) · score: 5
 
 - **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #263 — ported IMP-0113's isOffscreenButPresent+scrollCenter scroll-and-recheck pattern into drag-drop's runActionability; checkStable now diffs getComputedStyle(el).transform alongside getBoundingClientRect)
 - **Why**: drag-drop.ts:333-446 duplicates the visible/stable/hit-test suite inside its MAIN-world shim (MAIN shims cannot reach `window.__actionability` since they are serialized as standalone functions). The duplicate was written before IMP-0113 and was not updated when IMP-0113 landed in actionability.js. Two concrete regressions vs ClickTool/FillTool: (1) **offscreen recovery**: drag-drop calls `scrollIfNeeded` ONCE at line 350-351 then polls `checkVisible` with no further recovery — if the first scroll did not bring the element into view (lazy-loaded list, sticky overlay, scroll container with momentum), the actionability poll loop sees `not_visible` until the deadline and fails. IMP-0113s flow in actionability.js is check-once → scroll → re-check, gated by `isOffscreenButPresent` so display:none doesnt waste the scroll. (2) **slow CSS transform stability**: drag-drops checkStable at line 368-397 compares only `getBoundingClientRect()` across 6 rAF samples. A `transform: translateX()` animation with sub-pixel motion floors to identical pixel coords and reports stable — IMP-0113 closed this by additionally diffing `getComputedStyle(el).transform` across the sampler. Result: drag operations on a card mid-CSS-transform pass the stability check; the card moves while the synthesized pointer chain dispatches and the drop lands at the wrong coords.
 - **Cost**: M
 - **Value**: M
@@ -288,7 +288,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0125 · chrome_hover — programmatic mouse hover to trigger tooltips and dropdown menus (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #260 — ISOLATED-world shim dispatches pointermove→mouseover→mouseenter→pointerenter chain; visibility + hit-test gate with occluded_by:<tag> classification; position offset; force flag)
 - **Why**: Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, dropdown menus on most nav bars) is unreachable without a real mouseover dispatch. chrome_focus only focuses, chrome_click clicks, chrome_drag_drop chains move+down+up, chrome_paste fires paste events. Agents currently fall back to chrome_computer with coordinate math (have to query bbox first, then dispatch mouse_move at center) or chrome_javascript that fires synthetic events but skips actionability. Single dedicated tool eliminates a 3-call pattern and inherits the IMP-0097 actionability suite (visible+stable+hit-test) so hover-over-overlay silently-failing is structurally impossible.
 - **Cost**: S
 - **Value**: M
@@ -297,7 +297,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0126 · chrome_get_attributes — read DOM attributes, properties, computed CSS by selector or ref (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #259 — read-only ISOLATED shim; default attribute set (id/class/href/src/value/title/role/aria-label) + default property set (tagName/checked/disabled/selected/value); computedStyles opt-in; multi:true returns matches[]; FileList/NodeList safely serialized)
 - **Why**: Reading a single attribute (href, value, checked, disabled, aria-label, data-id, src) or a computed style (color, font, display) is one of the most common assertion/scraping needs. Today the options are: (a) chrome_assert with kind:js (forces JS authoring + only returns boolean), (b) chrome_read_page (returns the whole accessibility tree — heavy; computed styles unavailable), (c) chrome_javascript (force-pushes JS authoring onto the agent and trips redactor). There is no read-only structured primitive that says give me these N attributes on this one element. Scraping LinkedIn URNs from data-entity-urn, reading <input value> after fill, asserting computed color matches a brand spec — all need this and currently cost the agent a full JS round-trip.
 - **Cost**: S
 - **Value**: M
@@ -306,7 +306,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0132 · Extract `classifyTabError` helper — dedupe 16+ copies of `/no tab with id/i` → TAB_CLOSED catch block (refactor) · score: 4
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #261 — helper in common/tool-handler.ts; 12 tool files migrated, -44 LoC; ToolError instances preserve code+details with ctx merge; covers "Receiving end does not exist" + "Could not establish connection" too)
 - **Why**: 16 tool files copy-paste the same 6-line pattern: `catch (error: unknown) { const msg = error instanceof Error ? error.message : String(error); if (/no tab with id/i.test(msg)) { return createErrorResponse(\`Tab ${tabId} not found\`, ToolErrorCode.TAB_CLOSED, { tabId }); } ... }`. ~96 LoC of pure duplication that breaks when a new related regex (`Receiving end does not exist`, `Frame with ID`, `Could not establish connection`) needs to be added — today it requires touching 16 files instead of one. Encourages drift: some files already classify `Receiving end does not exist` and others don't.
 - **Cost**: S
 - **Value**: M
@@ -368,7 +368,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0153 · chrome_focus rejects focusable elements with `pointer-events:none` as not_visible (bug) · score: 4
 
 - **Proposed by**: bug-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #262 — dropped the pointer-events:none → not_visible check from focus.ts checkVisibleSync; pointer-events is a mouse-event gate that doesn't block programmatic focus)
 - **Why**: focus.ts:240 inside `checkVisibleSync` returns `not_visible` when `getComputedStyle(target).pointerEvents === none`. But `pointer-events:none` is a _mouse-event_ gate — it does NOT prevent programmatic focus via element.focus(). Real-world hit: form pages that style read-only inputs with `pointer-events:none` (common pattern to discourage clicks during async validation) but still rely on Tab/click-elsewhere-then-focus flows. Calling `chrome_focus({selector:#styled-input})` returns NOT_ACTIONABLE failures:[not_visible] when the element is genuinely visible and programmatically focusable. Mirror: the click/fill path treats pointer-events:none as a true blocker because mouse events would not reach it — same check for focus is incorrect because focus does not flow through pointer events.
 - **Cost**: S
 - **Value**: S
