@@ -49,8 +49,10 @@ class FileUploadTool extends BaseBrowserToolExecutor {
 
     try {
       // Resolve tab
-      const explicit = await this.tryGetTab(args.tabId);
-      const tab = explicit || (await this.getActiveTabOrThrowInWindow(args.windowId));
+      const tab = await this.getOwnedTab({
+        explicit: args.tabId,
+        windowId: args.windowId,
+      });
       if (!tab.id) return createErrorResponse('No active tab found');
       const tabId = tab.id;
 

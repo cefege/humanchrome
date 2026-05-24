@@ -22,6 +22,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { listFramesTool } from '@/entrypoints/background/tools/browser/list-frames';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'list-frames-test-client';
+
+function exec(args: any): Promise<any> {
+  return runWithContext({ clientId: TEST_CLIENT }, () => listFramesTool.execute(args));
+}
 
 const FRAMES_3 = [
   // Main document
@@ -38,15 +49,18 @@ const FRAMES_3 = [
 ];
 
 beforeEach(() => {
+  _resetClientStateForTests();
   (globalThis.chrome as any).webNavigation = {
     getAllFrames: vi.fn().mockResolvedValue(FRAMES_3),
   };
-  (globalThis.chrome as any).tabs.query = vi
-    .fn()
-    .mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
+  (globalThis.chrome as any).tabs = {
+    ...(globalThis.chrome as any).tabs,
+    get: vi.fn(async (id: number) => ({ id, url: 'https://example.com/', windowId: 1 })),
+  };
 });
 
 afterEach(() => {
+  _resetClientStateForTests();
   delete (globalThis.chrome as any).webNavigation;
 });
 
@@ -56,7 +70,7 @@ function parseBody(res: any): any {
 
 describe('chrome_list_frames', () => {
   it('forwards an explicit tabId and returns the frame entries', async () => {
-    const res = await listFramesTool.execute({ tabId: 42 });
+    const res = await exec({ tabId: 42 });
 
     expect(res.isError).toBe(false);
     expect((globalThis.chrome as any).webNavigation.getAllFrames).toHaveBeenCalledWith({
@@ -73,8 +87,9 @@ describe('chrome_list_frames', () => {
     });
   });
 
-  it('falls back to the active tab when no tabId is provided', async () => {
-    const res = await listFramesTool.execute({});
+  it('falls back to the client-owned tab when no tabId is provided', async () => {
+    claimTabForClient(TEST_CLIENT, 7, 1);
+    const res = await exec({});
 
     expect(res.isError).toBe(false);
     expect((globalThis.chrome as any).webNavigation.getAllFrames).toHaveBeenCalledWith({
@@ -84,14 +99,14 @@ describe('chrome_list_frames', () => {
     expect(body.tabId).toBe(7);
   });
 
-  it('uses the windowId for active-tab lookup when provided', async () => {
-    const queryMock = vi.fn().mockResolvedValue([{ id: 99 }]);
-    (globalThis.chrome as any).tabs.query = queryMock;
+  it('filters the owned-tab lookup by windowId when provided', async () => {
+    claimTabForClient(TEST_CLIENT, 99, 3);
+    const tabsGetMock = vi.fn(async (id: number) => ({ id, windowId: 3 }));
+    (globalThis.chrome as any).tabs.get = tabsGetMock;
 
-    await listFramesTool.execute({ windowId: 3 });
+    await exec({ windowId: 3 });
 
-    // First arg: { active: true, windowId: 3 }
-    expect(queryMock).toHaveBeenCalledWith({ active: true, windowId: 3 });
+    expect(tabsGetMock).toHaveBeenCalledWith(99);
     expect((globalThis.chrome as any).webNavigation.getAllFrames).toHaveBeenCalledWith({
       tabId: 99,
     });
@@ -110,13 +125,13 @@ describe('chrome_list_frames', () => {
       { frameId: 0, parentFrameId: -1, url: 'https://example.com/', errorOccurred: false },
     ]);
 
-    const body = parseBody(await listFramesTool.execute({ tabId: 1 }));
+    const body = parseBody(await exec({ tabId: 1 }));
 
     expect(body.frames.map((f: any) => f.frameId)).toEqual([0, 11, 22]);
   });
 
   it('filters by urlContains (case-insensitive substring) and reports totalBeforeFilter', async () => {
-    const res = await listFramesTool.execute({ tabId: 1, urlContains: 'ADS.example' });
+    const res = await exec({ tabId: 1, urlContains: 'ADS.example' });
 
     const body = parseBody(res);
     expect(body.count).toBe(1);
@@ -128,7 +143,7 @@ describe('chrome_list_frames', () => {
   it('returns an empty list when getAllFrames resolves to null (discarded tab)', async () => {
     (globalThis.chrome as any).webNavigation.getAllFrames = vi.fn().mockResolvedValue(null);
 
-    const res = await listFramesTool.execute({ tabId: 1 });
+    const res = await exec({ tabId: 1 });
 
     expect(res.isError).toBe(false);
     const body = parseBody(res);
@@ -141,7 +156,7 @@ describe('chrome_list_frames', () => {
       .fn()
       .mockRejectedValue(new Error('No tab with id: 99'));
 
-    const res = await listFramesTool.execute({ tabId: 99 });
+    const res = await exec({ tabId: 99 });
 
     expect(res.isError).toBe(true);
     const text = (res.content[0] as any).text as string;
@@ -154,7 +169,7 @@ describe('chrome_list_frames', () => {
       .fn()
       .mockRejectedValue(new Error('Permission denied'));
 
-    const res = await listFramesTool.execute({ tabId: 1 });
+    const res = await exec({ tabId: 1 });
 
     expect(res.isError).toBe(true);
     const text = (res.content[0] as any).text as string;
@@ -162,10 +177,8 @@ describe('chrome_list_frames', () => {
     expect(text).toContain('Permission denied');
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab', async () => {
-    (globalThis.chrome as any).tabs.query = vi.fn().mockResolvedValue([]);
-
-    const res = await listFramesTool.execute({});
+  it('returns TAB_NOT_FOUND when there is no owned tab', async () => {
+    const res = await exec({});
 
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('TAB_NOT_FOUND');

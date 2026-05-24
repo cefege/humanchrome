@@ -16,12 +16,24 @@ vi.mock('@/utils/offscreen-manager', () => ({
 
 import { pasteTool } from '@/entrypoints/background/tools/browser/paste';
 import { offscreenManager } from '@/utils/offscreen-manager';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'paste-test-client';
+
+function exec(args: any): Promise<any> {
+  return runWithContext({ clientId: TEST_CLIENT }, () => pasteTool.execute(args));
+}
 
 let executeScriptMock: ReturnType<typeof vi.fn>;
-let queryMock: ReturnType<typeof vi.fn>;
+let tabsGetMock: ReturnType<typeof vi.fn>;
 let sendMessageMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  _resetClientStateForTests();
   executeScriptMock = vi.fn().mockResolvedValue([
     {
       result: {
@@ -35,13 +47,13 @@ beforeEach(() => {
       },
     },
   ]);
-  queryMock = vi.fn().mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
+  tabsGetMock = vi.fn(async (id: number) => ({ id, url: 'https://example.com', windowId: 1 }));
   sendMessageMock = vi.fn().mockResolvedValue({ success: true });
 
   (globalThis.chrome as any).scripting = { executeScript: executeScriptMock };
   (globalThis.chrome as any).tabs = {
     ...(globalThis.chrome as any).tabs,
-    query: queryMock,
+    get: tabsGetMock,
   };
   (globalThis.chrome as any).runtime = {
     ...(globalThis.chrome as any).runtime,
@@ -52,7 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // chrome.runtime / chrome.tabs are shared with other tests.
+  _resetClientStateForTests();
 });
 
 function parseBody(res: any): any {
@@ -61,24 +73,24 @@ function parseBody(res: any): any {
 
 describe('chrome_paste', () => {
   it('rejects when neither selector nor ref is supplied', async () => {
-    const res = await pasteTool.execute({});
+    const res = await exec({});
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('selector|ref');
   });
 
   it('rejects when both selector and ref are supplied', async () => {
-    const res = await pasteTool.execute({ selector: 'input', ref: 'r1' });
+    const res = await exec({ selector: 'input', ref: 'r1' });
     expect(res.isError).toBe(true);
   });
 
   it('without text, does NOT call the offscreen clipboard.write', async () => {
-    await pasteTool.execute({ tabId: 7, selector: 'input' });
+    await exec({ tabId: 7, selector: 'input' });
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(offscreenManager.ensureOffscreenDocument).not.toHaveBeenCalled();
   });
 
   it('with text, seeds the clipboard via the offscreen doc before paste', async () => {
-    await pasteTool.execute({ tabId: 7, selector: 'input', text: 'hello' });
+    await exec({ tabId: 7, selector: 'input', text: 'hello' });
     expect(offscreenManager.ensureOffscreenDocument).toHaveBeenCalled();
     expect(sendMessageMock).toHaveBeenCalledWith({
       target: 'offscreen',
@@ -88,7 +100,7 @@ describe('chrome_paste', () => {
   });
 
   it('forwards selector + text via the shim args', async () => {
-    await pasteTool.execute({ tabId: 7, selector: '#email', text: 'hi' });
+    await exec({ tabId: 7, selector: '#email', text: 'hi' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { tabId: 7 },
@@ -99,21 +111,22 @@ describe('chrome_paste', () => {
   });
 
   it('forwards ref via the shim args', async () => {
-    await pasteTool.execute({ tabId: 7, ref: 'r-99', text: 'x' });
+    await exec({ tabId: 7, ref: 'r-99', text: 'x' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({ args: [null, 'r-99', 'x'] }),
     );
   });
 
-  it('falls back to the active tab when no tabId is provided', async () => {
-    await pasteTool.execute({ selector: 'input' });
+  it('falls back to the client-owned tab when no tabId is provided', async () => {
+    claimTabForClient(TEST_CLIENT, 7, 1);
+    await exec({ selector: 'input' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({ target: { tabId: 7 } }),
     );
   });
 
   it('forwards frameId when supplied', async () => {
-    await pasteTool.execute({ tabId: 7, selector: 'input', frameId: 11 });
+    await exec({ tabId: 7, selector: 'input', frameId: 11 });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({ target: { tabId: 7, frameIds: [11] } }),
     );
@@ -133,7 +146,7 @@ describe('chrome_paste', () => {
         },
       },
     ]);
-    const body = parseBody(await pasteTool.execute({ tabId: 7, selector: 'input', text: 'x' }));
+    const body = parseBody(await exec({ tabId: 7, selector: 'input', text: 'x' }));
     expect(body.mode).toBe('event');
     expect(body.pasted).toBe(true);
     expect(body.textInserted).toBe(1);
@@ -157,7 +170,7 @@ describe('chrome_paste', () => {
       },
     ]);
     const body = parseBody(
-      await pasteTool.execute({ tabId: 7, selector: 'input[readonly]', text: 'hello' }),
+      await exec({ tabId: 7, selector: 'input[readonly]', text: 'hello' }),
     );
     expect(body.pasted).toBe(false);
     expect(body.mode).toBe('none');
@@ -168,7 +181,7 @@ describe('chrome_paste', () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: false, message: 'selector "#nope" matched no element' } },
     ]);
-    const res = await pasteTool.execute({ tabId: 7, selector: '#nope', text: 'x' });
+    const res = await exec({ tabId: 7, selector: '#nope', text: 'x' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('matched no element');
   });
@@ -193,7 +206,7 @@ describe('chrome_paste', () => {
         },
       },
     ]);
-    const body = parseBody(await pasteTool.execute({ tabId: 7, selector: 'input', text: 'x' }));
+    const body = parseBody(await exec({ tabId: 7, selector: 'input', text: 'x' }));
     expect(body.ok).toBe(true);
     expect(body.pasted).toBe(true);
     expect(body.clipboardSeedWarning).toContain('NotAllowedError');
@@ -202,21 +215,20 @@ describe('chrome_paste', () => {
 
   it('classifies "no tab with id" as TAB_CLOSED', async () => {
     executeScriptMock.mockRejectedValueOnce(new Error('No tab with id: 99'));
-    const res = await pasteTool.execute({ tabId: 99, selector: 'input' });
+    const res = await exec({ tabId: 99, selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('TAB_CLOSED');
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab', async () => {
-    queryMock.mockResolvedValueOnce([]);
-    const res = await pasteTool.execute({ selector: 'input' });
+  it('returns TAB_NOT_FOUND when there is no owned tab', async () => {
+    const res = await exec({ selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('TAB_NOT_FOUND');
   });
 
   it('returns an error when the shim returns no result', async () => {
     executeScriptMock.mockResolvedValueOnce([]);
-    const res = await pasteTool.execute({ tabId: 7, selector: 'input' });
+    const res = await exec({ tabId: 7, selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('no result');
   });

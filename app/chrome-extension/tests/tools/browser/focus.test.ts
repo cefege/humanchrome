@@ -11,27 +11,39 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { focusTool } from '@/entrypoints/background/tools/browser/focus';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'focus-test-client';
 
 let executeScriptMock: ReturnType<typeof vi.fn>;
-let queryMock: ReturnType<typeof vi.fn>;
+let tabsGetMock: ReturnType<typeof vi.fn>;
+
+function exec(args: any): Promise<any> {
+  return runWithContext({ clientId: TEST_CLIENT }, () => focusTool.execute(args));
+}
 
 beforeEach(() => {
+  _resetClientStateForTests();
   executeScriptMock = vi
     .fn()
     .mockResolvedValue([
       { result: { ok: true, focused: true, resolution: 'selector', tagName: 'input' } },
     ]);
-  queryMock = vi.fn().mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
+  tabsGetMock = vi.fn(async (id: number) => ({ id, url: 'https://example.com', windowId: 1 }));
 
   (globalThis.chrome as any).scripting = { executeScript: executeScriptMock };
   (globalThis.chrome as any).tabs = {
     ...(globalThis.chrome as any).tabs,
-    query: queryMock,
+    get: tabsGetMock,
   };
 });
 
 afterEach(() => {
-  // Leave chrome.tabs and chrome.scripting in place — other tests mutate them.
+  _resetClientStateForTests();
 });
 
 function parseBody(res: any): any {
@@ -40,19 +52,19 @@ function parseBody(res: any): any {
 
 describe('chrome_focus', () => {
   it('rejects when neither selector nor ref is supplied', async () => {
-    const res = await focusTool.execute({} as any);
+    const res = await exec({} as any);
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('selector|ref');
   });
 
   it('rejects when both selector and ref are supplied', async () => {
-    const res = await focusTool.execute({ selector: 'input', ref: 'r1' });
+    const res = await exec({ selector: 'input', ref: 'r1' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('selector|ref');
   });
 
   it('forwards selector via the shim and reports focused:true', async () => {
-    const res = await focusTool.execute({ tabId: 42, selector: '#email' });
+    const res = await exec({ tabId: 42, selector: '#email' });
     expect(res.isError).toBe(false);
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -73,7 +85,7 @@ describe('chrome_focus', () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: true, focused: true, resolution: 'ref', tagName: 'button' } },
     ]);
-    const res = await focusTool.execute({ tabId: 42, ref: 'r-99' });
+    const res = await exec({ tabId: 42, ref: 'r-99' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({ args: [null, 'r-99', false] }),
     );
@@ -81,7 +93,7 @@ describe('chrome_focus', () => {
   });
 
   it('forwards force=true to the focus shim', async () => {
-    await focusTool.execute({
+    await exec({
       tabId: 7,
       selector: 'input',
       force: true,
@@ -102,7 +114,7 @@ describe('chrome_focus', () => {
         },
       },
     ]);
-    const res = await focusTool.execute({ tabId: 7, selector: 'input' });
+    const res = await exec({ tabId: 7, selector: 'input' });
     expect(res.isError).toBe(true);
     const text = (res.content[0] as any).text as string;
     expect(text).toContain('NOT_ACTIONABLE');
@@ -111,21 +123,23 @@ describe('chrome_focus', () => {
     expect(parsed.error.details.failures).toEqual(['not_visible']);
   });
 
-  it('falls back to the active tab when no tabId is provided', async () => {
-    await focusTool.execute({ selector: 'input' });
+  it('falls back to the client-owned tab when no tabId is provided', async () => {
+    claimTabForClient(TEST_CLIENT, 7, 1);
+    await exec({ selector: 'input' });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({ target: { tabId: 7 } }),
     );
   });
 
-  it('uses the windowId for active-tab lookup', async () => {
-    queryMock.mockResolvedValueOnce([{ id: 99 }]);
-    await focusTool.execute({ selector: 'input', windowId: 3 });
-    expect(queryMock).toHaveBeenCalledWith({ active: true, windowId: 3 });
+  it('filters the owned-tab lookup by windowId', async () => {
+    claimTabForClient(TEST_CLIENT, 99, 3);
+    tabsGetMock.mockImplementationOnce(async (id: number) => ({ id, windowId: 3 }));
+    await exec({ selector: 'input', windowId: 3 });
+    expect(tabsGetMock).toHaveBeenCalledWith(99);
   });
 
   it('forwards frameId when supplied', async () => {
-    await focusTool.execute({ tabId: 7, selector: 'input', frameId: 11 });
+    await exec({ tabId: 7, selector: 'input', frameId: 11 });
     expect(executeScriptMock).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { tabId: 7, frameIds: [11] },
@@ -138,7 +152,7 @@ describe('chrome_focus', () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: true, focused: false, resolution: 'selector', tagName: 'div' } },
     ]);
-    const body = parseBody(await focusTool.execute({ tabId: 7, selector: 'div' }));
+    const body = parseBody(await exec({ tabId: 7, selector: 'div' }));
     expect(body.focused).toBe(false);
   });
 
@@ -146,7 +160,7 @@ describe('chrome_focus', () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: false, message: 'selector "#nope" matched no element' } },
     ]);
-    const res = await focusTool.execute({ tabId: 7, selector: '#nope' });
+    const res = await exec({ tabId: 7, selector: '#nope' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('matched no element');
   });
@@ -155,28 +169,27 @@ describe('chrome_focus', () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: false, message: 'ref "r-x" not found in element map' } },
     ]);
-    const res = await focusTool.execute({ tabId: 7, ref: 'r-x' });
+    const res = await exec({ tabId: 7, ref: 'r-x' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('not found in element map');
   });
 
   it('classifies "no tab with id" rejection as TAB_CLOSED', async () => {
     executeScriptMock.mockRejectedValueOnce(new Error('No tab with id: 99'));
-    const res = await focusTool.execute({ tabId: 99, selector: 'input' });
+    const res = await exec({ tabId: 99, selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('TAB_CLOSED');
   });
 
   it('returns an error when the shim returns no result (frame missing)', async () => {
     executeScriptMock.mockResolvedValueOnce([]);
-    const res = await focusTool.execute({ tabId: 7, selector: 'input' });
+    const res = await exec({ tabId: 7, selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('no result');
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab', async () => {
-    queryMock.mockResolvedValueOnce([]);
-    const res = await focusTool.execute({ selector: 'input' });
+  it('returns TAB_NOT_FOUND when there is no owned tab', async () => {
+    const res = await exec({ selector: 'input' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('TAB_NOT_FOUND');
   });

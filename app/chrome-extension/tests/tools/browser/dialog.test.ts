@@ -30,6 +30,17 @@ import {
   DIALOG_LOG_CAP,
 } from '@/entrypoints/background/tools/browser/dialog';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'dialog-test-client';
+
+function exec(args: any): Promise<any> {
+  return runWithContext({ clientId: TEST_CLIENT }, () => handleDialogTool.execute(args));
+}
 
 const sendCommandMock = cdpSessionManager.sendCommand as unknown as ReturnType<typeof vi.fn>;
 const attachMock = cdpSessionManager.attach as unknown as ReturnType<typeof vi.fn>;
@@ -46,16 +57,10 @@ function parseBody(res: any): any {
   return JSON.parse(res.content[0].text);
 }
 
-function installTabsMock(activeTabId: number, knownTabIds: number[] = []) {
+function installTabsMock(_activeTabId: number, _knownTabIds: number[] = []) {
   (globalThis.chrome as any).tabs = {
     ...(globalThis.chrome as any).tabs,
-    get: vi.fn(async (id: number) => {
-      if (knownTabIds.includes(id) || id === activeTabId) {
-        return { id, windowId: 1, url: 'https://example.com/' };
-      }
-      throw new Error(`No tab with id ${id}`);
-    }),
-    query: vi.fn(async () => [{ id: activeTabId, windowId: 1, url: 'https://example.com/' }]),
+    get: vi.fn(async (id: number) => ({ id, windowId: 1, url: 'https://example.com/' })),
     onRemoved: { addListener: vi.fn(), removeListener: vi.fn() },
   };
 }
@@ -91,16 +96,21 @@ beforeEach(() => {
   };
 
   installTabsMock(101, [42, 77, 11, 22]);
+  _resetClientStateForTests();
+  // The legacy one-shot tests pass no tabId; claim the default active tab so
+  // getOwnedTab resolves to it.
+  claimTabForClient(TEST_CLIENT, 101, 1);
   _resetDialogDefaultsForTest();
 });
 
 afterEach(() => {
   _resetDialogDefaultsForTest();
+  _resetClientStateForTests();
 });
 
 describe('chrome_handle_dialog — legacy one-shot (handle_dialog)', () => {
   it('legacy two-field call (action="accept") still works', async () => {
-    const res = await handleDialogTool.execute({ action: 'accept' as any });
+    const res = await exec({ action: 'accept' as any });
     expect(res.isError).toBe(false);
     const body = parseBody(res);
     expect(body.success).toBe(true);
@@ -114,7 +124,7 @@ describe('chrome_handle_dialog — legacy one-shot (handle_dialog)', () => {
   });
 
   it('new explicit shape (action="handle_dialog", behavior="dismiss") works', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'handle_dialog',
       behavior: 'dismiss',
     });
@@ -127,7 +137,7 @@ describe('chrome_handle_dialog — legacy one-shot (handle_dialog)', () => {
   });
 
   it('forwards promptText when accepting', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'handle_dialog',
       behavior: 'accept',
       promptText: 'hello',
@@ -139,7 +149,7 @@ describe('chrome_handle_dialog — legacy one-shot (handle_dialog)', () => {
   });
 
   it('rejects invalid behavior with INVALID_ARGS', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'handle_dialog',
       behavior: 'frobnicate' as any,
     });
@@ -150,7 +160,7 @@ describe('chrome_handle_dialog — legacy one-shot (handle_dialog)', () => {
 
 describe('chrome_handle_dialog — register_default', () => {
   it('validates defaultBehavior', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'register_default',
       defaultBehavior: 'nope' as any,
     });
@@ -159,7 +169,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('requires promptText when defaultBehavior is prompt_with_text', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'register_default',
       defaultBehavior: 'prompt_with_text',
     });
@@ -168,7 +178,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('attaches CDP, enables Page domain, and installs a listener', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
@@ -187,7 +197,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('auto-handles a synthetic javascriptDialogOpening event with accept', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
@@ -214,7 +224,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('answers prompts with the configured promptText when behavior=prompt_with_text', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'prompt_with_text',
       promptText: 'auto-input',
@@ -235,7 +245,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('answers with dismiss when behavior=dismiss', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'dismiss',
       tabId: 42,
@@ -249,7 +259,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('replaces an existing policy on re-register without erroring', async () => {
-    const first = await handleDialogTool.execute({
+    const first = await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
@@ -257,7 +267,7 @@ describe('chrome_handle_dialog — register_default', () => {
     expect(first.isError).toBe(false);
     expect(parseBody(first).replaced).toBe(false);
 
-    const second = await handleDialogTool.execute({
+    const second = await exec({
       action: 'register_default',
       defaultBehavior: 'dismiss',
       tabId: 42,
@@ -275,7 +285,7 @@ describe('chrome_handle_dialog — register_default', () => {
   });
 
   it('caps the per-tab dialog log at DIALOG_LOG_CAP, dropping oldest', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
@@ -296,7 +306,7 @@ describe('chrome_handle_dialog — register_default', () => {
 
   it('classifies CDP-busy attach failures as CDP_BUSY', async () => {
     attachMock.mockRejectedValueOnce(new Error('Another debugger is already attached'));
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
@@ -308,14 +318,14 @@ describe('chrome_handle_dialog — register_default', () => {
 
 describe('chrome_handle_dialog — unregister_default', () => {
   it('releases the policy and detaches CDP', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
     });
     expect(_getDialogDefaultForTest(42)).toBeDefined();
 
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'unregister_default',
       tabId: 42,
     });
@@ -328,7 +338,7 @@ describe('chrome_handle_dialog — unregister_default', () => {
   });
 
   it('reports released=false for an unknown tab without erroring', async () => {
-    const res = await handleDialogTool.execute({
+    const res = await exec({
       action: 'unregister_default',
       tabId: 999,
     });
@@ -339,7 +349,7 @@ describe('chrome_handle_dialog — unregister_default', () => {
 
 describe('chrome_handle_dialog — list_defaults', () => {
   it('returns an empty list when nothing is registered', async () => {
-    const res = await handleDialogTool.execute({ action: 'list_defaults' });
+    const res = await exec({ action: 'list_defaults' });
     expect(res.isError).toBe(false);
     const body = parseBody(res);
     expect(body.count).toBe(0);
@@ -347,19 +357,19 @@ describe('chrome_handle_dialog — list_defaults', () => {
   });
 
   it('enumerates per-tab policies and their recent dialog log', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 11,
     });
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'dismiss',
       tabId: 22,
     });
     await _dispatchDialogEventForTest(11, { type: 'alert', message: 'on 11' });
 
-    const res = await handleDialogTool.execute({ action: 'list_defaults' });
+    const res = await exec({ action: 'list_defaults' });
     const body = parseBody(res);
     expect(body.count).toBe(2);
     const byTab = Object.fromEntries((body.defaults as any[]).map((d) => [d.tabId, d]));
@@ -371,17 +381,17 @@ describe('chrome_handle_dialog — list_defaults', () => {
   });
 
   it('filters by tabId when provided', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 11,
     });
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'dismiss',
       tabId: 22,
     });
-    const res = await handleDialogTool.execute({ action: 'list_defaults', tabId: 22 });
+    const res = await exec({ action: 'list_defaults', tabId: 22 });
     const body = parseBody(res);
     expect(body.count).toBe(1);
     expect(body.defaults[0].tabId).toBe(22);
@@ -390,12 +400,12 @@ describe('chrome_handle_dialog — list_defaults', () => {
 
 describe('chrome_handle_dialog — cleanup hooks', () => {
   it('releaseDialogDefaultsForTabs drops policies and detaches CDP', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,
     });
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'dismiss',
       tabId: 77,
@@ -411,13 +421,13 @@ describe('chrome_handle_dialog — cleanup hooks', () => {
   });
 
   it('rejects unknown action with INVALID_ARGS', async () => {
-    const res = await handleDialogTool.execute({ action: 'frobnicate' as any });
+    const res = await exec({ action: 'frobnicate' as any });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('INVALID_ARGS');
   });
 
   it('warns and stops auto-handling when sendCommand throws', async () => {
-    await handleDialogTool.execute({
+    await exec({
       action: 'register_default',
       defaultBehavior: 'accept',
       tabId: 42,

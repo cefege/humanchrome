@@ -279,25 +279,6 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
   }
 
   /**
-   * Get the active tab in the current window. Throws when not found.
-   *
-   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
-   *   `getOwnedTab()` — falling back to the globally-active tab lets one
-   *   client land on another client's tab. The contract test in
-   *   `tests/tools/contract-no-direct-tab-query.test.ts` (IMP-0161) will
-   *   ban direct `chrome.tabs.query({active:true})` from `tools/browser/`
-   *   once every callsite has migrated; this helper is deleted in
-   *   IMP-0169 (cleanup).
-   */
-  protected async getActiveTabOrThrow(): Promise<chrome.tabs.Tab> {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!active || !active.id) {
-      throw new ToolError(ToolErrorCode.TAB_NOT_FOUND, 'Active tab not found');
-    }
-    return active;
-  }
-
-  /**
    * Optionally focus window and/or activate tab. Defaults preserve current behavior
    * when caller sets activate/focus flags explicitly.
    */
@@ -313,35 +294,6 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
     if (activate && typeof tab.id === 'number') {
       await chrome.tabs.update(tab.id, { active: true });
     }
-  }
-
-  /**
-   * Get the active tab. When windowId provided, search within that window; otherwise currentWindow.
-   *
-   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
-   *   `getOwnedTab({ windowId, required: false })`.
-   */
-  protected async getActiveTabInWindow(windowId?: number): Promise<chrome.tabs.Tab | null> {
-    if (typeof windowId === 'number') {
-      const tabs = await chrome.tabs.query({ active: true, windowId });
-      return tabs && tabs[0] ? tabs[0] : null;
-    }
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    return tabs && tabs[0] ? tabs[0] : null;
-  }
-
-  /**
-   * Same as getActiveTabInWindow, but throws if not found.
-   *
-   * @deprecated Multi-tab-by-design rollout (IMP-0157). Prefer
-   *   `getOwnedTab({ windowId })`.
-   */
-  protected async getActiveTabOrThrowInWindow(windowId?: number): Promise<chrome.tabs.Tab> {
-    const tab = await this.getActiveTabInWindow(windowId);
-    if (!tab || !tab.id) {
-      throw new ToolError(ToolErrorCode.TAB_NOT_FOUND, 'Active tab not found', { windowId });
-    }
-    return tab;
   }
 
   /**
@@ -365,6 +317,18 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    * `chrome.tabs.query({windowId, active:true})`, which would re-introduce
    * the implicit-global-tab path this helper exists to replace.
    */
+  protected async getOwnedTab(opts?: {
+    explicit?: number;
+    isRead?: boolean;
+    windowId?: number;
+    required?: true;
+  }): Promise<chrome.tabs.Tab>;
+  protected async getOwnedTab(opts: {
+    explicit?: number;
+    isRead?: boolean;
+    windowId?: number;
+    required: false;
+  }): Promise<chrome.tabs.Tab | null>;
   protected async getOwnedTab(
     opts: {
       explicit?: number;

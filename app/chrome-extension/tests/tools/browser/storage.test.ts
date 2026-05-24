@@ -13,6 +13,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { storageTool } from '@/entrypoints/background/tools/browser/storage';
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'storage-test-client';
 
 type StorageAction = 'get' | 'set' | 'remove' | 'clear' | 'keys';
 type StorageScope = 'local' | 'session';
@@ -66,18 +73,25 @@ function runShim(opts: { target: any; world: string; func: any; args: any[] }) {
 }
 
 beforeEach(() => {
+  _resetClientStateForTests();
   localStore = new FakeStorage();
   sessionStore = new FakeStorage();
   executeScriptMock = vi.fn(runShim);
   (globalThis.chrome as any).scripting = {
     executeScript: executeScriptMock,
   };
-  (globalThis.chrome as any).tabs.query = vi
-    .fn()
-    .mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
+  (globalThis.chrome as any).tabs = {
+    ...(globalThis.chrome as any).tabs,
+    get: vi.fn(async (id: number) => ({ id, url: 'https://example.com/', windowId: 1 })),
+  };
+  // Most happy-path tests omit tabId; claim the default tab so getOwnedTab
+  // resolves. Tests that exercise the "no owned tab" path call
+  // _resetClientStateForTests() themselves before exec.
+  claimTabForClient(TEST_CLIENT, 7, 1);
 });
 
 afterEach(() => {
+  _resetClientStateForTests();
   delete (globalThis.chrome as any).scripting;
 });
 
@@ -94,7 +108,7 @@ async function call(args: {
   windowId?: number;
   frameId?: number;
 }) {
-  return storageTool.execute(args);
+  return runWithContext({ clientId: TEST_CLIENT }, () => storageTool.execute(args));
 }
 
 describe('chrome_storage — argument validation', () => {
@@ -215,8 +229,8 @@ describe('chrome_storage — tab + frame routing', () => {
     expect(executeScriptMock.mock.calls[0][0].target).toEqual({ tabId: 1, frameIds: [42] });
   });
 
-  it('reports TAB_NOT_FOUND when no active tab exists', async () => {
-    (globalThis.chrome as any).tabs.query = vi.fn().mockResolvedValue([]);
+  it('reports TAB_NOT_FOUND when no owned tab exists', async () => {
+    _resetClientStateForTests();
     const res = await call({ action: 'keys' });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toMatch(/TAB_NOT_FOUND/);

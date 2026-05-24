@@ -199,7 +199,7 @@ class InterceptResponseTool extends BaseBrowserToolExecutor {
     let tabId = args.tabId;
     if (typeof tabId !== 'number') {
       try {
-        const tab = await this.getActiveTabOrThrow();
+        const tab = await this.getOwnedTab();
         tabId = tab.id!;
       } catch (err) {
         return createErrorResponse(

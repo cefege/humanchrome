@@ -16,15 +16,28 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { runWithContext } from '@/entrypoints/background/utils/request-context';
+import {
+  _resetClientStateForTests,
+  claimTabForClient,
+} from '@/entrypoints/background/utils/client-state';
+
+const TEST_CLIENT = 'locator-handler-test-client';
+
 let injectMock: ReturnType<typeof vi.fn>;
 let sendMessageToTabMock: ReturnType<typeof vi.fn>;
-let queryMock: ReturnType<typeof vi.fn>;
+let tabsGetMock: ReturnType<typeof vi.fn>;
 let tabsOnRemovedAddListener: ReturnType<typeof vi.fn>;
 let webNavOnDOMContentLoadedAddListener: ReturnType<typeof vi.fn>;
 let onRemovedHandler: ((tabId: number) => void) | undefined;
 let onDOMContentLoadedHandler:
   | ((details: { tabId: number; frameId: number }) => Promise<void> | void)
   | undefined;
+
+function execMod(mod: any, args: any): Promise<any> {
+  const rc = freshRunWithContext ?? runWithContext;
+  return rc({ clientId: TEST_CLIENT }, () => mod.locatorHandlerTool.execute(args));
+}
 
 function installChromeMock() {
   onRemovedHandler = undefined;
@@ -38,12 +51,12 @@ function installChromeMock() {
     },
   );
 
-  queryMock = vi.fn().mockResolvedValue([{ id: 7, url: 'https://example.com/' }]);
+  tabsGetMock = vi.fn(async (id: number) => ({ id, url: 'https://example.com/', windowId: 1 }));
 
   (globalThis.chrome as any).scripting = { executeScript: vi.fn().mockResolvedValue([]) };
   (globalThis.chrome as any).tabs = {
     ...(globalThis.chrome as any).tabs,
-    query: queryMock,
+    get: tabsGetMock,
     sendMessage: vi.fn().mockResolvedValue({ status: 'pong' }),
     onRemoved: {
       addListener: tabsOnRemovedAddListener,
@@ -79,18 +92,34 @@ function installInstrumentation(mod: any) {
   );
 }
 
+// After vi.resetModules() the test's top-level imports of `client-state` and
+// `request-context` reference the OLD module graph. Re-import them through the
+// fresh graph and stash the helpers so test code can claim tabs against the
+// same module instance the tool will read from.
+let freshClaimTabForClient: typeof claimTabForClient;
+let freshRunWithContext: typeof runWithContext;
+let freshResetClientState: typeof _resetClientStateForTests;
+
 async function loadModule() {
   vi.resetModules();
   const mod = await import('@/entrypoints/background/tools/browser/locator-handler');
+  const cs = await import('@/entrypoints/background/utils/client-state');
+  const rc = await import('@/entrypoints/background/utils/request-context');
+  freshClaimTabForClient = cs.claimTabForClient;
+  freshRunWithContext = rc.runWithContext;
+  freshResetClientState = cs._resetClientStateForTests;
+  freshResetClientState();
   installInstrumentation(mod);
   return mod;
 }
 
 beforeEach(() => {
+  _resetClientStateForTests();
   installChromeMock();
 });
 
 afterEach(() => {
+  _resetClientStateForTests();
   vi.restoreAllMocks();
 });
 
@@ -101,7 +130,7 @@ function parseBody(res: any): any {
 describe('chrome_locator_handler: arg validation', () => {
   it('rejects an unknown action', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({ action: 'whatever' as any });
+    const res = await execMod(mod,{ action: 'whatever' as any });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('INVALID_ARGS');
     expect((res.content[0] as any).text).toContain('action');
@@ -109,7 +138,7 @@ describe('chrome_locator_handler: arg validation', () => {
 
   it('register requires selector', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       dismissSelector: '.close',
       tabId: 7,
@@ -120,7 +149,7 @@ describe('chrome_locator_handler: arg validation', () => {
 
   it('register requires dismissSelector', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.banner',
       tabId: 7,
@@ -131,7 +160,7 @@ describe('chrome_locator_handler: arg validation', () => {
 
   it('register with dismissAction="press" requires key', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.banner',
@@ -144,7 +173,7 @@ describe('chrome_locator_handler: arg validation', () => {
 
   it('register rejects non-positive `times`', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -157,7 +186,7 @@ describe('chrome_locator_handler: arg validation', () => {
 
   it('remove requires handlerId', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({ action: 'remove', tabId: 7 });
+    const res = await execMod(mod,{ action: 'remove', tabId: 7 });
     expect(res.isError).toBe(true);
     expect((res.content[0] as any).text).toContain('handlerId');
   });
@@ -166,7 +195,7 @@ describe('chrome_locator_handler: arg validation', () => {
 describe('chrome_locator_handler: register', () => {
   it('returns a monotonic handlerId and forwards register payload to the page', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '#cookie-banner',
       dismissSelector: '.accept-all',
@@ -205,7 +234,7 @@ describe('chrome_locator_handler: register', () => {
 
   it('register with persistent + dismissAction="press" + key + times forwards every field', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.modal-wrapper',
       dismissSelector: '.modal-wrapper',
@@ -235,14 +264,15 @@ describe('chrome_locator_handler: register', () => {
     );
   });
 
-  it('falls back to the active tab when tabId is omitted', async () => {
+  it('falls back to the client-owned tab when tabId is omitted', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    freshClaimTabForClient(TEST_CLIENT, 7, 1);
+    await execMod(mod, {
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
     });
-    expect(queryMock).toHaveBeenCalledWith({ active: true, currentWindow: true });
+    expect(tabsGetMock).toHaveBeenCalledWith(7);
     expect(injectMock).toHaveBeenCalledWith(
       7,
       ['inject-scripts/locator-handler.js'],
@@ -256,7 +286,7 @@ describe('chrome_locator_handler: register', () => {
 describe('chrome_locator_handler: list', () => {
   it('returns an empty list when no handlers are registered (no injection)', async () => {
     const mod = await loadModule();
-    const res = await mod.locatorHandlerTool.execute({ action: 'list', tabId: 7 });
+    const res = await execMod(mod,{ action: 'list', tabId: 7 });
     const body = parseBody(res);
     expect(body.handlers).toEqual([]);
     expect(body.count).toBe(0);
@@ -265,7 +295,7 @@ describe('chrome_locator_handler: list', () => {
 
   it('after register, list reflects live dismissedCount from the page', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -298,7 +328,7 @@ describe('chrome_locator_handler: list', () => {
       return { success: true };
     });
 
-    const res = await mod.locatorHandlerTool.execute({ action: 'list', tabId: 7 });
+    const res = await execMod(mod,{ action: 'list', tabId: 7 });
     const body = parseBody(res);
     expect(body.count).toBe(1);
     expect(body.handlers[0].handlerId).toBe('lh_1');
@@ -308,7 +338,7 @@ describe('chrome_locator_handler: list', () => {
 
   it('replays handlers when the page reports an empty live list (navigation reset)', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -350,7 +380,7 @@ describe('chrome_locator_handler: list', () => {
       return { success: true };
     });
 
-    const res = await mod.locatorHandlerTool.execute({ action: 'list', tabId: 7 });
+    const res = await execMod(mod,{ action: 'list', tabId: 7 });
     const body = parseBody(res);
     expect(body.count).toBe(1);
     // Replay should have invoked a register message in addition to the two list calls.
@@ -364,7 +394,7 @@ describe('chrome_locator_handler: list', () => {
 describe('chrome_locator_handler: remove + clear', () => {
   it('remove drops the handler from background state and forwards to page', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -373,7 +403,7 @@ describe('chrome_locator_handler: remove + clear', () => {
     const before = mod._getLocatorHandlerStateForTest();
     expect(before.tabs[0].handlerIds).toEqual(['lh_1']);
 
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'remove',
       handlerId: 'lh_1',
       tabId: 7,
@@ -395,13 +425,13 @@ describe('chrome_locator_handler: remove + clear', () => {
 
   it('clear drops every handler on the tab', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.a',
       dismissSelector: '.x',
       tabId: 7,
     });
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.b',
       dismissSelector: '.y',
@@ -416,7 +446,7 @@ describe('chrome_locator_handler: remove + clear', () => {
       return { success: true };
     });
 
-    const res = await mod.locatorHandlerTool.execute({ action: 'clear', tabId: 7 });
+    const res = await execMod(mod,{ action: 'clear', tabId: 7 });
     const body = parseBody(res);
     expect(body.cleared).toBe(2);
 
@@ -428,13 +458,13 @@ describe('chrome_locator_handler: remove + clear', () => {
 describe('chrome_locator_handler: multiple tabs + multiple handlers', () => {
   it('handlers in different tabs do not collide', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.a',
       dismissSelector: '.x',
       tabId: 11,
     });
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.b',
       dismissSelector: '.y',
@@ -450,7 +480,7 @@ describe('chrome_locator_handler: multiple tabs + multiple handlers', () => {
 describe('chrome_locator_handler: tab close cleanup', () => {
   it('drops the tab from state when chrome.tabs.onRemoved fires', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.a',
       dismissSelector: '.x',
@@ -466,7 +496,7 @@ describe('chrome_locator_handler: tab close cleanup', () => {
 describe('chrome_locator_handler: persistent re-injection on navigation', () => {
   it('replays persistent handlers on webNavigation.onDOMContentLoaded (main frame)', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -497,7 +527,7 @@ describe('chrome_locator_handler: persistent re-injection on navigation', () => 
 
   it('skips replay for subframe events', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -518,7 +548,7 @@ describe('chrome_locator_handler: persistent re-injection on navigation', () => 
 
   it('drops non-persistent handlers from state on navigation', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -535,7 +565,7 @@ describe('chrome_locator_handler: persistent re-injection on navigation', () => 
 describe('chrome_locator_handler: error classification', () => {
   it('classifies "no tab with id" as TAB_CLOSED and drops the tab from state', async () => {
     const mod = await loadModule();
-    await mod.locatorHandlerTool.execute({
+    await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',
@@ -546,7 +576,7 @@ describe('chrome_locator_handler: error classification', () => {
     // Next call: injection rejects with the tab-closed signature.
     injectMock.mockRejectedValueOnce(new Error('No tab with id: 7'));
 
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.banner2',
       dismissSelector: '.close2',
@@ -558,10 +588,9 @@ describe('chrome_locator_handler: error classification', () => {
     expect(mod._getLocatorHandlerStateForTest().tabs).toEqual([]);
   });
 
-  it('returns TAB_NOT_FOUND when there is no active tab and tabId omitted', async () => {
+  it('returns TAB_NOT_FOUND when there is no owned tab and tabId omitted', async () => {
     const mod = await loadModule();
-    queryMock.mockResolvedValueOnce([]);
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod, {
       action: 'register',
       selector: '.b',
       dismissSelector: '.c',
@@ -578,7 +607,7 @@ describe('chrome_locator_handler: error classification', () => {
       }
       return { success: true };
     });
-    const res = await mod.locatorHandlerTool.execute({
+    const res = await execMod(mod,{
       action: 'register',
       selector: '.banner',
       dismissSelector: '.close',

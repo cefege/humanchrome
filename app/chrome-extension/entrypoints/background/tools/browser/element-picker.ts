@@ -190,8 +190,11 @@ class ElementPickerTool extends BaseBrowserToolExecutor {
     // Resolve tab
     let tab: chrome.tabs.Tab;
     try {
-      const explicit = await this.tryGetTab(args?.tabId);
-      tab = explicit || (await this.getActiveTabOrThrowInWindow(args?.windowId));
+      tab = await this.getOwnedTab({
+        explicit: args?.tabId,
+        windowId: args?.windowId,
+        isRead: true,
+      });
     } catch (error) {
       return createErrorResponse(
         `${ERROR_MESSAGES.TAB_NOT_FOUND}: ${error instanceof Error ? error.message : String(error)}`,

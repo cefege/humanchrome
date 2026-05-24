@@ -63,7 +63,7 @@ class PrintToPdfTool extends BaseBrowserToolExecutor {
 
     let tabId = typeof args.tabId === 'number' ? args.tabId : undefined;
     if (tabId === undefined) {
-      const tab = await this.getActiveTabInWindow(args.windowId);
+      const tab = await this.getOwnedTab({ windowId: args.windowId, required: false, isRead: true });
       if (!tab || typeof tab.id !== 'number') {
         return createErrorResponse(
           'No active tab found',

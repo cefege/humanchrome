@@ -1265,14 +1265,7 @@ class GifRecorderTool extends BaseBrowserToolExecutor {
   }
 
   private async resolveTargetTab(tabId?: number): Promise<chrome.tabs.Tab | null> {
-    if (typeof tabId === 'number') {
-      return this.tryGetTab(tabId);
-    }
-    try {
-      return await this.getActiveTabOrThrow();
-    } catch {
-      return null;
-    }
+    return this.getOwnedTab({ explicit: tabId, required: false });
   }
 
   private buildResponse(result: GifResult): ToolResult {
