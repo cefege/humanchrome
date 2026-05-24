@@ -78,8 +78,11 @@ function decorateJsonResult(result: ToolResult, extra: Record<string, unknown>):
  * Debugger-backend `captureData` is `private` on the class — every
  * cross-tool reader needs the same cast, so funnel them through one
  * accessor instead of repeating the shape inline.
+ *
+ * Exported so cross-tool readers (e.g. `har-export.ts`) can read the
+ * same buffer without re-declaring the cast or the shape.
  */
-function getDebuggerCaptureData(): Map<number, CaptureBufferEntry> | undefined {
+export function getDebuggerCaptureData(): Map<number, CaptureBufferEntry> | undefined {
   const data = (
     networkDebuggerStartTool as unknown as { captureData?: Map<number, CaptureBufferEntry> }
   ).captureData;

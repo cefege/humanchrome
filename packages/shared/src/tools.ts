@@ -132,6 +132,7 @@ export const TOOL_NAMES = {
     GET_ATTRIBUTES: 'chrome_get_attributes',
     HOVER: 'chrome_hover',
     TYPE_INTO: 'chrome_type_into',
+    HAR_EXPORT: 'chrome_har_export',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3287,6 +3288,27 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.HAR_EXPORT,
+    description:
+      'Emit captured network data as standard HAR 1.2 JSON. `chrome_network_capture` collects rich per-request data in two backends (debugger + web-request); this tool is a pure formatter that shapes whichever backend is currently running for the tab into the format every external tool (Chrome DevTools "Save all as HAR", Charles Proxy import, Playwright trace viewer, Sentry session replay, har-validator-based test harnesses) expects. Read-only. Actions: `export_from_active` ({tabId?}) returns the HAR JSON inline in the response. `save_to_downloads` ({tabId?, filename?}) writes the HAR to ~/Downloads via chrome.downloads.download and returns the download id + filename — useful when the HAR is large enough to bloat the LLM context. Response bodies still honor the 1 MiB cap; per-entry truncation is surfaced via a JSON comment on `content.comment` so HAR viewers display the file without rejecting it. Default action: `export_from_active`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['export_from_active', 'save_to_downloads'],
+          description: 'Operation. Defaults to "export_from_active".',
+        },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        filename: {
+          type: 'string',
+          description: 'Optional filename for save_to_downloads. Defaults to humanchrome-tab-<id>-<ts>.har. Non-filesystem-safe chars are stripped.',
+        },
+      },
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.TYPE_INTO,
     description:
       'Char-by-char keystroke typing into a focused selector with realistic per-key delay. Anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence from `chrome_fill_or_select` (instant value-set + one input event) and skip suggestions / shadowban the session. `chrome_keyboard` fires at the window without focus-pinning; `chrome_paste` pastes a single buffer. This tool focuses the target, then dispatches CDP `Input.dispatchKeyEvent` keyDown/keyUp pairs per character with `perKeyDelayMs ± jitterMs` between them. Optional `clearFirst` selects-all + deletes before typing; optional `pressEnter` submits at the end. Returns `{typed, finalValue, pressedEnter, cleared, contentEditable}`. Pairs with `chrome_pace` (slow profile) for naturally-paced flows. Max text length: 1024 chars (safety against 30-min typing sessions). Params: `{selector? | ref?, selectorType?, index?, multi?, text, perKeyDelayMs?=60, jitterMs?=30, pressEnter?, clearFirst?, force?, tabId?, windowId?, frameId?}`.',
@@ -3576,6 +3598,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.GET_ATTRIBUTES]: 'Reading',
   [TOOL_NAMES.BROWSER.HOVER]: 'Interaction',
   [TOOL_NAMES.BROWSER.TYPE_INTO]: 'Interaction',
+  [TOOL_NAMES.BROWSER.HAR_EXPORT]: 'Network',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

@@ -117,6 +117,7 @@ import { emulateTool } from './browser/emulate';
 import { getAttributesTool } from './browser/get-attributes';
 import { hoverTool } from './browser/hover';
 import { typeIntoTool } from './browser/type-into';
+import { harExportTool } from './browser/har-export';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 // Eager imports for tools that USED to be lazy but landed in their own
 // Rolldown chunk — bug #216. Chrome forbids dynamic `import()` of new
@@ -236,6 +237,7 @@ const eagerTools: ToolInstance[] = [
   getAttributesTool,
   hoverTool,
   typeIntoTool,
+  harExportTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
   flowDeleteTool as unknown as ToolInstance,

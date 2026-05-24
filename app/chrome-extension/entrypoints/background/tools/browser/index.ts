@@ -90,3 +90,4 @@ export { emulateTool } from './emulate';
 export { getAttributesTool } from './get-attributes';
 export { hoverTool } from './hover';
 export { typeIntoTool } from './type-into';
+export { harExportTool } from './har-export';
