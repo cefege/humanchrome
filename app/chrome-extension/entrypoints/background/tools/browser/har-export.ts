@@ -150,7 +150,7 @@ class HarExportTool extends BaseBrowserToolExecutor {
     filename?: string,
   ): Promise<ToolResult> {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const name = (filename ?? `humanchrome-tab-${tabId}-${ts}.har`).replace(/[^\w.\-]/g, '_');
+    const name = (filename ?? `humanchrome-tab-${tabId}-${ts}.har`).replace(/[^\w.-]/g, '_');
     const json = JSON.stringify(har);
     // chrome.downloads can take a data: URL. Use base64 to survive
     // non-ASCII chars in headers / response bodies cleanly.
