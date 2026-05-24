@@ -583,6 +583,23 @@ Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter po
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 
+### `chrome_set_checked`
+
+Idempotent checkbox / radio state set. Caller says "I want this checked:true" and the runtime makes it so, returning whether it had to do anything (`changed`) and what the prior state was (`priorChecked`). Saves a read-then-click round-trip and removes the "what if I clicked it twice" ambiguity that plagues flows built on top of `chrome_click_element` for toggles. Matches Playwright's `locator.setChecked(boolean)`. Accepts native `<input type="checkbox">` / `<input type="radio">` and ARIA `[role="checkbox|radio|switch"]`. Non-checkable elements return `INVALID_ARGS` with `details.tagName` / `details.role` for diagnostics. Disabled / aria-disabled / not-visible return `NOT_ACTIONABLE`. Mutates state via a native `.click()` so framework `onChange` handlers fire (no direct `.checked = X`). Returns `{checked, changed, priorChecked, tagName, role}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  |  |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  |  |
+| `index` | number |  |  |
+| `multi` | boolean |  |  |
+| `checked` | boolean | ✓ | Target state. Required. |
+| `force` | boolean |  | Skip the visibility/disabled check. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ### `chrome_type_into`
 
 Char-by-char keystroke typing into a focused selector with realistic per-key delay. Anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence from `chrome_fill_or_select` (instant value-set + one input event) and skip suggestions / shadowban the session. `chrome_keyboard` fires at the window without focus-pinning; `chrome_paste` pastes a single buffer. This tool focuses the target, then dispatches CDP `Input.dispatchKeyEvent` keyDown/keyUp pairs per character with `perKeyDelayMs ± jitterMs` between them. Optional `clearFirst` selects-all + deletes before typing; optional `pressEnter` submits at the end. Returns `{typed, finalValue, pressedEnter, cleared, contentEditable}`. Pairs with `chrome_pace` (slow profile) for naturally-paced flows. Max text length: 1024 chars (safety against 30-min typing sessions). Params: `{selector? | ref?, selectorType?, index?, multi?, text, perKeyDelayMs?=60, jitterMs?=30, pressEnter?, clearFirst?, force?, tabId?, windowId?, frameId?}`.

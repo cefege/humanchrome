@@ -93,3 +93,4 @@ export { typeIntoTool } from './type-into';
 export { harExportTool } from './har-export';
 export { mockResponseTool } from './mock-response';
 export { basicAuthTool } from './basic-auth';
+export { setCheckedTool } from './set-checked';
