@@ -583,6 +583,27 @@ Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter po
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 
+### `chrome_type_into`
+
+Char-by-char keystroke typing into a focused selector with realistic per-key delay. Anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence from `chrome_fill_or_select` (instant value-set + one input event) and skip suggestions / shadowban the session. `chrome_keyboard` fires at the window without focus-pinning; `chrome_paste` pastes a single buffer. This tool focuses the target, then dispatches CDP `Input.dispatchKeyEvent` keyDown/keyUp pairs per character with `perKeyDelayMs ± jitterMs` between them. Optional `clearFirst` selects-all + deletes before typing; optional `pressEnter` submits at the end. Returns `{typed, finalValue, pressedEnter, cleared, contentEditable}`. Pairs with `chrome_pace` (slow profile) for naturally-paced flows. Max text length: 1024 chars (safety against 30-min typing sessions). Params: `{selector? | ref?, selectorType?, index?, multi?, text, perKeyDelayMs?=60, jitterMs?=30, pressEnter?, clearFirst?, force?, tabId?, windowId?, frameId?}`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  |  |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  |  |
+| `index` | number |  |  |
+| `multi` | boolean |  |  |
+| `text` | string | ✓ | Text to type (≤1024 chars). |
+| `perKeyDelayMs` | number |  | Base delay between keystrokes (ms). Default 60. |
+| `jitterMs` | number |  | ± random jitter added to perKeyDelayMs. Default 30. Set 0 for fixed cadence. |
+| `pressEnter` | boolean |  | Send Enter after the last char. |
+| `clearFirst` | boolean |  | Select-all + Delete before typing. |
+| `force` | boolean |  | Skip the focus visibility/disabled/readonly check. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ### `chrome_hover`
 
 Programmatic mouse hover to trigger tooltips and dropdown menus. Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, nav-bar dropdowns) is unreachable without dispatching a real mouseover chain — `chrome_focus` only focuses, `chrome_click` clicks, `chrome_javascript` synthesizes events but skips actionability. This tool resolves the target via the same `_selector-resolve` engine that click uses, runs a visibility + hit-test check, then dispatches `pointermove` → `mouseover` → `mouseenter` → `pointerenter` exactly as a real mouse would. Returns `{hovered, bbox, point, tagName}`. Pair with `chrome_await_element` after dispatch to wait for the revealed UI before clicking it. Params: `{selector? | ref?, selectorType?, index?, multi?, position?:{x,y} (relative to bbox top-left, defaults to center), force?, tabId?, windowId?, frameId?}`.

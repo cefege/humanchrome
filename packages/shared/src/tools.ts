@@ -131,6 +131,7 @@ export const TOOL_NAMES = {
     EMULATE: 'chrome_emulate',
     GET_ATTRIBUTES: 'chrome_get_attributes',
     HOVER: 'chrome_hover',
+    TYPE_INTO: 'chrome_type_into',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3286,6 +3287,40 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.TYPE_INTO,
+    description:
+      'Char-by-char keystroke typing into a focused selector with realistic per-key delay. Anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence from `chrome_fill_or_select` (instant value-set + one input event) and skip suggestions / shadowban the session. `chrome_keyboard` fires at the window without focus-pinning; `chrome_paste` pastes a single buffer. This tool focuses the target, then dispatches CDP `Input.dispatchKeyEvent` keyDown/keyUp pairs per character with `perKeyDelayMs ± jitterMs` between them. Optional `clearFirst` selects-all + deletes before typing; optional `pressEnter` submits at the end. Returns `{typed, finalValue, pressedEnter, cleared, contentEditable}`. Pairs with `chrome_pace` (slow profile) for naturally-paced flows. Max text length: 1024 chars (safety against 30-min typing sessions). Params: `{selector? | ref?, selectorType?, index?, multi?, text, perKeyDelayMs?=60, jitterMs?=30, pressEnter?, clearFirst?, force?, tabId?, windowId?, frameId?}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string' },
+        index: { type: 'number' },
+        multi: { type: 'boolean' },
+        text: { type: 'string', description: 'Text to type (≤1024 chars).' },
+        perKeyDelayMs: {
+          type: 'number',
+          description: 'Base delay between keystrokes (ms). Default 60.',
+        },
+        jitterMs: {
+          type: 'number',
+          description: '± random jitter added to perKeyDelayMs. Default 30. Set 0 for fixed cadence.',
+        },
+        pressEnter: { type: 'boolean', description: 'Send Enter after the last char.' },
+        clearFirst: { type: 'boolean', description: 'Select-all + Delete before typing.' },
+        force: { type: 'boolean', description: 'Skip the focus visibility/disabled/readonly check.' },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+      required: ['text'],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.HOVER,
     description:
       'Programmatic mouse hover to trigger tooltips and dropdown menus. Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, nav-bar dropdowns) is unreachable without dispatching a real mouseover chain — `chrome_focus` only focuses, `chrome_click` clicks, `chrome_javascript` synthesizes events but skips actionability. This tool resolves the target via the same `_selector-resolve` engine that click uses, runs a visibility + hit-test check, then dispatches `pointermove` → `mouseover` → `mouseenter` → `pointerenter` exactly as a real mouse would. Returns `{hovered, bbox, point, tagName}`. Pair with `chrome_await_element` after dispatch to wait for the revealed UI before clicking it. Params: `{selector? | ref?, selectorType?, index?, multi?, position?:{x,y} (relative to bbox top-left, defaults to center), force?, tabId?, windowId?, frameId?}`.',
@@ -3540,6 +3575,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.EMULATE]: 'State',
   [TOOL_NAMES.BROWSER.GET_ATTRIBUTES]: 'Reading',
   [TOOL_NAMES.BROWSER.HOVER]: 'Interaction',
+  [TOOL_NAMES.BROWSER.TYPE_INTO]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
