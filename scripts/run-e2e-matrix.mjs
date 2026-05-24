@@ -341,14 +341,35 @@ async function findSpawnedBridge(extensionId, afterMs, deadlineMs, { wakeCdpUrl 
   const start = Date.now();
   let lastProgressAt = start;
   let lastWakeAt = 0;
+  let warnedIdMismatch = false;
   let delay = 200;
   while (Date.now() < deadlineMs) {
-    const entries = readRegistry().filter(
-      (e) => e.extensionId === extensionId && new Date(e.startedAt).getTime() >= afterMs,
+    // IMP-0162: the registry dir is isolated per spawn (`HC_INSTANCE_REGISTRY_DIR`
+    // is set to a matrix-only path before Chrome launches), so any entry that
+    // appears after `afterMs` IS the bridge owned by the Chrome we spawned —
+    // even when CFT computes a different extension ID than the manifest's
+    // pinned `key`. CI is the canonical case: chrome.exe gives the unpacked
+    // extension an unstable ID (e.g. `dmjkiedo...`) instead of `hbdgbgag...`,
+    // so the old `extensionId === expected` filter never matched.
+    //
+    // Strategy: prefer the expected-ID entry if present (so a stale orphan
+    // bridge from a previous run doesn't shadow the real one), but accept
+    // the most-recent-after-afterMs entry regardless of ID. Warn once when
+    // the ID disagrees so manifest-key drift is visible.
+    const fresh = readRegistry().filter(
+      (e) => new Date(e.startedAt).getTime() >= afterMs,
     );
-    if (entries.length > 0) {
-      entries.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
-      return entries[0];
+    if (fresh.length > 0) {
+      fresh.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+      const byExpectedId = fresh.find((e) => e.extensionId === extensionId);
+      const chosen = byExpectedId ?? fresh[0];
+      if (!byExpectedId && !warnedIdMismatch) {
+        console.warn(
+          `[e2e]   note: spawned bridge has extensionId=${chosen.extensionId} (expected ${extensionId}). Accepting anyway — registry dir is isolated.`,
+        );
+        warnedIdMismatch = true;
+      }
+      return chosen;
     }
     // Try waking the SW every 5s through the CDP devtools URL. The SW boots
     // lazily on a fresh profile and may need an external trigger after
@@ -360,9 +381,10 @@ async function findSpawnedBridge(extensionId, afterMs, deadlineMs, { wakeCdpUrl 
         const res = await fetch(`${wakeCdpUrl}/json/list`);
         if (res.ok) {
           const targets = await res.json();
-          const swTarget = targets.find(
-            (t) => t.type === 'service_worker' && t.url?.includes(extensionId),
-          );
+          // CFT may load the extension with an unpinned ID — match on
+          // type only, not URL, so the wake-up still triggers when the
+          // expected ID isn't honored.
+          const swTarget = targets.find((t) => t.type === 'service_worker');
           if (swTarget?.url) {
             // Hitting the SW URL forces Chrome to start it (and keeps it
             // alive briefly). The 404 it returns is fine — we just need
