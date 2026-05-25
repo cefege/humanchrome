@@ -191,33 +191,14 @@ class TypeIntoTool extends BaseBrowserToolExecutor {
         func: readFinalValue,
         args: [shimSelector, shimRef],
       });
-      const diag = finalInjected?.[0]?.result as
-        | {
-            value?: string;
-            isFocused?: boolean;
-            activeTag?: string;
-            activeId?: string;
-            windowHasFocus?: boolean;
-            visibility?: string;
-          }
-        | undefined;
-      const finalValue = typeof diag?.value === 'string' ? diag.value : null;
+      const finalValue = finalInjected?.[0]?.result;
 
       return jsonOk({
         ok: true,
         tabId,
         frameId: args.frameId ?? null,
         typed: typedCount,
-        finalValue,
-        focusDiag: diag
-          ? {
-              isFocused: diag.isFocused === true,
-              activeTag: diag.activeTag ?? 'unknown',
-              activeId: diag.activeId ?? '',
-              windowHasFocus: diag.windowHasFocus === true,
-              visibility: diag.visibility ?? 'unknown',
-            }
-          : null,
+        finalValue: typeof finalValue === 'string' ? finalValue : null,
         pressedEnter: args.pressEnter === true,
         cleared: args.clearFirst === true,
         contentEditable: focusResult.isContentEditable,
@@ -245,51 +226,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Send a single printable character via CDP. Fires a real `keyDown` +
- * `keyUp` pair so anti-bot heuristics see keyboard events, then uses
- * `Input.insertText` to actually land the character in the focused
- * field.
- *
- * IMP-0176 (round 2): the keyDown(text:ch) → keyUp pattern works in
- * foreground tabs but is silently dropped in background-visibility
- * renderers (CI runners with no real display, alt-tabbed sessions).
- * `Input.insertText` goes through the IME pipeline, which Chromium
- * delivers regardless of tab visibility — so it works in CFT under
- * CI where document.visibilityState='hidden'. The text field on
- * `dispatchKeyEvent` is also omitted now so we don't double-insert
- * the same char on tabs where dispatchKeyEvent IS delivering text.
- *
- * Shift modifier is set for uppercase letters + ASCII symbols whose
- * unshifted base is something else (`!`, `@`, etc.) so renderers that
- * inspect modifier state for synthetic-event detection still see it.
- */
+// Input.insertText goes through the IME pipeline, which Chromium
+// delivers to the focused input regardless of tab visibility —
+// dispatchKeyEvent's text payload is suppressed in hidden renderers
+// (CFT-CI, alt-tabbed sessions).
+const SHIFT_MODIFIER = 8;
+
 async function sendChar(tabId: number, ch: string): Promise<void> {
   const meta = charToKey(ch);
-  const down: Record<string, unknown> = {
-    type: 'keyDown',
-    unmodifiedText: meta?.unmodified ?? ch,
-    key: ch,
-  };
-  const up: Record<string, unknown> = { type: 'keyUp', key: ch };
-  if (meta) {
-    down.code = meta.code;
-    down.windowsVirtualKeyCode = meta.vk;
-    down.nativeVirtualKeyCode = meta.vk;
-    up.code = meta.code;
-    up.windowsVirtualKeyCode = meta.vk;
-    up.nativeVirtualKeyCode = meta.vk;
-    if (meta.shift) {
-      down.modifiers = 8; // Shift bit per CDP Input.dispatchKeyEvent docs
-      up.modifiers = 8;
-    }
+  if (!meta) {
+    // Non-ASCII (emoji, accented chars): no key event, IME path only.
+    await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
+    return;
   }
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', down);
-  // IME-path text insert — delivered to the focused input regardless of
-  // tab visibility. Sandwiched between keyDown and keyUp so listeners
-  // observing keydown/beforeinput/input/keyup see the natural order.
+  const modifiers = meta.shift ? SHIFT_MODIFIER : 0;
+  const keyArgs = {
+    key: ch,
+    code: meta.code,
+    windowsVirtualKeyCode: meta.vk,
+    nativeVirtualKeyCode: meta.vk,
+    modifiers,
+  };
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
+    ...keyArgs,
+    type: 'keyDown',
+    unmodifiedText: meta.unmodified ?? ch,
+  });
   await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', up);
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', { ...keyArgs, type: 'keyUp' });
 }
 
 interface KeyMeta {
@@ -325,21 +289,15 @@ const SHIFTED_SYMBOLS: Record<string, [string, number, string]> = {
   '~': ['Backquote', 192, '`'],
 };
 
-// Unshifted ASCII symbol → [code, vk].
-const UNSHIFTED_SYMBOLS: Record<string, [string, number]> = {
-  '-': ['Minus', 189],
-  '=': ['Equal', 187],
-  '[': ['BracketLeft', 219],
-  ']': ['BracketRight', 221],
-  '\\': ['Backslash', 220],
-  ';': ['Semicolon', 186],
-  "'": ['Quote', 222],
-  ',': ['Comma', 188],
-  '.': ['Period', 190],
-  '/': ['Slash', 191],
-  '`': ['Backquote', 192],
-  ' ': ['Space', 32],
-};
+// Unshifted ASCII symbol → [code, vk]. Derived from SHIFTED_SYMBOLS
+// (each entry's 3rd tuple element is the unshifted base) plus space.
+const UNSHIFTED_SYMBOLS: Record<string, [string, number]> = (() => {
+  const out: Record<string, [string, number]> = { ' ': ['Space', 32] };
+  for (const [code, vk, base] of Object.values(SHIFTED_SYMBOLS)) {
+    out[base] = [code, vk];
+  }
+  return out;
+})();
 
 /**
  * Map a printable ASCII char to its CDP `code` + `windowsVirtualKeyCode`.
@@ -373,7 +331,7 @@ function charToKey(ch: string): KeyMeta | null {
 }
 
 /** Test-only: exposed for unit tests of charToKey. */
-export const _charToKeyForTests = charToKey;
+export const _charToKeyForTest = charToKey;
 
 /**
  * Send a named non-printable key (Enter, Delete, etc). CDP needs `key`,
@@ -529,29 +487,9 @@ function focusForTyping(
   }
 }
 
-interface FinalValueDiagnostic {
-  value: string | undefined;
-  isFocused: boolean;
-  activeTag: string;
-  activeId: string;
-  windowHasFocus: boolean;
-  visibility: string;
-}
-
-/**
- * Post-typing read-back: returns the element's current value (inputs)
- * or innerText (contenteditable) PLUS diagnostic info about focus state
- * at read time. The diagnostic fields exist to debug IMP-0176-style
- * issues where CDP keystrokes dispatch but don't land — typically a
- * sign that focus moved between focus shim and keystroke dispatch.
- * Returns undefined value when the element no longer exists.
- */
-function readFinalValue(
-  selector: string | null,
-  ref: string | null,
-): FinalValueDiagnostic {
-  let el: Element | null = null;
+function readFinalValue(selector: string | null, ref: string | null): string | undefined {
   try {
+    let el: Element | null = null;
     if (ref) {
       const map = (window as unknown as { __claudeElementMap?: Record<string, WeakRef<Element>> })
         .__claudeElementMap;
@@ -559,27 +497,12 @@ function readFinalValue(
     } else if (selector) {
       el = document.querySelector(selector);
     }
+    if (!el) return undefined;
+    const input = el as HTMLInputElement;
+    return typeof input.value === 'string' ? input.value : (el as HTMLElement).innerText;
   } catch {
-    el = null;
+    return undefined;
   }
-  const active = document.activeElement as HTMLElement | null;
-  let value: string | undefined;
-  if (el) {
-    try {
-      const input = el as HTMLInputElement;
-      value = typeof input.value === 'string' ? input.value : (el as HTMLElement).innerText;
-    } catch {
-      value = undefined;
-    }
-  }
-  return {
-    value,
-    isFocused: el !== null && active === el,
-    activeTag: active ? active.tagName.toLowerCase() : 'none',
-    activeId: active ? active.id || '' : '',
-    windowHasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : false,
-    visibility: typeof document.visibilityState === 'string' ? document.visibilityState : 'unknown',
-  };
 }
 
 export const typeIntoTool = new TypeIntoTool();
