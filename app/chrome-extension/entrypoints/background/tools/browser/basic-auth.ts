@@ -66,19 +66,21 @@ interface TabAuthState {
 const OWNER = 'basic-auth' as const;
 const TAB_STATE = new Map<number, TabAuthState>();
 
-let tabRemovedListenerInstalled = false;
+let tabRemovedListener: ((tabId: number) => void) | null = null;
 function installTabRemovedListenerOnce(): void {
-  if (tabRemovedListenerInstalled) return;
+  if (tabRemovedListener) return;
   if (typeof chrome === 'undefined' || !chrome.tabs?.onRemoved?.addListener) return;
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  tabRemovedListener = (tabId: number) => {
     teardownTabState(tabId).catch(() => {
       /* best-effort cleanup */
     });
-  });
-  tabRemovedListenerInstalled = true;
+  };
+  chrome.tabs.onRemoved.addListener(tabRemovedListener);
 }
 
-/** Test-only: clear all per-tab state + re-arm listeners. */
+/** Test-only: clear all per-tab state + remove the onRemoved listener so the
+ *  next call re-attaches against the test's fresh chrome mock without
+ *  leaking the previous listener. */
 export function _resetBasicAuthForTests(): void {
   for (const state of TAB_STATE.values()) {
     try {
@@ -88,7 +90,14 @@ export function _resetBasicAuthForTests(): void {
     }
   }
   TAB_STATE.clear();
-  tabRemovedListenerInstalled = false;
+  if (tabRemovedListener && chrome?.tabs?.onRemoved?.removeListener) {
+    try {
+      chrome.tabs.onRemoved.removeListener(tabRemovedListener);
+    } catch {
+      /* ignore */
+    }
+  }
+  tabRemovedListener = null;
 }
 
 class BasicAuthTool extends BaseBrowserToolExecutor {
@@ -325,8 +334,9 @@ async function handleAuthRequired(
         password: matched.password,
       },
     });
-    // Log MATCHED only — never the password.
-    console.warn(
+    // Log MATCHED only — never the password. Happy-path is info, not a
+    // warning (console.warn would surface in DevTools' Issues panel).
+    console.log(
       `chrome_basic_auth: matched ${matched.origin} (${matched.scheme}) for ${url}`,
     );
   } catch (e) {

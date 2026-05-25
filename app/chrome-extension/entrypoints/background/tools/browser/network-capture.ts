@@ -75,18 +75,16 @@ function decorateJsonResult(result: ToolResult, extra: Record<string, unknown>):
 }
 
 /**
- * Debugger-backend `captureData` is `private` on the class — every
- * cross-tool reader needs the same cast, so funnel them through one
- * accessor instead of repeating the shape inline.
- *
- * Exported so cross-tool readers (e.g. `har-export.ts`) can read the
- * same buffer without re-declaring the cast or the shape.
+ * Cross-tool accessor for the debugger-backend capture buffer. IMP-0129
+ * promoted `captureData` to `public` on `NetworkCaptureBase`, so this
+ * is now a thin typed read rather than a `private`-field cast — kept as
+ * a function so callers don't take a direct reference to the singleton
+ * (lets the tool's tests swap the singleton via the existing reset
+ * paths). Used by the facade's status/flush actions and `har-export.ts`.
  */
 export function getDebuggerCaptureData(): Map<number, CaptureBufferEntry> | undefined {
-  const data = (
-    networkDebuggerStartTool as unknown as { captureData?: Map<number, CaptureBufferEntry> }
-  ).captureData;
-  return data instanceof Map ? data : undefined;
+  const data = networkDebuggerStartTool.captureData;
+  return data instanceof Map ? (data as Map<number, CaptureBufferEntry>) : undefined;
 }
 
 function isDebuggerCaptureActive(): boolean {

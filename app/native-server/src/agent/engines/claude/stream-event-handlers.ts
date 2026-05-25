@@ -109,13 +109,18 @@ export function handleContentBlockStop(
       );
     }
 
-    state.runLog.debug(
-      {
-        toolName: pending.toolName,
-        inputPreview: JSON.stringify(input).slice(0, 500),
-      },
-      'content_block_stop',
-    );
+    // Gate the JSON.stringify on level enablement — without the guard the
+    // serialize runs even when debug is disabled, costing per-event on
+    // streams with large tool inputs.
+    if (state.runLog.isLevelEnabled?.('debug')) {
+      state.runLog.debug(
+        {
+          toolName: pending.toolName,
+          inputPreview: JSON.stringify(input).slice(0, 500),
+        },
+        'content_block_stop',
+      );
+    }
 
     // Build metadata with full input
     const metadata = buildToolMetadata({
