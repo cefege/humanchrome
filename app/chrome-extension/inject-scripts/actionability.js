@@ -347,8 +347,19 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   // fast-path skip when Element.getAnimations reports no running animation,
   // and the transform-string comparison catches sub-pixel motion that rounds
   // to identical bbox.
-  const STABILITY_SAMPLE_MS = 50;
-  const REQUIRED_SAMPLES = 4;
+  //
+  // IMP-0174: the prior fixed 50ms × 4 sampler had a flake mode against
+  // ease-in-out animations near their velocity-zero peaks. The 200ms
+  // window was short enough that all four samples could fall within
+  // ~±100ms of an animation extremum, where the transform's matrix tx
+  // value is effectively flat and successive samples produce identical
+  // strings — leading the sampler to claim 'stable' on a still-moving
+  // target. Staggered intervals spread the samples across animation
+  // phases, and comparing each new sample against the immediately
+  // PREVIOUS sample (in addition to the baseline) catches sustained
+  // drift even when the baseline happens to align with later samples.
+  const STABILITY_INTERVALS_MS = [35, 65, 50, 90, 70]; // 5 gaps → 6 samples, ~310ms span
+  const REQUIRED_SAMPLES = STABILITY_INTERVALS_MS.length + 1;
 
   function rectsEqual(a, b) {
     return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
@@ -406,15 +417,27 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     const baselineRect = el.getBoundingClientRect();
     const baselineTransform = readTransform(el);
     let taken = 1;
+    let prevRect = baselineRect;
+    let prevTransform = baselineTransform;
     return new Promise((resolve) => {
       function takeSample() {
+        const currRect = el.getBoundingClientRect();
+        const currTransform = readTransform(el);
+        // IMP-0174: compare against the baseline (catches gross motion across
+        // the window) AND against the immediately previous sample (catches
+        // sustained drift even if the animation's peak happens to align with
+        // the baseline reading).
         if (
-          !rectsEqual(baselineRect, el.getBoundingClientRect()) ||
-          readTransform(el) !== baselineTransform
+          !rectsEqual(baselineRect, currRect) ||
+          currTransform !== baselineTransform ||
+          !rectsEqual(prevRect, currRect) ||
+          currTransform !== prevTransform
         ) {
           resolve('unstable_bbox');
           return;
         }
+        prevRect = currRect;
+        prevTransform = currTransform;
         taken += 1;
         if (taken >= REQUIRED_SAMPLES) {
           resolve(null);
@@ -431,15 +454,19 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
         scheduleNextSample();
       }
       function scheduleNextSample() {
+        // Walk the staggered interval table; samples taken so far map to
+        // intervals taken-1 (1st takeSample uses INTERVALS_MS[0], etc).
+        const idx = Math.min(taken - 1, STABILITY_INTERVALS_MS.length - 1);
+        const wait = STABILITY_INTERVALS_MS[idx];
         if (typeof deadline === 'number') {
           const remaining = deadline - Date.now();
           if (remaining <= 0) {
             resolve('unstable_bbox');
             return;
           }
-          setTimeout(takeSample, Math.min(STABILITY_SAMPLE_MS, remaining));
+          setTimeout(takeSample, Math.min(wait, remaining));
         } else {
-          setTimeout(takeSample, STABILITY_SAMPLE_MS);
+          setTimeout(takeSample, wait);
         }
       }
       scheduleNextSample();
