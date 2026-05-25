@@ -246,25 +246,28 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Send a single printable character via CDP `Input.dispatchKeyEvent`.
+ * Send a single printable character via CDP. Fires a real `keyDown` +
+ * `keyUp` pair so anti-bot heuristics see keyboard events, then uses
+ * `Input.insertText` to actually land the character in the focused
+ * field.
  *
- * IMP-0176: Chromium's renderer requires `code` (e.g. 'KeyH') and
- * `windowsVirtualKeyCode` for printable ASCII chars to register as
- * text input — `text` alone is dropped as an unmapped control key
- * under the production build. For non-ASCII (Unicode > 127, e.g.
- * accented chars, emoji) we omit `code` and pass `text` only, which
- * Chromium handles via the IME path.
+ * IMP-0176 (round 2): the keyDown(text:ch) → keyUp pattern works in
+ * foreground tabs but is silently dropped in background-visibility
+ * renderers (CI runners with no real display, alt-tabbed sessions).
+ * `Input.insertText` goes through the IME pipeline, which Chromium
+ * delivers regardless of tab visibility — so it works in CFT under
+ * CI where document.visibilityState='hidden'. The text field on
+ * `dispatchKeyEvent` is also omitted now so we don't double-insert
+ * the same char on tabs where dispatchKeyEvent IS delivering text.
  *
  * Shift modifier is set for uppercase letters + ASCII symbols whose
- * unshifted base is something else (`!`, `@`, etc.) — without it,
- * the renderer's autorepeat suppression can drop the second of two
- * identical chars in a row.
+ * unshifted base is something else (`!`, `@`, etc.) so renderers that
+ * inspect modifier state for synthetic-event detection still see it.
  */
 async function sendChar(tabId: number, ch: string): Promise<void> {
   const meta = charToKey(ch);
   const down: Record<string, unknown> = {
     type: 'keyDown',
-    text: ch,
     unmodifiedText: meta?.unmodified ?? ch,
     key: ch,
   };
@@ -282,6 +285,10 @@ async function sendChar(tabId: number, ch: string): Promise<void> {
     }
   }
   await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', down);
+  // IME-path text insert — delivered to the focused input regardless of
+  // tab visibility. Sandwiched between keyDown and keyUp so listeners
+  // observing keydown/beforeinput/input/keyup see the natural order.
+  await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
   await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', up);
 }
 

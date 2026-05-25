@@ -126,18 +126,22 @@ describe('chrome_type_into — happy path', () => {
     expect(body.typed).toBe(2);
     expect(body.finalValue).toBe('hi');
 
-    // Expect 2 keystrokes × 2 commands (keyDown + keyUp) = 4 calls to dispatchKeyEvent.
-    // IMP-0176: each event also carries `code` (KeyH/KeyI) + windowsVirtualKeyCode
-    // so Chromium's renderer treats them as text input rather than unmapped keys.
+    // IMP-0176 round 2: each char produces keyDown + Input.insertText + keyUp
+    // (3 CDP calls × 2 chars = 6 total). keyDown no longer carries `text`
+    // since insertText is the actual text-landing path; the keyDown
+    // just fires the keyboard event for anti-bot heuristics.
     const keyEvents = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchKeyEvent');
+    const inserts = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.insertText');
     expect(keyEvents).toHaveLength(4);
+    expect(inserts).toHaveLength(2);
     expect(keyEvents[0][2]).toMatchObject({
       type: 'keyDown',
-      text: 'h',
       key: 'h',
       code: 'KeyH',
       windowsVirtualKeyCode: 72,
     });
+    expect(keyEvents[0][2]).not.toHaveProperty('text');
+    expect(inserts[0][2]).toEqual({ text: 'h' });
     expect(keyEvents[1][2]).toMatchObject({
       type: 'keyUp',
       key: 'h',
@@ -146,11 +150,11 @@ describe('chrome_type_into — happy path', () => {
     });
     expect(keyEvents[2][2]).toMatchObject({
       type: 'keyDown',
-      text: 'i',
       key: 'i',
       code: 'KeyI',
       windowsVirtualKeyCode: 73,
     });
+    expect(inserts[1][2]).toEqual({ text: 'i' });
     expect(keyEvents[3][2]).toMatchObject({
       type: 'keyUp',
       key: 'i',
