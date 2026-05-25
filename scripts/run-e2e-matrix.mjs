@@ -1099,6 +1099,23 @@ async function main() {
     console.error(`[e2e] navigate failed: ${JSON.stringify(nav)}`);
     process.exit(4);
   }
+  // IMP-0176 diagnostic surfaced that the navigated tab can be visible-state
+  // hidden under CFT-CI (document.visibilityState='hidden') even though
+  // activeElement and windowHasFocus look correct. CDP Input.dispatchKeyEvent
+  // does not deliver text input to hidden-tab renderers, which silently
+  // breaks chrome_type_into. Switching to the fixture tab forces it
+  // active — and incidentally makes :hover-style CSS pseudo-classes
+  // (which need a foreground renderer) behave consistently for the
+  // IMP-0125 chrome_hover row.
+  const navTabId = nav?.parsed?.tabId ?? nav?.parsed?.tab?.id;
+  if (typeof navTabId === 'number') {
+    const sw = await callTool('chrome_switch_tab', { tabId: navTabId });
+    if (sw?.isError) {
+      console.warn(`[e2e] WARN: chrome_switch_tab failed: ${JSON.stringify(sw).slice(0, 200)}`);
+    }
+  } else {
+    console.warn(`[e2e] WARN: chrome_navigate response had no tabId — type_into row may fail; nav=${JSON.stringify(nav).slice(0, 200)}`);
+  }
 
   const rowsToRun = ONLY_FILTERS
     ? MATRIX.filter((row) =>
