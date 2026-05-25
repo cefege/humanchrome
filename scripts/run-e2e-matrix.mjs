@@ -372,13 +372,38 @@ const MATRIX = [
       return assert(ok, `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`);
     },
   },
-  // IMP-0125 chrome_hover row deferred — first matrix run surfaced an
-  // "<minified-var> is not defined" runtime error inside the production
-  // build of hover.ts's shim. TypeScript-only types serialize fine; the
-  // Rolldown minification of closure variables in the shim is the
-  // suspect. Unit tests against the chrome.scripting.executeScript mock
-  // pass cleanly, so the regression is real-browser-only. Filed as
-  // IMP-0175; row lands when that IMP closes.
+  {
+    imp: 'IMP-0125',
+    name: 'chrome_hover dispatches mouseover and reveals tooltip',
+    // IMP-0175 fix replaced the shim's spread operator with Object.assign
+    // so the function survives chrome.scripting.executeScript's
+    // serialize-and-rebuild round trip (Rolldown was compiling spread
+    // into a top-level helper that became out-of-scope in the page
+    // context). Row re-enabled.
+    run: async () => {
+      const hoverRes = await callTool('chrome_hover', { selector: '#hover-target' });
+      const waitRes = await callTool('chrome_await_element', {
+        selector: '#hover-tooltip',
+        state: 'present',
+        timeoutMs: 1000,
+      });
+      return { hoverRes, waitRes };
+    },
+    check: ({ hoverRes, waitRes }) => {
+      const hb = hoverRes?.parsed;
+      const wb = waitRes?.parsed;
+      const ok =
+        !hoverRes?.isError &&
+        hb?.ok === true &&
+        hb?.hovered === true &&
+        !waitRes?.isError &&
+        wb?.found === true;
+      return assert(
+        ok,
+        `expected hover+await tooltip success, got hover.ok=${hb?.ok} hover.hovered=${hb?.hovered} wait.ok=${wb?.ok} wait.found=${wb?.found} wait.absent=${wb?.absent} waitErr=${waitRes?.isError ? JSON.stringify(wb).slice(0, 400) : 'none'}`,
+      );
+    },
+  },
   {
     imp: 'IMP-0143',
     name: 'chrome_type_into delivers each character + finalValue',

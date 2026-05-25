@@ -226,6 +226,13 @@ function hoverShim(
       }
     }
 
+    // IMP-0175: spread operator (`{ ...eventInit, ... }`) compiles into
+    // a call to Rolldown's top-level `_objectSpread` helper (minified
+    // to `N`/`k`/etc), which is out of scope when chrome.scripting.
+    // executeScript serializes this function via Function.toString()
+    // and rebuilds it in the page context — surfaces as
+    // `"N is not defined"` at runtime. Object.assign is a global so it
+    // survives the serialize-and-rebuild round trip cleanly.
     const parent = target.parentElement;
     const eventInit: MouseEventInit = {
       bubbles: true,
@@ -235,20 +242,23 @@ function hoverShim(
       clientY: py,
       relatedTarget: parent,
     };
-    const pointerInit: PointerEventInit = {
-      ...eventInit,
+    const pointerInit: PointerEventInit = Object.assign({}, eventInit, {
       pointerId: 1,
       pointerType: 'mouse',
       isPrimary: true,
-    };
+    });
 
     // Order matches a real mouse: pointermove (bubbles) → mouseover
     // (bubbles) → mouseenter (no bubble, fires on each ancestor up the
     // chain). pointerenter mirrors mouseenter for pointer-event listeners.
     target.dispatchEvent(new PointerEvent('pointermove', pointerInit));
     target.dispatchEvent(new MouseEvent('mouseover', eventInit));
-    target.dispatchEvent(new MouseEvent('mouseenter', { ...eventInit, bubbles: false }));
-    target.dispatchEvent(new PointerEvent('pointerenter', { ...pointerInit, bubbles: false }));
+    target.dispatchEvent(
+      new MouseEvent('mouseenter', Object.assign({}, eventInit, { bubbles: false })),
+    );
+    target.dispatchEvent(
+      new PointerEvent('pointerenter', Object.assign({}, pointerInit, { bubbles: false })),
+    );
 
     return {
       ok: true,
