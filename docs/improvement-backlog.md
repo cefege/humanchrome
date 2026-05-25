@@ -245,7 +245,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0129 · Extract NetworkCapture base class to dedupe network-capture-debugger.ts + network-capture-web-request.ts (~2.2k LoC) (refactor) · score: 5
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #274 — `NetworkCaptureBase` extracted to dedupe debugger + web-request backends. ~150 LoC non-comment dedupe)
 - **Why**: network-capture-debugger.ts (1116 LoC) and network-capture-web-request.ts (1084 LoC) — total 2200 LoC of two distinct backends with ~12 near-identical helpers each. Every fix (IMP-0028 flush, IMP-0053 status, header-truncation cap) had to land twice and risks divergence; the IMP-0093 bug existed because intercept-response used a third copy of the truncation pattern. A shared `NetworkCaptureBackend` base saves ~500 LoC + ends the parallel-maintenance tax.
 - **Cost**: M
 - **Value**: L
@@ -392,7 +392,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0144 · chrome_har_export — emit captured network data as standard HAR 1.2 JSON (feat) · score: 4
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #269 — `chrome_har_export` emits captured network data as HAR 1.2 JSON. Two actions: export_from_active + save_to_downloads)
 - **Why**: chrome_network_capture / chrome_intercept_response store rich per-request data (headers, status, timings, response bodies up to 1 MiB) but emit a custom JSON shape. Every external tool that consumes browser network data — Chrome DevTools "Save all as HAR", Charles Proxy import, Playwright trace viewer, Sentry session replay, har-validator-based test harnesses — expects HAR 1.2. Today the only way to get HAR is to save the trace via chrome_performance_stop_trace (heavy, full timeline) and post-process externally. A direct export from the same capture buffer that already exists gives the agent a one-call path to share a session's network with humans / external tools without the trace-recording overhead.
 - **Cost**: S
 - **Value**: M
@@ -465,7 +465,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0033 · Split transaction-manager.ts into dom-helpers, transaction-factories, transaction-appliers, and manager modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-07
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #279 — `transaction-manager.ts` split: dom-helpers + factories + appliers + manager. 1913 → 980 LoC + 3 siblings. 17 importers unchanged)
 - **Why**: transaction-manager.ts is 1913 LoC with four sections already delimited by comments: Style Helpers (line 178), Class Helpers (line 253), Structure Helpers (line 330), and Transaction Helpers (line 500), followed by the Transaction Manager implementation (line 1155, ~750 LoC). The file is a content-script module that is re-evaluated on every page injection; a smaller per-concern surface makes it easier to add new transaction types without risking regressions in unrelated apply logic.
 - **Cost**: M
 - **Value**: M
@@ -487,7 +487,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0043 · Split editor.ts (web-editor-v2 core) into edit-session, broadcast, transaction-apply, and lifecycle modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-08
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #280 — `editor.ts` split: edit-session + broadcast + transaction-apply + lifecycle. 1566 → 326 LoC + 5 siblings. Single importer)
 - **Why**: Single createWebEditorV2() factory bundles 7 concerns across 1566 LoC: text edit-session state machine (lines 174-310), hover/select handling (312-432), debounced broadcast (433-595), transaction-apply pipeline (596-1011), revert/clearSelection (1012-1045), 365-line start() boot (1046-1411), and stop() (1412-1538). The hot apply pipeline sits behind hundreds of lines of unrelated UI plumbing. Splitting exposes each concern for independent testing and reduces cognitive surface of the apply path to ~310 LoC.
 - **Cost**: M
 - **Value**: M
@@ -531,7 +531,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0128 · chrome_mock_response — synthesize fake response bodies for matched URLs (extends intercept-response) (feat) · score: 3
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #271 — `chrome_mock_response` via CDP Fetch.enable + requestPaused + fulfillRequest. Multi-action: register/list/unregister/clear. once + delayMs + pattern matching)
 - **Why**: Today the network mock surface is binary: chrome_block_or_redirect can block or rewrite URLs to another URL, chrome_intercept_response only WAITS for a response. There is no way to let the page fire its real request and synthesize a fake JSON body in flight. Common need: testing the logged-in flow when the user is rate-limited and the real endpoint would 429 (return a fake 200); deterministic fixture replay; making a flow demoable when the back-end is down. Playwright route handlers + Cypress intercept fulfill cover this and humanchrome users have asked for it explicitly when porting from those tools.
 - **Cost**: M
 - **Value**: M
@@ -540,7 +540,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0130 · Split gif-recorder.ts 7-action switch into per-action handler modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #276 — `gif-recorder.ts` split: 1338 → 145 LoC + 12 sibling modules. Per-action handlers + shared engine)
 - **Why**: gif-recorder.ts is 1243 LoC; the `execute()` switch from line 630-1205 packs 7 distinct actions into ~575 LoC (start: 49 LoC, auto_start: 73 LoC, capture: 38 LoC, stop: 87 LoC, status: 25 LoC, clear: 61 LoC, export: 242 LoC). The 242-line export handler alone is bigger than most whole tools. Adding a new mode requires scrolling past 6 other concerns; bug-fixing one mode risks the others.
 - **Cost**: M
 - **Value**: M
@@ -549,7 +549,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0131 · Split doctor.ts collectDoctorReport into per-check modules (8 distinct checks, ~450 LoC) (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #277 — `doctor.ts collectDoctorReport` split into 8 per-check modules. 1097 → 23 LoC re-export shim + 16 siblings)
 - **Why**: doctor.ts is 1097 LoC and `collectDoctorReport` runs 8 distinct checks across lines 617-1062 (~445 LoC). Each check (installation, host.files, host.permissions, node.resolution, manifest, registry, port, logs) is independently testable but jammed into a single 445-line function. Splitting makes each check unit-testable without booting all the others, and reduces merge-conflict pressure when adding new checks (Linux setup verification, MV3 keepalive lock check, etc.).
 - **Cost**: M
 - **Value**: M
@@ -574,7 +574,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0145 · chrome_basic_auth — autoresponder for HTTP Basic / Digest auth prompts via CDP Fetch.continueWithAuth (feat) · score: 3
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #272 — `chrome_basic_auth` HTTP Basic/Digest autoresponder via CDP Fetch.authRequired. Per-origin credentials, "*" wildcard, scheme filter. Passwords never echoed)
 - **Why**: Many internal corporate sites and staging environments sit behind HTTP Basic / Digest auth — the browser shows a native dialog that chrome_handle_dialog cannot answer (chrome_handle_dialog only handles JS dialogs from Page.javascriptDialogOpening, not the auth dialog from Fetch.authRequired). Today the only escape is to bake credentials into the URL ("https://user:pass@host/...") which most modern Chrome versions reject for security. Agents currently stall indefinitely on the first auth-protected page. CDP Fetch.requestPaused + authChallengeResponse gives a clean autoresponder; we already attach debugger for network-capture / intercept-response.
 - **Cost**: M
 - **Value**: M
@@ -583,7 +583,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0147 · Split gradient-control.ts (2583 LoC) — extract color-parser, gradient-parser, stop-model modules (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #281 — `gradient-control.ts` split: 2583 → 1816 LoC + 3 siblings (color-parser + gradient-parser + stop-model))
 - **Why**: `gradient-control.ts` is the single largest file in the extension at 2583 LoC and bundles 4 distinct concerns into one: RGBA color parsing/serialisation (10 functions, ~200 LoC), linear/radial gradient AST parsing (~600 LoC), stop-model reconciliation (~300 LoC), and the actual UI control creator (`createGradientControl`, ~1300 LoC). The color-parsing helpers are also re-implemented in `color-field.ts` and `effects-control.ts` — extracting them lets us dedupe.
 - **Cost**: M
 - **Value**: M
@@ -598,7 +598,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0148 · Split effects-control.ts (2264 LoC) — drop or quarantine legacy variant, extract SVG icon factory + shadow parser (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #282 — `effects-control.ts` split + delete unused legacy variant. 2264 → 1327 LoC + 2 siblings. Net -527 LoC)
 - **Why**: `effects-control.ts` ships two parallel implementations: `createLegacyEffectsControl` (lines 365-878, ~510 LoC) and `createEffectsControl` (lines 1311-end, ~950 LoC). Both are exported and both compile into web-editor-v2.js (450 KB). Plus the file inlines 5 SVG icon factories (~120 LoC of identical `createElementNS` boilerplate) that have no business in a property-panel control. Cutting the legacy + extracting icons removes ~700 LoC from the editor bundle.
 - **Cost**: M
 - **Value**: M
@@ -613,7 +613,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0149 · Extract ClaudeEngine.initializeAndRun stream-event handlers (~600 LoC of nested switches) — sibling to IMP-0009 (refactor) · score: 3
 
 - **Proposed by**: optimization-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #278 — `ClaudeEngine.initializeAndRun` stream + message handlers extracted. 1660 → 879 LoC + 6 siblings)
 - **Why**: Even after the IMP-0009 sub-method split lands, `claude.ts` initializeAndRun (lines 129-1022, ~900 LoC) holds 4 large closures and a 200-line `switch(eventType)` plus a 200-line `switch(message.type)`. The closures (`emitAssistant`, `inferActionFromToolName`, `buildToolMetadata`, `cleanupTempFiles`) close over the per-run state by reference but only the per-run state — they can become free functions taking a `RunState` arg. That alone collapses the method to ~250 LoC and makes each branch unit-testable.
 - **Cost**: M
 - **Value**: M
@@ -658,7 +658,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0146 · chrome_set_checked — idempotent checkbox / radio state set via selector (feat) · score: 2
 
 - **Proposed by**: feature-scout · 2026-05-19
-- **Status**: proposed
+- **Status**: done (2026-05-24; merged in PR #273 — `chrome_set_checked` idempotent checkbox/radio state. ISOLATED shim; native + ARIA role=switch)
 - **Why**: Setting a checkbox or radio to a specific state is one of the most common interaction patterns in form workflows, but every existing tool requires a guess about current state: chrome_fill_or_select with value:true/false works for some custom toggles but not native checkboxes (no `change` cascade); chrome_click toggles regardless of intended state (idempotency requires reading state first); chrome_javascript with `el.checked = true` skips React/Vue handlers. Playwright exposes locator.check() and locator.setChecked() as one-call idempotent primitives — the agent says "I want this checked" and the runtime makes it so, returning the prior state. Saves a read-then-click round-trip and removes the "what if I clicked it twice" ambiguity, which matters on LinkedIn/Facebook settings pages where toggles can race the page.
 - **Cost**: S
 - **Value**: S
