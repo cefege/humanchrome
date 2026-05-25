@@ -362,14 +362,30 @@ const MATRIX = [
   // suspect. Unit tests against the chrome.scripting.executeScript mock
   // pass cleanly, so the regression is real-browser-only. Filed as
   // IMP-0175; row lands when that IMP closes.
-  // IMP-0143 chrome_type_into row deferred — first matrix run reported
-  // `typed:5, finalValue:""` against #type-target. The tool dispatches
-  // 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs, but the chars
-  // never land on the focused input. Likely cause: sendChar only sets
-  // `text` / `unmodifiedText` / `key` on the event; Chrome's renderer
-  // needs `code` + `windowsVirtualKeyCode` for printable ASCII chars
-  // to register as text input rather than control keys. Filed as
-  // IMP-0176; row lands when that IMP closes.
+  {
+    imp: 'IMP-0143',
+    name: 'chrome_type_into delivers each character + finalValue',
+    // IMP-0176 fix added code + windowsVirtualKeyCode to sendChar — chars
+    // now land on the focused input under the production build. Row
+    // re-enabled (was previously deferred — see IMP-0176 entry).
+    run: async () => {
+      await callTool('chrome_fill_or_select', { selector: '#type-target', value: '' });
+      return callTool('chrome_type_into', {
+        selector: '#type-target',
+        text: 'hello',
+        perKeyDelayMs: 0,
+        jitterMs: 0,
+      });
+    },
+    check: (res) => {
+      const p = res.parsed;
+      const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
+      return assert(
+        ok,
+        `expected typed:5 + finalValue:"hello", got ${JSON.stringify(res).slice(0, 300)}`,
+      );
+    },
+  },
   {
     imp: 'IMP-0124',
     name: 'chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride',

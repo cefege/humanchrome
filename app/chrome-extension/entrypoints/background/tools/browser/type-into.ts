@@ -227,23 +227,127 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Send a single printable character. CDP's keyDown with `text` is the
- * canonical "type this char" call — it triggers keypress + input
- * events naturally and works for ASCII + Unicode. We don't need to
- * supply keyCode for plain text input; Chromium synthesises it.
+ * Send a single printable character via CDP `Input.dispatchKeyEvent`.
+ *
+ * IMP-0176: Chromium's renderer requires `code` (e.g. 'KeyH') and
+ * `windowsVirtualKeyCode` for printable ASCII chars to register as
+ * text input — `text` alone is dropped as an unmapped control key
+ * under the production build. For non-ASCII (Unicode > 127, e.g.
+ * accented chars, emoji) we omit `code` and pass `text` only, which
+ * Chromium handles via the IME path.
+ *
+ * Shift modifier is set for uppercase letters + ASCII symbols whose
+ * unshifted base is something else (`!`, `@`, etc.) — without it,
+ * the renderer's autorepeat suppression can drop the second of two
+ * identical chars in a row.
  */
 async function sendChar(tabId: number, ch: string): Promise<void> {
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
+  const meta = charToKey(ch);
+  const down: Record<string, unknown> = {
     type: 'keyDown',
     text: ch,
-    unmodifiedText: ch,
+    unmodifiedText: meta?.unmodified ?? ch,
     key: ch,
-  });
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
-    type: 'keyUp',
-    key: ch,
-  });
+  };
+  const up: Record<string, unknown> = { type: 'keyUp', key: ch };
+  if (meta) {
+    down.code = meta.code;
+    down.windowsVirtualKeyCode = meta.vk;
+    down.nativeVirtualKeyCode = meta.vk;
+    up.code = meta.code;
+    up.windowsVirtualKeyCode = meta.vk;
+    up.nativeVirtualKeyCode = meta.vk;
+    if (meta.shift) {
+      down.modifiers = 8; // Shift bit per CDP Input.dispatchKeyEvent docs
+      up.modifiers = 8;
+    }
+  }
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', down);
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', up);
 }
+
+interface KeyMeta {
+  code: string;
+  vk: number;
+  shift?: boolean;
+  unmodified?: string;
+}
+
+// US QWERTY → unshifted base char for ASCII symbols. Map values are
+// `[code, vk, unshifted-base]`.
+const SHIFTED_SYMBOLS: Record<string, [string, number, string]> = {
+  '!': ['Digit1', 49, '1'],
+  '@': ['Digit2', 50, '2'],
+  '#': ['Digit3', 51, '3'],
+  $: ['Digit4', 52, '4'],
+  '%': ['Digit5', 53, '5'],
+  '^': ['Digit6', 54, '6'],
+  '&': ['Digit7', 55, '7'],
+  '*': ['Digit8', 56, '8'],
+  '(': ['Digit9', 57, '9'],
+  ')': ['Digit0', 48, '0'],
+  _: ['Minus', 189, '-'],
+  '+': ['Equal', 187, '='],
+  '{': ['BracketLeft', 219, '['],
+  '}': ['BracketRight', 221, ']'],
+  '|': ['Backslash', 220, '\\'],
+  ':': ['Semicolon', 186, ';'],
+  '"': ['Quote', 222, "'"],
+  '<': ['Comma', 188, ','],
+  '>': ['Period', 190, '.'],
+  '?': ['Slash', 191, '/'],
+  '~': ['Backquote', 192, '`'],
+};
+
+// Unshifted ASCII symbol → [code, vk].
+const UNSHIFTED_SYMBOLS: Record<string, [string, number]> = {
+  '-': ['Minus', 189],
+  '=': ['Equal', 187],
+  '[': ['BracketLeft', 219],
+  ']': ['BracketRight', 221],
+  '\\': ['Backslash', 220],
+  ';': ['Semicolon', 186],
+  "'": ['Quote', 222],
+  ',': ['Comma', 188],
+  '.': ['Period', 190],
+  '/': ['Slash', 191],
+  '`': ['Backquote', 192],
+  ' ': ['Space', 32],
+};
+
+/**
+ * Map a printable ASCII char to its CDP `code` + `windowsVirtualKeyCode`.
+ * Returns `null` for non-ASCII (let CDP's text-only path handle it).
+ */
+function charToKey(ch: string): KeyMeta | null {
+  if (ch.length !== 1) return null;
+  const code = ch.charCodeAt(0);
+  if (code > 127) return null;
+  // Lowercase letter: KeyA-KeyZ, vk = uppercase ASCII (65-90)
+  if (ch >= 'a' && ch <= 'z') {
+    return { code: 'Key' + ch.toUpperCase(), vk: ch.toUpperCase().charCodeAt(0) };
+  }
+  // Uppercase letter: same code + vk, shift modifier
+  if (ch >= 'A' && ch <= 'Z') {
+    return { code: 'Key' + ch, vk: ch.charCodeAt(0), shift: true, unmodified: ch.toLowerCase() };
+  }
+  // Digits 0-9: DigitN, vk = ASCII ('0'-'9' is 48-57)
+  if (ch >= '0' && ch <= '9') {
+    return { code: 'Digit' + ch, vk: ch.charCodeAt(0) };
+  }
+  const shifted = SHIFTED_SYMBOLS[ch];
+  if (shifted) {
+    return { code: shifted[0], vk: shifted[1], shift: true, unmodified: shifted[2] };
+  }
+  const unshifted = UNSHIFTED_SYMBOLS[ch];
+  if (unshifted) {
+    return { code: unshifted[0], vk: unshifted[1] };
+  }
+  return null;
+}
+
+/** Test-only: exposed for unit tests of charToKey. */
+export const _charToKeyForTests = charToKey;
 
 /**
  * Send a named non-printable key (Enter, Delete, etc). CDP needs `key`,
