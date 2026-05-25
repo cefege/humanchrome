@@ -191,14 +191,33 @@ class TypeIntoTool extends BaseBrowserToolExecutor {
         func: readFinalValue,
         args: [shimSelector, shimRef],
       });
-      const finalValue = finalInjected?.[0]?.result as string | undefined;
+      const diag = finalInjected?.[0]?.result as
+        | {
+            value?: string;
+            isFocused?: boolean;
+            activeTag?: string;
+            activeId?: string;
+            windowHasFocus?: boolean;
+            visibility?: string;
+          }
+        | undefined;
+      const finalValue = typeof diag?.value === 'string' ? diag.value : null;
 
       return jsonOk({
         ok: true,
         tabId,
         frameId: args.frameId ?? null,
         typed: typedCount,
-        finalValue: typeof finalValue === 'string' ? finalValue : null,
+        finalValue,
+        focusDiag: diag
+          ? {
+              isFocused: diag.isFocused === true,
+              activeTag: diag.activeTag ?? 'unknown',
+              activeId: diag.activeId ?? '',
+              windowHasFocus: diag.windowHasFocus === true,
+              visibility: diag.visibility ?? 'unknown',
+            }
+          : null,
         pressedEnter: args.pressEnter === true,
         cleared: args.clearFirst === true,
         contentEditable: focusResult.isContentEditable,
@@ -227,23 +246,134 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Send a single printable character. CDP's keyDown with `text` is the
- * canonical "type this char" call — it triggers keypress + input
- * events naturally and works for ASCII + Unicode. We don't need to
- * supply keyCode for plain text input; Chromium synthesises it.
+ * Send a single printable character via CDP. Fires a real `keyDown` +
+ * `keyUp` pair so anti-bot heuristics see keyboard events, then uses
+ * `Input.insertText` to actually land the character in the focused
+ * field.
+ *
+ * IMP-0176 (round 2): the keyDown(text:ch) → keyUp pattern works in
+ * foreground tabs but is silently dropped in background-visibility
+ * renderers (CI runners with no real display, alt-tabbed sessions).
+ * `Input.insertText` goes through the IME pipeline, which Chromium
+ * delivers regardless of tab visibility — so it works in CFT under
+ * CI where document.visibilityState='hidden'. The text field on
+ * `dispatchKeyEvent` is also omitted now so we don't double-insert
+ * the same char on tabs where dispatchKeyEvent IS delivering text.
+ *
+ * Shift modifier is set for uppercase letters + ASCII symbols whose
+ * unshifted base is something else (`!`, `@`, etc.) so renderers that
+ * inspect modifier state for synthetic-event detection still see it.
  */
 async function sendChar(tabId: number, ch: string): Promise<void> {
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
+  const meta = charToKey(ch);
+  const down: Record<string, unknown> = {
     type: 'keyDown',
-    text: ch,
-    unmodifiedText: ch,
+    unmodifiedText: meta?.unmodified ?? ch,
     key: ch,
-  });
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
-    type: 'keyUp',
-    key: ch,
-  });
+  };
+  const up: Record<string, unknown> = { type: 'keyUp', key: ch };
+  if (meta) {
+    down.code = meta.code;
+    down.windowsVirtualKeyCode = meta.vk;
+    down.nativeVirtualKeyCode = meta.vk;
+    up.code = meta.code;
+    up.windowsVirtualKeyCode = meta.vk;
+    up.nativeVirtualKeyCode = meta.vk;
+    if (meta.shift) {
+      down.modifiers = 8; // Shift bit per CDP Input.dispatchKeyEvent docs
+      up.modifiers = 8;
+    }
+  }
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', down);
+  // IME-path text insert — delivered to the focused input regardless of
+  // tab visibility. Sandwiched between keyDown and keyUp so listeners
+  // observing keydown/beforeinput/input/keyup see the natural order.
+  await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', up);
 }
+
+interface KeyMeta {
+  code: string;
+  vk: number;
+  shift?: boolean;
+  unmodified?: string;
+}
+
+// US QWERTY → unshifted base char for ASCII symbols. Map values are
+// `[code, vk, unshifted-base]`.
+const SHIFTED_SYMBOLS: Record<string, [string, number, string]> = {
+  '!': ['Digit1', 49, '1'],
+  '@': ['Digit2', 50, '2'],
+  '#': ['Digit3', 51, '3'],
+  $: ['Digit4', 52, '4'],
+  '%': ['Digit5', 53, '5'],
+  '^': ['Digit6', 54, '6'],
+  '&': ['Digit7', 55, '7'],
+  '*': ['Digit8', 56, '8'],
+  '(': ['Digit9', 57, '9'],
+  ')': ['Digit0', 48, '0'],
+  _: ['Minus', 189, '-'],
+  '+': ['Equal', 187, '='],
+  '{': ['BracketLeft', 219, '['],
+  '}': ['BracketRight', 221, ']'],
+  '|': ['Backslash', 220, '\\'],
+  ':': ['Semicolon', 186, ';'],
+  '"': ['Quote', 222, "'"],
+  '<': ['Comma', 188, ','],
+  '>': ['Period', 190, '.'],
+  '?': ['Slash', 191, '/'],
+  '~': ['Backquote', 192, '`'],
+};
+
+// Unshifted ASCII symbol → [code, vk].
+const UNSHIFTED_SYMBOLS: Record<string, [string, number]> = {
+  '-': ['Minus', 189],
+  '=': ['Equal', 187],
+  '[': ['BracketLeft', 219],
+  ']': ['BracketRight', 221],
+  '\\': ['Backslash', 220],
+  ';': ['Semicolon', 186],
+  "'": ['Quote', 222],
+  ',': ['Comma', 188],
+  '.': ['Period', 190],
+  '/': ['Slash', 191],
+  '`': ['Backquote', 192],
+  ' ': ['Space', 32],
+};
+
+/**
+ * Map a printable ASCII char to its CDP `code` + `windowsVirtualKeyCode`.
+ * Returns `null` for non-ASCII (let CDP's text-only path handle it).
+ */
+function charToKey(ch: string): KeyMeta | null {
+  if (ch.length !== 1) return null;
+  const code = ch.charCodeAt(0);
+  if (code > 127) return null;
+  // Lowercase letter: KeyA-KeyZ, vk = uppercase ASCII (65-90)
+  if (ch >= 'a' && ch <= 'z') {
+    return { code: 'Key' + ch.toUpperCase(), vk: ch.toUpperCase().charCodeAt(0) };
+  }
+  // Uppercase letter: same code + vk, shift modifier
+  if (ch >= 'A' && ch <= 'Z') {
+    return { code: 'Key' + ch, vk: ch.charCodeAt(0), shift: true, unmodified: ch.toLowerCase() };
+  }
+  // Digits 0-9: DigitN, vk = ASCII ('0'-'9' is 48-57)
+  if (ch >= '0' && ch <= '9') {
+    return { code: 'Digit' + ch, vk: ch.charCodeAt(0) };
+  }
+  const shifted = SHIFTED_SYMBOLS[ch];
+  if (shifted) {
+    return { code: shifted[0], vk: shifted[1], shift: true, unmodified: shifted[2] };
+  }
+  const unshifted = UNSHIFTED_SYMBOLS[ch];
+  if (unshifted) {
+    return { code: unshifted[0], vk: unshifted[1] };
+  }
+  return null;
+}
+
+/** Test-only: exposed for unit tests of charToKey. */
+export const _charToKeyForTests = charToKey;
 
 /**
  * Send a named non-printable key (Enter, Delete, etc). CDP needs `key`,
@@ -399,14 +529,29 @@ function focusForTyping(
   }
 }
 
+interface FinalValueDiagnostic {
+  value: string | undefined;
+  isFocused: boolean;
+  activeTag: string;
+  activeId: string;
+  windowHasFocus: boolean;
+  visibility: string;
+}
+
 /**
  * Post-typing read-back: returns the element's current value (inputs)
- * or innerText (contenteditable) so the caller can verify what landed.
- * Returns undefined when the element no longer exists.
+ * or innerText (contenteditable) PLUS diagnostic info about focus state
+ * at read time. The diagnostic fields exist to debug IMP-0176-style
+ * issues where CDP keystrokes dispatch but don't land — typically a
+ * sign that focus moved between focus shim and keystroke dispatch.
+ * Returns undefined value when the element no longer exists.
  */
-function readFinalValue(selector: string | null, ref: string | null): string | undefined {
+function readFinalValue(
+  selector: string | null,
+  ref: string | null,
+): FinalValueDiagnostic {
+  let el: Element | null = null;
   try {
-    let el: Element | null = null;
     if (ref) {
       const map = (window as unknown as { __claudeElementMap?: Record<string, WeakRef<Element>> })
         .__claudeElementMap;
@@ -414,13 +559,27 @@ function readFinalValue(selector: string | null, ref: string | null): string | u
     } else if (selector) {
       el = document.querySelector(selector);
     }
-    if (!el) return undefined;
-    const input = el as HTMLInputElement;
-    if (typeof input.value === 'string') return input.value;
-    return (el as HTMLElement).innerText;
   } catch {
-    return undefined;
+    el = null;
   }
+  const active = document.activeElement as HTMLElement | null;
+  let value: string | undefined;
+  if (el) {
+    try {
+      const input = el as HTMLInputElement;
+      value = typeof input.value === 'string' ? input.value : (el as HTMLElement).innerText;
+    } catch {
+      value = undefined;
+    }
+  }
+  return {
+    value,
+    isFocused: el !== null && active === el,
+    activeTag: active ? active.tagName.toLowerCase() : 'none',
+    activeId: active ? active.id || '' : '',
+    windowHasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : false,
+    visibility: typeof document.visibilityState === 'string' ? document.visibilityState : 'unknown',
+  };
 }
 
 export const typeIntoTool = new TypeIntoTool();

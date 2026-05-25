@@ -52,7 +52,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0176 · chrome_type_into CDP keystrokes don't land on focused input — missing `code`/`windowsVirtualKeyCode` (bug) · score: 6
 
 - **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
-- **Status**: proposed
+- **Status**: done (2026-05-24; `sendChar` now populates `code` + `windowsVirtualKeyCode` + shift modifier via a `charToKey()` US-QWERTY lookup table. Letters → KeyA-KeyZ + ASCII upper vk; digits → DigitN + ASCII vk; symbols → Slash/Comma/etc. with shift bit when needed. Non-ASCII chars fall back to the text-only IME path. Matrix row IMP-0143 re-enabled; 18/18 unit tests pass including a charToKey suite.)
 - **Why**: Matrix run #26367039557's chrome_type_into row returned `{ok:true, typed:5, finalValue:""}` — the tool dispatched 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs against a focused `<input id="type-target">`, but no characters landed (input value stayed empty). `focusForTyping` succeeded; `sendChar` populates `type`/`text`/`unmodifiedText`/`key` but NOT `code` (e.g. `'KeyH'`) or `windowsVirtualKeyCode` (e.g. 72 for `'H'`). Chromium's CDP renderer needs both for printable ASCII chars to register as text input rather than be discarded as unmapped control keys.
 - **Cost**: S
 - **Value**: L

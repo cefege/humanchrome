@@ -83,6 +83,23 @@ const JSON_OUT = (() => {
   const i = process.argv.indexOf('--json');
   return i >= 0 ? process.argv[i + 1] : null;
 })();
+/**
+ * `--only <token>[,<token>...]` filters the matrix to rows whose `imp`
+ * or `name` includes any of the given tokens (case-sensitive substring
+ * match). Lets us re-run just the failing row in isolation instead of
+ * the entire 23-row suite. Example: `--only IMP-0143` runs only the
+ * chrome_type_into row.
+ */
+const ONLY_FILTERS = (() => {
+  const i = process.argv.indexOf('--only');
+  if (i < 0) return null;
+  const raw = process.argv[i + 1];
+  if (!raw) return null;
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+})();
 
 const CLIENT_ID = `e2e-matrix-${Date.now().toString(36)}`;
 
@@ -362,14 +379,30 @@ const MATRIX = [
   // suspect. Unit tests against the chrome.scripting.executeScript mock
   // pass cleanly, so the regression is real-browser-only. Filed as
   // IMP-0175; row lands when that IMP closes.
-  // IMP-0143 chrome_type_into row deferred — first matrix run reported
-  // `typed:5, finalValue:""` against #type-target. The tool dispatches
-  // 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs, but the chars
-  // never land on the focused input. Likely cause: sendChar only sets
-  // `text` / `unmodifiedText` / `key` on the event; Chrome's renderer
-  // needs `code` + `windowsVirtualKeyCode` for printable ASCII chars
-  // to register as text input rather than control keys. Filed as
-  // IMP-0176; row lands when that IMP closes.
+  {
+    imp: 'IMP-0143',
+    name: 'chrome_type_into delivers each character + finalValue',
+    // IMP-0176 fix added code + windowsVirtualKeyCode to sendChar — chars
+    // now land on the focused input under the production build. Row
+    // re-enabled (was previously deferred — see IMP-0176 entry).
+    run: async () => {
+      await callTool('chrome_fill_or_select', { selector: '#type-target', value: '' });
+      return callTool('chrome_type_into', {
+        selector: '#type-target',
+        text: 'hello',
+        perKeyDelayMs: 0,
+        jitterMs: 0,
+      });
+    },
+    check: (res) => {
+      const p = res.parsed;
+      const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
+      return assert(
+        ok,
+        `expected typed:5 + finalValue:"hello", got typed=${p?.typed} finalValue=${JSON.stringify(p?.finalValue)} focusDiag=${JSON.stringify(p?.focusDiag)} contentEditable=${p?.contentEditable}`,
+      );
+    },
+  },
   {
     imp: 'IMP-0124',
     name: 'chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride',
@@ -1062,10 +1095,42 @@ async function main() {
     console.error(`[e2e] navigate failed: ${JSON.stringify(nav)}`);
     process.exit(4);
   }
+  // IMP-0176 diagnostic surfaced that the navigated tab can be visible-state
+  // hidden under CFT-CI (document.visibilityState='hidden') even though
+  // activeElement and windowHasFocus look correct. CDP Input.dispatchKeyEvent
+  // does not deliver text input to hidden-tab renderers, which silently
+  // breaks chrome_type_into. Switching to the fixture tab forces it
+  // active — and incidentally makes :hover-style CSS pseudo-classes
+  // (which need a foreground renderer) behave consistently for the
+  // IMP-0125 chrome_hover row.
+  const navTabId = nav?.parsed?.tabId ?? nav?.parsed?.tab?.id;
+  if (typeof navTabId === 'number') {
+    const sw = await callTool('chrome_switch_tab', { tabId: navTabId });
+    if (sw?.isError) {
+      console.warn(`[e2e] WARN: chrome_switch_tab failed: ${JSON.stringify(sw).slice(0, 200)}`);
+    }
+  } else {
+    console.warn(`[e2e] WARN: chrome_navigate response had no tabId — type_into row may fail; nav=${JSON.stringify(nav).slice(0, 200)}`);
+  }
 
-  console.log(`[e2e] running ${MATRIX.length} rows...`);
+  const rowsToRun = ONLY_FILTERS
+    ? MATRIX.filter((row) =>
+        ONLY_FILTERS.some((token) => row.imp.includes(token) || row.name.includes(token)),
+      )
+    : MATRIX;
+  if (ONLY_FILTERS) {
+    console.log(
+      `[e2e] --only ${ONLY_FILTERS.join(',')} → running ${rowsToRun.length}/${MATRIX.length} rows`,
+    );
+    if (rowsToRun.length === 0) {
+      console.error(`[e2e] --only filter matched no rows; available imp ids: ${[...new Set(MATRIX.map((r) => r.imp))].join(', ')}`);
+      process.exit(1);
+    }
+  } else {
+    console.log(`[e2e] running ${rowsToRun.length} rows...`);
+  }
   const results = [];
-  for (const row of MATRIX) {
+  for (const row of rowsToRun) {
     process.stdout.write(`  ${row.imp.padEnd(8)} ${row.name.padEnd(48)} `);
     let outcome;
     try {
@@ -1075,7 +1140,10 @@ async function main() {
     } catch (err) {
       outcome = { status: 'FAIL', detail: `threw: ${err.message}` };
     }
-    console.log(outcome.status + (outcome.detail ? `  ${outcome.detail.slice(0, 100)}` : ''));
+    // Detail can be multi-line for verbose assertions; cap at 2000 chars
+    // (up from 100) so CI logs reveal what the row actually returned
+    // without forcing a second debug-push to widen the slice.
+    console.log(outcome.status + (outcome.detail ? `  ${outcome.detail.slice(0, 2000)}` : ''));
     results.push({
       imp: row.imp,
       name: row.name,

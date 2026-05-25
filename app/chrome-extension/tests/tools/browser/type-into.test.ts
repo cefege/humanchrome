@@ -25,7 +25,10 @@ vi.mock('@/utils/cdp-session-manager', () => ({
   },
 }));
 
-import { typeIntoTool } from '@/entrypoints/background/tools/browser/type-into';
+import {
+  typeIntoTool,
+  _charToKeyForTests as charToKey,
+} from '@/entrypoints/background/tools/browser/type-into';
 import { runWithContext } from '@/entrypoints/background/utils/request-context';
 import {
   _resetClientStateForTests,
@@ -80,7 +83,18 @@ function queueFocusOk(opts: { isContentEditable?: boolean } = {}, finalValue: st
         },
       },
     ])
-    .mockResolvedValueOnce([{ result: finalValue }]);
+    .mockResolvedValueOnce([
+      {
+        result: {
+          value: finalValue,
+          isFocused: true,
+          activeTag: 'input',
+          activeId: 'search',
+          windowHasFocus: true,
+          visibility: 'visible',
+        },
+      },
+    ]);
 }
 
 describe('chrome_type_into — validation', () => {
@@ -112,13 +126,40 @@ describe('chrome_type_into — happy path', () => {
     expect(body.typed).toBe(2);
     expect(body.finalValue).toBe('hi');
 
-    // Expect 2 keystrokes × 2 commands (keyDown + keyUp) = 4 calls to dispatchKeyEvent.
+    // IMP-0176 round 2: each char produces keyDown + Input.insertText + keyUp
+    // (3 CDP calls × 2 chars = 6 total). keyDown no longer carries `text`
+    // since insertText is the actual text-landing path; the keyDown
+    // just fires the keyboard event for anti-bot heuristics.
     const keyEvents = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchKeyEvent');
+    const inserts = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.insertText');
     expect(keyEvents).toHaveLength(4);
-    expect(keyEvents[0][2]).toMatchObject({ type: 'keyDown', text: 'h', key: 'h' });
-    expect(keyEvents[1][2]).toMatchObject({ type: 'keyUp', key: 'h' });
-    expect(keyEvents[2][2]).toMatchObject({ type: 'keyDown', text: 'i', key: 'i' });
-    expect(keyEvents[3][2]).toMatchObject({ type: 'keyUp', key: 'i' });
+    expect(inserts).toHaveLength(2);
+    expect(keyEvents[0][2]).toMatchObject({
+      type: 'keyDown',
+      key: 'h',
+      code: 'KeyH',
+      windowsVirtualKeyCode: 72,
+    });
+    expect(keyEvents[0][2]).not.toHaveProperty('text');
+    expect(inserts[0][2]).toEqual({ text: 'h' });
+    expect(keyEvents[1][2]).toMatchObject({
+      type: 'keyUp',
+      key: 'h',
+      code: 'KeyH',
+      windowsVirtualKeyCode: 72,
+    });
+    expect(keyEvents[2][2]).toMatchObject({
+      type: 'keyDown',
+      key: 'i',
+      code: 'KeyI',
+      windowsVirtualKeyCode: 73,
+    });
+    expect(inserts[1][2]).toEqual({ text: 'i' });
+    expect(keyEvents[3][2]).toMatchObject({
+      type: 'keyUp',
+      key: 'i',
+      code: 'KeyI',
+    });
   });
 
   it('clearFirst issues Ctrl+A + Delete before typing', async () => {
@@ -215,5 +256,64 @@ describe('chrome_type_into — CDP error classification', () => {
     const res = await exec({ selector: '#x', text: 'hi', perKeyDelayMs: 0, jitterMs: 0 });
     expect(res.isError).toBe(true);
     expect(parseBody(res).error.code).toBe('CDP_BUSY');
+  });
+});
+
+describe('charToKey — IMP-0176 CDP key-code lookup', () => {
+  it('lowercase letter → KeyX + uppercase ASCII vk, no shift', () => {
+    expect(charToKey('a')).toEqual({ code: 'KeyA', vk: 65 });
+    expect(charToKey('z')).toEqual({ code: 'KeyZ', vk: 90 });
+  });
+
+  it('uppercase letter → same code + vk + shift + unmodified', () => {
+    expect(charToKey('A')).toEqual({
+      code: 'KeyA',
+      vk: 65,
+      shift: true,
+      unmodified: 'a',
+    });
+  });
+
+  it('digit → DigitN + ASCII vk, no shift', () => {
+    expect(charToKey('0')).toEqual({ code: 'Digit0', vk: 48 });
+    expect(charToKey('5')).toEqual({ code: 'Digit5', vk: 53 });
+  });
+
+  it('unshifted symbol → known [code, vk]', () => {
+    expect(charToKey(' ')).toEqual({ code: 'Space', vk: 32 });
+    expect(charToKey('-')).toEqual({ code: 'Minus', vk: 189 });
+    expect(charToKey('/')).toEqual({ code: 'Slash', vk: 191 });
+  });
+
+  it('shifted symbol → unshifted code + shift + unmodified base', () => {
+    expect(charToKey('!')).toEqual({
+      code: 'Digit1',
+      vk: 49,
+      shift: true,
+      unmodified: '1',
+    });
+    expect(charToKey('@')).toEqual({
+      code: 'Digit2',
+      vk: 50,
+      shift: true,
+      unmodified: '2',
+    });
+    expect(charToKey('?')).toEqual({
+      code: 'Slash',
+      vk: 191,
+      shift: true,
+      unmodified: '/',
+    });
+  });
+
+  it('non-ASCII falls back to text-only path (returns null)', () => {
+    expect(charToKey('é')).toBeNull();
+    expect(charToKey('中')).toBeNull();
+    expect(charToKey('🎉')).toBeNull();
+  });
+
+  it('multi-char string → null', () => {
+    expect(charToKey('abc')).toBeNull();
+    expect(charToKey('')).toBeNull();
   });
 });
