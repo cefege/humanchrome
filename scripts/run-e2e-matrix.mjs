@@ -83,6 +83,23 @@ const JSON_OUT = (() => {
   const i = process.argv.indexOf('--json');
   return i >= 0 ? process.argv[i + 1] : null;
 })();
+/**
+ * `--only <token>[,<token>...]` filters the matrix to rows whose `imp`
+ * or `name` includes any of the given tokens (case-sensitive substring
+ * match). Lets us re-run just the failing row in isolation instead of
+ * the entire 23-row suite. Example: `--only IMP-0143` runs only the
+ * chrome_type_into row.
+ */
+const ONLY_FILTERS = (() => {
+  const i = process.argv.indexOf('--only');
+  if (i < 0) return null;
+  const raw = process.argv[i + 1];
+  if (!raw) return null;
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+})();
 
 const CLIENT_ID = `e2e-matrix-${Date.now().toString(36)}`;
 
@@ -1079,9 +1096,24 @@ async function main() {
     process.exit(4);
   }
 
-  console.log(`[e2e] running ${MATRIX.length} rows...`);
+  const rowsToRun = ONLY_FILTERS
+    ? MATRIX.filter((row) =>
+        ONLY_FILTERS.some((token) => row.imp.includes(token) || row.name.includes(token)),
+      )
+    : MATRIX;
+  if (ONLY_FILTERS) {
+    console.log(
+      `[e2e] --only ${ONLY_FILTERS.join(',')} → running ${rowsToRun.length}/${MATRIX.length} rows`,
+    );
+    if (rowsToRun.length === 0) {
+      console.error(`[e2e] --only filter matched no rows; available imp ids: ${[...new Set(MATRIX.map((r) => r.imp))].join(', ')}`);
+      process.exit(1);
+    }
+  } else {
+    console.log(`[e2e] running ${rowsToRun.length} rows...`);
+  }
   const results = [];
-  for (const row of MATRIX) {
+  for (const row of rowsToRun) {
     process.stdout.write(`  ${row.imp.padEnd(8)} ${row.name.padEnd(48)} `);
     let outcome;
     try {
@@ -1091,7 +1123,10 @@ async function main() {
     } catch (err) {
       outcome = { status: 'FAIL', detail: `threw: ${err.message}` };
     }
-    console.log(outcome.status + (outcome.detail ? `  ${outcome.detail.slice(0, 100)}` : ''));
+    // Detail can be multi-line for verbose assertions; cap at 2000 chars
+    // (up from 100) so CI logs reveal what the row actually returned
+    // without forcing a second debug-push to widen the slice.
+    console.log(outcome.status + (outcome.detail ? `  ${outcome.detail.slice(0, 2000)}` : ''));
     results.push({
       imp: row.imp,
       name: row.name,
