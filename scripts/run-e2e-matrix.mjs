@@ -392,7 +392,7 @@ const MATRIX = [
         hb?.ok === true &&
         hb?.hovered === true &&
         !waitRes?.isError &&
-        wb?.ok === true;
+        wb?.found === true;
       return assert(
         ok,
         `expected hover+await tooltip success, got hover.ok=${hb?.ok} hover.hovered=${hb?.hovered} wait.ok=${wb?.ok} wait.found=${wb?.found} wait.absent=${wb?.absent} waitErr=${waitRes?.isError ? JSON.stringify(wb).slice(0, 400) : 'none'}`,
