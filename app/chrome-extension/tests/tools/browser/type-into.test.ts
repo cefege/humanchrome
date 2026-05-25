@@ -83,7 +83,18 @@ function queueFocusOk(opts: { isContentEditable?: boolean } = {}, finalValue: st
         },
       },
     ])
-    .mockResolvedValueOnce([{ result: finalValue }]);
+    .mockResolvedValueOnce([
+      {
+        result: {
+          value: finalValue,
+          isFocused: true,
+          activeTag: 'input',
+          activeId: 'search',
+          windowHasFocus: true,
+          visibility: 'visible',
+        },
+      },
+    ]);
 }
 
 describe('chrome_type_into — validation', () => {

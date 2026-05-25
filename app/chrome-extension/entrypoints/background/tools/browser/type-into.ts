@@ -191,14 +191,33 @@ class TypeIntoTool extends BaseBrowserToolExecutor {
         func: readFinalValue,
         args: [shimSelector, shimRef],
       });
-      const finalValue = finalInjected?.[0]?.result as string | undefined;
+      const diag = finalInjected?.[0]?.result as
+        | {
+            value?: string;
+            isFocused?: boolean;
+            activeTag?: string;
+            activeId?: string;
+            windowHasFocus?: boolean;
+            visibility?: string;
+          }
+        | undefined;
+      const finalValue = typeof diag?.value === 'string' ? diag.value : null;
 
       return jsonOk({
         ok: true,
         tabId,
         frameId: args.frameId ?? null,
         typed: typedCount,
-        finalValue: typeof finalValue === 'string' ? finalValue : null,
+        finalValue,
+        focusDiag: diag
+          ? {
+              isFocused: diag.isFocused === true,
+              activeTag: diag.activeTag ?? 'unknown',
+              activeId: diag.activeId ?? '',
+              windowHasFocus: diag.windowHasFocus === true,
+              visibility: diag.visibility ?? 'unknown',
+            }
+          : null,
         pressedEnter: args.pressEnter === true,
         cleared: args.clearFirst === true,
         contentEditable: focusResult.isContentEditable,
@@ -503,14 +522,29 @@ function focusForTyping(
   }
 }
 
+interface FinalValueDiagnostic {
+  value: string | undefined;
+  isFocused: boolean;
+  activeTag: string;
+  activeId: string;
+  windowHasFocus: boolean;
+  visibility: string;
+}
+
 /**
  * Post-typing read-back: returns the element's current value (inputs)
- * or innerText (contenteditable) so the caller can verify what landed.
- * Returns undefined when the element no longer exists.
+ * or innerText (contenteditable) PLUS diagnostic info about focus state
+ * at read time. The diagnostic fields exist to debug IMP-0176-style
+ * issues where CDP keystrokes dispatch but don't land — typically a
+ * sign that focus moved between focus shim and keystroke dispatch.
+ * Returns undefined value when the element no longer exists.
  */
-function readFinalValue(selector: string | null, ref: string | null): string | undefined {
+function readFinalValue(
+  selector: string | null,
+  ref: string | null,
+): FinalValueDiagnostic {
+  let el: Element | null = null;
   try {
-    let el: Element | null = null;
     if (ref) {
       const map = (window as unknown as { __claudeElementMap?: Record<string, WeakRef<Element>> })
         .__claudeElementMap;
@@ -518,13 +552,27 @@ function readFinalValue(selector: string | null, ref: string | null): string | u
     } else if (selector) {
       el = document.querySelector(selector);
     }
-    if (!el) return undefined;
-    const input = el as HTMLInputElement;
-    if (typeof input.value === 'string') return input.value;
-    return (el as HTMLElement).innerText;
   } catch {
-    return undefined;
+    el = null;
   }
+  const active = document.activeElement as HTMLElement | null;
+  let value: string | undefined;
+  if (el) {
+    try {
+      const input = el as HTMLInputElement;
+      value = typeof input.value === 'string' ? input.value : (el as HTMLElement).innerText;
+    } catch {
+      value = undefined;
+    }
+  }
+  return {
+    value,
+    isFocused: el !== null && active === el,
+    activeTag: active ? active.tagName.toLowerCase() : 'none',
+    activeId: active ? active.id || '' : '',
+    windowHasFocus: typeof document.hasFocus === 'function' ? document.hasFocus() : false,
+    visibility: typeof document.visibilityState === 'string' ? document.visibilityState : 'unknown',
+  };
 }
 
 export const typeIntoTool = new TypeIntoTool();

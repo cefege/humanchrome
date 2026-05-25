@@ -399,7 +399,7 @@ const MATRIX = [
       const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
       return assert(
         ok,
-        `expected typed:5 + finalValue:"hello", got isError=${res?.isError} parsed=${JSON.stringify(p).slice(0, 1500)}`,
+        `expected typed:5 + finalValue:"hello", got typed=${p?.typed} finalValue=${JSON.stringify(p?.finalValue)} focusDiag=${JSON.stringify(p?.focusDiag)} contentEditable=${p?.contentEditable}`,
       );
     },
   },
