@@ -567,11 +567,11 @@ async function dragDropShim(
         button: 0,
       };
       let ev: Event;
+      // Object.assign — NOT spread — spread compiles to a top-level
+      // helper that's out of scope after Function.toString() serialization
+      // by chrome.scripting.executeScript (IMP-0175).
       if (use === 'drag') {
-        ev = new DragEvent(type, {
-          ...init,
-          dataTransfer,
-        } as DragEventInit);
+        ev = new DragEvent(type, Object.assign({}, init, { dataTransfer }) as DragEventInit);
       } else {
         ev = new PointerEvent(type, init as PointerEventInit);
       }

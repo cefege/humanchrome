@@ -27,7 +27,7 @@ vi.mock('@/utils/cdp-session-manager', () => ({
 
 import {
   typeIntoTool,
-  _charToKeyForTests as charToKey,
+  _charToKeyForTest as charToKey,
 } from '@/entrypoints/background/tools/browser/type-into';
 import { runWithContext } from '@/entrypoints/background/utils/request-context';
 import {
@@ -83,18 +83,7 @@ function queueFocusOk(opts: { isContentEditable?: boolean } = {}, finalValue: st
         },
       },
     ])
-    .mockResolvedValueOnce([
-      {
-        result: {
-          value: finalValue,
-          isFocused: true,
-          activeTag: 'input',
-          activeId: 'search',
-          windowHasFocus: true,
-          visibility: 'visible',
-        },
-      },
-    ]);
+    .mockResolvedValueOnce([{ result: finalValue }]);
 }
 
 describe('chrome_type_into — validation', () => {

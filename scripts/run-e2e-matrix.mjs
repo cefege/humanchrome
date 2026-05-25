@@ -375,11 +375,6 @@ const MATRIX = [
   {
     imp: 'IMP-0125',
     name: 'chrome_hover dispatches mouseover and reveals tooltip',
-    // IMP-0175 fix replaced the shim's spread operator with Object.assign
-    // so the function survives chrome.scripting.executeScript's
-    // serialize-and-rebuild round trip (Rolldown was compiling spread
-    // into a top-level helper that became out-of-scope in the page
-    // context). Row re-enabled.
     run: async () => {
       const hoverRes = await callTool('chrome_hover', { selector: '#hover-target' });
       const waitRes = await callTool('chrome_await_element', {
@@ -407,9 +402,6 @@ const MATRIX = [
   {
     imp: 'IMP-0143',
     name: 'chrome_type_into delivers each character + finalValue',
-    // IMP-0176 fix added code + windowsVirtualKeyCode to sendChar — chars
-    // now land on the focused input under the production build. Row
-    // re-enabled (was previously deferred — see IMP-0176 entry).
     run: async () => {
       await callTool('chrome_fill_or_select', { selector: '#type-target', value: '' });
       return callTool('chrome_type_into', {
@@ -424,7 +416,7 @@ const MATRIX = [
       const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
       return assert(
         ok,
-        `expected typed:5 + finalValue:"hello", got typed=${p?.typed} finalValue=${JSON.stringify(p?.finalValue)} focusDiag=${JSON.stringify(p?.focusDiag)} contentEditable=${p?.contentEditable}`,
+        `expected typed:5 + finalValue:"hello", got typed=${p?.typed} finalValue=${JSON.stringify(p?.finalValue)} contentEditable=${p?.contentEditable}`,
       );
     },
   },
@@ -1120,14 +1112,9 @@ async function main() {
     console.error(`[e2e] navigate failed: ${JSON.stringify(nav)}`);
     process.exit(4);
   }
-  // IMP-0176 diagnostic surfaced that the navigated tab can be visible-state
-  // hidden under CFT-CI (document.visibilityState='hidden') even though
-  // activeElement and windowHasFocus look correct. CDP Input.dispatchKeyEvent
-  // does not deliver text input to hidden-tab renderers, which silently
-  // breaks chrome_type_into. Switching to the fixture tab forces it
-  // active — and incidentally makes :hover-style CSS pseudo-classes
-  // (which need a foreground renderer) behave consistently for the
-  // IMP-0125 chrome_hover row.
+  // Force foreground — CFT tabs spawn with visibilityState='hidden' under
+  // CI, and Chromium's renderer suppresses CDP text input + CSS :hover
+  // in hidden tabs.
   const navTabId = nav?.parsed?.tabId ?? nav?.parsed?.tab?.id;
   if (typeof navTabId === 'number') {
     const sw = await callTool('chrome_switch_tab', { tabId: navTabId });

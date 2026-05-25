@@ -226,13 +226,10 @@ function hoverShim(
       }
     }
 
-    // IMP-0175: spread operator (`{ ...eventInit, ... }`) compiles into
-    // a call to Rolldown's top-level `_objectSpread` helper (minified
-    // to `N`/`k`/etc), which is out of scope when chrome.scripting.
-    // executeScript serializes this function via Function.toString()
-    // and rebuilds it in the page context — surfaces as
-    // `"N is not defined"` at runtime. Object.assign is a global so it
-    // survives the serialize-and-rebuild round trip cleanly.
+    // Object.assign — NOT spread — because Rolldown compiles spread
+    // into a top-level `_objectSpread` helper that's out of scope after
+    // chrome.scripting.executeScript serializes this function via
+    // Function.toString() and rebuilds it in the page context.
     const parent = target.parentElement;
     const eventInit: MouseEventInit = {
       bubbles: true,

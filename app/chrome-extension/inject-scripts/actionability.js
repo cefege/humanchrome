@@ -342,23 +342,12 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
     return null;
   }
 
-  // Fixed-interval sampler instead of rAF — under Chrome's SW lifecycle, rAF
-  // was throttling-fragile and caused matrix hangs. setTimeout keeps the
-  // fast-path skip when Element.getAnimations reports no running animation,
-  // and the transform-string comparison catches sub-pixel motion that rounds
-  // to identical bbox.
-  //
-  // IMP-0174: the prior fixed 50ms × 4 sampler had a flake mode against
-  // ease-in-out animations near their velocity-zero peaks. The 200ms
-  // window was short enough that all four samples could fall within
-  // ~±100ms of an animation extremum, where the transform's matrix tx
-  // value is effectively flat and successive samples produce identical
-  // strings — leading the sampler to claim 'stable' on a still-moving
-  // target. Staggered intervals spread the samples across animation
-  // phases, and comparing each new sample against the immediately
-  // PREVIOUS sample (in addition to the baseline) catches sustained
-  // drift even when the baseline happens to align with later samples.
-  const STABILITY_INTERVALS_MS = [35, 65, 50, 90, 70]; // 5 gaps → 6 samples, ~310ms span
+  // setTimeout instead of rAF — rAF is throttling-fragile under the SW
+  // lifecycle. Staggered intervals (vs uniform 50ms) prevent successive
+  // samples from all landing at an ease-in-out velocity-zero peak,
+  // where transform strings are effectively flat across the sample
+  // window and would otherwise produce a false-stable verdict.
+  const STABILITY_INTERVALS_MS = [35, 65, 50, 90, 70]; // 5 gaps → 6 samples, ~310ms
   const REQUIRED_SAMPLES = STABILITY_INTERVALS_MS.length + 1;
 
   function rectsEqual(a, b) {
@@ -423,10 +412,8 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
       function takeSample() {
         const currRect = el.getBoundingClientRect();
         const currTransform = readTransform(el);
-        // IMP-0174: compare against the baseline (catches gross motion across
-        // the window) AND against the immediately previous sample (catches
-        // sustained drift even if the animation's peak happens to align with
-        // the baseline reading).
+        // Compare vs baseline AND vs previous sample — catches sustained
+        // drift even when the baseline happens to align with a later peak.
         if (
           !rectsEqual(baselineRect, currRect) ||
           currTransform !== baselineTransform ||
