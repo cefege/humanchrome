@@ -382,7 +382,7 @@ const MATRIX = [
       const ok = !res.isError && p?.ok === true && p?.typed === 5 && p?.finalValue === 'hello';
       return assert(
         ok,
-        `expected typed:5 + finalValue:"hello", got ${JSON.stringify(res).slice(0, 300)}`,
+        `expected typed:5 + finalValue:"hello", got isError=${res?.isError} parsed=${JSON.stringify(p).slice(0, 1500)}`,
       );
     },
   },
