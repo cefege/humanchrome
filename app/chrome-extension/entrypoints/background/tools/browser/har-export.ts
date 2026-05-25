@@ -2,6 +2,7 @@ import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
+import { utf8ByteLength, utf8ToBase64 } from '@/utils/encoding';
 import { networkCaptureStartTool } from './network-capture-web-request';
 import { getDebuggerCaptureData } from './network-capture';
 
@@ -370,12 +371,6 @@ function headersOf(rec: Record<string, string>): HarHeader[] {
   return Object.entries(rec).map(([name, value]) => ({ name, value }));
 }
 
-// Service workers have no Node `Buffer`. TextEncoder is the
-// standards-compliant way to measure / encode UTF-8 byte length.
-function utf8ByteLength(s: string): number {
-  return new TextEncoder().encode(s).length;
-}
-
 function capBody(body: string): { text: string; truncated: boolean; originalSize: number } {
   const size = utf8ByteLength(body);
   if (size <= MAX_RESPONSE_BODY_BYTES) return { text: body, truncated: false, originalSize: size };
@@ -398,14 +393,6 @@ function countTruncated(entries: HarEntry[]): number {
     if (comment && /"truncated"\s*:\s*true/.test(comment)) n += 1;
   }
   return n;
-}
-
-function utf8ToBase64(s: string): string {
-  // Service-worker `btoa` only handles Latin-1; encode UTF-8 first.
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
 }
 
 /** Test-only: exposed for unit tests of the formatter without driving the live capture buffers. */

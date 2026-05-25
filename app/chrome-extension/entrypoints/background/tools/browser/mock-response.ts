@@ -2,6 +2,7 @@ import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { utf8ToBase64 } from '@/utils/encoding';
 import { compilePattern } from './intercept-response';
 
 /**
@@ -90,19 +91,21 @@ const OWNER = 'mock-response' as const;
 const TAB_STATE = new Map<number, TabMockState>();
 let handlerCounter = 0;
 
-let tabRemovedListenerInstalled = false;
+let tabRemovedListener: ((tabId: number) => void) | null = null;
 function installTabRemovedListenerOnce(): void {
-  if (tabRemovedListenerInstalled) return;
+  if (tabRemovedListener) return;
   if (typeof chrome === 'undefined' || !chrome.tabs?.onRemoved?.addListener) return;
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  tabRemovedListener = (tabId: number) => {
     teardownTabState(tabId).catch(() => {
       /* tab is gone — best-effort cleanup */
     });
-  });
-  tabRemovedListenerInstalled = true;
+  };
+  chrome.tabs.onRemoved.addListener(tabRemovedListener);
 }
 
-/** Test-only: clear all per-tab state + re-arm the onRemoved listener. */
+/** Test-only: clear all per-tab state + remove the onRemoved listener so the
+ *  next call re-attaches against the test's fresh chrome mock without
+ *  leaking the previous listener. */
 export function _resetMockResponseForTests(): void {
   for (const state of TAB_STATE.values()) {
     try {
@@ -113,7 +116,14 @@ export function _resetMockResponseForTests(): void {
   }
   TAB_STATE.clear();
   handlerCounter = 0;
-  tabRemovedListenerInstalled = false;
+  if (tabRemovedListener && chrome?.tabs?.onRemoved?.removeListener) {
+    try {
+      chrome.tabs.onRemoved.removeListener(tabRemovedListener);
+    } catch {
+      /* ignore */
+    }
+  }
+  tabRemovedListener = null;
 }
 
 class MockResponseTool extends BaseBrowserToolExecutor {
@@ -369,7 +379,9 @@ async function handleRequestPaused(
       responseHeaders,
       body: base64Body,
     });
-    console.warn(
+    // Happy-path match — info, not a warning. (console.warn surfaces in
+    // DevTools' Issues panel and spams under load.)
+    console.log(
       `chrome_mock_response: matched ${matched.handlerId} → ${matched.status} on ${params.request.url}`,
     );
   } catch (e) {
@@ -404,15 +416,6 @@ async function teardownTabState(tabId: number): Promise<void> {
   } catch {
     /* same */
   }
-}
-
-function utf8ToBase64(s: string): string {
-  // SW `btoa` only handles Latin-1; encode UTF-8 → bytes → Latin-1
-  // string → btoa. Works in browser + SW + Node 16+ environments.
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
 }
 
 export const mockResponseTool = new MockResponseTool();

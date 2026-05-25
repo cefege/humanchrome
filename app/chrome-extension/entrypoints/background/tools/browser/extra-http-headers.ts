@@ -63,21 +63,29 @@ const FORBIDDEN_HEADERS: ReadonlySet<string> = new Set(
 // (installed lazily on first call).
 const TAB_HEADERS = new Map<number, Record<string, string>>();
 
-let tabRemovedListenerInstalled = false;
+let tabRemovedListener: ((tabId: number) => void) | null = null;
 function installTabRemovedListenerOnce(): void {
-  if (tabRemovedListenerInstalled) return;
+  if (tabRemovedListener) return;
   if (typeof chrome === 'undefined' || !chrome.tabs?.onRemoved?.addListener) return;
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  tabRemovedListener = (tabId: number) => {
     TAB_HEADERS.delete(tabId);
-  });
-  tabRemovedListenerInstalled = true;
+  };
+  chrome.tabs.onRemoved.addListener(tabRemovedListener);
 }
 
-/** Test-only: wipe per-tab state AND re-arm the onRemoved-listener install
- *  flag so the next call re-attaches against the test's fresh chrome mock. */
+/** Test-only: wipe per-tab state AND remove the onRemoved listener so the
+ *  next call re-attaches against the test's fresh chrome mock (without
+ *  leaking the previous listener against a now-gone mock). */
 export function _resetExtraHeadersForTests(): void {
   TAB_HEADERS.clear();
-  tabRemovedListenerInstalled = false;
+  if (tabRemovedListener && chrome?.tabs?.onRemoved?.removeListener) {
+    try {
+      chrome.tabs.onRemoved.removeListener(tabRemovedListener);
+    } catch {
+      /* ignore — mock may already be gone */
+    }
+  }
+  tabRemovedListener = null;
 }
 
 class ExtraHttpHeadersTool extends BaseBrowserToolExecutor {
