@@ -74,13 +74,11 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
 
 - **Proposed by**: claude · 2026-05-24 (session retry-pattern evidence)
-- **Status**: proposed
-- **Why**: The "IMP-0097 animation unstable_bbox" matrix row (sliding-btn with 4s ease-in-out CSS transform) intermittently passes on macOS CI even though click should return NOT_ACTIONABLE with `failures:['unstable_bbox']`. Hit on a majority of PRs across the #254-#266 session and consistently green on a single retry — meaning `checkStable` resolves stable on the first poll under runner load even though the element is still mid-animation. IMP-0118 (rAF→setTimeout REQUIRED_SAMPLES rewrite) and IMP-0155 (deadline plumbed into sampler) both intended to close this; matrix evidence shows the race window reopened.
+- **Status**: done · 2026-05-25
+- **Why**: The "IMP-0097 animation unstable_bbox" matrix row (sliding-btn with 4s ease-in-out CSS transform) intermittently passed on macOS CI when it should have returned NOT_ACTIONABLE with `failures:['unstable_bbox']`. Root cause: fixed 50ms × 4 sampler window (~150ms) was short enough that all four samples could fall within ±100ms of an ease-in-out velocity-zero peak, where the transform matrix tx value is effectively flat → identical transform strings → sampler claimed stable.
 - **Cost**: M
 - **Value**: M
-- **Repro**: Every PR landed in the #254-#266 session has at least one matrix retry where this row PASS'd after FAIL'd ~3s into the run. See e.g. PR #264 run #26364307562 (first attempt FAIL @ 14:48:03; retry PASS).
-- **Fix sketch**: Two candidates. (a) Increase `REQUIRED_SAMPLES` to 4 (from 3) — gives the sampler one more shot to catch the animation peak under runner stutter. (b) Tighten the sampler interval: the animation's velocity-zero peaks are at exact `t=2s` intervals; sampling at `50ms × 3` can land all three samples in the same peak window. Stagger via `[35ms, 50ms, 80ms]` so consecutive samples are guaranteed not at the same animation phase. Either fix needs validation against the existing `tests/inject-scripts/actionability.test.ts` "bails with unstable_bbox when the deadline expires inside the sampler" test (CI's flake counterpart).
-- **Notes**: The auto-retry pattern in the loop discipline (`gh run rerun --failed` on this row only) has been compensating; this IMP makes the fix permanent.
+- **Fix landed**: Staggered interval table `[35, 65, 50, 90, 70]` ms (5 gaps → 6 samples, ~310ms window) so successive samples can't all fall in the same animation phase. Each new sample also compared against the IMMEDIATELY PREVIOUS sample (not just the baseline) — catches sustained drift even when the baseline happens to align with later samples. `actionability.test.ts` 39/39 still pass.
 
 ### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 7
 
