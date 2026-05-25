@@ -191,14 +191,34 @@ function hoverShim(
 
     const target = el as HTMLElement;
 
+    // IMP-0175: visibility check inlined (previously a nested
+    // `function checkVisible(t)` hoisted from after the return path).
+    // Production minification renamed the nested helper's closure
+    // variable to `k` and the call site at line ~195 surfaced as
+    // "k is not defined" against a real browser. Inlining the 7-line
+    // check eliminates the nested scope the bundler was mangling.
     if (!force) {
-      const failure = checkVisible(target);
-      if (failure) {
+      let visibilityFailure: string | null = null;
+      if (!target.isConnected) {
+        visibilityFailure = 'not_visible';
+      } else {
+        const style = getComputedStyle(target);
+        if (style.display === 'none') visibilityFailure = 'not_visible';
+        else if (style.visibility === 'hidden' || style.visibility === 'collapse')
+          visibilityFailure = 'not_visible';
+        else if (Number(style.opacity) === 0) visibilityFailure = 'not_visible';
+        else if (style.pointerEvents === 'none') visibilityFailure = 'not_visible';
+        else {
+          const probeRect = target.getBoundingClientRect();
+          if (probeRect.width === 0 || probeRect.height === 0) visibilityFailure = 'not_visible';
+        }
+      }
+      if (visibilityFailure) {
         return {
           ok: false,
-          message: `element is not actionable: ${failure}`,
+          message: `element is not actionable: ${visibilityFailure}`,
           notActionable: true,
-          failures: [failure],
+          failures: [visibilityFailure],
         };
       }
     }
@@ -214,9 +234,14 @@ function hoverShim(
     if (!force) {
       const hit = document.elementFromPoint(px, py);
       if (hit && hit !== target && !target.contains(hit) && !hit.contains(target)) {
-        const occluderTag =
-          (hit as HTMLElement).tagName?.toLowerCase() +
-          (hit.id ? `#${hit.id}` : hit.className ? `.${String(hit.className).trim().split(/\s+/)[0]}` : '');
+        const hitTagName = (hit as HTMLElement).tagName?.toLowerCase() ?? 'unknown';
+        let suffix = '';
+        if (hit.id) suffix = `#${hit.id}`;
+        else if (typeof hit.className === 'string' && hit.className.trim().length > 0) {
+          const firstClass = hit.className.trim().split(/\s+/)[0];
+          if (firstClass) suffix = `.${firstClass}`;
+        }
+        const occluderTag = hitTagName + suffix;
         return {
           ok: false,
           message: `element is occluded by ${occluderTag}`,
@@ -260,18 +285,6 @@ function hoverShim(
     };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
-  }
-
-  function checkVisible(t: HTMLElement): string | null {
-    if (!t.isConnected) return 'not_visible';
-    const style = getComputedStyle(t);
-    if (style.display === 'none') return 'not_visible';
-    if (style.visibility === 'hidden' || style.visibility === 'collapse') return 'not_visible';
-    if (Number(style.opacity) === 0) return 'not_visible';
-    if (style.pointerEvents === 'none') return 'not_visible';
-    const rect = t.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return 'not_visible';
-    return null;
   }
 }
 

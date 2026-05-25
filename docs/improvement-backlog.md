@@ -63,13 +63,12 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 6
 
 - **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
-- **Status**: proposed
-- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock pass (12/12 in tests/tools/browser/hover.test.ts) because the mock only checks the call shape, not the serialized shim source. Runtime failure is real-browser-only and reproduces on every matrix attempt. Suspect: Rolldown minification of the hoverShim closure renames variables; one of the renamed identifiers shadows a reference inside the nested `checkVisible` helper. focus/type-into use the same nested-helper pattern and work — so the difference is somewhere in hover-specific code (event-init spread, MouseEvent/PointerEvent constructor calls, occluder describer).
+- **Status**: done · 2026-05-24
+- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock pass (12/12 in tests/tools/browser/hover.test.ts) because the mock only checks the call shape, not the serialized shim source. Runtime failure is real-browser-only and reproduces on every matrix attempt. Root cause: the nested `function checkVisible(t)` declaration sat AFTER the return path; Rolldown minification renamed the hoisted function's local binding to `k` and the call site at line ~195 referenced the un-hoisted name in the bundled output.
 - **Cost**: M
 - **Value**: L
-- **Repro**: Push any change that bundles `app/chrome-extension/entrypoints/background/tools/browser/hover.ts` to a PR. The matrix's IMP-0125 row (deferred in PR #267 — search the runner for "IMP-0175" comment to re-enable) returns `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Matrix run #26365995269.
-- **Fix sketch**: Three candidates. (a) Build the extension locally with sourcemaps + load into CFT, hover any element, read page console for the actual call site — the truncated message in CI hides which line throws. (b) Inline the `checkVisible` helper into hoverShim's body so no nested-function scope exists for the bundler to rewrite. (c) Pass visibility/hit-test logic as a separate executeScript call instead of bundling it into the hover-dispatch shim — splits the closure surface. Once root cause known, re-enable the matrix row by reverting the deferral in scripts/run-e2e-matrix.mjs.
-- **Notes**: Tool is still callable from MCP — only the production minification path is broken. Dev-mode (unminified) builds keep working. The deferred matrix row doesn't reduce overall tool coverage since the dev-mode unit tests stay green.
+- **Fix landed**: Inlined the 7-line visibility check directly into hoverShim's body (eliminating the nested function scope the bundler was mangling). Re-enabled the IMP-0125 matrix row in scripts/run-e2e-matrix.mjs. PR #286.
+- **Notes**: Dev-mode unit tests already passed because they used the call-shape mock. The fix is structural — removing the nested function eliminates the entire class of Rolldown-rename-mangles-closure failures for this shim shape.
 
 ### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
 

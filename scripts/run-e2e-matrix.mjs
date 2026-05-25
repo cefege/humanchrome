@@ -355,13 +355,33 @@ const MATRIX = [
       return assert(ok, `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`);
     },
   },
-  // IMP-0125 chrome_hover row deferred — first matrix run surfaced an
-  // "<minified-var> is not defined" runtime error inside the production
-  // build of hover.ts's shim. TypeScript-only types serialize fine; the
-  // Rolldown minification of closure variables in the shim is the
-  // suspect. Unit tests against the chrome.scripting.executeScript mock
-  // pass cleanly, so the regression is real-browser-only. Filed as
-  // IMP-0175; row lands when that IMP closes.
+  {
+    imp: 'IMP-0125',
+    name: 'chrome_hover dispatches mouseover and reveals tooltip',
+    run: async () => {
+      const hoverRes = await callTool('chrome_hover', { selector: '#hover-target' });
+      const waitRes = await callTool('chrome_await_element', {
+        selector: '#hover-tooltip',
+        state: 'present',
+        timeoutMs: 1000,
+      });
+      return { hoverRes, waitRes };
+    },
+    check: ({ hoverRes, waitRes }) => {
+      const hb = hoverRes?.parsed;
+      const wb = waitRes?.parsed;
+      const ok =
+        !hoverRes?.isError &&
+        hb?.ok === true &&
+        hb?.hovered === true &&
+        !waitRes?.isError &&
+        wb?.ok === true;
+      return assert(
+        ok,
+        `expected hover+await tooltip success, got ${JSON.stringify({ hoverRes, waitRes }).slice(0, 400)}`,
+      );
+    },
+  },
   // IMP-0143 chrome_type_into row deferred — first matrix run reported
   // `typed:5, finalValue:""` against #type-target. The tool dispatches
   // 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs, but the chars
