@@ -36,7 +36,8 @@
     "lint:fix": "npx eslint 'src/**/*.{js,ts}' --fix",
     "format": "prettier --write 'src/**/*.{js,ts,json}'",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "regen:tool-index-snapshot": "node scripts/regen-tool-index-snapshot.mjs"
   },
   "files": [
     "dist"
