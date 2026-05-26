@@ -24,6 +24,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 import { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 import { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
+import { withSuggestedNext } from './_common';
 
 const NETWORK_CAPTURE_ACTIONS = ['start', 'stop', 'flush', 'status'] as const;
 
@@ -198,21 +199,30 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
       summary = summarizeCapture(networkCaptureStartTool.captureData);
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            active: backend !== null,
-            backend,
-            sinceMs: summary.earliestStart === null ? null : Date.now() - summary.earliestStart,
-            bufferedCount: summary.bufferedCount,
-            tabIds: summary.tabIds,
-          }),
-        },
-      ],
-      isError: false,
-    };
+    // IMP-0182: an active capture invites flush/stop + har export; an inactive
+    // one invites start. Use bare tool names — the LLM picks the action from
+    // the inputSchema enum (the status payload above tells it which to use).
+    const next = backend !== null
+      ? ['chrome_network_capture', 'chrome_har_export']
+      : ['chrome_network_capture'];
+    return withSuggestedNext(
+      {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              active: backend !== null,
+              backend,
+              sinceMs: summary.earliestStart === null ? null : Date.now() - summary.earliestStart,
+              bufferedCount: summary.bufferedCount,
+              tabIds: summary.tabIds,
+            }),
+          },
+        ],
+        isError: false,
+      },
+      next,
+    );
   }
 
   private async handleStart(
