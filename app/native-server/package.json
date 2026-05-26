@@ -22,6 +22,7 @@
     "postbuild": "node src/scripts/sync-installed.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:evals": "RUN_EVALS=1 jest --testPathPattern tool-selection.evals --no-coverage",
     "lint": "eslint 'src/**/*.{js,ts}'",
     "lint:fix": "eslint 'src/**/*.{js,ts}' --fix",
     "format": "prettier --write 'src/**/*.{js,ts,json}'",
