@@ -135,6 +135,11 @@ function summarizeCapture(data: Map<number, CaptureBufferEntry>): {
  */
 class NetworkCaptureTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.NETWORK_CAPTURE;
+  // Request lists with response bodies routinely run multi-MB; the existing
+  // 1 MiB per-body cap (responseBodyTruncation) remains the inner guard.
+  // Raise the IMP-0179 outer cap to 1 MiB so legitimate captures aren't
+  // double-truncated by the dispatcher.
+  static readonly outputBudgetBytes = 1024 * 1024;
 
   async execute(args: NetworkCaptureToolParams): Promise<ToolResult> {
     const action = args?.action;

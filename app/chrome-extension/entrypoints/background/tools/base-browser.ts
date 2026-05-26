@@ -43,6 +43,14 @@ export abstract class BaseBrowserToolExecutor implements ToolExecutor {
    * stacked behind them don't surface spurious `TAB_LOCK_TIMEOUT`.
    */
   static readonly tabLockTimeoutMs: number | undefined = undefined;
+  /**
+   * IMP-0179: per-tool output cap enforced by the dispatcher. Defaults to the
+   * shared `DEFAULT_OUTPUT_BUDGET_BYTES` (25 KiB) when unset. Override on
+   * tools that legitimately return larger payloads (read_page, get_web_content,
+   * network-capture stop with bodies) so the cap doesn't truncate normal usage.
+   * Callers can also pass `raw: true` to bypass for any single call.
+   */
+  static readonly outputBudgetBytes: number | undefined = undefined;
   abstract execute(args: any): Promise<ToolResult>;
 
   /**
