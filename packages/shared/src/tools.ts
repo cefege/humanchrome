@@ -147,7 +147,7 @@ export const TOOL_NAMES = {
 export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS,
-    description: 'Get all currently open browser windows and tabs',
+    description: "List every currently open browser window and its tabs. Use to resolve windowId/tabId before navigate, single-window enforcement, or session inspection. Example: {} → {windows:[{id, focused, tabs:[{id, url, title, active}]}]}",
     inputSchema: {
       type: 'object',
       properties: {},
@@ -157,7 +157,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED,
     description:
-      'List recorded flows that have been published as dynamic MCP tools. Each entry includes id, slug, name, version, declared variables (used for `args`), and metadata. Discovery surface for `record_replay_flow_run` — pair with the dynamic `flow.<slug>` tools the bridge auto-exposes for callable flows.',
+      "List recorded flows published as dynamic MCP tools. Discovery surface for record_replay_flow_run; pair with the auto-exposed flow.<slug> tools. Example: {} → {flows:[{id, slug, name, version, variables}]}",
     inputSchema: {
       type: 'object',
       properties: {},
@@ -167,7 +167,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_RUN,
     description:
-      'Run a recorded flow by ID. Recorded flows are step sequences captured via the extension UI (web-editor / record-replay-v3) and replayed deterministically by the runner. Returns a standardized run result with per-step outcomes. Prefer the dynamic `flow.<slug>` tool surface (each published flow gets one) when you know the slug — `record_replay_flow_run` is the explicit fallback when the slug is unknown.',
+      "Run a recorded flow by ID with per-step outcomes. Prefer the dynamic flow.<slug> tool when slug is known; this is the explicit fallback. Example: {flowId:\"f1\", args:{q:\"hi\"}} → {success, steps}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -210,7 +210,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
     description:
-      'Starts a performance trace recording on the selected page. Optionally reloads the page and/or auto-stops after a short duration.',
+      "Start a performance trace recording on the selected page. Optionally reload first and/or auto-stop after a duration. Example: {reload:true, autoStop:true, durationMs:5000} → {started:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -233,7 +233,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE,
-    description: 'Stops the active performance trace recording on the selected page.',
+    description: "Stop the active performance trace recording on the selected page. Optionally save the raw trace to Downloads. Example: {saveToDownloads:true, filenamePrefix:\"home\"} → {stopped:true, path}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -252,7 +252,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT,
     description:
-      'Provides a lightweight summary of the last recorded trace. For deep insights (CWV, breakdowns), integrate native-side DevTools trace engine.',
+      "Lightweight summary of the last recorded performance trace. For deep insights (CWV, breakdowns) integrate the native-side DevTools trace engine. Example: {insightName:\"LCP\"} → {summary:{}}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -273,7 +273,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.READ_PAGE,
     description:
-      'Get an accessibility tree representation of visible elements on the page. Only returns elements that are visible in the viewport. Optionally filter for only interactive elements.\nTip: If the returned elements do not include the specific element you need, use the computer tool\'s screenshot (action="screenshot") to capture the element\'s on-screen coordinates, then operate by coordinates.',
+      "Return an accessibility-tree snapshot of viewport-visible elements; optionally filter to interactive-only or expand from a refId. If your target is missing, fall back to the computer tool's screenshot for coordinates. Example: {filter:\"interactive\"} → {nodes:[]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -305,7 +305,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.STORAGE,
     description:
-      'Read, write, and clear a tab\'s `localStorage` or `sessionStorage`. Wraps a MAIN-world `chrome.scripting.executeScript` shim so prompts don\'t need to embed JS payloads. Actions: `get` (returns `{value, exists}` — `value` is null when the key is absent), `set` (returns `{stored: true}`), `remove` (returns `{removed: boolean}` — false if the key did not exist), `clear` (returns `{cleared: count}` — number of keys wiped), `keys` (returns `{keys: string[]}`). `scope` defaults to `"local"`. Useful for clearing auth state between test runs, pre-seeding feature flags, or asserting that an SPA wrote a specific session marker — without opening DevTools or quoting JS into chrome_javascript. IndexedDB is intentionally out of scope; cookies are handled by chrome_get_cookies / chrome_set_cookie / chrome_remove_cookie.',
+      "Read/write/clear a tab's localStorage or sessionStorage via a MAIN-world shim. IndexedDB is out of scope. Example: {action:\"get\", scope:\"local\", key:\"flag\"} → {value:\"on\", exists:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -342,7 +342,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.LIST_FRAMES,
     description:
-      'List the frames in a tab via chrome.webNavigation.getAllFrames. Returns one entry per frame as `{ frameId, parentFrameId, url, errorOccurred }` (the main document is included with `frameId: 0` and `parentFrameId: -1`). Use this to discover stable frameId values to pass to chrome_click_element / chrome_fill_or_select / chrome_await_element when targeting an iframe — walking `window.frames` from injected JS is cross-origin-blocked for sandboxed iframes and returns unstable indexes. Read-only; no DOM access.',
+      "List frames in a tab via chrome.webNavigation.getAllFrames as {frameId, parentFrameId, url, errorOccurred}; main doc is frameId:0. Use to discover stable frameIds for iframe targeting. Read-only. Example: {tabId:42} → {frames:[{frameId:0}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -359,7 +359,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.TAB_GROUPS,
     description:
-      "Manage Chrome tab groups (the colored, named clusters in the tab strip). Single tool with an `action` enum that wraps `chrome.tabs.group` / `chrome.tabs.ungroup` / `chrome.tabGroups.*`. Useful for partitioning agent-managed tabs from the user's own tabs (create a labelled group at session start, add new tabs as the agent opens them, ungroup or close-all when the session ends). Actions: `create` (group one or more tabIds — returns `{groupId}`; pair with `update` to set title/color), `update` (rename, recolor, or collapse an existing group; pass any of `title`, `color`, `collapsed`), `query` (filter groups by `title`, `color`, `collapsed`, `windowId` — returns matching groups), `get` (one group plus the list of tabIds currently in it), `add_tabs` (move tabIds into an existing groupId), `remove_tabs` (ungroup tabIds — they keep existing in their window, just leave the group), `move` (reorder a group within its window by `index`). Colors: grey | blue | red | yellow | green | pink | purple | cyan | orange (Chrome's fixed palette).",
+      "Manage Chrome tab groups (create/update/query/get/add_tabs/remove_tabs/move) for partitioning agent tabs from user tabs. Colors from Chrome's fixed palette. Example: {action:\"create\", tabIds:[1,2], title:\"agent\", color:\"blue\"} → {groupId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -412,7 +412,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.COMPUTER,
     description:
-      "Use a mouse and keyboard to interact with a web browser, and take screenshots.\n* Whenever you intend to click on an element like an icon, you should consult a read_page to determine the ref of the element before moving the cursor.\n* If you tried clicking on a program or link but it failed to load, even after waiting, try screenshot and then adjusting your click location so that the tip of the cursor visually falls on the element that you want to click.\n* Make sure to click any buttons, links, icons, etc with the cursor tip in the center of the element. Don't click boxes on their edges unless asked.",
+      "Mouse/keyboard/screenshot omnibus tool driving the browser like a computer. Always read_page first to get refs for icon clicks; click cursor tip at element center. Example: {action:\"screenshot\"} → {image, width, height}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -547,7 +547,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.USERSCRIPT,
     description:
-      'Unified userscript tool (create/list/get/enable/disable/update/remove/send_command/export). Paste JS/CSS/Tampermonkey script and the system will auto-select the best strategy (insertCSS / persistent script in ISOLATED or MAIN world / once by CDP) with CSP-aware fallbacks.',
+      "Unified userscript tool (create/list/get/enable/disable/update/remove/send_command/export). Auto-selects best strategy with CSP-aware fallbacks. Example: {action:\"create\", args:{code:\"...\", runAt:\"document_end\"}} → {id, strategy}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -645,7 +645,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NAVIGATE,
     description:
-      'Navigate to a URL, refresh the current tab, or navigate browser history (back/forward)',
+      "Navigate to a URL, refresh, or go back/forward in history. Optionally open in a new window/tab with custom size. Example: {url:\"https://example.com\"} → {tabId, url, status:\"complete\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -681,7 +681,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NAVIGATE_BATCH,
     description:
-      "Open many URLs at once and return their tabIds. Tabs open in the background by default so the user's foreground tab keeps focus. Pair with chrome_wait_for_tab + chrome_get_web_content to drain results sequentially. Returns immediately after issuing the opens unless maxConcurrent is set — in which case it blocks until each batch finishes loading before opening the next.",
+      "Open many URLs at once and return their tabIds; tabs open backgrounded by default. Pair with chrome_wait_for_tab to drain sequentially. maxConcurrent blocks per batch. Example: {urls:[\"a.com\",\"b.com\"], maxConcurrent:2} → {tabIds:[101,102]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -722,7 +722,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WAIT_FOR_TAB,
     description:
-      'Block until the given tab transitions to status:"complete". Event-driven via chrome.tabs.onUpdated — does not poll. Use after chrome_navigate or chrome_navigate_batch to drain a fan-out workflow before reading from each tab. Throws TAB_CLOSED if the tab is closed during the wait, TIMEOUT if the deadline elapses.',
+      "Block until a tab reaches status:complete via chrome.tabs.onUpdated (no polling). Throws TAB_CLOSED or TIMEOUT. Example: {tabId:4, timeoutMs:10000} → {complete:true, tookMs}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -742,7 +742,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SCREENSHOT,
     description:
-      '[Prefer read_page over taking a screenshot and Prefer chrome_computer] Take a screenshot of the current page or a specific element. For new usage, use chrome_computer with action="screenshot". Use this tool if you need advanced options.',
+      "Take a screenshot of the page or element. Prefer chrome_read_page or chrome_computer action=screenshot for new code; use this only for advanced options. Example: {selector:\"#hero\", fullPage:false} → {savedPath, width, height}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -777,7 +777,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.CLOSE_TAB,
-    description: 'Close one or more browser tabs',
+    description: "Close one or more tabs by tabIds[] or by matching url. Example: {tabIds:[3,5]} → {success:true, closed:[3,5]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -797,7 +797,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING,
     description:
-      'Bulk close tabs matching one or more filters. Designed for post-`chrome_navigate_batch` cleanup so an agent does not have to round-trip through `chrome_get_windows_and_tabs` plus N × `chrome_close_tab`. At least one of `urlMatches`, `titleMatches`, or `olderThanMs` must be provided — calling without filters is rejected to prevent accidental "close everything" calls. URL/title matching accepts a plain substring (case-insensitive) or `/regex/flags` form. `windowId` scopes the search to one window (defaults to all windows). `exceptTabIds` always preserves the listed tabs. The last-tab-in-window guard from IMP-0062 (`safeRemoveTabs`) is honored — closing all tabs in a window opens a placeholder so the window does not disappear. Returns `{ closed, tabIds, scanned, matched }`.',
+      "Bulk close tabs by filters; at least one of urlMatches/titleMatches/olderThanMs required (no-filter rejected). URL/title accept substring or /regex/flags. Honors last-tab-in-window guard. Example: {urlMatches:\"/example.com/\", dryRun:true} → {closed:0, matched:3, tabIds:[...]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -838,7 +838,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.SWITCH_TAB,
-    description: 'Switch to a specific browser tab',
+    description: "Switch focus to a specific browser tab. Example: {tabId:7} → {activated:true, windowId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -856,7 +856,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.WEB_FETCHER,
-    description: 'Fetch content from a web page (raw HTML, plain text, or reader-mode Markdown)',
+    description: "Fetch a page's raw HTML, plain text, or reader-mode Markdown. Optionally scoped by selector, saved to savePath, or fetched in a background tab. Example: {url:\"https://example.com\", markdownContent:true} → {markdown:\"...\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -902,7 +902,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.NETWORK_REQUEST,
-    description: 'Send a network request from the browser with cookies and other browser context',
+    description: "Send a network request from the browser carrying its cookies and origin context. Supports method, headers, body or formData, timeout. Example: {url:\"https://api.example.com/me\", method:\"GET\"} → {status:200, body:\"...\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -938,7 +938,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
     description:
-      'Unified network capture tool. Use action="start" to begin capturing, action="stop" to end and retrieve results, action="flush" to drain the buffer mid-session without stopping, action="status" for a side-effect-free read of the current capture state (active backend, buffered request count, capture age). Set needResponseBody=true to capture response bodies (uses Debugger API, may conflict with DevTools). Default mode uses webRequest API (lightweight, no debugger conflict, but no response body).\n\nResponse bodies are capped at 1 MiB; when a body exceeds the cap the request entry includes `responseBodyTruncation: {truncated, originalSize, limit, unit:"bytes"}` so callers can detect the partial read without parsing the inline `[Response truncated …]` sentinel.\n\n`flush` returns the same envelope as `stop` (with `flushed:true` and `stillActive:true`) and clears the in-memory buffer while keeping listeners and timers attached — use it for long-running scrape sessions where you need to drain accumulated requests every few minutes to stay within context limits without losing the requests that arrive during a stop/restart gap.\n\n`status` returns `{active, backend: "debugger" | "webRequest" | null, sinceMs, bufferedCount, tabIds}` — use it to check whether a capture is already running before calling `start` (which fails if one is active) or to gate a `flush` on the buffer being non-empty.',
+      "Capture network traffic on a tab. action=start begins; stop returns the buffer; flush drains without stopping; status reads state. needResponseBody=true uses Debugger (may conflict with DevTools). Response bodies capped at 1 MiB. Example: {action:\"start\"} → {captureId, started:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -982,7 +982,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
     description:
-      'Wait for the next network response on a tab whose URL matches the given pattern, then return the parsed JSON body (or raw body if non-JSON). Use this to grab API responses (e.g. LinkedIn Voyager, GraphQL endpoints) without DOM walking. Attaches the Chrome Debugger Network domain only for the duration of the wait. Returns within timeoutMs. When count > 1, accumulates that many matches before detaching and returns them as { ok, tabId, count, matched, responses: [...] } — useful for paginated SPA flows (e.g. inbox pages, message history loads) to cut N round-trips down to 1.',
+      "Wait for the next network response matching urlPattern on a tab and return its parsed JSON body. Attaches the debugger Network domain for the wait duration. count>1 batches matches into one call. Example: {urlPattern:\"*/api/users*\", count:1, timeoutMs:5000} → {ok:true, matched, responses:[...]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1018,7 +1018,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.HANDLE_DOWNLOAD,
-    description: 'Wait for a browser download and return details (id, filename, url, state, size)',
+    description: "Wait for the next browser download (optionally matching filenameContains) and return its details. Set waitForComplete to block until the file finishes writing. Example: {filenameContains:\".csv\", waitForComplete:true} → {id, filename, url, state, size}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1036,7 +1036,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.HISTORY,
-    description: 'Retrieve and search browsing history from Chrome',
+    description: "Search browsing history via chrome.history.search. Filter by text, time range, or result count; set excludeCurrentTabs to skip open tabs. Example: {text:\"github\", maxResults:50} → {items:[{url, title, lastVisitTime, visitCount}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1072,7 +1072,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HISTORY_DELETE,
     description:
-      "Delete entries from Chrome browsing history. Wraps chrome.history.deleteUrl / deleteRange / deleteAll. Choose exactly one mode: pass `url` to remove a single URL's visit history; pass `startTime` AND `endTime` to delete every visit in a window; pass `all: true` to wipe history entirely. The deletion is permanent — `chrome.history.search` will not return removed entries afterwards. Useful for cleaning up after automated runs (e.g. removing test visits before asserting on history state) or honoring privacy intent. Set `confirmDeleteAll: true` together with `all: true` as an explicit safety check for the wipe-all mode.",
+      "Delete browsing history entries (chrome.history.deleteUrl/deleteRange/deleteAll). Permanent. Pick exactly one mode: url, startTime+endTime, or all:true with confirmDeleteAll:true. Example: {url:\"https://x.com\"} → {deleted:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1107,7 +1107,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.BOOKMARK_SEARCH,
-    description: 'Search Chrome bookmarks by title and URL',
+    description: "Search Chrome bookmarks by title/URL substring; optional folderPath scopes to a subtree. Example: {query:\"github\", maxResults:10} → {bookmarks:[{id, title, url}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1131,7 +1131,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.BOOKMARK_ADD,
-    description: 'Add a new bookmark to Chrome',
+    description: "Add a new bookmark; optional parentId targets a folder, createFolder:true auto-creates missing folder paths. Example: {url:\"https://x.com\", title:\"X\", parentId:\"3\"} → {bookmarkId:\"42\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1159,7 +1159,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.BOOKMARK_UPDATE,
     description:
-      'Update a Chrome bookmark: rename, change its URL, and/or move it to a different parent folder. Identify the bookmark by id (preferred) or by url.',
+      "Rename, re-URL, or move a bookmark; identify by bookmarkId (preferred) or url+optional matchTitle. Example: {bookmarkId:\"42\", newTitle:\"Renamed\", newParentId:\"3\"} → {success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1197,7 +1197,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.BOOKMARK_DELETE,
-    description: 'Delete a bookmark from Chrome',
+    description: "Delete a bookmark by id (preferred) or by matching url/title. Irreversible — no trash. Example: {bookmarkId:\"42\"} → {success:true, deleted:1}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1220,7 +1220,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.GET_COOKIES,
     description:
-      "Read browser cookies for a URL or domain. Wraps chrome.cookies.getAll. At least one of `url` or `domain` is required to keep the response bounded. Returns an array of cookie objects with shape { name, value, domain, hostOnly, path, secure, httpOnly, sameSite, session, expirationDate?, storeId }. Use this to inspect a site's session/auth state before driving a page (e.g. to confirm a LinkedIn `li_at` cookie exists, or to debug why a request 401'd).",
+      "Read cookies via chrome.cookies.getAll. At least one of url or domain is required to bound the response. Example: {domain:\".linkedin.com\", name:\"li_at\"} → [{name, value, domain, path, secure, httpOnly, sameSite, ...}]",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1263,7 +1263,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SET_COOKIE,
     description:
-      'Set a single cookie. Wraps chrome.cookies.set. The `url` argument is required — Chrome uses it to derive default values for `domain` and `path` and to validate the Secure attribute. Other fields are optional pass-throughs. Returns the resulting Cookie object on success. Use this to seed an auth cookie before navigation (e.g. restore a saved `li_at` to skip the LinkedIn sign-in UI).',
+      "Set a single cookie via chrome.cookies.set. The url arg is required (used to derive domain/path and validate Secure). Example: {url:\"https://x.com\", name:\"li_at\", value:\"abc\"} → {Cookie}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1319,7 +1319,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.REMOVE_COOKIE,
     description:
-      'Delete a single cookie by URL + name. Wraps chrome.cookies.remove. Returns { url, name, storeId } on success, or null if no matching cookie was found. Use this to clear an auth cookie (e.g. force a LinkedIn re-login) without driving a logout flow.',
+      "Delete a single cookie by URL + name via chrome.cookies.remove. Returns {url, name, storeId} or null if no match. Use to clear an auth cookie and force re-login without driving a logout flow. Example: {url:\"https://x.com\", name:\"sid\"} → {url,name,storeId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1344,7 +1344,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT,
     description:
-      'Semantic vector search across the content of currently open tabs. Returns matching tabs with relevance scores and snippets.',
+      "Semantic vector search across content of currently open tabs. Returns matching tabs with relevance scores and snippets. Example: {query:\"pricing page\"} → {matches:[{tabId, score, snippet}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1359,7 +1359,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
     description:
-      'Inject a user-specified content script into a webpage. By default, injects into the currently active tab. Use chrome_userscript for persistent/CSP-aware injections; use this for one-off ISOLATED/MAIN-world script execution with a custom event bridge.',
+      "Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custom event bridge. For persistent/CSP-aware injections use chrome_userscript instead. Example: {jsScript:\"console.log('hi')\", type:\"MAIN\"} → {injected:true, tabId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1386,7 +1386,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS,
     description:
-      'List the user scripts currently injected via chrome_inject_script across all tabs. Returns one entry per injected tab with `{ tabId, world, scriptLength, injectedAt }`. Use this for safe pre-flight checks before chrome_inject_script (idempotent inject-once patterns) and to confirm a tab still carries an active bridge before chrome_send_command_to_inject_script. Read-only — never modifies extension state.',
+      "List user scripts currently injected via chrome_inject_script across tabs as {tabId, world, scriptLength, injectedAt}. Use for idempotent inject-once pre-flight checks. Read-only. Example: {} → {scripts:[{tabId:42, world:\"MAIN\"}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1402,7 +1402,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT,
     description:
-      'If the script injected via chrome_inject_script listens for user-defined events, this tool dispatches those events to the injected script.',
+      "Dispatch a user-defined event to a script previously installed via chrome_inject_script. Example: {tabId:5, eventName:\"refresh\", payload:{id:42}} → {dispatched:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1421,20 +1421,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   },
   {
     name: TOOL_NAMES.BROWSER.JAVASCRIPT,
-    description: [
-      'Execute JavaScript code in a browser tab and return the result.',
-      '',
-      'Engine: CDP Runtime.evaluate with awaitPromise + returnByValue. Falls back to chrome.scripting.executeScript (ISOLATED world) when the debugger is busy — note that fallback runs without page-context globals.',
-      '',
-      'Wrapping: Code runs inside `(async () => { ... })()` so top-level `await` works. A bare expression (e.g. `1+2`, `document.title`) is auto-`return`ed; a multi-statement body must `return` explicitly.',
-      '',
-      'Output: Result is sanitized (sensitive keys redacted unless raw mode is enabled) and capped at `maxOutputBytes` (default 51200). The response carries `{success, engine, result, truncated, redacted, metrics}` — branch on `truncated` to decide whether to retry with a larger `maxOutputBytes`.',
-      '',
-      'Examples:',
-      '  • Read a value: `chrome_javascript({ code: "document.title" })`',
-      '  • Async fetch: `chrome_javascript({ code: "await (await fetch(\'/api/me\')).json()" })`',
-      '  • Multi-line: `chrome_javascript({ code: "const xs = [...document.querySelectorAll(\'a\')]; return xs.map(a => a.href).slice(0,5);" })`',
-    ].join('\n'),
+    description: "Execute JS in a tab via CDP Runtime.evaluate (awaitPromise, returnByValue) with chrome.scripting ISOLATED fallback. Wrapped in async IIFE so top-level await works; bare expressions auto-return. Output sanitized + capped at maxOutputBytes. Example: {code:\"document.title\"} → {success:true, result:\"...\", truncated:false}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1460,7 +1447,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLICK,
     description:
-      'Click on an element in a web page. Supports multiple targeting methods: CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), element ref (from chrome_read_page), or viewport coordinates. Strict mode (IMP-0098): when a selector matches multiple elements without an explicit `index` or `multi:true`, the call errors with INVALID_ARGS and details: {matchCount, samples}.',
+      "Click an element by CSS/XPath/Playwright locator, ref, or viewport coordinates. Strict mode: multi-match without explicit index or multi:true errors INVALID_ARGS with details.matchCount. Example: {selector:\"#submit\"} → {clicked:true, frameId:0}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1524,7 +1511,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.FILL,
     description:
-      'Fill or select a form element on a web page. Supports input, textarea, select, checkbox, and radio elements. Use CSS selector, XPath, Playwright-style locators (role/label/placeholder/alt/title/testid/text), or element ref to target the element. Strict mode (IMP-0098): multi-match errors unless `index` or `multi:true` is supplied.',
+      "Fill or select an input/textarea/select/checkbox/radio by selector or ref. Supports Playwright-style locators. Strict-mode multi-match errors unless index or multi:true is passed. Example: {selector:\"#email\", value:\"a@b.com\"} → {filled:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1557,7 +1544,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION,
     description:
-      'Request the user to manually select one or more elements on the current page. Use this as a human-in-the-loop fallback when you cannot reliably locate the target element after approximately 3 attempts using chrome_read_page combined with chrome_click_element/chrome_fill_or_select/chrome_computer. The user will see a panel with instructions and can click on the requested elements. Returns element refs compatible with chrome_click_element/chrome_fill_or_select (including iframe frameId for cross-frame support).',
+      "Request the user to manually select elements on the page as a human-in-the-loop fallback. Returns refs compatible with click/fill tools, including iframe frameId. Example: {requests:[{prompt:\"pick login\"}], timeoutMs:30000} → {refs:[{ref:\"r1\", frameId:0}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1601,7 +1588,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.KEYBOARD,
     description:
-      'Simulate keyboard input on a web page. Supports single keys (Enter, Tab, Escape), key combinations (Ctrl+C, Ctrl+V), text input, and a high-level `shortcut` enum (copy/paste/undo/redo/save/select_all/find/cut/refresh/back/forward/new_tab/close_tab) that maps to the platform-correct chord at dispatch time (Meta on macOS, Ctrl elsewhere). Can target a specific element or send to the focused element.',
+      "Simulate keyboard input — single keys, chords, text, or a high-level shortcut enum (copy/paste/undo/save/etc.) that maps to the platform-correct chord at dispatch. Targets a selector or the focused element. Example: {shortcut:\"paste\"} → {dispatched:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1651,7 +1638,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.AWAIT_ELEMENT,
     description:
-      'Wait for a DOM element to be present or absent on the page using a MutationObserver. Use this instead of polling chrome_javascript when waiting for UI state changes (e.g. a modal closing, a skeleton loader being replaced, a "Sent" indicator appearing). Targeting: provide either selector (CSS / XPath / Playwright-style role/label/placeholder/alt/title/testid/text) or ref (from chrome_read_page). Returns immediately when the goal state is already true. Success envelope mirrors the post-wait DOM truth: `state:"present"` success returns `{found:true, absent:false, matched:{ref,center}}`; `state:"absent"` success returns `{found:false, absent:true, matched:null}`. Both carry `{success:true, state, elapsedMs}`. A TIMEOUT error envelope (no `found`/`absent` fields) is returned with `{selector, state, timeoutMs, elapsedMs}` after timeoutMs.',
+      "Wait via MutationObserver for an element to be present or absent; returns immediately if goal state already true. Prefer over polling chrome_javascript for UI state changes. TIMEOUT envelope on expiry. Example: {selector:\"#modal\", state:\"absent\", timeoutMs:5000} → {success:true, found:false, absent:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1684,7 +1671,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CONSOLE,
     description:
-      "Capture console output from a browser tab. Supports snapshot mode (default; one-time capture with ~2s wait) and buffer mode (persistent per-tab buffer you can read/clear instantly without waiting).\n\nResponse includes a `truncation` field of shape `{truncated, originalSize?, limit, rawAvailable, unit:'messages', argsTruncated}` so callers can detect whether the message cap or the per-arg serializer caps were hit. When `argsTruncated:true` and `rawAvailable:true`, retry with `raw:true` to skip per-arg caps (snapshot mode only).",
+      "Capture console output: snapshot mode (one-time ~2s wait) or buffer mode (persistent per-tab, instant read/clear). Response.truncation reports caps; retry with raw:true (snapshot only) if argsTruncated. Example: {mode:\"buffer\", onlyErrors:true} → {messages:[...], truncation}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1750,7 +1737,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CONSOLE_CLEAR,
     description:
-      'Reset the per-tab console buffer used by `chrome_console` (mode="buffer") and the `console_clean` predicate of `chrome_assert`. Use between steps of a multi-step flow so subsequent console reads are scoped to messages that arrived after the clear — the same reset pattern test frameworks use between assertions. Returns `{ success, tabId, cleared, clearedMessages, clearedExceptions, bufferActive }` where `cleared` is the total number of buffered entries dropped. No-op (cleared:0, bufferActive:false) when buffer capture has not yet started for the tab.',
+      "Reset the per-tab chrome_console buffer (and chrome_assert console_clean predicate) so subsequent reads are scoped to after the clear. No-op if buffer not yet started. Example: {tabId:42} → {success:true, cleared:12, bufferActive:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1763,7 +1750,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.FILE_UPLOAD,
     description:
-      'Upload files to web forms with file input elements using Chrome DevTools Protocol',
+      "Upload files to a form's file input via CDP. Accepts filePath, fileUrl, or base64Data. Example: {selector:\"input[type=file]\", filePath:\"/tmp/a.png\"} → {uploaded:true, count:1}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1799,7 +1786,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HANDLE_DIALOG,
     description:
-      'Handle JavaScript dialogs (alert/confirm/prompt) via CDP.\n\nActions:\n- "handle_dialog" (default; legacy callers can omit action): one-shot answer to a dialog that is currently open. Requires `behavior` ("accept" or "dismiss"). Backward-compatible with the original two-field call (action="accept"/"dismiss" still works).\n- "register_default": install a per-tab auto-handler that subscribes Page.javascriptDialogOpening via a refcounted CDP attach. Subsequent alert/confirm/prompt calls on this tab are auto-answered with `defaultBehavior` ("accept" | "dismiss" | "prompt_with_text"). Calling register_default again on the same tab REPLACES the prior policy.\n- "unregister_default": release the policy and the CDP attach for the tab.\n- "list_defaults": read-only — returns the registered policies plus each tab\'s recent auto-handled dialog log (last 50 entries). Filter to one tab with `tabId`.\n\nIMPORTANT: register_default holds a persistent chrome.debugger attach for the lifetime of the policy, so the "Chrome is being controlled by automated software" banner will be visible on the affected tab until unregister_default. The policy is also released on tab close and on MCP client disconnect.',
+      "Handle JS alert/confirm/prompt dialogs via CDP. Actions: handle_dialog (one-shot accept/dismiss), register_default (per-tab auto-handler, holds persistent debugger attach), unregister_default, list_defaults. Example: {action:\"handle_dialog\", behavior:\"accept\"} → {handled:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1834,7 +1821,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.GIF_RECORDER,
     description:
-      'Record browser tab activity as an animated GIF.\n\nModes:\n- Fixed FPS mode (action="start"): Captures frames at regular intervals. Good for animations/videos.\n- Auto-capture mode (action="auto_start"): Captures frames automatically when chrome_computer or chrome_navigate actions succeed. Better for interaction recordings with natural pacing.\n\nUse "stop" to end recording and save the GIF.',
+      "Record a tab as an animated GIF. action=start uses fixed-FPS sampling; action=auto_start captures on chrome_computer/chrome_navigate success; action=stop finalises and saves. Example: {action:\"start\", fps:5, durationMs:10000} → {recordingId, started:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2036,7 +2023,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.DEBUG_DUMP,
     description:
-      'Return recent debug-log entries from the extension. Each entry includes a `requestId` correlating to the MCP tool call that produced it, plus tool name, optional tabId, level, message, and structured data. Use this to diagnose why a previous tool call failed without re-running it. Filters compose (AND).',
+      "Return recent extension debug-log entries correlated by requestId to the MCP call that produced them; filters compose AND. Use to diagnose a failed call without re-running it. Example: {tool:\"chrome_click_element\", level:\"error\", limit:20} → {entries:[...]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2081,7 +2068,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.ASSERT,
     description:
-      'Run one or more predicates against the page and return a structured pass/fail result. Use after a flow step to declaratively confirm "did the click work? did the page navigate? is the toast visible? was the API call successful?" instead of inferring success from individual tool returns. Returns `{ ok: boolean, results: [{ predicate, ok, detail }] }` — `ok` is the AND of every predicate. Tools fan out to existing primitives (querySelector, console-buffer, performance.getEntriesByType, page eval); no new infrastructure.',
+      "Run one or more predicates against the page and return structured pass/fail; ok is AND of all predicates. Use after a step to declaratively verify outcomes instead of inferring from tool returns. Example: {predicates:[{kind:\"visible\", selector:\"#toast\"}]} → {ok:true, results:[...]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2153,7 +2140,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WAIT_FOR,
     description:
-      'Wait for one of: a DOM element to appear/disappear, the network to go idle, a specific response to fire, an arbitrary JS expression to return truthy, a page load state (Playwright-style `waitForLoadState`), or the tab URL to match a pattern (Playwright-style `waitForURL` — covers SPA pushState). Single primitive that replaces the chrome_javascript spin-poll pattern. Pick `kind` and provide the matching parameters; `timeoutMs` is shared across all kinds. `kind: "element"` is functionally identical to chrome_await_element and is the preferred entry point for new code. Returns `{ success: boolean, kind, tookMs, ...kind-specific-detail }` on completion or a TIMEOUT envelope on miss.',
+      "Wait for one of: element, network idle, response, JS expression, load state, or URL pattern. Replaces JS spin-polls; kind:\"element\" is preferred over chrome_await_element. Example: {kind:\"network\", quietMs:500} → {success:true, tookMs}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2218,7 +2205,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PACE,
     description:
-      'Set a per-MCP-client pacing profile. Mutating tool dispatches (anything that clicks/types/navigates/uploads) sleep for a profile-derived gap before firing, so anti-bot platforms (LinkedIn, Instagram, WhatsApp) see human-like rhythm. Reads stay un-throttled. State is per-client and lives in the extension service worker; service-worker restart resets to off. Returns the active profile + computed gap parameters.',
+      "Set a per-MCP-client pacing profile so mutating tools sleep a profile-derived gap before firing (human-like rhythm for anti-bot platforms). Reads are un-throttled. State resets on SW restart. Example: {profile:\"careful\"} → {profile:\"careful\", minGapMs, jitterMs}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2245,7 +2232,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NOTIFICATIONS,
     description:
-      'Push native OS notifications via `chrome.notifications`. Lets a long-running agent surface "task done" / "needs attention" pings outside the browser. Actions: `create` (returns `{notificationId}`; `title` and `message` required, `iconUrl` optional — defaults to the extension icon, `type` defaults to `basic`, optional `buttons[]` of `{title}` up to 2), `clear` (by `notificationId`), `clear_all` (close every notification this extension owns), `get_all` (list ids currently visible). The `notifications` permission is granted at install time. iconUrls must be data URIs or extension-relative paths.',
+      "Push native OS notifications via chrome.notifications. Actions: create (title+message required, up to 2 buttons), clear, clear_all, get_all. iconUrl must be a data URI or extension-relative path. Example: {action:\"create\", title:\"Done\", message:\"Task finished\"} → {notificationId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2290,7 +2277,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLIPBOARD,
     description:
-      'Read and write the system clipboard via the offscreen document (the only DOM context where `navigator.clipboard.readText` / `writeText` works from a service-worker extension). Actions: `read` (returns `{text}`), `write` (takes `text`, returns `{written: true}`). Useful for copying a table from one page and pasting into another, capturing an OTP from an email tab, or pre-seeding clipboard contents before triggering a paste shortcut. Plain text only — image / HTML clipboards are out of scope.',
+      "Read or write the system clipboard via the offscreen document (only context where navigator.clipboard works from a SW). Plain text only — no image/HTML. Example: {action:\"write\", text:\"hello\"} → {written:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2310,7 +2297,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SESSIONS,
     description:
-      'Inspect and restore recently-closed tabs/windows via `chrome.sessions`. Actions: `get_recently_closed` (returns up to `maxResults` entries, each `{lastModified, tab|window}` — tabs include `sessionId, url, title, windowId`, windows include `sessionId, tabs[]`), `restore` (restores by `sessionId`; without one, restores the most recent closure). Lets an agent un-close a tab it killed by mistake without re-navigating. The `sessions` permission is required (granted at install time).',
+      "Inspect and restore recently-closed tabs/windows via chrome.sessions. Lets an agent un-close a tab without re-navigating. Example: {action:\"restore\", sessionId:\"abc\"} → {restored:{sessionId, tab}}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2335,7 +2322,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.TAB_LIFECYCLE,
     description:
-      "Memory-management and audio-state controls on tabs. Actions: `discard` (free the tab's in-memory state — Chrome reloads on next focus; takes `tabId`), `mute` / `unmute` (set the audio mute state via `chrome.tabs.update({muted}`), `set_auto_discardable` (allow / forbid Chrome to auto-discard this tab under memory pressure — useful to pin a tab the agent depends on). All actions return the updated tab's `{id, url, mutedInfo, discarded, autoDiscardable}`.",
+      "Memory and audio controls: discard, mute, unmute, set_auto_discardable. Example: {action:\"mute\", tabId:3} → {id, mutedInfo, discarded, autoDiscardable}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2361,7 +2348,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NETWORK_EMULATE,
     description:
-      'Emulate network conditions on a tab via the Chrome DevTools Protocol (`Network.emulateNetworkConditions`). Useful for testing behavior under slow / offline connections without touching system network settings. Actions: `set` (apply offline | latencyMs | downloadKbps | uploadKbps to the tab), `reset` (restore default network conditions). Requires the `debugger` permission (already granted). Each call attaches the debugger if not already attached; the `reset` action also detaches when no other debugger consumers are active. State is per-tab and persists until reset or the tab is closed.',
+      "Emulate network conditions on a tab via CDP Network.emulateNetworkConditions. Actions: set (offline | latencyMs | downloadKbps | uploadKbps), reset. State persists per-tab until reset or tab close. Example: {action:\"set\", offline:true} → {applied:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2398,7 +2385,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PRINT_TO_PDF,
     description:
-      'Save a tab as PDF via the Chrome DevTools Protocol (`Page.printToPDF`). Returns the PDF as a base64 string by default. When `savePath` is provided, the bridge writes the file to disk and returns `{path, bytes}` instead. Common formatting options exposed: `landscape`, `printBackground`, `scale`, `paperWidthIn` / `paperHeightIn`, `marginTopIn` / `marginRightIn` / `marginBottomIn` / `marginLeftIn`, `pageRanges`. Requires the `debugger` permission. The CDP attach window is short — the tool detaches before returning.',
+      "Save a tab as PDF via CDP Page.printToPDF. Returns base64 by default; with savePath the bridge writes to disk and returns {path, bytes}. Common page/margin options exposed. Example: {savePath:\"/tmp/out.pdf\", landscape:true} → {path, bytes}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2431,7 +2418,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.BLOCK_OR_REDIRECT,
     description:
-      'Block or redirect URLs at the network layer via `chrome.declarativeNetRequest` *session* rules (no DNR ruleset reload, no manifest declaration — rules clear when Chrome restarts). Actions: `add` (one rule: `urlFilter` + `action` = `block` | `redirect`; for redirect, `redirectUrl` is required; optional `resourceTypes` filter), `remove` (by `ruleId`), `list` (all session rules registered by this extension), `clear` (drop every session rule). Use it to mock APIs during a test flow, block trackers for a session, or simulate a 404 on a specific URL. Requires `declarativeNetRequestWithHostAccess` (already granted) — host_permissions are honored.',
+      "Block or redirect URLs via declarativeNetRequest session rules (cleared on Chrome restart). Actions: add, remove, list, clear. Example: {action:\"add\", urlFilter:\"||tracker.com\", ruleAction:\"block\"} → {ruleId:1, success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2492,7 +2479,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.ACTION_BADGE,
     description:
-      'Show a small badge on the extension icon — useful for live status during a long-running agent ("3 tabs", "ERR"). Actions: `set` (takes `text`, optional `color` as a hex string `#RRGGBB[AA]`, optional `tabId` for per-tab scope), `clear` (empties the badge text; per-tab when `tabId` is set, otherwise global). Badge text is truncated to ~4 characters by Chrome.',
+      "Set or clear a small badge on the extension icon (text truncated to ~4 chars by Chrome). action=set takes text+optional color/tabId; action=clear empties it (per-tab if tabId set, else global). Example: {action:\"set\", text:\"ERR\", color:\"#FF0000\"} → {success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2523,7 +2510,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.KEEP_AWAKE,
     description:
-      'Prevent the system from sleeping during long agent runs via `chrome.power.requestKeepAwake`. Actions: `enable` (with `level` = `display` | `system` — `display` keeps the screen awake too, `system` lets the screen sleep but keeps the OS active), `disable` (release the lock). Idempotent — repeated `enable` calls just refresh the existing lock. The lock is released when the extension reloads.',
+      "Prevent system sleep during long runs via chrome.power.requestKeepAwake. Idempotent. Actions: enable (level=display keeps screen on, system lets screen sleep), disable. Released on extension reload. Example: {action:\"enable\", level:\"system\"} → {enabled:true, level:\"system\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2544,7 +2531,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CONTEXT_MENU,
     description:
-      'Register transient right-click menu items via `chrome.contextMenus`. Use it to let the user manually inject input mid-session ("treat this element as the next target"). Actions: `add` (returns `{id}`; takes `title`, optional `id`, optional `contexts[]` like `["page","selection"]`), `update` (modify title/contexts of an existing id), `remove` (by id), `remove_all` (drop every menu item this extension registered). Click events are surfaced via the bridge\'s native-message channel as `context_menu_clicked` events with `{menuItemId, info, tab}`.',
+      "Register transient right-click menu items via chrome.contextMenus; clicks emit context_menu_clicked events over the bridge. Actions: add, update, remove, remove_all. Example: {action:\"add\", title:\"Use as target\", contexts:[\"page\",\"selection\"]} → {id:\"menu_1\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2598,7 +2585,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.FOCUS,
     description:
-      'Focus an element programmatically by `selector` or `ref`. Several flows (chrome_paste, chrome_keyboard, some chrome_fill_or_select sites) need a focused target before keyboard input lands. Today there is no first-class way — agents synthesize a click and hope it sticks. The shim runs in ISOLATED world (where `window.__claudeElementMap` lives, populated by chrome_read_page / chrome_await_element) and calls `el.focus({ preventScroll: false })`, then reports `focused: document.activeElement === el` so callers can detect "element exists but does not accept focus" cases (e.g. disabled inputs, offscreen-with-tabindex=-1). Selector accepts the same Playwright-style locator shapes as chrome_click_element (IMP-0098).',
+      "Focus an element by selector or ref before keyboard input (chrome_paste, chrome_keyboard). Reports focused:document.activeElement===el so callers detect disabled/unfocusable targets. Example: {selector:\"#search\"} → {focused:true, tagName:\"INPUT\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2640,7 +2627,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PASTE,
     description:
-      'Focus an element (by `selector` or `ref`) and paste text into it. If `text` is supplied, the tool seeds the system clipboard via the offscreen document first, then dispatches BOTH a synthetic `ClipboardEvent("paste")` carrying a `text/plain` DataTransfer (so pages with paste-event handlers like rich editors see it) AND a `document.execCommand("insertText", false, text)` (so plain inputs / textareas that don\'t handle paste events still receive the value). Returns `{ focused, pasted, mode: "event" | "execCommand" | "both" }` so callers can detect whether the page accepted the paste. Without `text`, the page sees whatever is currently on the clipboard. Saves the chain of `chrome_clipboard write → chrome_focus → chrome_keyboard ctrl+v` agents otherwise have to glue together.',
+      "Focus an element by selector or ref and paste text — seeds the clipboard then dispatches BOTH a synthetic ClipboardEvent and execCommand(insertText) so rich editors and plain inputs both accept it. Example: {selector:\"#msg\", text:\"hi\"} → {focused:true, pasted:true, mode:\"both\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2677,7 +2664,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SELECT_TEXT,
     description:
-      'Select text inside an element. For `<input>` / `<textarea>`, calls `setSelectionRange(start, end)`. For everything else, walks text nodes to map character offsets into a `Range` and applies via `window.getSelection().addRange(range)`. Two ways to specify what to select: pass a `substring` (first occurrence inside the element\'s value/textContent wins) OR pass `start` AND `end` character indexes. Returns `{ start, end, selected, mode: "input-range" | "dom-range" }`. Pair with chrome_clipboard or chrome_paste for "copy this exact field" flows.',
+      "Select text inside an element via setSelectionRange (inputs) or DOM Range (everything else). Pass substring OR start+end. Pairs with chrome_clipboard/chrome_paste. Example: {selector:\"#bio\", substring:\"hello\"} → {start, end, mode:\"dom-range\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2722,7 +2709,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WINDOW_MANAGE,
     description:
-      'Manage Chrome browser windows. Wraps `chrome.windows.{create,update,remove}`. Actions: `create` (open a new window — `url`, `type` = normal | popup | panel, `incognito`, `focused`, `state` = normal | minimized | maximized | fullscreen, `left`/`top`/`width`/`height`), `focus` (bring `windowId` to front via update({focused:true})), `update` (generic update — needs at least one of focused/state/left/top/width/height), `close` (chrome.windows.remove). Returns the updated `Window` object as `{id, type, state, focused, incognito, top, left, width, height, tabsCount}`. Useful for spawning isolated incognito windows for sandboxed flows, popping a popup window for a workflow, or just bringing a window to front before a screenshot.',
+      "Manage Chrome windows via chrome.windows (create/focus/update/close). Useful for incognito sandboxes or popping a window to front. Example: {action:\"create\", url:\"https://x.com\", incognito:true} → {Window}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2768,7 +2755,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WEB_VITALS,
     description:
-      'Live Core Web Vitals collector via `PerformanceObserver` in the page MAIN world. Different shape from chrome_performance_* (those record full DevTools traces — heavyweight, post-hoc). This is "what does the user actually feel?" measurement, available live and cheap. Actions: `start` (idempotently install per-tab observers on `window.__hcWebVitals`; `reload: true` reloads the tab first so cold-start LCP/FCP/TTFB get captured), `snapshot` (read current values without disturbing the observer), `stop` (read final values + disconnect observers + clear the global). Returns `{ lcpMs, clsScore, inpMs, fcpMs, ttfbMs, fidMs }` with `null` for any metric not yet observed and `installed` reflecting the observer state. No new permissions needed.',
+      "Live Core Web Vitals collector via PerformanceObserver in MAIN world. Lighter than chrome_performance_*. Example: {action:\"start\", reload:true} → {installed:true, lcpMs, clsScore, inpMs, fcpMs, ttfbMs}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2797,7 +2784,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.IDLE,
     description:
-      'Query the user\'s idle state via `chrome.idle.queryState`. Returns `{ state: "active" | "idle" | "locked", detectionIntervalSec }`. Pair with the pacing throttle to back off intrusive operations while the user is at the keyboard, or skip a screenshot when the system is locked. The `idle` permission is required (granted at install time). `detectionIntervalSec` is the threshold of inactivity that flips state from active → idle; Chrome accepts 15..14400 seconds. Default 60.',
+      "Query user idle state via chrome.idle.queryState (active|idle|locked) to back off intrusive ops or skip screenshots when locked. detectionIntervalSec accepts 15..14400 (default 60). Example: {detectionIntervalSec:120} → {state:\"active\", detectionIntervalSec:120}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2812,7 +2799,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.ALARMS,
     description:
-      'Schedule one-shot or repeating callbacks via `chrome.alarms`. Actions: `create` (`name` plus at least one of `when` (epoch ms), `delayInMinutes`, optional `periodInMinutes` for repeating fires), `clear` (by name; returns `cleared` boolean), `clear_all` (drops every alarm this extension owns), `get` (returns `{name, scheduledTime, periodInMinutes}` or null), `get_all`. Each alarm fire broadcasts `{type:"alarm_fired", name, scheduledTime}` over `chrome.runtime.sendMessage` so flows polling for the event can correlate. The `alarms` permission is already in the manifest (used internally elsewhere).',
+      "Schedule one-shot or repeating chrome.alarms callbacks; fires broadcast as alarm_fired runtime messages. Actions: create, clear, clear_all, get, get_all. Example: {action:\"create\", name:\"poll\", delayInMinutes:5, periodInMinutes:5} → {success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2846,7 +2833,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLEAR_BROWSING_DATA,
     description:
-      'Wipe browsing-data stores via `chrome.browsingData.remove`. Useful for sanitizing state between agent runs without walking each store individually. Single tool, no action enum. Required: `dataTypes` — non-empty array of any of `cookies`, `localStorage`, `indexedDB`, `cache`, `cacheStorage`, `history`, `downloads`, `formData`, `passwords`, `serviceWorkers`, `webSQL`, `fileSystems`, `pluginData`, `appcache`. Optional: `since` (epoch ms; default 0 = all time), `origins` (origin-scoped filter — only data from these origins is removed). Unknown dataTypes are rejected with INVALID_ARGS naming the offender. The `browsingData` permission is granted at install time.',
+      "Wipe browsing-data stores via chrome.browsingData.remove. Required dataTypes[] subset of cookies/localStorage/indexedDB/cache/history/etc; unknown types reject as INVALID_ARGS. Optional since(epoch ms) and origins[] filter. Example: {dataTypes:[\"cookies\",\"cache\"], since:0} → {success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2874,7 +2861,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PROXY,
     description:
-      'Set / clear / inspect the proxy configuration via `chrome.proxy.settings`. Useful for scraping, regional testing, and anonymity flows. Actions: `set` (mode = `direct` | `system` | `fixed_servers` | `pac_script`; for `fixed_servers` provide `singleProxy: {scheme?, host, port}` plus optional `bypassList[]`; for `pac_script` provide `pacUrl`), `clear` (revert to default), `get` (returns the current `{value, levelOfControl, incognitoSpecific}`). Scope is always `regular` (incognito is left untouched). The `proxy` permission is required.',
+      "Set/clear/inspect proxy config via chrome.proxy.settings. Modes: direct | system | fixed_servers (needs singleProxy) | pac_script (needs pacUrl). Scope is always regular (incognito untouched). Example: {action:\"set\", mode:\"fixed_servers\", singleProxy:{host:\"1.2.3.4\", port:8080}} → {applied:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2919,7 +2906,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.IDENTITY,
     description:
-      "OAuth2 + profile lookup via `chrome.identity`. Lets agents call Google APIs (Gmail, Calendar, Drive, GSC, etc.) without bouncing through a browser-based consent flow each run — Chrome handles consent + caching + refresh natively. Actions: `get_token` (`scopes`, `interactive`; returns `{token, scopes, interactive}`), `remove_token` (`token`; clears Chrome's cache for that token), `get_profile` (returns `{email, id}`). Requires `oauth2.client_id` to be set in the manifest — until `HUMANCHROME_OAUTH_CLIENT_ID` is provided at build time, the placeholder is detected and an INVALID_ARGS error explains how to set it up rather than surfacing an opaque OAuth failure. The `identity` permission is granted at install time.",
+      "OAuth2 + profile lookup via chrome.identity for calling Google APIs without browser consent flows. Requires oauth2.client_id in manifest. Actions: get_token, remove_token, get_profile. Example: {action:\"get_token\", scopes:[\"openid\",\"email\"], interactive:false} → {token, scopes}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -2950,7 +2937,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.DRAG_DROP,
     description:
-      'Drag from one element to another by synthesizing the full HTML5 Drag-and-Drop + Pointer-Event chain. Single tool (no action enum). The MAIN-world shim resolves both targets (selector or ref), computes their bounding-rect centers, then dispatches `pointerdown` → `mousedown` → `dragstart` on FROM, N intermediate `pointermove` + `dragover` events along a linear interpolation, then `dragenter` → `dragover` → `drop` on TO and `dragend` on FROM and `pointerup` / `mouseup` on TO. Returns `{ steps, fromBox, toBox }`. Hidden / not-visible / not-found targets surface as INVALID_ARGS so callers can branch without re-raising. Useful for Trello cards, kanban boards, file-upload drop zones, sortable lists.',
+      "Drag from one element to another by synthesizing the full HTML5 DnD + Pointer-Event chain (pointerdown→dragstart→N moves→drop→dragend). Hidden/not-found targets surface as INVALID_ARGS. Example: {fromSelector:\"#card1\", toSelector:\"#col2\", steps:10} → {steps, fromBox, toBox}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3019,7 +3006,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.DOWNLOAD_LIST,
     description:
-      'Enumerate downloads via `chrome.downloads.search`. Use to check whether a previous download is still running, find the id of an in-progress download for `chrome_download_cancel`, or list completed downloads with their saved paths. Returns `{count, items: [{id, url, filename, state, totalBytes, bytesReceived, startTime, endTime, mime, error?}]}`. Pre-existing downloads matching the filter are returned even if they were started outside the agent session.',
+      "Enumerate downloads via chrome.downloads.search to find in-progress ids, check state, or list completed saved paths. Includes downloads started outside the agent session. Example: {state:\"in_progress\", limit:10} → {count, items:[{id, url, filename, state, ...}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3045,7 +3032,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL,
     description:
-      'Cancel an in-progress download by id via `chrome.downloads.cancel`. Already-completed or already-cancelled downloads are a no-op (Chrome silently succeeds). Returns `{cancelled: true, downloadId, postState}` where `postState` is the download state immediately after the cancel attempt (typically `interrupted` for active cancels, the prior terminal state for already-finished ones).',
+      "Cancel an in-progress download by id via chrome.downloads.cancel. Completed/already-cancelled downloads are silent no-ops. Example: {downloadId:42} → {cancelled:true, downloadId:42, postState:\"interrupted\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3061,7 +3048,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT,
     description:
-      "Explicitly tear down a user script previously installed via `chrome_inject_script` on a tab. Sends the existing `humanchrome:cleanup` teardown signal and drops the tab from the internal `injectedTabs` registry. Useful for monitoring bridges (mutation observers, WebSocket proxies) that an agent wants to remove before handing the tab back to the user — without this, the only way to unload was to navigate the tab away. Returns `{removed, tabId}`. Idempotent: `removed:false` when the tab had no injection (callers that don't track state can call freely without checking first).",
+      "Tear down a user script previously installed via chrome_inject_script by sending humanchrome:cleanup and dropping the tab from the registry. Idempotent — removed:false when no injection existed. Example: {tabId:42} → {removed:true, tabId:42}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3077,7 +3064,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PACE_GET,
     description:
-      'Read-only counterpart of `chrome_pace`. Returns the current per-MCP-client pacing profile and the resolved gap/jitter that would be applied on the next mutating call. Use to verify pacing was set as intended, or to discover whether a previous `chrome_pace` call (in this session or another) is still in effect. When no profile is set, returns `{profile: "off", minGapMs: 0, jitterMs: 0}`. No mutation, no side effects on client state.',
+      "Read-only counterpart of chrome_pace. Returns the active pacing profile and the resolved gap/jitter for the next mutating call. Returns off-defaults when unset. Example: {} → {profile:\"off\", minGapMs:0, jitterMs:0}",
     inputSchema: {
       type: 'object',
       properties: {},
@@ -3087,7 +3074,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLAIM_TAB,
     description:
-      "Claim a tab as owned by the calling MCP client. Tabs the user opened manually (or that another client released on disconnect) start out unowned and are invisible to the implicit tab-resolution path; claim them here to bring them into your owned set so subsequent tool calls without an explicit `tabId` can target them. Returns `{tabId, previousOwner: string|null}`. Errors with `INVALID_ARGS` if `tabId` is missing, `TAB_NOT_FOUND` if the tab does not exist, and `TAB_NOT_OWNED` if the tab is currently owned by a different client (use `chrome_get_windows_and_tabs` to discover ownership). Pass `force: true` to seize a tab owned by another client — this overrides the `TAB_NOT_OWNED` check only and is audit-logged; the dispatcher's per-call ownership gate is not affected, so a forced claim must still be followed by an explicit mutating call.",
+      "Claim an unowned tab into the calling client's owned set so implicit tab-resolution can target it. Use force:true to seize a tab owned by another client (audit-logged). Example: {tabId:42} → {tabId:42, previousOwner:null}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3107,7 +3094,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.QUEUE_INSPECT,
     description:
-      'Diagnostic snapshot of per-tab serialization queues (IMP-0087). Returns the current holder + waiters per tab with EWMA-based wait estimates. Pass `tabId` to scope to one tab; omit for every active queue. Returns `{tabs: [{tabId, depth, servedTotal, meanHoldMs, holder, waiters}]}` where holder is `null` when the queue exists with no current holder, and waiters[] reports `{clientId, position, waitedMs, expectedWaitMs, ticket}`. `expectedWaitMs` uses the per-tab EWMA of completed hold durations once warmed up, falling back to position × 250ms otherwise. Read-only; no `chrome.*` calls. Use when callers report slow tool calls or to verify the queue drains correctly after closing a stuck tab.',
+      "Diagnostic snapshot of per-tab serialization queues with EWMA wait estimates. Returns {tabs:[{tabId, depth, holder, waiters:[{clientId, expectedWaitMs}]}]}. Read-only. Pass tabId to scope. Example: {tabId:42} → {tabs:[{tabId:42, depth:2}]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3122,7 +3109,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.CLOSE_MY_TABS,
     description:
-      "Close every tab currently owned by the calling MCP client. Opt-in cleanup — disconnect releases ownership without closing tabs; call this tool to actually close them. Optional `keep` array preserves specific tabIds (any id not in the caller's owned set is silently dropped). Returns `{success, closed: number[], kept: number[], failed: [{tabId, reason}]}`. Partial success is normal: an already-closed tab reports `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays true. Honors the last-tab-in-window guard (opens a placeholder rather than killing the window). NOTE: `beforeunload` prompts are bypassed silently — Chrome's extension API offers no dialog-aware close. Errors with `INVALID_ARGS` if `keep` is not an array of finite numbers or no MCP clientId is bound to the call.",
+      "Close every tab owned by the calling client; optional keep[] preserves specific tabIds. beforeunload prompts are bypassed silently. Example: {keep:[7]} → {success:true, closed:[3,5], kept:[7], failed:[]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3139,7 +3126,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
     description:
-      'Delete a recorded flow by ID. Closes the lifecycle gap left by `record_replay_list_published` + `record_replay_flow_run` so iterative record-test-refine sessions can clean up stale versions without opening the extension UI. Always unpublishes first (idempotent — `unpublishFlow` no-ops on unpublished flows) so the dynamic `flow.<slug>` MCP tool the bridge exposes disappears even when the underlying flow record is being deleted in the same call. Returns `{deleted: true, unpublished, flowId}` on success — `unpublished` reports whether the flow was published before deletion. Errors with `INVALID_ARGS` if `flowId` is missing or the flow does not exist.',
+      "Delete a recorded flow by ID; always unpublishes first so the dynamic flow.<slug> MCP tool disappears. Example: {flowId:\"f1\"} → {deleted:true, unpublished:true, flowId:\"f1\"}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3154,7 +3141,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.LOCATOR_HANDLER,
     description:
-      'Auto-dismiss sticky overlays (cookie banners, GDPR consent modals, newsletter popups, "we use cookies" interstitials) that intercept clicks and break LLM flows. Inspired by Playwright\'s `addLocatorHandler`. Register a {selector, dismissSelector} pair — whenever the trigger selector becomes visible (non-zero bbox + not display:none / visibility:hidden / opacity:0), the helper dispatches the dismiss action automatically. Agent code doesn\'t have to babysit overlays; subsequent clicks land on the intended element. Actions: `register` ({selector, dismissSelector, dismissAction?, key?, persistent?, times?, tabId?}) — installs a per-tab MutationObserver and returns `{handlerId, handler}`; `list` ({tabId?}) — enumerates installed handlers with live `dismissedCount` and `lastDismissedAt`; `remove` ({handlerId, tabId?}) — drops one handler by id; `clear` ({tabId?}) — drops every handler on the tab. `dismissAction` defaults to `click` (synthesizes pointerdown→mousedown→pointerup→mouseup→click sequence). `dismissAction: "press"` requires a `key` (e.g. `Escape`) and fires keydown→keypress→keyup. `times` caps total dismissals (default unlimited) — handler auto-removes when the limit hits. `persistent: true` re-arms the handler after page navigation via `chrome.webNavigation.onDOMContentLoaded`; non-persistent handlers drop on navigation. Pair with the pacing `careful` profile for LinkedIn / news / paywalled sites.',
+      "Auto-dismiss sticky overlays (cookie banners, GDPR modals) that intercept clicks. Actions: register/list/remove/clear a {selector, dismissSelector} pair; dismissAction defaults to click, \"press\" needs a key. Example: {action:\"register\", selector:\".cookie-banner\", dismissSelector:\".accept\"} → {handlerId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3213,7 +3200,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.DEV_RELOAD,
     description:
-      'Trigger `chrome.runtime.reload()` from the SW so unattended E2E runs (rebuild → reload → re-test) do not need an operator to click "reload" in chrome://extensions. The reply returns immediately; the actual reload fires ~50ms later, so callers should pause ~1–2s before the next tool call. Picks up the latest `.output/chrome-mv3/` bundle on disk. Dev/test use only.',
+      "Trigger chrome.runtime.reload() from the SW so unattended E2E rebuild→reload→re-test runs need no operator click. Reply returns immediately; reload fires ~50ms later, pause 1-2s before next call. Dev/test only. Example: {} → {ok:true}",
     inputSchema: {
       type: 'object',
       properties: {},
@@ -3222,7 +3209,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.RUNTIME_INFO,
     description:
-      "Diagnostic. Returns the SW's identity so E2E runners can verify the SW matches the bundle they just built. Output: `{extensionVersion, extensionId, toolNames[], toolCount, buildHash, builtAt, uptimeMs}`. `buildHash` is injected at build time — use it to assert the running SW is on the latest commit. `toolNames` lists every name the dispatcher resolves (eager + lazy) so callers can diff against the shared schema and detect tools missing in a stale SW.",
+      "Return SW identity for E2E runners to verify bundle freshness. Output includes buildHash and toolNames so callers can detect stale SWs. Example: {} → {extensionVersion, buildHash, toolNames, toolCount, uptimeMs}",
     inputSchema: {
       type: 'object',
       properties: {},
@@ -3231,7 +3218,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.OWNED_TABS,
     description:
-      'Return the tabs currently owned by the calling MCP client (or, for UI surfaces, the calling __ui:* lane). Distinct from `chrome_get_windows_and_tabs` — that is the whole-browser catalog; this answers the narrower "what does THIS client own" question without forcing the caller to filter a multi-window tree by an owner column. Output: `{success, clientId, count, ownedTabs: [{tabId, windowId, url, title, active, isActive, status, isPinnedActive}], activeTabId?, lastWindowId?}`. `isPinnedActive` marks the tab the dispatcher will pick when the caller omits `tabId` from a mutating tool. Empty `ownedTabs` for a fresh client with no claims. Optional `tabId` filters to one row, useful for "is this tab still mine?" checks. Powers the "Tabs owned by this client" panel in popup/sidepanel UIs.',
+      "Return tabs owned by the calling MCP client as {tabId, windowId, url, title, active, isPinnedActive}. Narrower than chrome_get_windows_and_tabs (whole browser). Optional tabId filters to one row. Example: {} → {clientId, count:2, ownedTabs:[]}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3245,7 +3232,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.ALIAS_TAB,
     description:
-      'Give an owned tab a human-friendly name so subsequent tool calls can target it without juggling raw tab ids. Aliases are per-client (alice\'s "checkout" is not bob\'s), self-evict when the underlying tab closes or the client releases, and don\'t transfer on force-claim. After aliasing, callers should pass `tabAlias: "name"` instead of `tabId` to other browser tools (once that arg ships — currently aliases are queryable via `chrome_owned_tabs`). Reusing an alias overwrites the prior mapping; the response carries `previousTabId` so the LLM sees the change. Input: `{alias: string, tabId?: number}` — `alias` must match `^[a-z][a-z0-9_-]{0,31}$`; `tabId` defaults to the caller\'s `activeTabId`. The tab must be in the caller\'s owned set; otherwise TAB_NOT_OWNED (use `browser_claim_tab` first). Output: `{success, alias, tabId, clientId, previousTabId?}`.',
+      "Bind a per-client alias to an owned tab so later calls can target it by name. Alias must match ^[a-z][a-z0-9_-]{0,31}$; tab must be in caller's owned set (else TAB_NOT_OWNED — claim it first). Example: {alias:\"checkout\", tabId:42} → {success:true, alias, tabId, previousTabId?}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3265,7 +3252,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.ARIA_SNAPSHOT,
     description:
-      'Playwright-style compact ARIA tree snapshot for token-efficient page reads. Returns indented `- role "name" [ref=ref_N]` lines with stable refs that round-trip into `selectorType:"ref"`. 4-6x smaller than `chrome_read_page` on rich pages (LinkedIn feed, dashboards, message threads) — LLMs scan it in ~half the tokens. Read-only; reuses the same accessibility-tree-helper that `chrome_read_page` uses (no new inject-script). Params: `tabId?`, `windowId?`, `refId?` (snapshot a subtree), `maxDepth?` (clamp traversal), `interactiveOnly?` (default true — set false for layout dumps), `includeRefs?` (default true). Output capped at 1 MiB with truncation envelope. Use this as the default page-read; fall back to `chrome_read_page` only when you need bounding-box coordinates.',
+      "Token-efficient Playwright-style ARIA tree snapshot returning indented `- role \"name\" [ref=ref_N]` lines; refs round-trip into selectorType:\"ref\". 4-6x smaller than chrome_read_page; prefer this unless you need bounding boxes. Example: {interactiveOnly:true} → {snapshot:\"...\", refs}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3293,7 +3280,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SET_CHECKED,
     description:
-      'Idempotent checkbox / radio state set. Caller says "I want this checked:true" and the runtime makes it so, returning whether it had to do anything (`changed`) and what the prior state was (`priorChecked`). Saves a read-then-click round-trip and removes the "what if I clicked it twice" ambiguity that plagues flows built on top of `chrome_click_element` for toggles. Matches Playwright\'s `locator.setChecked(boolean)`. Accepts native `<input type="checkbox">` / `<input type="radio">` and ARIA `[role="checkbox|radio|switch"]`. Non-checkable elements return `INVALID_ARGS` with `details.tagName` / `details.role` for diagnostics. Disabled / aria-disabled / not-visible return `NOT_ACTIONABLE`. Mutates state via a native `.click()` so framework `onChange` handlers fire (no direct `.checked = X`). Returns `{checked, changed, priorChecked, tagName, role}`.',
+      "Idempotent checkbox/radio/switch state set — matches Playwright locator.setChecked. Non-checkable elements return INVALID_ARGS. Example: {selector:\"#tos\", checked:true} → {checked:true, changed:true, priorChecked:false}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3317,7 +3304,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.BASIC_AUTH,
     description:
-      'Autoresponder for HTTP Basic / Digest auth prompts via CDP `Fetch.enable({handleAuthRequests:true})` + `Fetch.authRequired` + `Fetch.continueWithAuth`. Many internal corporate sites and staging environments sit behind 401-challenge dialogs that `chrome_handle_dialog` cannot answer (it handles JS dialogs only, not the native auth UI). Without this tool, agents stall indefinitely on the first auth-protected page. Passwords are stored in-memory only — never persisted to chrome.storage, never echoed in `list` output, never logged. Origin match is exact (e.g. "https://api.example.com") with a "*" wildcard fallback. `scheme` ∈ {basic, digest, any} — default any. Unmatched challenges get `Default` (Chrome shows the native dialog as fallback). Actions: `register` (default), `unregister` ({origin}), `list` (origins without passwords), `clear` (drops all on the tab). Per-tab state with auto-cleanup on tab close.',
+      "Autoresponder for HTTP Basic/Digest 401 prompts via CDP Fetch.continueWithAuth — chrome_handle_dialog cannot. In-memory only. Actions: register, unregister, list, clear. Example: {action:\"register\", origin:\"https://api.example.com\", username:\"u\", password:\"p\"} → {success:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3340,7 +3327,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.MOCK_RESPONSE,
     description:
-      'Synthesize fake response bodies for matched URLs via CDP `Fetch.enable` + `Fetch.requestPaused` + `Fetch.fulfillRequest`. The page fires its real request; this tool intercepts the pre-flight and returns a synthesized response before the network layer ever leaves the browser. Closes the missing in-flight synthesis primitive — `chrome_block_or_redirect` can drop or rewrite URLs, `chrome_intercept_response` can only WAIT, but neither can synthesize. Real-world: test the logged-in flow when the real endpoint would 429 (return a fake 200); deterministic fixture replay; demo a flow when the back-end is down. Actions: `register` (default; installs a handler), `list_mocks`, `unregister_mock` ({handlerId}), `clear` (drops all on the tab). Pattern syntax mirrors `chrome_intercept_response`: substring (`"voyager/api"`) or wrapped slashes with flags (`"/voyager\\\\/api.*foo/i"`). `bodyJson` auto-serializes + sets `Content-Type: application/json` if no content-type in headers. `once` (default true) auto-unregisters after the first match. `delayMs` adds artificial latency.',
+      "Synthesize fake response bodies for matched URLs via CDP Fetch.fulfillRequest before the request leaves the browser. Actions: register/list_mocks/unregister_mock/clear. bodyJson auto-serializes. Example: {action:\"register\", urlPattern:\"/api/me\", status:200, bodyJson:{ok:true}} → {handlerId}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3374,7 +3361,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HAR_EXPORT,
     description:
-      'Emit captured network data as standard HAR 1.2 JSON. `chrome_network_capture` collects rich per-request data in two backends (debugger + web-request); this tool is a pure formatter that shapes whichever backend is currently running for the tab into the format every external tool (Chrome DevTools "Save all as HAR", Charles Proxy import, Playwright trace viewer, Sentry session replay, har-validator-based test harnesses) expects. Read-only. Actions: `export_from_active` ({tabId?}) returns the HAR JSON inline in the response. `save_to_downloads` ({tabId?, filename?}) writes the HAR to ~/Downloads via chrome.downloads.download and returns the download id + filename — useful when the HAR is large enough to bloat the LLM context. Response bodies still honor the 1 MiB cap; per-entry truncation is surfaced via a JSON comment on `content.comment` so HAR viewers display the file without rejecting it. Default action: `export_from_active`.',
+      "Format chrome_network_capture buffers as HAR 1.2 JSON for DevTools/Charles/Playwright import. Read-only. Actions: export_from_active (inline, default), save_to_downloads (writes file to ~/Downloads). Response bodies capped at 1 MiB. Example: {action:\"save_to_downloads\", filename:\"run.har\"} → {downloadId, filename}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3395,7 +3382,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.TYPE_INTO,
     description:
-      'Char-by-char keystroke typing into a focused selector with realistic per-key delay. Anti-bot heuristics on LinkedIn / Tinder / Facebook search boxes flag the lack of keyboard cadence from `chrome_fill_or_select` (instant value-set + one input event) and skip suggestions / shadowban the session. `chrome_keyboard` fires at the window without focus-pinning; `chrome_paste` pastes a single buffer. This tool focuses the target, then dispatches CDP `Input.dispatchKeyEvent` keyDown/keyUp pairs per character with `perKeyDelayMs ± jitterMs` between them. Optional `clearFirst` selects-all + deletes before typing; optional `pressEnter` submits at the end. Returns `{typed, finalValue, pressedEnter, cleared, contentEditable}`. Pairs with `chrome_pace` (slow profile) for naturally-paced flows. Max text length: 1024 chars (safety against 30-min typing sessions). Params: `{selector? | ref?, selectorType?, index?, multi?, text, perKeyDelayMs?=60, jitterMs?=30, pressEnter?, clearFirst?, force?, tabId?, windowId?, frameId?}`.',
+      "Char-by-char keystroke typing with realistic per-key delay to bypass anti-bot cadence heuristics. Max 1024 chars. Example: {selector:\"#q\", text:\"hello\", perKeyDelayMs:60, pressEnter:true} → {typed, finalValue, pressedEnter}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3429,7 +3416,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HOVER,
     description:
-      'Programmatic mouse hover to trigger tooltips and dropdown menus. Hover-revealed UI (LinkedIn profile preview cards, Twitter quote-tweet tooltip, GitHub commit hover, nav-bar dropdowns) is unreachable without dispatching a real mouseover chain — `chrome_focus` only focuses, `chrome_click` clicks, `chrome_javascript` synthesizes events but skips actionability. This tool resolves the target via the same `_selector-resolve` engine that click uses, runs a visibility + hit-test check, then dispatches `pointermove` → `mouseover` → `mouseenter` → `pointerenter` exactly as a real mouse would. Returns `{hovered, bbox, point, tagName}`. Pair with `chrome_await_element` after dispatch to wait for the revealed UI before clicking it. Params: `{selector? | ref?, selectorType?, index?, multi?, position?:{x,y} (relative to bbox top-left, defaults to center), force?, tabId?, windowId?, frameId?}`.',
+      "Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mouseenter→pointerenter chain with actionability). Pair with chrome_await_element to wait for revealed UI. Example: {selector:\".profile-card\"} → {hovered:true, bbox, point, tagName}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3456,7 +3443,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.GET_ATTRIBUTES,
     description:
-      'Read DOM attributes, properties, and computed CSS by selector or ref. Read-only. Closes the gap between `chrome_assert` (boolean-only), `chrome_read_page` (whole tree, no computed styles), and `chrome_javascript` (forces JS authoring + trips redactor). Single tool, no action enum. Params: `{selector? | ref?, selectorType?, index?, multi?, attributes?, properties?, computedStyles?, tabId?, windowId?, frameId?}`. When `attributes` is omitted it defaults to `[id, class, href, src, value, title, role, aria-label]`. When `properties` is omitted it defaults to `[tagName, checked, disabled, selected, value]` — captures DOM-property-only fields like `checked`/`value`/`selectedIndex` that don\'t mirror to attributes. `computedStyles` defaults to empty (opt-in only). Pass `[]` to opt out of a group entirely. `multi:true` returns an array under `matches`; single-match flattens directly into the response. Use this instead of `chrome_javascript` for scraping data-attributes (LinkedIn URNs from `data-entity-urn`), reading `<input value>` after fill, or asserting computed color matches a brand spec.',
+      "Read DOM attributes, properties, and computed CSS by selector or ref. Read-only; closes the gap between chrome_assert, chrome_read_page, and chrome_javascript. Use for data-* scraping, input.value after fill, computed style assertions. Example: {selector:\"#x\", attributes:[\"href\"]} → {attributes:{href:\"...\"}}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3480,7 +3467,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.EMULATE,
     description:
-      'Per-tab CDP `Emulation.*` overrides (UA, locale, timezone, geolocation, device metrics, color-scheme, prefers-reduced-motion). Persistent across navigations within the tab until `reset_all` or tab close. Pairs naturally with `chrome_proxy`: when running through a region-specific proxy, set timezone + locale + geolocation in one tool call so anti-bot platforms can\'t cross-check the mismatch. Actions: `set_device` ({width, height, deviceScaleFactor?, mobile?, hasTouch?} OR `{preset:"iphone-15"|"iphone-15-pro-max"|"pixel-7"|"pixel-7-pro"|"ipad-mini"|"desktop"}` — explicit fields override preset); `set_ua` ({userAgent, acceptLanguage?, platform?}); `set_locale` ({locale: BCP47}); `set_timezone` ({timezone: IANA name}); `set_geolocation` ({latitude, longitude, accuracy?=100}); `set_color_scheme` ({colorScheme?:"light"|"dark"|"no-preference", reducedMotion?:"reduce"|"no-preference"}); `reset_all` ({tabId}) clears everything best-effort; `get_state` ({tabId}) returns the current overrides.',
+      "Per-tab CDP Emulation overrides (UA, locale, timezone, geolocation, device, color-scheme). Persistent until reset_all or tab close. Actions: set_device|set_ua|set_locale|set_timezone|set_geolocation|set_color_scheme|reset_all|get_state. Example: {action:\"set_timezone\", timezone:\"Europe/London\"} → {ok:true}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3521,7 +3508,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS,
     description:
-      'Inject extra HTTP headers on every request a tab makes, via CDP `Network.setExtraHTTPHeaders`. Persistent across navigations within the tab until cleared or the tab closes. Tab-wide — no per-frame or per-URL targeting (use `chrome_intercept_response` for URL-conditioned overrides). Real use cases: `Authorization: Bearer <token>` for internal APIs, `X-Csrf-Token` for impersonation, custom session-bridge headers for proxy-fronted auth. Forbidden headers (Host, Content-Length, Connection, Transfer-Encoding, etc., per Chrome / Fetch spec) are rejected with INVALID_ARGS + `details.header`. Actions: `set` ({headers}) installs/replaces the override map; `get` returns the current overrides for the tab; `clear` drops the overrides (CDP `setExtraHTTPHeaders({})`); `list_tabs` returns every tab carrying overrides (no tabId required). Default action: `set`.',
+      "Inject extra HTTP headers on every request a tab makes via CDP, persistent until cleared. Forbidden headers (Host, etc.) rejected with INVALID_ARGS. Example: {action:\"set\", headers:{Authorization:\"Bearer x\"}} → {set:true}",
     inputSchema: {
       type: 'object',
       properties: {
