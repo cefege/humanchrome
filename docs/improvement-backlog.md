@@ -427,7 +427,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0177 · Single-tool MCP dispatcher — collapse 96 tools to `humanchrome(name, args)` (refactor) · score: 4
 - **Proposed by**: claude · 2026-05-26 (audit: `app/native-server/scripts/report-tool-index-size.mjs` → 15.84× token reduction, 36,586 tokens saved on every boot)
-- **Status**: queued
+- **Status**: done · 2026-05-26 (codegen in `packages/shared/src/tool-index.ts` builds the dispatcher tool with a sorted catalog in its description; `app/native-server/src/mcp/register-tools.ts` honors `HUMANCHROME_TOOL_MODE=lazy|legacy` env var, default `legacy`. In `lazy` mode `tools/list` returns one `humanchrome` tool + dynamic flow tools; `humanchrome(name, args)` validates the name against the catalog with IMP-0178-shape INVALID_ARGS + did-you-mean. Audit confirms actual 15.24× reduction (36,489 tokens saved, 93.4%). 12 shared unit + 10 native-server contract tests + 930/930 extension regression. CLAUDE.md updated with the addendum noting authoring is unchanged.)
 - **Why**: The MCP boot manifest ships all 96 tool schemas to every client on every cache miss — currently ~39K tokens, dominated by `inputSchema` (4-10× the description cost on heavy tools). Collapsing to a single dispatcher tool with a compact `{name → first-sentence-of-description}` index in the description field reduces the manifest to ~2.5K tokens. Server-side Zod (built from existing `TOOL_SCHEMAS`) validates args and returns IMP-0178's INVALID_ARGS envelope on mismatch — the LLM self-corrects in one round-trip. Uses zero advanced MCP protocol features (no `tools/list_changed`), so it works identically across every MCP client and ages well as the surface grows to 150-200+ tools.
 - **Cost**: L
 - **Value**: L
