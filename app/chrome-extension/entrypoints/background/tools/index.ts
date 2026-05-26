@@ -1,5 +1,5 @@
 import { createErrorResponse, createErrorResponseFromThrown } from '@/common/tool-handler';
-import { ToolErrorCode, TOOL_NAMES } from 'humanchrome-shared';
+import { ToolErrorCode, TOOL_NAMES, enforceOutputBudget } from 'humanchrome-shared';
 import { debugLog } from '../utils/debug-log';
 import {
   claimTabForClient,
@@ -321,6 +321,20 @@ async function getTool(name: string): Promise<ToolInstance | undefined> {
 }
 
 /** Test-only — drop the lazy memo so a test can re-exercise the loader. */
+/**
+ * Test-only escape hatches: inject/remove a tool by name without touching the
+ * frozen registry. Used by `dispatcher-output-budget.contract.test.ts` to
+ * exercise the IMP-0179 budget against a synthetic tool that returns
+ * arbitrarily-sized payloads.
+ */
+export function _registerToolForTest(tool: ToolInstance): void {
+  eagerToolsByName.set(tool.name, tool);
+}
+
+export function _unregisterToolForTest(name: string): void {
+  eagerToolsByName.delete(name);
+}
+
 export function _resetLazyToolCacheForTest(): void {
   lazyResolved.clear();
   lazyInflight.clear();
@@ -574,10 +588,19 @@ export const handleCallTool = async (
       // Bind the active request context so BaseBrowserToolExecutor.sendMessageToTab
       // can tag outbound envelopes with the same correlation id we just logged.
       // The envelope shape is unchanged for callers that don't read the field.
-      const result = await runWithContext<any>(
+      const rawResult = await runWithContext<any>(
         { requestId, clientId, tool: param.name, tabId },
         () => tool.execute(param.args),
       );
+      // IMP-0179: enforce dispatcher-level output budget. Per-tool truncation
+      // envelopes (network-capture's `responseBodyTruncation`, userscript's
+      // `maxOutputBytes`, console's `truncation`) remain authoritative — this
+      // is the OUTER guard. Callers opt out with `raw: true` on the args bag.
+      const toolCtor = tool.constructor as unknown as { outputBudgetBytes?: number };
+      const result = enforceOutputBudget(rawResult, {
+        raw: (param.args as any)?.raw === true,
+        budgetBytes: toolCtor.outputBudgetBytes,
+      });
       const ok = !(result && (result as { isError?: boolean }).isError === true);
       if (ok) {
         // Tools like chrome_navigate pick a tab themselves when the caller

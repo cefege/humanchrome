@@ -70,6 +70,10 @@ interface WebFetcherToolParams {
 
 class WebFetcherTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.WEB_FETCHER;
+  // Full-page text/html/markdown legitimately runs to 100-200 KiB; raise
+  // ceiling so the IMP-0179 outer guard doesn't cut normal usage. Callers
+  // hitting the cap can still pass `raw: true` to bypass entirely.
+  static readonly outputBudgetBytes = 256 * 1024;
 
   async execute(args: WebFetcherToolParams): Promise<ToolResult> {
     const htmlContent = args.htmlContent === true;

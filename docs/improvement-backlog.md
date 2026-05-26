@@ -270,7 +270,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0179 · Universal output budget at the dispatcher (feat) · score: 5
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (universal 25 KiB outer cap enforced in `handleCallTool` via shared `enforceOutputBudget`; per-tool `static outputBudgetBytes` overrides on `BaseBrowserToolExecutor`. Tool overrides: web-fetcher 256 KiB, read-page 256 KiB, network-capture 1 MiB. Universal `raw: true` bypass on the args bag. Image content never truncated; existing per-tool truncation envelopes preserved as inner guards. 11 unit + 5 contract tests, 930/930 across the tool suite.)
 - **Why**: Per-tool truncation is implemented inconsistently across the surface today: `network-capture` caps response bodies at 1 MiB; `userscript` honors `maxOutputBytes` (default 51200); `console` caps messages; but `read_page`, `get_web_content`, `inject_script`, and others return unbounded text. Tool-result bloat is the single biggest silent context killer in agentic loops. Centralizing the cap at the dispatcher with a uniform `truncation` envelope is the natural chokepoint and removes 96 places to get this wrong.
 - **Cost**: M
 - **Value**: L

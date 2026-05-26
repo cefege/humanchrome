@@ -30,6 +30,10 @@ interface ReadPageParams {
 
 class ReadPageTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.READ_PAGE;
+  // Accessibility-tree snapshots routinely hit 100+ KiB on rich pages.
+  // Raise the IMP-0179 outer cap; the per-tool truncation envelope already
+  // bounds element counts when the page is pathological.
+  static readonly outputBudgetBytes = 256 * 1024;
 
   // Execute read page
   async execute(args: ReadPageParams): Promise<ToolResult> {

@@ -3,6 +3,7 @@ export * from './types';
 export * from './tools';
 export * from './error-codes';
 export * from './invalid-args';
+export * from './output-budget';
 export * from './rr-graph';
 export * from './step-types';
 export * from './labels';
