@@ -1,9 +1,11 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
 type SessionsAction = 'get_recently_closed' | 'restore';
+
+const SESSIONS_ACTIONS: readonly SessionsAction[] = ['get_recently_closed', 'restore'];
 
 interface SessionsParams {
   action: SessionsAction;
@@ -40,11 +42,11 @@ class SessionsTool extends BaseBrowserToolExecutor {
 
   async execute(args: SessionsParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'get_recently_closed' && action !== 'restore') {
+    if (!SESSIONS_ACTIONS.includes(action as SessionsAction)) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: get_recently_closed, restore.',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, SESSIONS_ACTIONS),
       );
     }
     if (typeof chrome.sessions === 'undefined') {

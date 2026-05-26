@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, buildInvalidArgsDetails } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 import { claimTabForClient, findTabOwner } from '../../utils/client-state';
 import { debugLog } from '../../utils/debug-log';
@@ -44,7 +44,11 @@ class ClaimTabTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         '`tabId` is required and must be a number',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'tabId' },
+        buildInvalidArgsDetails({
+          arg: 'tabId',
+          received: tabId,
+          expected: { type: 'number', description: 'Finite tab id from chrome_get_windows_and_tabs.' },
+        }),
       );
     }
 

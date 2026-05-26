@@ -4,7 +4,17 @@ import {
   ToolResult,
 } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+
+const WAIT_FOR_KINDS = [
+  'element',
+  'network_idle',
+  'response_match',
+  'js',
+  'load_state',
+  'url',
+] as const;
+type WaitForKind = (typeof WAIT_FOR_KINDS)[number];
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { interceptResponseTool, compilePattern } from './intercept-response';
@@ -54,11 +64,11 @@ class WaitForTool extends BaseBrowserToolExecutor {
 
   async execute(args: WaitForToolParams): Promise<ToolResult> {
     const kind = args?.kind;
-    if (!kind) {
+    if (!kind || !WAIT_FOR_KINDS.includes(kind as WaitForKind)) {
       return createErrorResponse(
         'Provide `kind` (one of: element, network_idle, response_match, js, load_state, url)',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'kind' },
+        invalidArgsEnumDetails('kind', kind, WAIT_FOR_KINDS),
       );
     }
 
@@ -246,9 +256,11 @@ class WaitForTool extends BaseBrowserToolExecutor {
         return this.shapeResponse('js', resp, timeoutMs, start, { expression });
       }
 
-      return createErrorResponse(`unknown kind: ${kind}`, ToolErrorCode.INVALID_ARGS, {
-        arg: 'kind',
-      });
+      return createErrorResponse(
+        `unknown kind: ${kind}`,
+        ToolErrorCode.INVALID_ARGS,
+        invalidArgsEnumDetails('kind', kind, WAIT_FOR_KINDS),
+      );
     } catch (err) {
       return createErrorResponseFromThrown(err);
     }

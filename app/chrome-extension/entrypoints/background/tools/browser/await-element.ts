@@ -4,7 +4,7 @@ import {
   ToolResult,
 } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS } from '../../utils/timeouts';
@@ -55,7 +55,7 @@ class AwaitElementTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         `Invalid state "${state}": expected "present" or "absent"`,
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'state' },
+        invalidArgsEnumDetails('state', state, ['present', 'absent']),
       );
     }
 
@@ -64,7 +64,7 @@ class AwaitElementTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         `Invalid selectorType "${selectorType}"`,
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'selectorType' },
+        invalidArgsEnumDetails('selectorType', selectorType, validTypes),
       );
     }
 
