@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, buildInvalidArgsDetails } from 'humanchrome-shared';
 import {
   parseISO,
   subDays,
@@ -253,12 +253,24 @@ class HistoryDeleteTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         'Provide one of: `url`, `startTime`+`endTime`, or `all: true` (with `confirmDeleteAll: true`).',
         ToolErrorCode.INVALID_ARGS,
+        buildInvalidArgsDetails({
+          arg: 'mode',
+          received: null,
+          expected: { kind: 'one_of', modes: ['url', 'range', 'all'] },
+          hint: 'Set `url:"..."` OR `startTime+endTime` OR `all:true` + `confirmDeleteAll:true`.',
+        }),
       );
     }
     if (modeCount > 1) {
       return createErrorResponse(
         'Choose exactly one deletion mode: `url`, time range, or `all`. Combining modes is not supported.',
         ToolErrorCode.INVALID_ARGS,
+        buildInvalidArgsDetails({
+          arg: 'mode',
+          received: { hasUrl, hasRange, wantAll },
+          expected: { kind: 'one_of', modes: ['url', 'range', 'all'] },
+          hint: 'Pass exactly one of url / startTime+endTime / all:true — not multiple.',
+        }),
       );
     }
 

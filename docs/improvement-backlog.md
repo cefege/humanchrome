@@ -475,7 +475,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0187 · Backfill IMP-0178 INVALID_ARGS envelope on remaining enum tools (refactor) · score: 4
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (5 tools wired: `chrome_clipboard` (action enum), `chrome_emulate` (action enum), `chrome_storage` (action enum), `chrome_keyboard` (keys|shortcut one_of), `chrome_history_delete` (mode one_of via buildInvalidArgsDetails). Contract test extended with 5 new cases. 945/945 across the tool suite, +5 from this slice.)
 - **Why**: IMP-0178 shipped the self-correcting envelope helper + 8 wired tools. Several enum/mode-validating tools still return bare `INVALID_ARGS` with no `expected` / `hint`: `chrome_console` (mode), `chrome_keyboard` (keys|shortcut), `chrome_history_delete` (mode), `chrome_clipboard` (action), `chrome_emulate` (action), `chrome_storage` (action+scope). Completing the rollout means every malformed call gets the self-correction signal.
 - **Cost**: S
 - **Value**: M
