@@ -437,7 +437,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0181 · Prompt-cache-stable dispatcher description (refactor) · score: 4
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (snapshot `packages/shared/src/tool-index.snapshot.json` pins the 9700-char dispatcher description blob + SHA-256 + sorted tool names. Contract test `tool-index.snapshot.test.ts` asserts byte-for-byte parity with the live builder plus banned-patterns invariants — ISO timestamps, unix epochs, env-var interpolation, hostnames, semver build metadata. Regen via `pnpm regen:tool-index-snapshot` or `UPDATE_SNAPSHOT=1 npx vitest run src/tool-index.snapshot.test.ts`. CLAUDE.md load-bearing-conventions section now documents the invariant. 12 contract tests, 147/147 across packages/shared.)
 - **Why**: Anthropic's prompt cache has a 5-min TTL and is invalidated by any byte change in the system prompt or tools manifest. The IMP-0177 dispatcher pays off across multi-turn sessions only if the description is byte-stable across server starts. Without explicit discipline, future changes (a logging tweak, a timestamped header, an env-dependent string) silently bust the cache and revert the win.
 - **Cost**: S
 - **Value**: M
