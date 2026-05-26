@@ -25,7 +25,13 @@ import { didYouMean } from './invalid-args';
 
 export const DISPATCHER_TOOL_NAME = 'humanchrome';
 
-/** Trim a tool description to its first sentence, collapsed to one line. */
+/**
+ * Trim a tool description to its verb-phrase (first sentence) for the
+ * dispatcher catalog. Full skeleton descriptions (including `Example:`
+ * clauses) remain in TOOL_SCHEMAS for legacy mode; the IMP-0178 envelope
+ * + IMP-0180 verb-phrase together give the LLM enough to pick + shape a
+ * call without bloating the cache-stable lazy-mode manifest.
+ */
 function firstSentence(desc: string): string {
   if (!desc) return '';
   const m = desc.match(/^(.+?[.!?])(\s|$)/);

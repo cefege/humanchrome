@@ -676,7 +676,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0180 · Tool-description rewrite to fixed verb+example skeleton (refactor) · score: 3
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (96 tool descriptions rewritten to the skeleton `<verb-phrase>. <one constraint>. Example: <args> → <outcome>`. Style guide at `packages/shared/src/tool-schemas/style.md`. Contract test `tool-descriptions-style.test.ts` enforces ≤80 tokens, contains `Example:`, no markdown headers, no trailing whitespace. Rewrite produced via 4 parallel Opus agents (24 tools each), applied through TypeScript compiler API. Legacy manifest dropped from 39,051 → 32,110 tokens (-17.8%); audit reduction 11.10× (above the 10× floor). IMP-0181 snapshot regenerated. 152/152 packages/shared, 930/930 extension regression.)
 - **Why**: After IMP-0177 lands, the description blob is the model's only signal per tool. Today descriptions range wildly (50-356 tokens). Anthropic's tool-use guidance recommends a tight description plus a one-line example showing args→outcome. Heavy tools (`locator_handler`: 356, `network_capture`: 350, `tab_groups`: 261, `await_element`: 211) can drop to 50-80 tokens with no semantic loss using a fixed skeleton, cutting another 30-40% off the dispatcher index and measurably improving first-call correctness.
 - **Cost**: M
 - **Value**: M
