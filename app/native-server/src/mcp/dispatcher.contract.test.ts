@@ -70,8 +70,12 @@ beforeEach(() => {
   _resetIdemCacheForTest();
 });
 
-describe('IMP-0177 dispatcher — legacy mode (default)', () => {
+describe('IMP-0177 dispatcher — legacy mode (opt-in)', () => {
+  // IMP-0185 flipped the default to `lazy`; legacy mode now requires an
+  // explicit env var. These tests pin the mode so they continue to verify
+  // the legacy surface independently of the default.
   test('tools/list returns the full TOOL_SCHEMAS manifest', async () => {
+    setMode('legacy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
     const list = handlers.get(ListToolsRequestSchema)!;
@@ -84,6 +88,7 @@ describe('IMP-0177 dispatcher — legacy mode (default)', () => {
   });
 
   test('CallTool routes by name straight through dispatchTool', async () => {
+    setMode('legacy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
     const call = handlers.get(CallToolRequestSchema)!;
@@ -92,6 +97,30 @@ describe('IMP-0177 dispatcher — legacy mode (default)', () => {
     const [payload] = sendRequestMock.mock.calls[0] as any[];
     expect(payload.name).toBe('chrome_navigate');
     expect(payload.args).toEqual({ url: 'https://x' });
+  });
+});
+
+describe('IMP-0185 lazy mode is the default', () => {
+  test('tools/list with HUMANCHROME_TOOL_MODE unset returns the single dispatcher tool', async () => {
+    setMode(undefined);
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const list = handlers.get(ListToolsRequestSchema)!;
+    const res = await list({});
+    const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
+    expect(staticTools).toHaveLength(1);
+    expect(staticTools[0].name).toBe(DISPATCHER_TOOL_NAME);
+  });
+
+  test('an unknown mode value falls back to lazy', async () => {
+    setMode('garbage' as any);
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const list = handlers.get(ListToolsRequestSchema)!;
+    const res = await list({});
+    const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
+    expect(staticTools).toHaveLength(1);
+    expect(staticTools[0].name).toBe(DISPATCHER_TOOL_NAME);
   });
 });
 

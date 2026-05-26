@@ -14,14 +14,16 @@ import { dispatchTool, listDynamicFlowTools } from './dispatch';
 import { lookupIdempotentResult, recordIdempotentResult } from './idem-cache';
 
 /**
- * Tool-surface mode. `legacy` (default) ships the full TOOL_SCHEMAS manifest;
- * `lazy` (IMP-0177) collapses it to a single `humanchrome(name, args)`
- * dispatcher whose `description` carries the catalog. Default is `legacy` so
- * the rollout is safe — flip via `HUMANCHROME_TOOL_MODE=lazy` once green.
+ * Tool-surface mode. `lazy` (default, IMP-0185) ships the single
+ * `humanchrome(name, args)` dispatcher whose description carries the
+ * full catalog — ~10.86× boot-manifest reduction vs the legacy surface.
+ * `legacy` ships every TOOL_SCHEMAS entry as a first-class MCP tool;
+ * opt in via `HUMANCHROME_TOOL_MODE=legacy` for clients that need the
+ * old shape during a migration. Any other value falls back to `lazy`.
  */
 function resolveToolMode(): 'legacy' | 'lazy' {
   const v = (process.env.HUMANCHROME_TOOL_MODE || '').toLowerCase();
-  return v === 'lazy' ? 'lazy' : 'legacy';
+  return v === 'legacy' ? 'legacy' : 'lazy';
 }
 
 function invalidArgsResult(message: string, details: Record<string, unknown>) {

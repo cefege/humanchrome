@@ -108,6 +108,15 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix landed**: Replaced spread with `Object.assign({}, eventInit, {...})` — Object.assign is a global so it survives the serialize-and-rebuild round trip cleanly. Verified the new build's compiled hoverShim contains zero helper invocations. Re-enabled the IMP-0125 matrix row in scripts/run-e2e-matrix.mjs. PR #286.
 - **Notes**: Same hazard applies to any future ISOLATED-world shim that uses spread on a captured object. Pattern to avoid: `Object.assign({}, base, override)` not `{ ...base, ...override }`.
 
+### IMP-0185 · Flip dispatcher default to lazy mode (refactor) · score: 7
+- **Proposed by**: claude · 2026-05-26
+- **Status**: done · 2026-05-26 (`resolveToolMode()` in `app/native-server/src/mcp/register-tools.ts` now returns `'lazy'` unless `HUMANCHROME_TOOL_MODE=legacy` is set; unknown values fall back to lazy. Legacy-mode contract tests updated to set the env var explicitly; added 2 new tests proving lazy is the unset-default and that garbage values fall back to lazy. Audit still 10.86× (no regression). 28 bridge suites / 195 passed +30 skipped.)
+- **Why**: IMP-0177 shipped the 1-tool dispatcher behind `HUMANCHROME_TOOL_MODE=lazy|legacy`, defaulting to `legacy` so the rollout was safe. Audit confirms 10.86× boot-manifest reduction and the contract test proves every `TOOL_SCHEMAS` entry is routable. Flipping the default now means every connected client picks up the win on next restart, with `HUMANCHROME_TOOL_MODE=legacy` available as an opt-out.
+- **Cost**: S
+- **Value**: L
+
+- **Fix sketch**: One-line change in `app/native-server/src/mcp/register-tools.ts` — `resolveToolMode()` returns `'lazy'` when the env var is unset. Update `dispatcher.contract.test.ts` so legacy-mode cases explicitly set `HUMANCHROME_TOOL_MODE=legacy` (previously they relied on the unset default). Document the flip in CLAUDE.md's authoring addendum. Re-run the audit script to confirm no regression.
+
 ### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 6
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
@@ -454,6 +463,24 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: M
 - **Fix sketch**: Add a `Map<string, { result, expires }>` in `app/native-server/src/dispatcher/idem-cache.ts` keyed on `${clientId}:${toolName}:${idemKey}` with a 30s TTL and 1k-entry LRU cap. The dispatcher (IMP-0177) consults the cache before routing; on hit returns the cached result with `_meta.idempotent_hit: true`. Add the optional `idemKey: string` arg to the dispatcher's outer schema (universal — doesn't pollute per-tool schemas). Contract test: same `idemKey` returns identical result; expired keys re-execute; different `clientId` bypasses cache.
 - **Notes**: Universal at the dispatcher means no per-tool plumbing. Compounds cleanly with IMP-0177.
+
+### IMP-0186 · Backfill `_meta.suggested_next` on remaining 5 wave-1 tools (refactor) · score: 4
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: IMP-0182 wired hints into 5 of the 10 tools in the original fix-sketch. The remaining 5 — `chrome_tab_groups`, `chrome_wait_for`, `chrome_inject_script` (status), `chrome_search_tabs_content`, `chrome_screenshot` — still have no follow-up affordance. Bringing them to parity gives the LLM the same "what's next" hint regardless of which entry-point tool it picked.
+- **Cost**: S
+- **Value**: M
+
+- **Fix sketch**: For each tool, identify the success-result path and call `withSuggestedNext(result, hints)` with ≤4 names. Suggested hints per tool: `tab_groups` create → `[query, add_tabs, switch_tab]`; `wait_for` element success → `[click_element, fill_or_select, get_attributes]`; `inject_script` → `[send_command_to_inject_script, list_injected_scripts]`; `search_tabs_content` → `[switch_tab, navigate]`; `screenshot` → `[read_page, computer]`. Extend `tests/tools/suggested-next.contract.test.ts` with one end-to-end case per newly wired tool.
+
+### IMP-0187 · Backfill IMP-0178 INVALID_ARGS envelope on remaining enum tools (refactor) · score: 4
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: IMP-0178 shipped the self-correcting envelope helper + 8 wired tools. Several enum/mode-validating tools still return bare `INVALID_ARGS` with no `expected` / `hint`: `chrome_console` (mode), `chrome_keyboard` (keys|shortcut), `chrome_history_delete` (mode), `chrome_clipboard` (action), `chrome_emulate` (action), `chrome_storage` (action+scope). Completing the rollout means every malformed call gets the self-correction signal.
+- **Cost**: S
+- **Value**: M
+
+- **Fix sketch**: For each tool, replace the existing `{ arg: '...' }` details with `invalidArgsEnumDetails('arg', received, CANDIDATES)` using the tool's existing const list. Extend `tests/tools/browser/invalid-args-envelope.contract.test.ts` with one case per newly-covered tool asserting the new envelope shape (`expected.enum`, `hint`).
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
