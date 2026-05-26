@@ -1,5 +1,13 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
-import { jsonOk } from './_common';
+import { jsonOk, withSuggestedNext } from './_common';
+
+// IMP-0186: after a successful inject, the LLM typically wants to dispatch
+// custom events into the script or list active injections.
+const INJECT_SCRIPT_NEXT = [
+  'chrome_send_command_to_inject_script',
+  'chrome_list_injected_scripts',
+  'chrome_remove_injected_script',
+] as const;
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
@@ -238,15 +246,18 @@ class InjectScriptTool extends BaseBrowserToolExecutor {
         });
       }
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(res),
-          },
-        ],
-        isError: false,
-      };
+      return withSuggestedNext(
+        {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(res),
+            },
+          ],
+          isError: false,
+        },
+        INJECT_SCRIPT_NEXT,
+      );
     } catch (error) {
       console.error('Error in InjectScriptTool.execute:', error);
       return createErrorResponse(

@@ -11,6 +11,11 @@ import {
 } from '../../../../utils/image-utils';
 import { screenshotContextManager } from '@/utils/screenshot-context';
 import { sendNativeRequest } from '@/entrypoints/background/native-host';
+import { withSuggestedNext } from './_common';
+
+// IMP-0186: after a screenshot the LLM typically reads the page for refs or
+// uses the computer tool to act on coordinates from the captured image.
+const SCREENSHOT_NEXT = ['chrome_read_page', 'chrome_computer', 'chrome_click_element'] as const;
 
 // Screenshot-specific constants
 const SCREENSHOT_CONSTANTS = {
@@ -401,22 +406,25 @@ class ScreenshotTool extends BaseBrowserToolExecutor {
       return createErrorResponse(results.saveError ?? 'Failed to save screenshot');
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            success: true,
-            message: `Screenshot [${name}] captured successfully`,
-            tabId: tab.id,
-            url: tab.url,
-            name: name,
-            ...results,
-          }),
-        },
-      ],
-      isError: false,
-    };
+    return withSuggestedNext(
+      {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              message: `Screenshot [${name}] captured successfully`,
+              tabId: tab.id,
+              url: tab.url,
+              name: name,
+              ...results,
+            }),
+          },
+        ],
+        isError: false,
+      },
+      SCREENSHOT_NEXT,
+    );
   }
 
   /**

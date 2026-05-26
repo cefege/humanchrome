@@ -12,6 +12,10 @@ import { TOOL_NAMES } from 'humanchrome-shared';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { indexerRpc } from '@/utils/indexer-rpc';
 import type { SearchResult } from '@/utils/vector-database';
+import { withSuggestedNext } from './_common';
+
+// IMP-0186: matches name tabs the LLM might want to focus or navigate to.
+const SEARCH_TABS_NEXT = ['chrome_switch_tab', 'chrome_navigate', 'chrome_read_page'] as const;
 
 interface VectorSearchResult {
   tabId: number;
@@ -105,15 +109,18 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
         `VectorSearchTabsContentTool: Found ${topResults.length} results with vector search`,
       );
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-        isError: false,
-      };
+      return withSuggestedNext(
+        {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          isError: false,
+        },
+        SEARCH_TABS_NEXT,
+      );
     } catch (error) {
       console.error('VectorSearchTabsContentTool: Search failed:', error);
       return createErrorResponse(
