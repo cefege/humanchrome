@@ -11,6 +11,7 @@ import {
   buildInvalidArgsDetails,
 } from 'humanchrome-shared';
 import { dispatchTool, listDynamicFlowTools } from './dispatch';
+import { lookupIdempotentResult, recordIdempotentResult } from './idem-cache';
 
 /**
  * Tool-surface mode. `legacy` (default) ships the full TOOL_SCHEMAS manifest;
@@ -54,6 +55,7 @@ export const setupTools = (server: Server, clientId?: string) => {
       const innerName = bag.name;
       const innerArgs = (bag.args as Record<string, unknown> | undefined) ?? {};
       const wantsRaw = bag.raw === true;
+      const idemKey = typeof bag.idemKey === 'string' && bag.idemKey.length > 0 ? bag.idemKey : undefined;
 
       if (typeof innerName !== 'string' || innerName.length === 0) {
         return invalidArgsResult(
@@ -86,11 +88,19 @@ export const setupTools = (server: Server, clientId?: string) => {
         }
       }
 
+      // IMP-0183: short-circuit on a cached idempotent hit before paying for
+      // dispatch. Per-tool tools don't see idemKey — it lives only on the
+      // outer dispatcher surface.
+      const cached = lookupIdempotentResult(clientId, innerName, idemKey);
+      if (cached) return cached;
+
       // Don't inject `raw: false` — preserves the inner args shape when the
       // caller omitted `raw`. Tools that branch on `'raw' in args` would
       // misread the unconditional spread as an explicit opt-in.
       const forwardArgs = wantsRaw ? { ...innerArgs, raw: true } : innerArgs;
-      return dispatchTool(innerName, forwardArgs, clientId);
+      const result = await dispatchTool(innerName, forwardArgs, clientId);
+      recordIdempotentResult(clientId, innerName, idemKey, result);
+      return result;
     }
 
     return dispatchTool(name, args || {}, clientId);

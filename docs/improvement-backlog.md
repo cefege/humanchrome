@@ -448,7 +448,7 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0183 · Idempotency keys for mutating tools (feat) · score: 4
 
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (cache at `app/native-server/src/mcp/idem-cache.ts` — Map-backed LRU with 30s default TTL + 1000-entry cap, keyed on `${clientId}:${toolName}:${idemKey}`. `idemKey` lives on the outer dispatcher input schema (lazy mode only); replays return the cached result with `_meta.idempotent_hit:true`. Universal — no per-tool plumbing. 10 unit tests + 4 dispatcher contract tests covering hit/miss/expiry/LRU-eviction/legacy-bypass. 192/192 native-server, no regressions in shared/extension.)
 - **Why**: Tools with `static readonly mutates = true` are gated through pacing + per-tab locks but offer no protection against LLM-side double-fires ("did this go through?" → retry). For state-changing ops (navigate, click, fill, inject, session create, tab group create, etc.) a double-fire is a real bug. An optional `idemKey: string` argument the bridge dedupes against (cached `(client, tool, idemKey) → result` for ~30s) makes retries safe by construction.
 - **Cost**: S
 - **Value**: M

@@ -25,6 +25,7 @@
 import { beforeEach, describe, test, expect, jest } from '@jest/globals';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { TOOL_SCHEMAS, buildDispatcherTool, DISPATCHER_TOOL_NAME } from 'humanchrome-shared';
+import { _resetIdemCacheForTest } from './idem-cache';
 
 // Mock the native-messaging transport before importing the dispatcher. We
 // don't actually need the extension to be alive — we just need to assert
@@ -66,6 +67,7 @@ beforeEach(() => {
     data: { content: [{ type: 'text', text: '{"ok":true}' }], isError: false },
   });
   setMode(undefined);
+  _resetIdemCacheForTest();
 });
 
 describe('IMP-0177 dispatcher — legacy mode (default)', () => {
@@ -194,6 +196,75 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     const env = JSON.parse(res.content[0].text);
     expect(env.error.code).toBe('INVALID_ARGS');
     expect(env.error.details.hint).toBeUndefined();
+  });
+});
+
+describe('IMP-0183 dispatcher — idempotency keys', () => {
+  test('replaying the same idemKey returns cached result + _meta.idempotent_hit', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    const params = {
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'chrome_navigate', args: { url: 'https://x' }, idemKey: 'k1' },
+      },
+    };
+    const first: any = await call(params);
+    const second: any = await call(params);
+    expect(sendRequestMock).toHaveBeenCalledTimes(1);
+    expect(first._meta?.idempotent_hit).toBeUndefined();
+    expect(second._meta?.idempotent_hit).toBe(true);
+  });
+
+  test('different idemKey re-dispatches', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    await call({
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'chrome_navigate', args: { url: 'https://x' }, idemKey: 'k1' },
+      },
+    });
+    await call({
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'chrome_navigate', args: { url: 'https://x' }, idemKey: 'k2' },
+      },
+    });
+    expect(sendRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('omitting idemKey re-dispatches every call', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    await call({
+      params: { name: DISPATCHER_TOOL_NAME, arguments: { name: 'chrome_navigate', args: {} } },
+    });
+    await call({
+      params: { name: DISPATCHER_TOOL_NAME, arguments: { name: 'chrome_navigate', args: {} } },
+    });
+    expect(sendRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('legacy mode ignores idemKey (per-tool calls)', async () => {
+    setMode('legacy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    await call({
+      params: { name: 'chrome_navigate', arguments: { url: 'https://x' } },
+    });
+    await call({
+      params: { name: 'chrome_navigate', arguments: { url: 'https://x' } },
+    });
+    // Both calls go through — idemKey is dispatcher-surface only.
+    expect(sendRequestMock).toHaveBeenCalledTimes(2);
   });
 });
 

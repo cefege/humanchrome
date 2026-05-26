@@ -97,6 +97,11 @@ export function buildDispatcherTool(tools: readonly Tool[] = TOOL_SCHEMAS): Tool
           description:
             'Bypass the dispatcher output-size cap for this call (default false). Use when you genuinely need the unbounded result.',
         },
+        idemKey: {
+          type: 'string',
+          description:
+            'Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools.',
+        },
       },
       required: ['name'],
     },
