@@ -47,6 +47,8 @@ After the 5 edits:
 
 Long-form templates with copy-pasteable file scaffolds: [`docs/AUTHORING-A-TOOL.md`](docs/AUTHORING-A-TOOL.md).
 
+> **Authoring is unchanged after IMP-0177 (single-tool MCP dispatcher).** The bridge can serve tools in two modes — `legacy` (the default; full 96-tool MCP manifest) and `lazy` (one `humanchrome(name, args)` dispatcher whose description carries the catalog, ~15× boot-token reduction). The mode is selected by `HUMANCHROME_TOOL_MODE=lazy|legacy` on the bridge process. Either mode reads `TOOL_SCHEMAS` directly — append your tool there per step 2 and it auto-appears in both surfaces. Do not edit `packages/shared/src/tool-index.ts` by hand; it builds from `TOOL_SCHEMAS`.
+
 ---
 
 ## Canonical templates by tool shape

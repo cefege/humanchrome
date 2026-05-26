@@ -20,7 +20,7 @@
  * Run via: `node app/native-server/scripts/report-tool-index-size.mjs`
  * Requires: `pnpm -w build` (loads the built humanchrome-shared dist).
  */
-import { TOOL_SCHEMAS } from 'humanchrome-shared';
+import { TOOL_SCHEMAS, buildDispatcherTool } from 'humanchrome-shared';
 
 const CHARS_PER_TOKEN = 4;
 
@@ -39,12 +39,6 @@ function pad(s, width, align = 'left') {
   return align === 'right' ? padding + s : s + padding;
 }
 
-function firstSentence(desc) {
-  if (!desc) return '';
-  const m = desc.match(/^(.+?[.!?])(\s|$)/);
-  return (m ? m[1] : desc).replace(/\s+/g, ' ').trim();
-}
-
 function serializeAsMcpTool(tool) {
   return JSON.stringify({
     name: tool.name,
@@ -53,32 +47,8 @@ function serializeAsMcpTool(tool) {
   });
 }
 
-function buildOneToolDescription(tools) {
-  const header = [
-    'humanchrome dispatches any browser-automation tool by name. Args are validated server-side; on INVALID_ARGS the error response includes the expected schema. Catalog:',
-    '',
-  ].join('\n');
-  const lines = tools.map((t) => `- ${t.name}: ${firstSentence(t.description)}`);
-  return header + lines.join('\n');
-}
-
-function dispatcherInputSchema() {
-  return {
-    type: 'object',
-    properties: {
-      name: { type: 'string', description: 'Tool name from the catalog above.' },
-      args: { type: 'object', description: 'Tool-specific arguments object.' },
-    },
-    required: ['name'],
-  };
-}
-
 function projectedOneToolManifestEntry(tools) {
-  return JSON.stringify({
-    name: 'humanchrome',
-    description: buildOneToolDescription(tools),
-    inputSchema: dispatcherInputSchema(),
-  });
+  return JSON.stringify(buildDispatcherTool(tools));
 }
 
 function main() {

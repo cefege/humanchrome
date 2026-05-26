@@ -4,6 +4,7 @@ export * from './tools';
 export * from './error-codes';
 export * from './invalid-args';
 export * from './output-budget';
+export * from './tool-index';
 export * from './rr-graph';
 export * from './step-types';
 export * from './labels';
