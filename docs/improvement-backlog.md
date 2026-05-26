@@ -686,7 +686,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0182 · `_meta.suggested_next` hints on tool results (feat) · score: 3
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (helper `withSuggestedNext(result, hints)` + `MAX_SUGGESTED_NEXT=4` in `tools/browser/_common.ts`; wired into 5 high-yield tools so far: `chrome_read_page`, `chrome_get_windows_and_tabs`, `chrome_await_element` (present-success only), `chrome_network_capture` (status), `chrome_sessions` (get_recently_closed). Contract test `tests/tools/suggested-next.contract.test.ts` pins helper invariants (caps, dedup, no-op on error, prior _meta preserved) + end-to-end on 2 wired tools. 8 contract tests + 938/938 across the full tool suite. Remaining 5 tools (tab_groups, wait_for, inject_script, search_tabs_content, screenshot) open for follow-up.)
 - **Why**: Tool results often imply the obvious next tool (`chrome_read_page` returns refs that feed `chrome_click_element`; `chrome_network_capture status=active` implies `flush`/`stop`; `chrome_get_windows_and_tabs` enables targeted actions). Today the model has to remember the chain on its own and sometimes detours through screenshots or extra reads. A `_meta: { suggested_next: ['chrome_click_element', 'chrome_fill_or_select'] }` field is a no-cost affordance — model still chooses, but the right options are right there.
 - **Cost**: M
 - **Value**: M

@@ -2,6 +2,14 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { findTabOwner } from '../../utils/client-state';
+import { withSuggestedNext } from './_common';
+
+const GET_WINDOWS_NEXT = [
+  'chrome_switch_tab',
+  'chrome_navigate',
+  'browser_claim_tab',
+  'chrome_close_tab',
+] as const;
 
 class WindowTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS;
@@ -42,15 +50,18 @@ class WindowTool extends BaseBrowserToolExecutor {
         windows: structuredWindows,
       };
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(result),
-          },
-        ],
-        isError: false,
-      };
+      return withSuggestedNext(
+        {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result),
+            },
+          ],
+          isError: false,
+        },
+        GET_WINDOWS_NEXT,
+      );
     } catch (error) {
       console.error('Error in WindowTool.execute:', error);
       return createErrorResponse(

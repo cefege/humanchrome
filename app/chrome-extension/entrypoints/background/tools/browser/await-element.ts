@@ -10,6 +10,7 @@ import { ERROR_MESSAGES } from '@/common/constants';
 import { DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS } from '../../utils/timeouts';
 
 import { STRUCTURED_SELECTOR_KINDS, type SelectorType } from './_selector-resolve';
+import { withSuggestedNext } from './_common';
 import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
 
 interface AwaitElementToolParams {
@@ -172,25 +173,34 @@ class AwaitElementTool extends BaseBrowserToolExecutor {
       // `absent:true` is the positive twin of `found:true` for absent-mode
       // callers conditioning on a single boolean field.
       const isPresentSuccess = state === 'present';
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              found: isPresentSuccess,
-              absent: !isPresentSuccess,
-              selector: ref ? undefined : selector,
-              selectorType: ref ? undefined : selectorType,
-              ref: isPresentSuccess ? ref || resp?.matched?.ref : ref || undefined,
-              state,
-              elapsedMs,
-              matched: resp.matched || null,
-            }),
-          },
-        ],
-        isError: false,
-      };
+      // IMP-0182: only suggest interaction tools when an element is actually
+      // present (absent-success means the page is in a settled state, not a
+      // ready-to-click one).
+      const next = isPresentSuccess
+        ? ['chrome_click_element', 'chrome_fill_or_select', 'chrome_get_attributes']
+        : [];
+      return withSuggestedNext(
+        {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                found: isPresentSuccess,
+                absent: !isPresentSuccess,
+                selector: ref ? undefined : selector,
+                selectorType: ref ? undefined : selectorType,
+                ref: isPresentSuccess ? ref || resp?.matched?.ref : ref || undefined,
+                state,
+                elapsedMs,
+                matched: resp.matched || null,
+              }),
+            },
+          ],
+          isError: false,
+        },
+        next,
+      );
     } catch (error) {
       console.error('Error in chrome_await_element:', error);
       return createErrorResponseFromThrown(error);

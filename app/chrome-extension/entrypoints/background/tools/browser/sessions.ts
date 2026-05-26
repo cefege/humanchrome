@@ -1,5 +1,5 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
-import { jsonOk } from './_common';
+import { jsonOk, withSuggestedNext } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
@@ -72,7 +72,11 @@ class SessionsTool extends BaseBrowserToolExecutor {
               }
             : undefined,
         }));
-        return jsonOk({ ok: true, action, sessions: items, count: items.length });
+        // IMP-0182: list paired with restore is the canonical next step.
+        return withSuggestedNext(
+          jsonOk({ ok: true, action, sessions: items, count: items.length }),
+          ['chrome_sessions'],
+        );
       }
 
       // restore

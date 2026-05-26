@@ -1,6 +1,16 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
+import { withSuggestedNext } from './_common';
+
+// IMP-0182: tools the LLM is most likely to call next after a successful
+// read_page — refs feed click/fill/hover/await chains.
+const READ_PAGE_NEXT = [
+  'chrome_click_element',
+  'chrome_fill_or_select',
+  'chrome_hover',
+  'chrome_await_element',
+] as const;
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { listMarkersForUrl } from '@/entrypoints/background/element-marker/element-marker-storage';
@@ -170,10 +180,13 @@ class ReadPageTool extends BaseBrowserToolExecutor {
 
       // Normal path: return tree
       if (treeOk && !isSparse) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify(basePayload) }],
-          isError: false,
-        };
+        return withSuggestedNext(
+          {
+            content: [{ type: 'text', text: JSON.stringify(basePayload) }],
+            isError: false,
+          },
+          READ_PAGE_NEXT,
+        );
       }
 
       // When refId is explicitly provided, do not fallback (refs are frame-local and may expire)
