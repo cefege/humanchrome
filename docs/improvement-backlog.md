@@ -696,7 +696,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0184 · Tool-selection evals harness (feat) · score: 3
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (gated jest suite `app/native-server/src/evals/tool-selection.evals.test.ts` with 30 user-intent → expected-tool cases; runs against the live `buildDispatcherTool()` descriptor through plain `fetch` against the Anthropic API (no new SDK dep) using `claude-haiku-4-5-20251001`. Per-case pass/fail + afterAll summary asserting ≥70% routing accuracy. Gated behind `RUN_EVALS=1` + `ANTHROPIC_API_KEY`; default test run skips 30 cases (1 harness-wiring guard always runs). `pnpm test:evals` script wires the gate.)
 - **Why**: Once descriptions are the model's only signal (IMP-0177 + IMP-0180), descriptions ARE prompts and must be eval'd like prompts. A small "user said X → model should call Y" suite catches the silent regression where someone rewrites a description "for clarity" and breaks tool routing. Anthropic's tool-use guide explicitly recommends this for any non-trivial tool surface.
 - **Cost**: M
 - **Value**: M
