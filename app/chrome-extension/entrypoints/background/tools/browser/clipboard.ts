@@ -2,12 +2,12 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
-
-const CLIPBOARD_ACTIONS = ['read', 'write'] as const;
 import { offscreenManager } from '@/utils/offscreen-manager';
 import { MessageTarget } from '@/common/message-types';
 
 type ClipboardAction = 'read' | 'write';
+
+const CLIPBOARD_ACTIONS: readonly ClipboardAction[] = ['read', 'write'];
 
 interface ClipboardParams {
   action: ClipboardAction;

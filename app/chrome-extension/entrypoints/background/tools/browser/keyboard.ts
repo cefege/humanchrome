@@ -132,7 +132,7 @@ class KeyboardTool extends BaseBrowserToolExecutor {
         buildInvalidArgsDetails({
           arg: 'keys|shortcut',
           received: { keys: args.keys, shortcut: args.shortcut },
-          expected: { kind: 'one_of', fields: ['keys', 'shortcut'] },
+          expected: { kind: 'one_of', options: ['keys', 'shortcut'] },
           hint: 'Pass either `keys:"Control+A"` for a chord, or `shortcut:"paste"` for a platform-correct alias.',
         }),
       );

@@ -177,7 +177,7 @@ describe('IMP-0178 INVALID_ARGS envelope', () => {
     expect(env.error.code).toBe('INVALID_ARGS');
     expect(env.error.details.arg).toBe('keys|shortcut');
     expect(env.error.details.expected.kind).toBe('one_of');
-    expect(env.error.details.expected.fields).toEqual(['keys', 'shortcut']);
+    expect(env.error.details.expected.options).toEqual(['keys', 'shortcut']);
     expect(env.error.details.hint).toContain('keys');
   });
 
@@ -187,7 +187,7 @@ describe('IMP-0178 INVALID_ARGS envelope', () => {
     expect(env.error.code).toBe('INVALID_ARGS');
     expect(env.error.details.arg).toBe('mode');
     expect(env.error.details.expected.kind).toBe('one_of');
-    expect(env.error.details.expected.modes).toEqual(['url', 'range', 'all']);
+    expect(env.error.details.expected.options).toEqual(['url', 'range', 'all']);
     expect(env.error.details.hint).toContain('url');
   });
 });

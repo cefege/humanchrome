@@ -1,17 +1,18 @@
 import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk, withSuggestedNext } from './_common';
+import { BaseBrowserToolExecutor } from '../base-browser';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
-// IMP-0186: a freshly-created group invites adding more tabs, querying its
-// state, or switching focus to one of its tabs.
+type TabGroupsAction = 'create' | 'update' | 'query' | 'get' | 'add_tabs' | 'remove_tabs' | 'move';
+
+// A freshly-created group invites adding more tabs, querying its state, or
+// switching focus to one of its tabs. The tab_groups self-reference is
+// intentional — caller re-invokes with a different action enum.
 const TAB_GROUPS_CREATE_NEXT = [
   'chrome_tab_groups',
   'chrome_switch_tab',
   'chrome_get_windows_and_tabs',
 ] as const;
-import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
-
-type TabGroupsAction = 'create' | 'update' | 'query' | 'get' | 'add_tabs' | 'remove_tabs' | 'move';
 
 const TAB_GROUPS_ACTIONS: readonly TabGroupsAction[] = [
   'create',

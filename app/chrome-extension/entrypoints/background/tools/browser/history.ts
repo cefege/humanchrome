@@ -256,7 +256,7 @@ class HistoryDeleteTool extends BaseBrowserToolExecutor {
         buildInvalidArgsDetails({
           arg: 'mode',
           received: null,
-          expected: { kind: 'one_of', modes: ['url', 'range', 'all'] },
+          expected: { kind: 'one_of', options: ['url', 'range', 'all'] },
           hint: 'Set `url:"..."` OR `startTime+endTime` OR `all:true` + `confirmDeleteAll:true`.',
         }),
       );
@@ -268,7 +268,7 @@ class HistoryDeleteTool extends BaseBrowserToolExecutor {
         buildInvalidArgsDetails({
           arg: 'mode',
           received: { hasUrl, hasRange, wantAll },
-          expected: { kind: 'one_of', modes: ['url', 'range', 'all'] },
+          expected: { kind: 'one_of', options: ['url', 'range', 'all'] },
           hint: 'Pass exactly one of url / startTime+endTime / all:true — not multiple.',
         }),
       );

@@ -1,18 +1,18 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk, withSuggestedNext } from './_common';
-
-// IMP-0186: after a successful inject, the LLM typically wants to dispatch
-// custom events into the script or list active injections.
-const INJECT_SCRIPT_NEXT = [
-  'chrome_send_command_to_inject_script',
-  'chrome_list_injected_scripts',
-  'chrome_remove_injected_script',
-] as const;
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { ExecutionWorld } from '@/common/constants';
 import { createOwnedRegistry, OWNED_REGISTRY_SYSTEM_CLIENT } from '../../utils/owned-registry';
 import { getCurrentRequestContext } from '../../utils/request-context';
+
+// After a successful inject the LLM typically dispatches custom events
+// into the script or lists active injections.
+const INJECT_SCRIPT_NEXT = [
+  'chrome_send_command_to_inject_script',
+  'chrome_list_injected_scripts',
+  'chrome_remove_injected_script',
+] as const;
 
 // Bug #217: `chrome.scripting.executeScript` calls used to be unbounded —
 // when a page silently absorbed the injection (e.g., freelancermap.de's

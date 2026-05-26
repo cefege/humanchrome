@@ -134,15 +134,27 @@ describe('IMP-0182 wired tools surface suggested_next', () => {
   });
 
   it('chrome_search_tabs_content returns suggested_next (IMP-0186)', async () => {
-    // The tool reads from indexerRpc; we stub the indexer module's facade via
-    // monkey-patch since the real RPC requires the offscreen document.
+    // Stub the indexer-rpc facade via vi.spyOn so Vitest's restoreMocks
+    // restores originals after the test (avoids module-cached singleton
+    // pollution for downstream tests in the same worker). Methods spied:
+    // getStatus + searchContent + getStats — the three the tool calls on
+    // the happy path before returning. See vector-search.ts:52-83.
     const mod = await import('@/utils/indexer-rpc');
-    (mod.indexerRpc as any).getEngineStatus = vi.fn().mockResolvedValue({
+    vi.spyOn(mod.indexerRpc, 'getStatus').mockResolvedValue({
       ready: true,
       initializing: false,
       modelName: 'stub',
-    });
-    (mod.indexerRpc as any).search = vi.fn().mockResolvedValue([]);
+    } as any);
+    vi.spyOn(mod.indexerRpc, 'searchContent').mockResolvedValue([]);
+    vi.spyOn(mod.indexerRpc, 'getStats').mockResolvedValue({
+      totalDocuments: 0,
+      totalTabs: 0,
+      indexSize: 0,
+      indexedPages: 0,
+      isInitialized: true,
+      semanticEngineReady: true,
+      semanticEngineInitializing: false,
+    } as any);
     const res = await vectorSearchTabsContentTool.execute({ query: 'pricing' } as any);
     if (res.isError) {
       // The vector-search tool can fail in unit-test env without a real

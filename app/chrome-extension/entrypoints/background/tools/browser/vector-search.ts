@@ -14,7 +14,7 @@ import { indexerRpc } from '@/utils/indexer-rpc';
 import type { SearchResult } from '@/utils/vector-database';
 import { withSuggestedNext } from './_common';
 
-// IMP-0186: matches name tabs the LLM might want to focus or navigate to.
+// Result rows name tabs the LLM might want to focus or navigate to.
 const SEARCH_TABS_NEXT = ['chrome_switch_tab', 'chrome_navigate', 'chrome_read_page'] as const;
 
 interface VectorSearchResult {
