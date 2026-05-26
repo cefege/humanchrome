@@ -5,6 +5,14 @@ import {
 } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
+import { ERROR_MESSAGES } from '@/common/constants';
+import { interceptResponseTool, compilePattern } from './intercept-response';
+import { DEFAULT_WAIT_FOR_TIMEOUT_MS } from '../../utils/timeouts';
+
+import { STRUCTURED_SELECTOR_KINDS, type SelectorType } from './_selector-resolve';
+import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
+import { withSuggestedNext } from './_common';
 
 const WAIT_FOR_KINDS = [
   'element',
@@ -15,19 +23,12 @@ const WAIT_FOR_KINDS = [
   'url',
 ] as const;
 type WaitForKind = (typeof WAIT_FOR_KINDS)[number];
-import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
-import { ERROR_MESSAGES } from '@/common/constants';
-import { interceptResponseTool, compilePattern } from './intercept-response';
-import { DEFAULT_WAIT_FOR_TIMEOUT_MS } from '../../utils/timeouts';
 
-import { STRUCTURED_SELECTOR_KINDS, type SelectorType } from './_selector-resolve';
-import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
-import { withSuggestedNext } from './_common';
-
-// IMP-0186: per-kind hints. Element success invites interaction; load_state
-// / url success invites a read; network_idle / response_match success
-// invites either depending on intent.
-const WAIT_FOR_NEXT_BY_KIND: Record<string, readonly string[]> = {
+// Per-kind hints. Element success invites interaction; load_state / url
+// success invites a read; network_idle / response_match success invites
+// either depending on intent. Typed against WaitForKind so adding a new
+// kind to the union fails the table at compile time.
+const WAIT_FOR_NEXT_BY_KIND: Record<WaitForKind, readonly string[]> = {
   element: ['chrome_click_element', 'chrome_fill_or_select', 'chrome_get_attributes'],
   network_idle: ['chrome_read_page', 'chrome_aria_snapshot'],
   response_match: ['chrome_network_capture', 'chrome_get_web_content'],
@@ -40,7 +41,7 @@ type LoadState = 'load' | 'domcontentloaded' | 'complete';
 type ElementState = 'present' | 'absent';
 
 interface WaitForToolParams {
-  kind: 'element' | 'network_idle' | 'response_match' | 'js' | 'load_state' | 'url';
+  kind: WaitForKind;
   timeoutMs?: number;
   selector?: string;
   selectorType?: SelectorType;
@@ -613,7 +614,7 @@ class WaitForTool extends BaseBrowserToolExecutor {
           ],
           isError: false,
         },
-        WAIT_FOR_NEXT_BY_KIND[kind] ?? [],
+        WAIT_FOR_NEXT_BY_KIND[kind],
       );
     }
     if (resp && resp.reason === 'timeout') {

@@ -1,6 +1,7 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolError, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 const EMULATE_ACTIONS = [
   'set_device',
@@ -12,7 +13,6 @@ const EMULATE_ACTIONS = [
   'reset_all',
   'get_state',
 ] as const;
-import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 /**
  * chrome_emulate — IMP-0124.
