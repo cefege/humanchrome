@@ -29,6 +29,11 @@ import { sessionsTool } from '@/entrypoints/background/tools/browser/sessions';
 import { networkCaptureTool } from '@/entrypoints/background/tools/browser/network-capture';
 import { waitForTool } from '@/entrypoints/background/tools/browser/wait-for';
 import { actionBadgeTool } from '@/entrypoints/background/tools/browser/action-badge';
+import { clipboardTool } from '@/entrypoints/background/tools/browser/clipboard';
+import { storageTool } from '@/entrypoints/background/tools/browser/storage';
+import { emulateTool } from '@/entrypoints/background/tools/browser/emulate';
+import { keyboardTool } from '@/entrypoints/background/tools/browser/keyboard';
+import { historyDeleteTool } from '@/entrypoints/background/tools/browser/history';
 
 function parseEnvelope(res: any): any {
   return JSON.parse(res.content[0].text);
@@ -137,5 +142,52 @@ describe('IMP-0178 INVALID_ARGS envelope', () => {
     expect(env.error.details.arg).toBe('action');
     expect(env.error.details.expected.enum).toEqual(['set', 'clear']);
     expect(env.error.details.hint).toBe('Did you mean "set"?');
+  });
+
+  it('chrome_clipboard bad action → enum + hint (IMP-0187)', async () => {
+    const res = await clipboardTool.execute({ action: 'wrte' } as any);
+    const env = parseEnvelope(res);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('action');
+    expect(env.error.details.expected.enum).toEqual(['read', 'write']);
+    expect(env.error.details.hint).toBe('Did you mean "write"?');
+  });
+
+  it('chrome_storage bad action → enum + hint (IMP-0187)', async () => {
+    const res = await storageTool.execute({ action: 'gte' } as any);
+    const env = parseEnvelope(res);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('action');
+    expect(env.error.details.expected.enum).toEqual(['get', 'set', 'remove', 'clear', 'keys']);
+    expect(env.error.details.hint).toBe('Did you mean "get"?');
+  });
+
+  it('chrome_emulate bad action → enum + hint (IMP-0187)', async () => {
+    const res = await emulateTool.execute({ action: 'set_devic' } as any);
+    const env = parseEnvelope(res);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('action');
+    expect(env.error.details.expected.enum).toContain('set_device');
+    expect(env.error.details.hint).toBe('Did you mean "set_device"?');
+  });
+
+  it('chrome_keyboard missing keys+shortcut → one_of expected + hint (IMP-0187)', async () => {
+    const res = await keyboardTool.execute({} as any);
+    const env = parseEnvelope(res);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('keys|shortcut');
+    expect(env.error.details.expected.kind).toBe('one_of');
+    expect(env.error.details.expected.fields).toEqual(['keys', 'shortcut']);
+    expect(env.error.details.hint).toContain('keys');
+  });
+
+  it('chrome_history_delete no mode chosen → one_of expected + hint (IMP-0187)', async () => {
+    const res = await historyDeleteTool.execute({} as any);
+    const env = parseEnvelope(res);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('mode');
+    expect(env.error.details.expected.kind).toBe('one_of');
+    expect(env.error.details.expected.modes).toEqual(['url', 'range', 'all']);
+    expect(env.error.details.hint).toContain('url');
   });
 });

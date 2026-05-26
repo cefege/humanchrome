@@ -1,9 +1,11 @@
 import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
 type StorageAction = 'get' | 'set' | 'remove' | 'clear' | 'keys';
 type StorageScope = 'local' | 'session';
+
+const STORAGE_ACTIONS: readonly StorageAction[] = ['get', 'set', 'remove', 'clear', 'keys'];
 
 interface StorageToolParams {
   action: StorageAction;
@@ -41,17 +43,11 @@ class StorageTool extends BaseBrowserToolExecutor {
 
   async execute(args: StorageToolParams): Promise<ToolResult> {
     const action = args?.action;
-    if (
-      action !== 'get' &&
-      action !== 'set' &&
-      action !== 'remove' &&
-      action !== 'clear' &&
-      action !== 'keys'
-    ) {
+    if (!STORAGE_ACTIONS.includes(action as StorageAction)) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: get, set, remove, clear, keys.',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, STORAGE_ACTIONS),
       );
     }
 

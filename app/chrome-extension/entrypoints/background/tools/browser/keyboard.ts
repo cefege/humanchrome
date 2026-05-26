@@ -4,7 +4,7 @@ import {
   ToolResult,
 } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, buildInvalidArgsDetails } from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TIMEOUTS, ERROR_MESSAGES } from '@/common/constants';
 
@@ -129,7 +129,12 @@ class KeyboardTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         ERROR_MESSAGES.INVALID_PARAMETERS + ': One of `keys` or `shortcut` must be provided',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'keys|shortcut' },
+        buildInvalidArgsDetails({
+          arg: 'keys|shortcut',
+          received: { keys: args.keys, shortcut: args.shortcut },
+          expected: { kind: 'one_of', fields: ['keys', 'shortcut'] },
+          hint: 'Pass either `keys:"Control+A"` for a chord, or `shortcut:"paste"` for a platform-correct alias.',
+        }),
       );
     }
 

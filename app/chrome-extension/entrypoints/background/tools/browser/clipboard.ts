@@ -1,7 +1,9 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+
+const CLIPBOARD_ACTIONS = ['read', 'write'] as const;
 import { offscreenManager } from '@/utils/offscreen-manager';
 import { MessageTarget } from '@/common/message-types';
 
@@ -25,11 +27,11 @@ class ClipboardTool extends BaseBrowserToolExecutor {
 
   async execute(args: ClipboardParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'read' && action !== 'write') {
+    if (!CLIPBOARD_ACTIONS.includes(action as (typeof CLIPBOARD_ACTIONS)[number])) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: read, write.',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, CLIPBOARD_ACTIONS),
       );
     }
     if (action === 'write' && typeof args.text !== 'string') {

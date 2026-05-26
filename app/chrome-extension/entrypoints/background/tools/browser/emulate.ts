@@ -1,6 +1,17 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolError, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolError, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+
+const EMULATE_ACTIONS = [
+  'set_device',
+  'set_ua',
+  'set_locale',
+  'set_timezone',
+  'set_geolocation',
+  'set_color_scheme',
+  'reset_all',
+  'get_state',
+] as const;
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 /**
@@ -143,11 +154,11 @@ class EmulateTool extends BaseBrowserToolExecutor {
 
   async execute(args: EmulateParams = {}): Promise<ToolResult> {
     const action = args.action;
-    if (!action) {
+    if (!action || !EMULATE_ACTIONS.includes(action)) {
       return createErrorResponse(
         'action is required (one of: set_device, set_ua, set_locale, set_timezone, set_geolocation, set_color_scheme, reset_all, get_state)',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, EMULATE_ACTIONS),
       );
     }
 
