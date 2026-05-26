@@ -1,9 +1,10 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
 type ActionBadgeAction = 'set' | 'clear';
+const ACTION_BADGE_ACTIONS: readonly ActionBadgeAction[] = ['set', 'clear'];
 
 interface ActionBadgeParams {
   action: ActionBadgeAction;
@@ -30,11 +31,11 @@ class ActionBadgeTool extends BaseBrowserToolExecutor {
 
   async execute(args: ActionBadgeParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'set' && action !== 'clear') {
+    if (!ACTION_BADGE_ACTIONS.includes(action as ActionBadgeAction)) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: set, clear.',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, ACTION_BADGE_ACTIONS),
       );
     }
     if (typeof chrome.action === 'undefined') {

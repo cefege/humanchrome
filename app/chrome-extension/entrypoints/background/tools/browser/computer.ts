@@ -22,7 +22,26 @@
  */
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
+
+const COMPUTER_ACTIONS = [
+  'resize_page',
+  'hover',
+  'left_click',
+  'right_click',
+  'double_click',
+  'triple_click',
+  'left_click_drag',
+  'scroll',
+  'type',
+  'fill',
+  'fill_form',
+  'key',
+  'wait',
+  'scroll_to',
+  'zoom',
+  'screenshot',
+] as const;
 import { ERROR_MESSAGES } from '@/common/constants';
 import {
   screenshotContextManager,
@@ -188,7 +207,13 @@ class ComputerTool extends BaseBrowserToolExecutor {
 
   async execute(args: ComputerParams): Promise<ToolResult> {
     const params = args || ({} as ComputerParams);
-    if (!params.action) return createErrorResponse('Action parameter is required');
+    if (!params.action) {
+      return createErrorResponse(
+        'Action parameter is required',
+        ToolErrorCode.INVALID_ARGS,
+        invalidArgsEnumDetails('action', params.action, COMPUTER_ACTIONS),
+      );
+    }
 
     try {
       const tab = await this.getOwnedTab({
@@ -335,7 +360,11 @@ class ComputerTool extends BaseBrowserToolExecutor {
       case 'screenshot':
         return handleScreenshot(params, this.buildClickDeps(tab));
       default:
-        return createErrorResponse(`Unsupported action: ${params.action}`);
+        return createErrorResponse(
+          `Unsupported action: ${params.action}`,
+          ToolErrorCode.INVALID_ARGS,
+          invalidArgsEnumDetails('action', params.action, COMPUTER_ACTIONS),
+        );
     }
   }
 

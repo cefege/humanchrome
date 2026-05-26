@@ -21,9 +21,11 @@
  */
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 import { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 import { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
+
+const NETWORK_CAPTURE_ACTIONS = ['start', 'stop', 'flush', 'status'] as const;
 
 type NetworkCaptureBackend = 'webRequest' | 'debugger';
 
@@ -136,9 +138,11 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
   async execute(args: NetworkCaptureToolParams): Promise<ToolResult> {
     const action = args?.action;
-    if (action !== 'start' && action !== 'stop' && action !== 'flush' && action !== 'status') {
+    if (!NETWORK_CAPTURE_ACTIONS.includes(action as (typeof NETWORK_CAPTURE_ACTIONS)[number])) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: start, stop, flush, status',
+        ToolErrorCode.INVALID_ARGS,
+        invalidArgsEnumDetails('action', action, NETWORK_CAPTURE_ACTIONS),
       );
     }
 

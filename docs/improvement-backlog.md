@@ -49,48 +49,6 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
-### IMP-0176 · chrome_type_into CDP keystrokes don't land on focused input — missing `code`/`windowsVirtualKeyCode` (bug) · score: 6
-
-- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
-- **Status**: done (2026-05-24; `sendChar` now populates `code` + `windowsVirtualKeyCode` + shift modifier via a `charToKey()` US-QWERTY lookup table. Letters → KeyA-KeyZ + ASCII upper vk; digits → DigitN + ASCII vk; symbols → Slash/Comma/etc. with shift bit when needed. Non-ASCII chars fall back to the text-only IME path. Matrix row IMP-0143 re-enabled; 18/18 unit tests pass including a charToKey suite.)
-- **Why**: Matrix run #26367039557's chrome_type_into row returned `{ok:true, typed:5, finalValue:""}` — the tool dispatched 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs against a focused `<input id="type-target">`, but no characters landed (input value stayed empty). `focusForTyping` succeeded; `sendChar` populates `type`/`text`/`unmodifiedText`/`key` but NOT `code` (e.g. `'KeyH'`) or `windowsVirtualKeyCode` (e.g. 72 for `'H'`). Chromium's CDP renderer needs both for printable ASCII chars to register as text input rather than be discarded as unmapped control keys.
-- **Cost**: S
-- **Value**: L
-- **Repro**: Push any change bundling `app/chrome-extension/entrypoints/background/tools/browser/type-into.ts` and re-enable the matrix row deferred in `scripts/run-e2e-matrix.mjs` (search for "IMP-0176"). The row PASSes only when sendChar populates code+windowsVirtualKeyCode for each ASCII char.
-- **Fix sketch**: Add a `charToKey(ch: string) → {code, windowsVirtualKeyCode}` helper. Letters: `code: 'Key' + ch.toUpperCase()`, `windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0)`. Digits: `Digit{n}` / 48-57. Symbols: lookup table from US QWERTY. Forward through `sendChar` alongside the existing fields. Verify via re-enabling the matrix row.
-- **Notes**: Unit tests in `tests/tools/browser/type-into.test.ts` pass because they assert the call shape, not actual char delivery — the mock doesn't validate that Chrome would have accepted the event. The chrome_keyboard tool already does this correctly; cross-reference its `KEY_ALIASES` map and adapt.
-
-### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 6
-
-- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
-- **Status**: done · 2026-05-24
-- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock passed because the mock only checks the call shape, not the serialized shim source. Real-browser-only regression that reproduced on every matrix attempt.
-- **Cost**: M
-- **Value**: L
-- **Root cause** (confirmed by inspecting the compiled bundle): Rolldown compiles the spread operator (`{ ...eventInit, ... }`) into calls to a top-level helper `_objectSpread` which it minifies to a short identifier (`N`, `k`, etc — varies by bundle layout). When chrome.scripting.executeScript serializes the function via Function.toString() and rebuilds it in the page context, the top-level helper is out of scope — surfaces as `"<minified-var> is not defined"` at runtime.
-- **Fix landed**: Replaced spread with `Object.assign({}, eventInit, {...})` — Object.assign is a global so it survives the serialize-and-rebuild round trip cleanly. Verified the new build's compiled hoverShim contains zero helper invocations. Re-enabled the IMP-0125 matrix row in scripts/run-e2e-matrix.mjs. PR #286.
-- **Notes**: Same hazard applies to any future ISOLATED-world shim that uses spread on a captured object. Pattern to avoid: `Object.assign({}, base, override)` not `{ ...base, ...override }`.
-
-### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
-
-- **Proposed by**: claude · 2026-05-24 (session retry-pattern evidence)
-- **Status**: done · 2026-05-25
-- **Why**: The "IMP-0097 animation unstable_bbox" matrix row (sliding-btn with 4s ease-in-out CSS transform) intermittently passed on macOS CI when it should have returned NOT_ACTIONABLE with `failures:['unstable_bbox']`. Root cause: fixed 50ms × 4 sampler window (~150ms) was short enough that all four samples could fall within ±100ms of an ease-in-out velocity-zero peak, where the transform matrix tx value is effectively flat → identical transform strings → sampler claimed stable.
-- **Cost**: M
-- **Value**: M
-- **Fix landed**: Staggered interval table `[35, 65, 50, 90, 70]` ms (5 gaps → 6 samples, ~310ms window) so successive samples can't all fall in the same animation phase. Each new sample also compared against the IMMEDIATELY PREVIOUS sample (not just the baseline) — catches sustained drift even when the baseline happens to align with later samples. `actionability.test.ts` 39/39 still pass.
-
-### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 7
-
-- **Proposed by**: claude · 2026-05-24 (follow-up to IMP-0162 — partial fix unblocked local but not CI)
-- **Status**: done (2026-05-24; resolved by the path-derived extension ID approach added to scripts/run-e2e-matrix.mjs — `deriveUnpackedExtensionId` patches the NM manifest's allowed_origins for CI's unpacked load so the bridge accepts the NM connection. Matrix has been green across the entire #254-#266 session post-fix.)
-- **Why**: IMP-0162 fixed two harness bugs in `scripts/run-e2e-matrix.mjs` (30s SW handshake timeout, missing fixture server). Local `pnpm e2e:isolated` now reliably reports 16/16 PASS in ~3 minutes. CI's matrix job remains red on a third, separate failure: the bridge spawns via Chrome's native messaging child but exits within ~50ms, so no `~/Library/Application Support/humanchrome-bridge/e2e-registry/instances/<pid>.json` file is ever written and `findSpawnedBridge` times out at 180s. The matrix has been failing on every PR since 2026-05-19 with this exact shape. Workflow: CI's `e2e-fixture.yml` installs CFT via `@puppeteer/browsers install chrome@stable`, runs `humanchrome-bridge register`, then `pnpm e2e:matrix --launch-chrome`. Chrome boots fine (SW logs `[OffscreenKeepalive] acquire(native-host)` within ~2s), but each NM connection drops immediately with `[humanchrome] Native connection disconnected`. The SW retries with exponential backoff but the bridge never stays alive long enough to write its registry entry.
-- **Cost**: M
-- **Value**: M
-- **Repro**: Push any change touching `app/chrome-extension/` to a PR. The `e2e-fixture` workflow's `matrix` job will hit "spawned Chrome did not register a bridge within 180s" (with the IMP-0162 amend in place) after ~3 minutes.
-- **Fix sketch**: Investigate why the NM-spawned bridge exits immediately on CI's macos-latest runner. Candidates: (a) `run_host.sh` path resolution — `cli.js register` writes a manifest pointing at the runner's installed `dist/run_host.sh`, but the bridge child may resolve paths differently from a CI shell; (b) Code-signing / Gatekeeper restrictions on @puppeteer/browsers CFT preventing the NM child from execve'ing the bridge cleanly; (c) Env var propagation — `HC_INSTANCE_REGISTRY_DIR` and `HC_BRIDGE_DAEMON_SOCKET` are set in `spawn()` env when launching Chrome, but Chrome may not forward them to NM child processes the same way locally vs CI; (d) FD limits — bridge daemon UDS bind fails silently in CI's constrained env. Add `console.error` instrumentation to the bridge's startup path (pre-registry-write) and chrome.runtime.onConnect.onDisconnect's `lastError` in the SW, so the next CI run dumps the actual reason. Once root cause known, the fix is likely a 1–2 line patch to the bridge or the manifest path.
-- **Notes**: This is the third stacked failure mode in the matrix CI gate (after IMP-0139 NM-path and IMP-0162 timeout). Until fixed, the `e2e-fixture` job remains a red gate on every PR; humans have been merging through it. Doesn't block local matrix verification — `pnpm e2e:isolated` works correctly post-IMP-0162.
-
 ### IMP-0103 · Installed bridge is stale — IMP-0098/0100/0101/0102 surface rejected at MCP layer (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-05-16
@@ -118,6 +76,17 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Inspect `scripts/run-e2e-matrix.mjs` Chrome-launch path. NM manifest must be at `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.humanchrome.bridge.json` (system path) OR Chrome must be launched with `--user-data-dir` pointing at a profile whose `NativeMessagingHosts` subdirectory has the manifest (the latter requires Chrome to actually scan profile-relative paths, which I should verify is supported on macOS). Add a startup-trace flag (`--enable-logging --v=1`) to capture Chrome's NM-discovery output so future failures self-diagnose.
 - **Notes**: GitHub Actions `e2e-fixture.yml` may still work because it uses a fresh runner; only local `pnpm e2e:isolated` is broken right now. CI gate continues to protect the merge.
 
+### IMP-0176 · chrome_type_into CDP keystrokes don't land on focused input — missing `code`/`windowsVirtualKeyCode` (bug) · score: 8
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: done (2026-05-24; `sendChar` now populates `code` + `windowsVirtualKeyCode` + shift modifier via a `charToKey()` US-QWERTY lookup table. Letters → KeyA-KeyZ + ASCII upper vk; digits → DigitN + ASCII vk; symbols → Slash/Comma/etc. with shift bit when needed. Non-ASCII chars fall back to the text-only IME path. Matrix row IMP-0143 re-enabled; 18/18 unit tests pass including a charToKey suite.)
+- **Why**: Matrix run #26367039557's chrome_type_into row returned `{ok:true, typed:5, finalValue:""}` — the tool dispatched 5 CDP `Input.dispatchKeyEvent` keyDown+keyUp pairs against a focused `<input id="type-target">`, but no characters landed (input value stayed empty). `focusForTyping` succeeded; `sendChar` populates `type`/`text`/`unmodifiedText`/`key` but NOT `code` (e.g. `'KeyH'`) or `windowsVirtualKeyCode` (e.g. 72 for `'H'`). Chromium's CDP renderer needs both for printable ASCII chars to register as text input rather than be discarded as unmapped control keys.
+- **Cost**: S
+- **Value**: L
+
+- **Repro**: Push any change bundling `app/chrome-extension/entrypoints/background/tools/browser/type-into.ts` and re-enable the matrix row deferred in `scripts/run-e2e-matrix.mjs` (search for "IMP-0176"). The row PASSes only when sendChar populates code+windowsVirtualKeyCode for each ASCII char.
+- **Fix sketch**: Add a `charToKey(ch: string) → {code, windowsVirtualKeyCode}` helper. Letters: `code: 'Key' + ch.toUpperCase()`, `windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0)`. Digits: `Digit{n}` / 48-57. Symbols: lookup table from US QWERTY. Forward through `sendChar` alongside the existing fields. Verify via re-enabling the matrix row.
+- **Notes**: Unit tests in `tests/tools/browser/type-into.test.ts` pass because they assert the call shape, not actual char delivery — the mock doesn't validate that Chrome would have accepted the event. The chrome_keyboard tool already does this correctly; cross-reference its `KEY_ALIASES` map and adapt.
+
 ### IMP-0112 · IMP-0098 role+name resolver returns empty for explicit role lookup (bug) · score: 7
 
 - **Proposed by**: bug-scout · 2026-05-17 (matrix evidence)
@@ -127,6 +96,17 @@ The order of items inside ## Active is sorted by score descending.
 - **Value**: L
 - **Repro**: `pnpm e2e:isolated` — "IMP-0098 role + name (Submit)" row fails. Full evidence in `docs/e2e-runs/2026-05-17_baseline.json`.
 - **Fix sketch**: Trace `accessibility-tree-helper.js:929-967` (`resolveByKind` → `resolveByRoleJs`). Likely missing the implicit-role lookup for HTML5 button/link/input elements (Playwright's `getByRole` matches `<button>` against `role=button` without requiring the explicit attribute). May also need `computeAccessibleName_v2` to fall through to `textContent` when no `aria-label`/`aria-labelledby` set.
+
+### IMP-0175 · chrome_hover shim fails with "<minified-var> is not defined" under production build (bug) · score: 7
+- **Proposed by**: claude · 2026-05-24 (matrix evidence from PR #267)
+- **Status**: done · 2026-05-24
+- **Why**: First matrix run against the production-built chrome_hover (PR #267 row IMP-0125) returned `{error:{code:'UNKNOWN', message:'k is not defined'}}`. Unit tests against the chrome.scripting.executeScript mock passed because the mock only checks the call shape, not the serialized shim source. Real-browser-only regression that reproduced on every matrix attempt.
+- **Cost**: M
+- **Value**: L
+
+- **Root cause** (confirmed by inspecting the compiled bundle): Rolldown compiles the spread operator (`{ ...eventInit, ... }`) into calls to a top-level helper `_objectSpread` which it minifies to a short identifier (`N`, `k`, etc — varies by bundle layout). When chrome.scripting.executeScript serializes the function via Function.toString() and rebuilds it in the page context, the top-level helper is out of scope — surfaces as `"<minified-var> is not defined"` at runtime.
+- **Fix landed**: Replaced spread with `Object.assign({}, eventInit, {...})` — Object.assign is a global so it survives the serialize-and-rebuild round trip cleanly. Verified the new build's compiled hoverShim contains zero helper invocations. Re-enabled the IMP-0125 matrix row in scripts/run-e2e-matrix.mjs. PR #286.
+- **Notes**: Same hazard applies to any future ISOLATED-world shim that uses spread on a captured object. Pattern to avoid: `Object.assign({}, base, override)` not `{ ...base, ...override }`.
 
 ### IMP-0116 · strict-mode multi-match without index — matchCount predicate mismatch (bug) · score: 6
 
@@ -173,6 +153,16 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: S
 - **Value**: M
 - **Repro**: From a fresh extension boot, connect a new MCP client (e.g. fresh curl with a new X-Humanchrome-Session header). First call: `chrome_clipboard({action:read})`. Observe `chrome.tabs.query({})` in the SW debugger — a new blank tab has appeared in the active window. Same shape for `chrome_notifications({action:get_all})`, `chrome_alarms({action:list})`, `chrome_action_badge({...})`, `chrome_keep_awake({...})`.\n- **Fix sketch**: Add `static readonly autoSpawnTab = false;` after each existing `static readonly mutates = true;` line. Files + lines: `app/chrome-extension/entrypoints/background/tools/browser/clipboard.ts:23`, `notifications.ts:24`, `alarms.ts` (around the mutates declaration), `action-badge.ts`, `keep-awake.ts`. Five one-line additions.\n- **Notes**: Audit the rest of the tool surface for the same shape — any tool whose schema doesnt accept tabId/url but is marked mutates=true is a candidate (cookies.ts may be the same). The base class default for autoSpawnTab is true (assumed via the `!== false` check at tools/index.ts:429), so the opt-out must be explicit.
+
+### IMP-0178 · `INVALID_ARGS` self-correcting error envelope (feat) · score: 6
+- **Proposed by**: claude · 2026-05-26
+- **Status**: done · 2026-05-26 (envelope helpers `buildInvalidArgsDetails` + `invalidArgsEnumDetails` + Damerau-Levenshtein `didYouMean` in `packages/shared/src/invalid-args.ts`; rolled out to 8 high-traffic tools — await-element, tab-groups, sessions, network-capture, wait-for, action-badge, computer, claim-tab. Contract test `tests/tools/browser/invalid-args-envelope.contract.test.ts` enforces shape across the surface. 22 unit + 9 contract tests, 925/925 across the tool suite. Remaining backfill is open for follow-up but doesn't block IMP-0177.)
+- **Why**: Today `INVALID_ARGS` returns `{ code, details: { arg: 'fieldName' } }` — enough for a human, wasteful for an LLM. Extending the envelope to include `received`, `expected` (schema fragment), and a `hint` (e.g. `"did you mean 'start'?"`) turns retry round-trips into one-shot self-corrections. This is the load-bearing safety net for the 1-tool dispatcher (IMP-0177): with no per-tool client-side JSONSchema, every malformed call must teach the model the right shape inline.
+- **Cost**: S
+- **Value**: L
+
+- **Fix sketch**: Extend `createErrorResponse(msg, ToolErrorCode.INVALID_ARGS, details)` to accept `details: { arg, received?, expected?, hint? }`. Build a small `didYouMean(received, candidates)` utility (Levenshtein, ≤2 edits) for enum coercion. Update the 10-15 highest-traffic tools first (`network-capture`, `tab-groups`, `sessions`, `computer`, `click-element`, `fill-or-select`, `wait-for`, `await-element`, `console`, `keyboard`) to populate the new fields; the rest can backfill. Add `tests/contract/invalid-args-envelope.test.ts` proving every tool that throws INVALID_ARGS returns the new shape.
+- **Notes**: Backwards-compatible — old callers continue to read `details.arg` and ignore the new fields. New fields gate on availability so partial rollout is safe.
 
 ### IMP-0108 · chrome_wait_for / chrome_await_element ignore `timeoutMs` and block ~120s (bug) · score: 5
 
@@ -257,6 +247,36 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
 - **Repro**: Open a page where the drag source is offscreen (e.g. a list item at scrollTop+1000). Call `chrome_drag_drop({fromSelector:#item-offscreen, toSelector:#dropzone})`. Click/Fill handle this via IMP-0113s scroll-and-recheck; drag-drop fails with `NOT_ACTIONABLE, failures:[not_visible]` if the initial scrollIntoView did not place it in viewport.\n- **Second repro**: Animate a draggable card with `transform: translateX(0) → translateX(100px)` over 4s ease-in-out, then `chrome_drag_drop({fromSelector:.card, ...})`. The drop lands at stale coords because the card kept moving during the chain dispatch — the stability check missed the transform-only motion.\n- **Fix sketch**: Port IMP-0113s `isOffscreenButPresent` guard + scroll-then-recheck pattern into drag-drop.ts:422-446 (`runActionability` loop). Port the `getComputedStyle(el).transform` diff into the `checkStable` at drag-drop.ts:368-397. Or — better — refactor the MAIN-world shim to also load `actionability.js` first and reuse `window.__actionability.awaitActionable` so the suite has a single source of truth (the existing comment at line 334-336 says “MAIN-world shims are serialized as standalone functions, so we cant reach into window.\_\_actionability” — but actionability.js IS a MAIN-world capable script that could be inject-scripted alongside the shim execution; current code chose to inline-copy instead).\n- **Notes**: Same divergence will recur for any future actionability invariant added to actionability.js but not back-ported into the drag-drop inline copy. The longer-term win is collapsing both copies into one.
+
+### IMP-0163 · CI e2e-fixture matrix — bridge crashes on bind under macos-latest runner (bug) · score: 5
+- **Proposed by**: claude · 2026-05-24 (follow-up to IMP-0162 — partial fix unblocked local but not CI)
+- **Status**: done (2026-05-24; resolved by the path-derived extension ID approach added to scripts/run-e2e-matrix.mjs — `deriveUnpackedExtensionId` patches the NM manifest's allowed_origins for CI's unpacked load so the bridge accepts the NM connection. Matrix has been green across the entire #254-#266 session post-fix.)
+- **Why**: IMP-0162 fixed two harness bugs in `scripts/run-e2e-matrix.mjs` (30s SW handshake timeout, missing fixture server). Local `pnpm e2e:isolated` now reliably reports 16/16 PASS in ~3 minutes. CI's matrix job remains red on a third, separate failure: the bridge spawns via Chrome's native messaging child but exits within ~50ms, so no `~/Library/Application Support/humanchrome-bridge/e2e-registry/instances/<pid>.json` file is ever written and `findSpawnedBridge` times out at 180s. The matrix has been failing on every PR since 2026-05-19 with this exact shape. Workflow: CI's `e2e-fixture.yml` installs CFT via `@puppeteer/browsers install chrome@stable`, runs `humanchrome-bridge register`, then `pnpm e2e:matrix --launch-chrome`. Chrome boots fine (SW logs `[OffscreenKeepalive] acquire(native-host)` within ~2s), but each NM connection drops immediately with `[humanchrome] Native connection disconnected`. The SW retries with exponential backoff but the bridge never stays alive long enough to write its registry entry.
+- **Cost**: M
+- **Value**: M
+
+- **Repro**: Push any change touching `app/chrome-extension/` to a PR. The `e2e-fixture` workflow's `matrix` job will hit "spawned Chrome did not register a bridge within 180s" (with the IMP-0162 amend in place) after ~3 minutes.
+- **Fix sketch**: Investigate why the NM-spawned bridge exits immediately on CI's macos-latest runner. Candidates: (a) `run_host.sh` path resolution — `cli.js register` writes a manifest pointing at the runner's installed `dist/run_host.sh`, but the bridge child may resolve paths differently from a CI shell; (b) Code-signing / Gatekeeper restrictions on @puppeteer/browsers CFT preventing the NM child from execve'ing the bridge cleanly; (c) Env var propagation — `HC_INSTANCE_REGISTRY_DIR` and `HC_BRIDGE_DAEMON_SOCKET` are set in `spawn()` env when launching Chrome, but Chrome may not forward them to NM child processes the same way locally vs CI; (d) FD limits — bridge daemon UDS bind fails silently in CI's constrained env. Add `console.error` instrumentation to the bridge's startup path (pre-registry-write) and chrome.runtime.onConnect.onDisconnect's `lastError` in the SW, so the next CI run dumps the actual reason. Once root cause known, the fix is likely a 1–2 line patch to the bridge or the manifest path.
+- **Notes**: This is the third stacked failure mode in the matrix CI gate (after IMP-0139 NM-path and IMP-0162 timeout). Until fixed, the `e2e-fixture` job remains a red gate on every PR; humans have been merging through it. Doesn't block local matrix verification — `pnpm e2e:isolated` works correctly post-IMP-0162.
+
+### IMP-0174 · Recurring `unstable_bbox` matrix flake — sliding-btn animation timing under CI load (bug) · score: 5
+
+- **Proposed by**: claude · 2026-05-24 (session retry-pattern evidence)
+- **Status**: done · 2026-05-25
+- **Why**: The "IMP-0097 animation unstable_bbox" matrix row (sliding-btn with 4s ease-in-out CSS transform) intermittently passed on macOS CI when it should have returned NOT_ACTIONABLE with `failures:['unstable_bbox']`. Root cause: fixed 50ms × 4 sampler window (~150ms) was short enough that all four samples could fall within ±100ms of an ease-in-out velocity-zero peak, where the transform matrix tx value is effectively flat → identical transform strings → sampler claimed stable.
+- **Cost**: M
+- **Value**: M
+- **Fix landed**: Staggered interval table `[35, 65, 50, 90, 70]` ms (5 gaps → 6 samples, ~310ms window) so successive samples can't all fall in the same animation phase. Each new sample also compared against the IMMEDIATELY PREVIOUS sample (not just the baseline) — catches sustained drift even when the baseline happens to align with later samples. `actionability.test.ts` 39/39 still pass.
+
+### IMP-0179 · Universal output budget at the dispatcher (feat) · score: 5
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: Per-tool truncation is implemented inconsistently across the surface today: `network-capture` caps response bodies at 1 MiB; `userscript` honors `maxOutputBytes` (default 51200); `console` caps messages; but `read_page`, `get_web_content`, `inject_script`, and others return unbounded text. Tool-result bloat is the single biggest silent context killer in agentic loops. Centralizing the cap at the dispatcher with a uniform `truncation` envelope is the natural chokepoint and removes 96 places to get this wrong.
+- **Cost**: M
+- **Value**: L
+
+- **Fix sketch**: Add `static readonly outputBudgetBytes: number = 25 * 1024` to `BaseBrowserToolExecutor`; per-tool overrides via subclass field. In the dispatcher (after IMP-0177) wrap every successful tool result through `enforceBudget(result, tool.outputBudgetBytes)` which serializes, measures, and on overflow returns the head-N bytes plus `truncation: {truncated:true, originalSize, limit, unit:'bytes', hint:'set raw=true to opt out'}`. Each tool that returns variable-size text exposes a `raw?: boolean` arg that bypasses. Add `tests/contract/output-budget.test.ts` proving every tool's result either fits or surfaces truncation.
+- **Notes**: Preserves existing per-tool truncation contracts (network-capture's `responseBodyTruncation`, userscript's `maxOutputBytes`) — those remain authoritative for their structured fields; the dispatcher's cap is the outer guard.
 
 ### IMP-0054 · Extract executeAction switch in computer.ts into per-action handler modules (click, scroll, fill, screenshot) (refactor) · score: 4
 
@@ -404,6 +424,36 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: S
 - **Value**: S
 - **Repro**: Render `<input id=x style=pointer-events:none value=hello>`. Call `chrome_focus({selector:#x})`. Returns `NOT_ACTIONABLE, failures:[not_visible]`. Expected: ok:true, focused:true (verify via `document.activeElement === input`). The pointer-events:none style is irrelevant to focus.\n- **Fix sketch**: In `app/chrome-extension/entrypoints/background/tools/browser/focus.ts:240`, drop the `if (style.pointerEvents === none) return not_visible;` line — the other 5 checks (isConnected/display/visibility/opacity/zero-rect) are correct for focus. Leave the actionability suite in `inject-scripts/actionability.js` untouched — that one IS correct for click/fill because those paths route through pointer events.\n- **Notes**: Playwrights `page.locator(...).focus()` doesnt enforce pointer-events at all; closest analog. Low value (S) because the workaround is `force:true`, but the surprise is sharp when an agent tries to fill a read-only-styled input after focus.
+
+### IMP-0177 · Single-tool MCP dispatcher — collapse 96 tools to `humanchrome(name, args)` (refactor) · score: 4
+- **Proposed by**: claude · 2026-05-26 (audit: `app/native-server/scripts/report-tool-index-size.mjs` → 15.84× token reduction, 36,586 tokens saved on every boot)
+- **Status**: queued
+- **Why**: The MCP boot manifest ships all 96 tool schemas to every client on every cache miss — currently ~39K tokens, dominated by `inputSchema` (4-10× the description cost on heavy tools). Collapsing to a single dispatcher tool with a compact `{name → first-sentence-of-description}` index in the description field reduces the manifest to ~2.5K tokens. Server-side Zod (built from existing `TOOL_SCHEMAS`) validates args and returns IMP-0178's INVALID_ARGS envelope on mismatch — the LLM self-corrects in one round-trip. Uses zero advanced MCP protocol features (no `tools/list_changed`), so it works identically across every MCP client and ages well as the surface grows to 150-200+ tools.
+- **Cost**: L
+- **Value**: L
+
+- **Fix sketch**: (1) Build-time codegen in `packages/shared/src/tool-index.ts` emits both the description blob (sorted by name, deterministic) and a Zod registry derived from `TOOL_SCHEMAS`. (2) New MCP entry `app/native-server/src/mcp/dispatcher.ts` registers a single `humanchrome(name: string, args: object)` tool; existing `tools/index.ts` routing is reused unchanged. (3) `humanchrome` handler: validate `name` against the registry → return INVALID_ARGS with `expected: <enum of tool names>` + `didYouMean` if not found; validate `args` against the named tool's Zod schema → return INVALID_ARGS with the offending fragment; on success, dispatch through existing routing. (4) Gate behind `HUMANCHROME_TOOL_MODE=lazy|legacy` env var (default `lazy` once green). (5) Contract test `tests/mcp/dispatcher.contract.test.ts` proves every `TOOL_SCHEMAS` entry is reachable through the dispatcher with structurally-identical results to the legacy multi-tool path.
+- **Notes**: Depends on IMP-0178 (envelope) + IMP-0179 (output cap) landing first. The 5-file tool-authoring recipe in CLAUDE.md is UNCHANGED — codegen reads `TOOL_SCHEMAS` so new tools auto-appear in the index. Architectural decision documented in user memory `project_one_tool_mcp_surface`; do not propose 2-tier/3-tool alternatives as "safer" — already considered and rejected.
+
+### IMP-0181 · Prompt-cache-stable dispatcher description (refactor) · score: 4
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: Anthropic's prompt cache has a 5-min TTL and is invalidated by any byte change in the system prompt or tools manifest. The IMP-0177 dispatcher pays off across multi-turn sessions only if the description is byte-stable across server starts. Without explicit discipline, future changes (a logging tweak, a timestamped header, an env-dependent string) silently bust the cache and revert the win.
+- **Cost**: S
+- **Value**: M
+
+- **Fix sketch**: Codify three invariants in `packages/shared/src/tool-index.ts` and enforce via `tests/contract/dispatcher-description-stable.test.ts`: (a) tool order is `Array.sort` by name; (b) no timestamps, versions, env vars, or hostnames in the description; (c) build-time generation snapshot committed to `tool-index.snapshot.json` so any drift fails CI loudly. Update `CLAUDE.md` § "load-bearing conventions" with the invariant.
+- **Notes**: Strictly post-IMP-0177; meaningless before the dispatcher exists.
+
+### IMP-0183 · Idempotency keys for mutating tools (feat) · score: 4
+
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: Tools with `static readonly mutates = true` are gated through pacing + per-tab locks but offer no protection against LLM-side double-fires ("did this go through?" → retry). For state-changing ops (navigate, click, fill, inject, session create, tab group create, etc.) a double-fire is a real bug. An optional `idemKey: string` argument the bridge dedupes against (cached `(client, tool, idemKey) → result` for ~30s) makes retries safe by construction.
+- **Cost**: S
+- **Value**: M
+- **Fix sketch**: Add a `Map<string, { result, expires }>` in `app/native-server/src/dispatcher/idem-cache.ts` keyed on `${clientId}:${toolName}:${idemKey}` with a 30s TTL and 1k-entry LRU cap. The dispatcher (IMP-0177) consults the cache before routing; on hit returns the cached result with `_meta.idempotent_hit: true`. Add the optional `idemKey: string` arg to the dispatcher's outer schema (universal — doesn't pollute per-tool schemas). Contract test: same `idemKey` returns identical result; expired keys re-execute; different `clientId` bypasses cache.
+- **Notes**: Universal at the dispatcher means no per-tool plumbing. Compounds cleanly with IMP-0177.
 
 ### IMP-0009 · Split ClaudeEngine.initializeAndRun into focused sub-methods (refactor) · score: 3
 
@@ -624,6 +674,36 @@ The order of items inside ## Active is sorted by score descending.
   - initializeAndRun becomes: build state + queryOptions, then a small `for await` loop that delegates to the helpers.
 - **Risk**: medium — heavy refactor of the streaming hot path. Mitigations: keep the helpers as plain TS functions in same package; existing integration tests (`claude.engine.test.ts` if present, plus the agent route tests) exercise the full streaming flow. Should land as 3-4 slices like IMP-0019 did for semantic-similarity-engine. Pair with IMP-0141 (extract base class) so the helpers can live next to similar codex helpers.
 
+### IMP-0180 · Tool-description rewrite to fixed verb+example skeleton (refactor) · score: 3
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: After IMP-0177 lands, the description blob is the model's only signal per tool. Today descriptions range wildly (50-356 tokens). Anthropic's tool-use guidance recommends a tight description plus a one-line example showing args→outcome. Heavy tools (`locator_handler`: 356, `network_capture`: 350, `tab_groups`: 261, `await_element`: 211) can drop to 50-80 tokens with no semantic loss using a fixed skeleton, cutting another 30-40% off the dispatcher index and measurably improving first-call correctness.
+- **Cost**: M
+- **Value**: M
+
+- **Fix sketch**: Define the canonical skeleton in `packages/shared/src/tool-schemas/style.md`: `<imperative verb-phrase, 1 sentence>. <one constraint/footgun if any>. Example: <args JSON> → <outcome summary>`. Mechanically rewrite all 96 descriptions in `packages/shared/src/tools.ts` to fit. Add `tests/contract/tool-descriptions-style.test.ts` enforcing: ≤80 tokens, contains `Example:`, no trailing newlines, no markdown headers. Re-run `report-tool-index-size.mjs` to confirm the additional savings.
+- **Notes**: Mechanical but bulk; expect ~2 days of pure-rewrite churn. Re-runs through IMP-0007's auto-generated `docs/TOOLS.md` so user-facing docs update automatically.
+
+### IMP-0182 · `_meta.suggested_next` hints on tool results (feat) · score: 3
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: Tool results often imply the obvious next tool (`chrome_read_page` returns refs that feed `chrome_click_element`; `chrome_network_capture status=active` implies `flush`/`stop`; `chrome_get_windows_and_tabs` enables targeted actions). Today the model has to remember the chain on its own and sometimes detours through screenshots or extra reads. A `_meta: { suggested_next: ['chrome_click_element', 'chrome_fill_or_select'] }` field is a no-cost affordance — model still chooses, but the right options are right there.
+- **Cost**: M
+- **Value**: M
+
+- **Fix sketch**: Add an optional `_meta?: { suggested_next?: string[] }` field on `ToolResult`. Wire into the 10 highest-yield tools first: `read_page`, `get_windows_and_tabs`, `await_element`, `network_capture`, `tab_groups`, `wait_for`, `inject_script` (status), `search_tabs_content`, `screenshot`, `sessions`. Each tool's executor decides its own hints — no central registry to keep in sync. Cover with `tests/contract/suggested-next-shape.test.ts` (shape only, not specific contents).
+- **Notes**: Independent of dispatcher — safe to ship in parallel with anything else in this wave.
+
+### IMP-0184 · Tool-selection evals harness (feat) · score: 3
+- **Proposed by**: claude · 2026-05-26
+- **Status**: queued
+- **Why**: Once descriptions are the model's only signal (IMP-0177 + IMP-0180), descriptions ARE prompts and must be eval'd like prompts. A small "user said X → model should call Y" suite catches the silent regression where someone rewrites a description "for clarity" and breaks tool routing. Anthropic's tool-use guide explicitly recommends this for any non-trivial tool surface.
+- **Cost**: M
+- **Value**: M
+
+- **Fix sketch**: New file `app/native-server/tests/evals/tool-selection.evals.ts` runs ~30 cases of the form `{ userIntent: string, expectedTool: string, expectedAction?: string }` through the Anthropic SDK with `claude-haiku-4-5-20251001` (cheap, fast), wired against the live dispatcher description. Gated behind `RUN_EVALS=1` so CI runs it on a schedule, not on every PR. Seed set covers the 20 most-used tool flows (read_page → click, search_tabs_content → switch_tab, network_capture start/flush/stop, fill_form, screenshot, etc.). Output is a per-case pass/fail + a top-line "tool-routing accuracy" number to track over time.
+- **Notes**: Requires an `ANTHROPIC_API_KEY` in the CI eval environment. Pure observation — does not modify production code paths.
+
 ### IMP-0087 · Same-tab queueing — fairness, depth cap, per-call timeout, inspect tool (feat) · score: 2
 
 - **Proposed by**: user · 2026-05-16
@@ -724,16 +804,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Cost**: M
 - **Value**: M
 
-### IMP-0161 · Multi-tab Phase 2 — ratchet test banning direct chrome.tabs.query in tools/browser (test) · score: 5
-
-- **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations — completes Phase 2)
-- **Status**: done
-- **Completed**: 2026-05-23
-- **Summary**: New contract test at `tests/tools/contract-no-direct-tab-query.test.ts` walks `entrypoints/background/tools/browser/**/*.ts` and fails if any file matches `chrome.tabs.query({...active:true...})` or `chrome.tabs.query({...currentWindow:true...})` outside a small allowlist (`window.ts`, `close-tabs-matching.ts`, `close-my-tabs.ts`, `claim-tab.ts` — each annotated with its one-line justification). Second test checks the allowlist for stale entries — if an allowlisted file is renamed away, the test fails so the entry can't shadow a future violation. Verified the ratchet catches additions by adding a temporary file under `tools/browser/` containing the forbidden call — the test failed; after removal, green. Drift guard for IMP-0162 and beyond: any future refactor that re-introduces an implicit active-tab path in `tools/browser/` will be caught at CI time, not in production.
-- **Why**: Completes Phase 2 of the multi-tab-by-design rollout. With IMP-0156 → IMP-0161 landed, every browser-tool active-tab fallback now honors the calling client's owned set (IMP-0086), and the ratchet ensures no future PR can silently regress it. Unblocks Phase 3 (CDP per-client owner tags + event fan-out) and Phase 4 (tab aliasing + parallel dispatch).
-- **Cost**: S
-- **Value**: M
-
 ### IMP-0160 · Multi-tab Phase 2 — migrate 7 mutating tools off direct chrome.tabs.query (batch 2/2) (refactor) · score: 6
 
 - **Proposed by**: claude · 2026-05-23 (multi-tab-by-design rollout, Phase 2 Tool Migrations)
@@ -771,16 +841,6 @@ The order of items inside ## Active is sorted by score descending.
 - **Completed**: 2026-05-23
 - **Summary**: Added `protected async getOwnedTab(opts?)` to `BaseBrowserToolExecutor` (`app/chrome-extension/entrypoints/background/tools/base-browser.ts`). Reads `clientId` from `getCurrentRequestContext()` (no signature change on `execute` so the ~60 subclasses don't have to migrate at once) and delegates to `resolveOwnedTabIdForClient` from `utils/client-state.ts:364` — same priority the dispatcher uses (explicit → activeTabId → most-recently-inserted owned). Conflicts become `TAB_NOT_OWNED`; missing tabs become `TAB_NOT_FOUND` with `details.reason ∈ {'no-owned-tab','closed','window-mismatch'}`. `opts.windowId` filters the *picked* tab — never re-queries `chrome.tabs.query({active:true})`, which is the implicit-global-tab path this helper exists to replace. `opts.required: false` returns `null` instead of throwing. `getActiveTabOrThrow` / `getActiveTabInWindow` / `getActiveTabOrThrowInWindow` stay in place with `@deprecated` JSDoc pointing at `getOwnedTab` and IMP-0169 (deletion). 8 new vitest cases in `tests/tools/base-browser-getOwnedTab.test.ts` cover the resolution priority, conflict, isRead bypass, missing tab, closed tab, window-mismatch, required=false, and no-context paths. Full tools vitest 747/747 pass; `tsc --noEmit` clean.
 - **Why**: Side-by-side prerequisite for the bulk tool-migration PRs (IMP-0159, IMP-0160). Hard renaming the helpers would force a 25-tool atomic conversion. Adding the new helper first lets each migration PR pick its own batch and lands the `chrome.tabs.query` ban (IMP-0161) after the bulk is done.
-- **Cost**: S
-- **Value**: M
-
-### IMP-0156 · Multi-tab Phase 1 — close IMP-0151 + IMP-0154 + add tools-static-flags contract test (chore) · score: 6
-
-- **Proposed by**: claude · 2026-05-23 (first PR of the multi-tab-by-design rollout)
-- **Status**: done
-- **Completed**: 2026-05-23
-- **Summary**: Set `static readonly mutates = true` on `InjectScriptTool` + `SendCommandToInjectScriptTool` (closes IMP-0151 — anonymous inject calls now go through the dispatcher's IMP-0086 ownership + auto-spawn path instead of landing on the globally-active tab). Set `static readonly autoSpawnTab = false` on `ClipboardTool`, `NotificationsTool`, `AlarmsTool`, `ActionBadgeTool`, `KeepAwakeTool` (closes IMP-0154 — first anonymous call to these tab-less tools no longer silently spawns a blank `about:blank` tab). New contract test at `tests/tools/tools-static-flags.contract.test.ts` (8 cases) locks in both fixes and adds a forward guard against the same class of regression. Test imports `@/entrypoints/background/tools` first to avoid a circular load through `native-host.ts` when the barrel pulls in individual tool singletons. Full vitest gate: tools-static-flags + lazy-tool-registry + dispatcher-auto-spawn + dispatcher-tab-queueing + inject-script + clipboard + alarms + action-badge + notifications + keep-awake = 82 pass; `tsc --noEmit` clean.
-- **Why**: First step of the multi-tab-by-design rollout (`/Users/mike/.claude/plans/how-can-we-make-sleepy-treehouse.md`). Phase 1 lays the foundation by fixing the two existing flag-drift bugs that would otherwise produce false-positive dispatcher matrix results in later phases. The contract test is the ratchet that future PRs in the rollout depend on.
 - **Cost**: S
 - **Value**: M
 

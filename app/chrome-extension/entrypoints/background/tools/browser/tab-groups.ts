@@ -1,9 +1,19 @@
 import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
 type TabGroupsAction = 'create' | 'update' | 'query' | 'get' | 'add_tabs' | 'remove_tabs' | 'move';
+
+const TAB_GROUPS_ACTIONS: readonly TabGroupsAction[] = [
+  'create',
+  'update',
+  'query',
+  'get',
+  'add_tabs',
+  'remove_tabs',
+  'move',
+];
 
 type TabGroupColor =
   | 'grey'
@@ -55,19 +65,11 @@ class TabGroupsTool extends BaseBrowserToolExecutor {
 
   async execute(args: TabGroupsParams): Promise<ToolResult> {
     const action = args?.action;
-    if (
-      action !== 'create' &&
-      action !== 'update' &&
-      action !== 'query' &&
-      action !== 'get' &&
-      action !== 'add_tabs' &&
-      action !== 'remove_tabs' &&
-      action !== 'move'
-    ) {
+    if (!TAB_GROUPS_ACTIONS.includes(action as TabGroupsAction)) {
       return createErrorResponse(
         'Parameter [action] is required and must be one of: create, update, query, get, add_tabs, remove_tabs, move.',
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'action' },
+        invalidArgsEnumDetails('action', action, TAB_GROUPS_ACTIONS),
       );
     }
 
@@ -82,7 +84,7 @@ class TabGroupsTool extends BaseBrowserToolExecutor {
       return createErrorResponse(
         `Parameter [color] must be one of: ${VALID_COLORS.join(', ')}.`,
         ToolErrorCode.INVALID_ARGS,
-        { arg: 'color', got: args.color },
+        invalidArgsEnumDetails('color', args.color, VALID_COLORS),
       );
     }
 
