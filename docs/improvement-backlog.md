@@ -466,7 +466,7 @@ The order of items inside ## Active is sorted by score descending.
 
 ### IMP-0186 · Backfill `_meta.suggested_next` on remaining 5 wave-1 tools (refactor) · score: 4
 - **Proposed by**: claude · 2026-05-26
-- **Status**: queued
+- **Status**: done · 2026-05-26 (wired `withSuggestedNext` into 5 tools: `chrome_tab_groups` (create), `chrome_wait_for` (per-kind table), `chrome_inject_script` (success), `chrome_search_tabs_content` (success), `chrome_screenshot` (success). Contract test extended with 2 end-to-end shape assertions on tab_groups + vector_search. 940/940 across the tool suite, +2 from this slice.)
 - **Why**: IMP-0182 wired hints into 5 of the 10 tools in the original fix-sketch. The remaining 5 — `chrome_tab_groups`, `chrome_wait_for`, `chrome_inject_script` (status), `chrome_search_tabs_content`, `chrome_screenshot` — still have no follow-up affordance. Bringing them to parity gives the LLM the same "what's next" hint regardless of which entry-point tool it picked.
 - **Cost**: S
 - **Value**: M

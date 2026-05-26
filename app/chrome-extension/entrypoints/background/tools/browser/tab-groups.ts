@@ -1,5 +1,13 @@
 import { createErrorResponse, classifyTabError, ToolResult } from '@/common/tool-handler';
-import { jsonOk } from './_common';
+import { jsonOk, withSuggestedNext } from './_common';
+
+// IMP-0186: a freshly-created group invites adding more tabs, querying its
+// state, or switching focus to one of its tabs.
+const TAB_GROUPS_CREATE_NEXT = [
+  'chrome_tab_groups',
+  'chrome_switch_tab',
+  'chrome_get_windows_and_tabs',
+] as const;
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-shared';
 
@@ -151,7 +159,10 @@ class TabGroupsTool extends BaseBrowserToolExecutor {
     }
 
     const group = await chrome.tabGroups.get(groupId);
-    return jsonOk({ ok: true, action: 'create', group: serializeGroup(group), tabIds });
+    return withSuggestedNext(
+      jsonOk({ ok: true, action: 'create', group: serializeGroup(group), tabIds }),
+      TAB_GROUPS_CREATE_NEXT,
+    );
   }
 
   private async actionUpdate(args: TabGroupsParams): Promise<ToolResult> {

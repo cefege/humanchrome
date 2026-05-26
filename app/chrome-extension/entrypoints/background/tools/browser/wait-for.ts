@@ -22,6 +22,19 @@ import { DEFAULT_WAIT_FOR_TIMEOUT_MS } from '../../utils/timeouts';
 
 import { STRUCTURED_SELECTOR_KINDS, type SelectorType } from './_selector-resolve';
 import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
+import { withSuggestedNext } from './_common';
+
+// IMP-0186: per-kind hints. Element success invites interaction; load_state
+// / url success invites a read; network_idle / response_match success
+// invites either depending on intent.
+const WAIT_FOR_NEXT_BY_KIND: Record<string, readonly string[]> = {
+  element: ['chrome_click_element', 'chrome_fill_or_select', 'chrome_get_attributes'],
+  network_idle: ['chrome_read_page', 'chrome_aria_snapshot'],
+  response_match: ['chrome_network_capture', 'chrome_get_web_content'],
+  js: ['chrome_read_page', 'chrome_javascript'],
+  load_state: ['chrome_read_page', 'chrome_click_element'],
+  url: ['chrome_read_page', 'chrome_click_element'],
+};
 
 type LoadState = 'load' | 'domcontentloaded' | 'complete';
 type ElementState = 'present' | 'absent';
@@ -584,21 +597,24 @@ class WaitForTool extends BaseBrowserToolExecutor {
     extra: Record<string, unknown>,
   ): ToolResult {
     if (resp && resp.success === true) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              success: true,
-              kind,
-              tookMs: resp.tookMs ?? Date.now() - startedAt,
-              ...extra,
-              ...(resp as Record<string, unknown>),
-            }),
-          },
-        ],
-        isError: false,
-      };
+      return withSuggestedNext(
+        {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: true,
+                kind,
+                tookMs: resp.tookMs ?? Date.now() - startedAt,
+                ...extra,
+                ...(resp as Record<string, unknown>),
+              }),
+            },
+          ],
+          isError: false,
+        },
+        WAIT_FOR_NEXT_BY_KIND[kind] ?? [],
+      );
     }
     if (resp && resp.reason === 'timeout') {
       return createErrorResponse(
