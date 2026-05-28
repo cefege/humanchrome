@@ -7,9 +7,18 @@
  * messaging, resolving dynamic `flow.*` tools, and shaping errors into the
  * `CallToolResult` envelope MCP clients expect.
  */
+import { createHash } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import nativeMessagingHostInstance from '../native-messaging-host';
-import { NativeMessageType, ToolErrorCode, serializeToolError } from 'humanchrome-shared';
+import {
+  NativeMessageType,
+  TOOL_NAMES,
+  ToolErrorCode,
+  buildInvalidArgsDetails,
+  serializeToolError,
+} from 'humanchrome-shared';
 import { withContext } from '../util/logger';
 
 const FLOW_PREFIX = 'flow.';
@@ -200,6 +209,87 @@ export function toErrorEnvelopeText(message: string | undefined): string {
 }
 
 /**
+ * #310 — sink the SW's `chrome_javascript` result to disk and return a
+ * compact ack envelope. Called only when the caller set `writeResultTo`.
+ *
+ * Strategy: pull the first text content block, JSON-parse it, write either
+ * its `result` field (when present — the standard chrome_javascript shape)
+ * or the whole body (defensive fallback) to disk, then return a result
+ * envelope whose text block carries `{success, writtenTo, bytes, sha256,
+ * omitted}` instead of the original payload. The original `_meta`/`isError`
+ * fields are preserved so dispatcher-level hints (suggested_next etc.)
+ * still reach the caller.
+ *
+ * Failures (mkdir / writeFile rejection) surface as a `WRITE_FAILED`
+ * envelope — never as a thrown exception — so the caller sees a structured
+ * error in the same shape as any other tool failure.
+ */
+async function sinkJavascriptResultToDisk(
+  data: CallToolResult,
+  writeTarget: string,
+  log: ReturnType<typeof withContext>,
+): Promise<{ result: CallToolResult; writtenTo: string; bytes: number }> {
+  let payload: unknown;
+  const block = data?.content?.find?.((c: any) => c?.type === 'text') as
+    | { type: 'text'; text: string }
+    | undefined;
+  if (block?.text) {
+    try {
+      const parsed = JSON.parse(block.text);
+      payload = parsed && typeof parsed === 'object' && 'result' in parsed ? parsed.result : parsed;
+    } catch {
+      payload = block.text;
+    }
+  } else {
+    payload = data;
+  }
+  const body =
+    typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  try {
+    await fs.mkdir(path.dirname(writeTarget), { recursive: true });
+    await fs.writeFile(writeTarget, body, 'utf8');
+  } catch (error: any) {
+    const message = error?.message || String(error);
+    log.warn({ writeTarget, error: message }, 'writeResultTo failed');
+    return {
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: serializeToolError(
+              ToolErrorCode.UNKNOWN,
+              `writeResultTo failed: ${message}`,
+              { code: 'WRITE_FAILED', writtenTo: writeTarget },
+            ),
+          },
+        ],
+        isError: true,
+      },
+      writtenTo: writeTarget,
+      bytes: 0,
+    };
+  }
+  const bytes = Buffer.byteLength(body, 'utf8');
+  const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
+  const ack = {
+    success: true,
+    writtenTo: writeTarget,
+    bytes,
+    sha256,
+    omitted: 'result',
+  };
+  return {
+    result: {
+      ...data,
+      content: [{ type: 'text', text: JSON.stringify(ack) }],
+      isError: false,
+    },
+    writtenTo: writeTarget,
+    bytes,
+  };
+}
+
+/**
  * Split MCP args for a `flow.<slug>` call into the shape FlowRunTool expects:
  *   { flowId, args: <user vars only>, tabTarget, refresh, captureNetwork,
  *     returnLogs, timeoutMs, startUrl }
@@ -290,14 +380,56 @@ export async function dispatchTool(
       };
     }
 
+    // #310 — bridge-side sink for large chrome_javascript payloads. The SW
+    // can't write to the filesystem; the bridge can. Strip `writeResultTo`
+    // from the forwarded args so the extension never sees it, then redirect
+    // the SW's `result` to disk and return a small ack.
+    const writeTarget =
+      name === TOOL_NAMES.BROWSER.JAVASCRIPT && typeof args?.writeResultTo === 'string'
+        ? (args.writeResultTo as string)
+        : null;
+    let forwardArgs: any = args;
+    if (writeTarget !== null) {
+      if (writeTarget.length === 0 || !path.isAbsolute(writeTarget)) {
+        log.warn({ writeResultTo: writeTarget }, 'writeResultTo rejected: must be absolute path');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: serializeToolError(
+                ToolErrorCode.INVALID_ARGS,
+                '`writeResultTo` must be a non-empty absolute file path.',
+                buildInvalidArgsDetails({
+                  arg: 'writeResultTo',
+                  received: writeTarget,
+                  expected: { type: 'string', description: 'Absolute file path.' },
+                }),
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const { writeResultTo: _drop, ...rest } = args;
+      forwardArgs = rest;
+    }
+
     const response = await nativeMessagingHostInstance.sendRequestToExtensionAndWait(
-      { name, args },
+      { name, args: forwardArgs },
       NativeMessageType.CALL_TOOL,
       TOOL_CALL_TIMEOUT_MS,
       requestId,
       clientId,
     );
     if (response.status === 'success') {
+      if (writeTarget !== null) {
+        const sunk = await sinkJavascriptResultToDisk(response.data, writeTarget, log);
+        log.info(
+          { durationMs: Date.now() - startedAt, writtenTo: sunk.writtenTo, bytes: sunk.bytes },
+          'tool call ok (writeResultTo)',
+        );
+        return sunk.result;
+      }
       log.info({ durationMs: Date.now() - startedAt }, 'tool call ok');
       return response.data;
     }
