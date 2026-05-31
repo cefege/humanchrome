@@ -138,6 +138,7 @@ export const TOOL_NAMES = {
     SET_CHECKED: 'chrome_set_checked',
     COMBOBOX_SELECT: 'chrome_combobox_select',
     TYPEAHEAD_PROBE: 'chrome_typeahead_probe',
+    NATIVE_TYPE: 'chrome_native_type',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3615,6 +3616,33 @@ export const TOOL_SCHEMAS: Tool[] = [
       },
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.NATIVE_TYPE,
+    description:
+      "Bug-008 workaround: types into an input via REAL OS-level keystrokes (osascript on macOS). Produces trusted `keydown` DOM events that drive Ember/keydown-gated typeaheads (LinkedIn Open to Work) where chrome_type_into's CDP path silently drops keydown on stable Chrome 145. macOS only; brings the Chrome window to the foreground (System Events delivers to frontmost app). Requires Accessibility permission for the host process — System Settings → Privacy & Security → Accessibility. Use chrome_type_into when keydown isn't required. Example: {selector:'input[aria-label=\"Add title\"]', text:'Senior AI Engineer'} → {charsTyped, finalValue}",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS (or other selectorType) for the input.' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string', description: 'Element ref from chrome_read_page (alternative to selector).' },
+        text: { type: 'string', description: 'Text to type (≤1024 chars).' },
+        pressEnter: { type: 'boolean', description: 'Press Return after the text. Default false.' },
+        focusSettleMs: {
+          type: 'number',
+          description: 'Wait N ms after window+tab activation before keystrokes start. Default 180.',
+        },
+        force: { type: 'boolean', description: 'Skip the focus visibility/disabled/readonly check.' },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+      required: ['text'],
+    },
+  },
 ];
 
 /**
@@ -3761,6 +3789,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.SET_CHECKED]: 'Interaction',
   [TOOL_NAMES.BROWSER.COMBOBOX_SELECT]: 'Interaction',
   [TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE]: 'Interaction',
+  [TOOL_NAMES.BROWSER.NATIVE_TYPE]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

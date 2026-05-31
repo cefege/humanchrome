@@ -666,6 +666,23 @@ Bug-008 diagnostic: types a sample char into a typeahead input then reports ever
 | `windowId` | number |  |  |
 | `frameId` | number |  |  |
 
+### `chrome_native_type`
+
+Bug-008 workaround: types into an input via REAL OS-level keystrokes (osascript on macOS). Produces trusted `keydown` DOM events that drive Ember/keydown-gated typeaheads (LinkedIn Open to Work) where chrome_type_into's CDP path silently drops keydown on stable Chrome 145. macOS only; brings the Chrome window to the foreground (System Events delivers to frontmost app). Requires Accessibility permission for the host process — System Settings → Privacy & Security → Accessibility. Use chrome_type_into when keydown isn't required. Example: {selector:'input[aria-label="Add title"]', text:'Senior AI Engineer'} → {charsTyped, finalValue}
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS (or other selectorType) for the input. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  | Element ref from chrome_read_page (alternative to selector). |
+| `text` | string | ✓ | Text to type (≤1024 chars). |
+| `pressEnter` | boolean |  | Press Return after the text. Default false. |
+| `focusSettleMs` | number |  | Wait N ms after window+tab activation before keystrokes start. Default 180. |
+| `force` | boolean |  | Skip the focus visibility/disabled/readonly check. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ## Scripting
 
 ### `chrome_userscript`

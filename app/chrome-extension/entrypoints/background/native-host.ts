@@ -557,16 +557,19 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         log.error('error from native host', {
           data: { msg: message.payload?.message || 'Unknown error' },
         });
-      } else if (message.type === 'file_operation_response') {
-        // Resolve a pending direct-to-native request (background-context
-        // callers that used sendNativeRequest). Fall through to the legacy
-        // runtime-message broadcast for any non-background listener that
-        // might still depend on it (e.g. content scripts).
-        const id = message.responseToRequestId as string | undefined;
-        const pending = id ? pendingNativeRequests.get(id) : undefined;
+      } else if (typeof message.responseToRequestId === 'string') {
+        // Generic resolver: ANY message carrying `responseToRequestId`
+        // resolves the matching pending sendNativeRequest. Was previously
+        // hard-coded to `type === 'file_operation_response'`; widened so
+        // new native handlers (Bug-008 `native_keystroke_response`, future
+        // operations) don't have to teach the BG dispatcher about
+        // themselves. Falls through to the legacy runtime-message broadcast
+        // for any non-background listener that depends on the typed event.
+        const id = message.responseToRequestId as string;
+        const pending = pendingNativeRequests.get(id);
         if (pending) {
           clearTimeout(pending.timer);
-          pendingNativeRequests.delete(id!);
+          pendingNativeRequests.delete(id);
           if (message.error) {
             pending.reject(new Error(message.error));
           } else {
