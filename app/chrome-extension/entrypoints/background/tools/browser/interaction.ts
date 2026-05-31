@@ -270,6 +270,18 @@ class ClickTool extends BaseBrowserToolExecutor {
 
       try {
         await cdpSessionManager.withSession(tab.id, 'click', async () => {
+          // Move first — chrome_computer's path does this too. Some click
+          // handlers (Ember route delegates, custom dropdown triggers) gate
+          // on a pointermove preceding the press, which a bare press/release
+          // pair doesn't satisfy.
+          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: cdpX,
+            y: cdpY,
+            button: 'none',
+            buttons: 0,
+            modifiers: cdpModifiers,
+          });
           await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
             type: 'mousePressed',
             x: cdpX,

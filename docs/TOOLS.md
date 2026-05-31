@@ -648,6 +648,24 @@ Trusted commit of a React/Ember combobox option via keyboard. CDP-focuses the in
 | `windowId` | number |  |  |
 | `frameId` | number |  |  |
 
+### `chrome_typeahead_probe`
+
+Bug-008 diagnostic: types a sample char into a typeahead input then reports every event that fired (with isTrusted), every fetch the page made, and final aria-expanded/aria-controls/listbox state in one envelope. Use when a typeahead lookup or autocomplete isn't firing — see {summary: {keydownFired, inputFired, lookupFetchFired}} for the trust gate diagnosis. Example: {selector:'input[aria-label="Add title"]', sample:'S'} → {events, fetches, listboxFound, summary}
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS (or other selectorType) for the typeahead input. |
+| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `text` \| `alt` \| `title` \| `testid` |  |  |
+| `ref` | string |  | Element ref from chrome_read_page (alternative to selector). |
+| `sample` | string |  | Char(s) to type (≤16). Default "a". |
+| `watchMs` | number |  | How long to observe events + fetches after typing. Default 3500. |
+| `clearFirst` | boolean |  | Select-all + Delete before typing. Default true. |
+| `networkUrlPattern` | string |  | Regex (case-insensitive). When set, only fetches matching this pattern are returned. Default matches all. |
+| `optionSelector` | string |  | CSS for the option elements (used for the listbox snapshot). Default '[role="option"]'. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
 ## Scripting
 
 ### `chrome_userscript`
