@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bug-008 CDP keydown divergence repro</title>
+  </head>
+  <body>
+    <h1>Bug-008 CDP keydown divergence repro</h1>
+    <p>Type into the input. Every keyboard / input event is recorded into
+    <code>window.__events</code> at capture phase on <code>window</code>,
+    <code>document</code>, and the input itself. Read from a DevTools console
+    or via CDP <code>Runtime.evaluate({ expression: "window.__events" })</code>.</p>
+
+    <input id="q" autofocus placeholder="focused on load" />
+
+    <script>
+      window.__events = [];
+      const TYPES = ['keydown', 'keyup', 'keypress', 'input', 'beforeinput'];
+      const i = document.getElementById('q');
+
+      function record(scope) {
+        return (e) => {
+          window.__events.push({
+            scope,
+            type: e.type,
+            isTrusted: e.isTrusted,
+            key: e.key ?? null,
+            code: e.code ?? null,
+            data: e.data ?? null,
+            inputType: e.inputType ?? null,
+            composed: e.composed ?? null,
+            isComposing: e.isComposing ?? null,
+            ts: Date.now(),
+          });
+        };
+      }
+
+      for (const t of TYPES) {
+        window.addEventListener(t, record('window'), true);
+        document.addEventListener(t, record('document'), true);
+        i.addEventListener(t, record('input'), true);
+      }
+    </script>
+  </body>
+</html>

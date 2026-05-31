@@ -1,0 +1,26 @@
+[repro] connecting to file:///abs/path/fixture.html
+[repro] sending keyDown({"key":"a","code":"KeyA","vk":65,"shift":false})
+[repro] sending insertText(text:"a")
+[repro] sending keyUp
+
+=== Observed DOM events ===
+  window   keydown      isTrusted=true key="a"
+  document keydown      isTrusted=true key="a"
+  input    keydown      isTrusted=true key="a"
+  window   beforeinput  isTrusted=true key=null
+  document beforeinput  isTrusted=true key=null
+  input    beforeinput  isTrusted=true key=null
+  window   input        isTrusted=true key=null
+  document input        isTrusted=true key=null
+  input    input        isTrusted=true key=null
+  window   keyup        isTrusted=true key="a"
+  document keyup        isTrusted=true key="a"
+  input    keyup        isTrusted=true key="a"
+
+=== Summary ===
+  input.value             : "a"
+  keydown events fired    : 3
+  keyup events fired      : 3
+  keypress events fired   : 0
+  input events fired      : 3
+  beforeinput events fired: 3
