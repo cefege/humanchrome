@@ -214,6 +214,15 @@ vitest coverage:
   The fixture's option `click` handler is intentionally a no-op (matches
   LinkedIn Downshift behaviour), so a regression that routes through
   synthetic option-click fails the assertion.
+- **Bug-008-probe** `chrome_typeahead_probe` — types a single char into
+  `#probe-input` (a static fixture input whose `input` listener fires a
+  fetch to `/typeahead-fixture-stub`). Asserts `summary.inputFired` +
+  `summary.lookupFetchFired` are true. **Does NOT assert
+  `summary.keydownFired`** — its observed value is the Bug-008 divergence
+  diagnostic. Compare this row's `summary.keydownFired` between CFT
+  (`pnpm e2e:isolated` output) and daily Chrome (run the same probe via
+  the bridge against a local fixture) to confirm whether suppressed-
+  keydown is environment-uniform or a CFT-vs-daily divergence.
 - **IMP-0124** `chrome_emulate` — `set_device({preset:'iphone-15'})`
   then `chrome_javascript({code:'innerWidth'})` returns 393. Calls
   `reset_all` at the end so subsequent rows see the original viewport.

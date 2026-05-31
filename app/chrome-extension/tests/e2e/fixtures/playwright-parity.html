@@ -505,6 +505,34 @@
           });
         })();
       </script>
+
+      <h3>Bug-008-probe — <code>chrome_typeahead_probe</code> on a static input</h3>
+      <p class="muted">
+        Static input + a tiny "lookup" handler that fires a no-op fetch to
+        <code>/typeahead-fixture-stub</code> on every <code>input</code> event. The matrix row
+        types one char via <code>chrome_typeahead_probe</code> and asserts
+        <code>summary.inputFired === true</code> + <code>summary.lookupFetchFired === true</code>.
+        The captured <code>summary.keydownFired</code> records whether the runner's Chrome (CFT)
+        delivers <code>keydown</code> through the current IMP-0176 keystroke path — the
+        Bug-008 divergence question. The fetch is to a same-origin 404 endpoint, so its
+        response is irrelevant; the probe only cares that the request fired.
+      </p>
+      <input id="probe-input" type="text" placeholder="Type to fire lookup…" />
+      <script>
+        (() => {
+          const input = document.getElementById('probe-input');
+          if (!input) return;
+          input.addEventListener('input', () => {
+            // Fire-and-forget fetch — its existence is what the probe asserts.
+            // 404 is fine: probe only inspects the request, not the response.
+            try {
+              fetch('/typeahead-fixture-stub?q=' + encodeURIComponent(input.value)).catch(
+                () => {}
+              );
+            } catch (e) {}
+          });
+        })();
+      </script>
     </section>
 
     <script>
