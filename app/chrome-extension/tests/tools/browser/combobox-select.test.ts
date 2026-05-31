@@ -162,11 +162,11 @@ describe('chrome_combobox_select — happy path', () => {
       (c) => c[1] === 'Input.dispatchKeyEvent',
     );
     // 4 for clear (Ctrl+A down/up, Delete down/up)
-    // + 9*3 for char keyDown/char/keyUp = 27 (Bug-008 fix: char event replaces insertText)
+    // + 9*2 for char keyDown/keyUp = 18
     // + 2 for ArrowDown
     // + 2 for Enter
-    // = 35
-    expect(keyEvents).toHaveLength(35);
+    // = 26
+    expect(keyEvents).toHaveLength(26);
 
     // ArrowDown and Enter are the last 4 key events.
     expect(keyEvents[keyEvents.length - 4][2]).toMatchObject({
@@ -206,8 +206,8 @@ describe('chrome_combobox_select — happy path', () => {
     const keyEvents = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchKeyEvent',
     );
-    // 2*3 char (keyDown + char + keyUp) + ArrowDown 2 + Enter 2 = 10 (no clear)
-    expect(keyEvents).toHaveLength(10);
+    // 2*2 char + ArrowDown 2 + Enter 2 = 8 (no clear)
+    expect(keyEvents).toHaveLength(8);
     // First event is the first char's keyDown, NOT Ctrl+A.
     expect(keyEvents[0][2]).toMatchObject({ type: 'keyDown', key: 'a' });
     expect(keyEvents[0][2]).not.toMatchObject({ modifiers: 2 });

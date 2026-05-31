@@ -115,17 +115,14 @@ describe('chrome_type_into — happy path', () => {
     expect(body.typed).toBe(2);
     expect(body.finalValue).toBe('hi');
 
-    // Bug-008 fix: each char produces keyDown + char + keyUp via CDP
-    // `Input.dispatchKeyEvent` (3 calls × 2 chars = 6 total). The `char`
-    // event between keyDown and keyUp is Chromium's keyboard-pipeline
-    // text-input event — fires keypress + insert, doesn't trigger Chrome's
-    // IME-composition suppression that `Input.insertText` did. So the
-    // synthetic `keydown` DOM event fires normally, which is what
-    // LinkedIn's Ember typeahead lookup is gated on.
+    // IMP-0176 round 2: each char produces keyDown + Input.insertText + keyUp
+    // (3 CDP calls × 2 chars = 6 total). keyDown no longer carries `text`
+    // since insertText is the actual text-landing path; the keyDown
+    // just fires the keyboard event for anti-bot heuristics.
     const keyEvents = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchKeyEvent');
     const inserts = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.insertText');
-    expect(keyEvents).toHaveLength(6);
-    expect(inserts).toHaveLength(0);
+    expect(keyEvents).toHaveLength(4);
+    expect(inserts).toHaveLength(2);
     expect(keyEvents[0][2]).toMatchObject({
       type: 'keyDown',
       key: 'h',
@@ -133,31 +130,21 @@ describe('chrome_type_into — happy path', () => {
       windowsVirtualKeyCode: 72,
     });
     expect(keyEvents[0][2]).not.toHaveProperty('text');
+    expect(inserts[0][2]).toEqual({ text: 'h' });
     expect(keyEvents[1][2]).toMatchObject({
-      type: 'char',
-      key: 'h',
-      code: 'KeyH',
-      text: 'h',
-      unmodifiedText: 'h',
-    });
-    expect(keyEvents[2][2]).toMatchObject({
       type: 'keyUp',
       key: 'h',
       code: 'KeyH',
       windowsVirtualKeyCode: 72,
     });
-    expect(keyEvents[3][2]).toMatchObject({
+    expect(keyEvents[2][2]).toMatchObject({
       type: 'keyDown',
       key: 'i',
       code: 'KeyI',
       windowsVirtualKeyCode: 73,
     });
-    expect(keyEvents[4][2]).toMatchObject({
-      type: 'char',
-      key: 'i',
-      text: 'i',
-    });
-    expect(keyEvents[5][2]).toMatchObject({
+    expect(inserts[1][2]).toEqual({ text: 'i' });
+    expect(keyEvents[3][2]).toMatchObject({
       type: 'keyUp',
       key: 'i',
       code: 'KeyI',
@@ -174,23 +161,23 @@ describe('chrome_type_into — happy path', () => {
       jitterMs: 0,
     });
     const events = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchKeyEvent');
-    // Order: rawKeyDown(A+ctrl), keyUp(A+ctrl), keyDown(Delete), keyUp(Delete), then 3 chars × 3
-    // (keyDown + char + keyUp each) = 9 more.
+    // Order: rawKeyDown(A+ctrl), keyUp(A+ctrl), keyDown(Delete), keyUp(Delete), then 3 chars × 2 = 6
     expect(events[0][2]).toMatchObject({ type: 'rawKeyDown', key: 'a', modifiers: 2 });
     expect(events[1][2]).toMatchObject({ type: 'keyUp', key: 'a', modifiers: 2 });
     expect(events[2][2]).toMatchObject({ type: 'keyDown', key: 'Delete', windowsVirtualKeyCode: 46 });
     expect(events[3][2]).toMatchObject({ type: 'keyUp', key: 'Delete' });
-    expect(events.length).toBe(4 + 9);
+    // Then 3 chars × 2 events = 6 more
+    expect(events.length).toBe(4 + 6);
   });
 
   it('pressEnter sends Enter after the last char', async () => {
     queueFocusOk({}, 'hi');
     await exec({ selector: '#search', text: 'hi', pressEnter: true, perKeyDelayMs: 0, jitterMs: 0 });
     const events = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchKeyEvent');
-    // 2 chars × 3 (keyDown + char + keyUp) + Enter × 2 = 8
-    expect(events.length).toBe(8);
-    expect(events[6][2]).toMatchObject({ type: 'keyDown', key: 'Enter', windowsVirtualKeyCode: 13 });
-    expect(events[7][2]).toMatchObject({ type: 'keyUp', key: 'Enter' });
+    // 2 chars × 2 + Enter × 2 = 6
+    expect(events.length).toBe(6);
+    expect(events[4][2]).toMatchObject({ type: 'keyDown', key: 'Enter', windowsVirtualKeyCode: 13 });
+    expect(events[5][2]).toMatchObject({ type: 'keyUp', key: 'Enter' });
   });
 
   it('reports contentEditable:true when the focus shim detects it', async () => {

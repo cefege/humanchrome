@@ -83,38 +83,15 @@ export function charToKey(ch: string): KeyMeta | null {
 }
 
 /**
- * Dispatch one character through CDP: keyDown → char → keyUp.
+ * Dispatch one character through CDP: keyDown + insertText + keyUp.
  *
- * Bug-008 fix: the previous IMP-0176-round-2 split sent `keyDown` (text-
- * less) → `Input.insertText` → `keyUp`. Chrome's renderer treats the
- * immediate post-keyDown `insertText` as part of an IME composition and
- * **suppresses the synthetic `keydown` DOM event**. Most sites trigger
- * lookups on the `input` event so they didn't notice, but LinkedIn's
- * Ember Open to Work typeahead is wired to `keydown` and so its lookup
- * never fired — the input value updated, the listbox stayed empty, and
- * zero network requests went out (verified by live probe).
- *
- * The new sequence uses CDP's `type:"char"` event between keyDown and
- * keyUp. `char` is the Chromium-keyboard-pipeline event that fires
- * `keypress` AND inserts the character. Because `char` (not `insertText`)
- * follows `keyDown`, Chrome doesn't enter IME-composition mode — the
- * `keydown` DOM event fires normally, then keypress + input fire from
- * the `char`, then keyup fires from `keyUp`. This is the same sequence
- * Puppeteer and Playwright use for typing.
- *
- * IMP-0176-round-2 motivation preserved: the original split was added
- * because dispatchKeyEvent's text payload was "suppressed in hidden
- * renderers (CFT-CI, alt-tabbed sessions)." The `char` event uses the
- * same IME-path delivery (`Input.dispatchKeyEvent type:char` lands text
- * via the same code path as `Input.insertText` for visibility-hidden
- * tabs) so we keep that win.
+ * Input.insertText goes through the IME pipeline, which Chromium delivers
+ * to the focused input regardless of tab visibility — dispatchKeyEvent's
+ * text payload is suppressed in hidden renderers (CFT-CI, alt-tabbed).
  */
 export async function sendChar(tabId: number, ch: string): Promise<void> {
   const meta = charToKey(ch);
   if (!meta) {
-    // Non-ASCII (emoji, accented chars): no virtual key code maps cleanly;
-    // fall back to insertText. These chars don't carry meaningful keydown
-    // semantics anyway (real keyboards use a deadkey + char or an IME).
     await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
     return;
   }
@@ -126,21 +103,12 @@ export async function sendChar(tabId: number, ch: string): Promise<void> {
     nativeVirtualKeyCode: meta.vk,
     modifiers,
   };
-  // keyDown carries NO text/unmodifiedText — pure keyboard signal so the
-  // `keydown` DOM event fires without Chrome also inserting text from the
-  // keyboard pipeline. The follow-up `char` event is the only inserter.
-  // (Including `unmodifiedText` on keyDown causes Chrome 145+ to double-
-  // insert: keyDown writes via unmodifiedText, then char writes via text.)
   await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
     ...keyArgs,
     type: 'keyDown',
-  });
-  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', {
-    ...keyArgs,
-    type: 'char',
-    text: ch,
     unmodifiedText: meta.unmodified ?? ch,
   });
+  await cdpSessionManager.sendCommand(tabId, 'Input.insertText', { text: ch });
   await cdpSessionManager.sendCommand(tabId, 'Input.dispatchKeyEvent', { ...keyArgs, type: 'keyUp' });
 }
 
