@@ -8,8 +8,51 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Two MAIN-world `Runtime.evaluate` calls now feed the probe — the
+// install shim returns `{ok:true}` and the readback shim returns the
+// captured events + fetches. Default mocks resolve them via a
+// per-method dispatcher so individual tests can override either.
+type ReadbackPayload = {
+  ok: boolean;
+  inputValueAfter: string;
+  ariaExpanded: string;
+  ariaControls: string | null;
+  listboxFound: boolean;
+  listboxOptionCount: number;
+  listboxSampleOpts: string[];
+  events: Array<Record<string, unknown>>;
+  fetches: Array<Record<string, unknown>>;
+};
+let mainInstallResp: { result: { value: { ok: boolean; message?: string } } } = {
+  result: { value: { ok: true } },
+};
+let mainReadbackResp: { result: { value: ReadbackPayload } } | { result: { value: undefined } } = {
+  result: {
+    value: {
+      ok: true,
+      inputValueAfter: 'a',
+      ariaExpanded: 'true',
+      ariaControls: null,
+      listboxFound: false,
+      listboxOptionCount: 0,
+      listboxSampleOpts: [],
+      events: [],
+      fetches: [],
+    },
+  },
+};
+
 const sendCommandMock = vi.fn(
-  async (_tabId: number, _method: string, _params?: Record<string, unknown>) => undefined,
+  async (_tabId: number, method: string, params?: Record<string, unknown>) => {
+    if (method !== 'Runtime.evaluate') return undefined;
+    const expr = String(params?.expression ?? '');
+    // First Runtime.evaluate call is the install shim; second is the
+    // readback. Distinguish by checking which function name is baked into
+    // the IIFE expression.
+    if (expr.includes('installCaptureInMainWorld')) return mainInstallResp;
+    if (expr.includes('readCaptureFromMainWorld')) return mainReadbackResp;
+    return undefined;
+  },
 );
 const withSessionMock = vi.fn(
   async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
@@ -46,7 +89,8 @@ function parseBody(res: any): any {
   return JSON.parse(res.content[0].text);
 }
 
-const INSTALL_OK = {
+// Resolve shim (ISOLATED, executeScript) — returns coords + initial aria.
+const RESOLVE_OK = {
   result: {
     ok: true,
     tagName: 'input',
@@ -58,18 +102,31 @@ const INSTALL_OK = {
   },
 };
 
-function readbackOk(overrides: Partial<{ events: any[]; fetches: any[]; inputValue: string; ariaExpanded: string; ariaControls: string; listboxFound: boolean; optCount: number; sampleOpts: string[] }> = {}) {
-  return {
+function setReadback(
+  overrides: Partial<{
+    events: any[];
+    fetches: any[];
+    inputValue: string;
+    ariaExpanded: string;
+    ariaControls: string;
+    listboxFound: boolean;
+    optCount: number;
+    sampleOpts: string[];
+  }> = {},
+) {
+  mainReadbackResp = {
     result: {
-      ok: true,
-      inputValueAfter: overrides.inputValue ?? 'a',
-      ariaExpanded: overrides.ariaExpanded ?? 'true',
-      ariaControls: overrides.ariaControls ?? null,
-      listboxFound: overrides.listboxFound ?? false,
-      listboxOptionCount: overrides.optCount ?? 0,
-      listboxSampleOpts: overrides.sampleOpts ?? [],
-      events: overrides.events ?? [],
-      fetches: overrides.fetches ?? [],
+      value: {
+        ok: true,
+        inputValueAfter: overrides.inputValue ?? 'a',
+        ariaExpanded: overrides.ariaExpanded ?? 'true',
+        ariaControls: overrides.ariaControls ?? null,
+        listboxFound: overrides.listboxFound ?? false,
+        listboxOptionCount: overrides.optCount ?? 0,
+        listboxSampleOpts: overrides.sampleOpts ?? [],
+        events: overrides.events ?? [],
+        fetches: overrides.fetches ?? [],
+      },
     },
   };
 }
@@ -78,6 +135,9 @@ beforeEach(() => {
   _resetClientStateForTests();
   sendCommandMock.mockClear();
   withSessionMock.mockClear();
+  // Reset to default install + empty readback per test.
+  mainInstallResp = { result: { value: { ok: true } } };
+  setReadback({});
   executeScriptMock = vi.fn();
   (globalThis.chrome as any) = {
     storage: { session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) } },
@@ -118,20 +178,15 @@ describe('chrome_typeahead_probe — validation', () => {
 
 describe('chrome_typeahead_probe — happy path', () => {
   it('focuses via CDP click, types sample, returns events + fetches + summary', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK]) // install
-      .mockResolvedValueOnce([
-        readbackOk({
-          events: [
-            { scope: 'input', type: 'beforeinput', isTrusted: true, data: 'a' },
-            { scope: 'input', type: 'input', isTrusted: true, data: 'a' },
-          ],
-          fetches: [
-            { url: 'https://example.com/typeahead?q=a', method: 'GET', ts: 1 },
-          ],
-          inputValue: 'a',
-        }),
-      ]);
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]); // ISOLATED resolve
+    setReadback({
+      events: [
+        { scope: 'input', type: 'beforeinput', isTrusted: true, data: 'a' },
+        { scope: 'input', type: 'input', isTrusted: true, data: 'a' },
+      ],
+      fetches: [{ url: 'https://example.com/typeahead?q=a', method: 'GET', ts: 1 }],
+      inputValue: 'a',
+    });
 
     const res = await exec({
       selector: 'input[aria-label="Skill*"]',
@@ -160,45 +215,39 @@ describe('chrome_typeahead_probe — happy path', () => {
       y: 115,
       button: 'left',
     });
+
+    // Two Runtime.evaluate calls: install (MAIN) + readback (MAIN).
+    const evalCalls = sendCommandMock.mock.calls.filter(
+      (c) => c[1] === 'Runtime.evaluate',
+    );
+    expect(evalCalls).toHaveLength(2);
+    expect(String(evalCalls[0][2]?.expression ?? '')).toContain('installCaptureInMainWorld');
+    expect(String(evalCalls[1][2]?.expression ?? '')).toContain('readCaptureFromMainWorld');
   });
 
   it('summary.keydownFired is true when a trusted keydown shows up', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK])
-      .mockResolvedValueOnce([
-        readbackOk({
-          events: [{ scope: 'window', type: 'keydown', isTrusted: true, key: 'a' }],
-        }),
-      ]);
-
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
+    setReadback({
+      events: [{ scope: 'window', type: 'keydown', isTrusted: true, key: 'a' }],
+    });
     const res = await exec({ selector: '#x', sample: 'a', watchMs: 100 });
     expect(parseBody(res).summary.keydownFired).toBe(true);
   });
 
   it('summary.keydownFired is false when only untrusted keydown shows up', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK])
-      .mockResolvedValueOnce([
-        readbackOk({
-          events: [{ scope: 'window', type: 'keydown', isTrusted: false, key: 'a' }],
-        }),
-      ]);
-
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
+    setReadback({
+      events: [{ scope: 'window', type: 'keydown', isTrusted: false, key: 'a' }],
+    });
     const res = await exec({ selector: '#x', sample: 'a', watchMs: 100 });
     expect(parseBody(res).summary.keydownFired).toBe(false);
   });
 
   it('networkUrlPattern lets summary.lookupFetchFired use the caller pattern', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK])
-      .mockResolvedValueOnce([
-        readbackOk({
-          fetches: [
-            { url: 'https://example.com/random-endpoint?q=a', method: 'GET', ts: 1 },
-          ],
-        }),
-      ]);
-
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
+    setReadback({
+      fetches: [{ url: 'https://example.com/random-endpoint?q=a', method: 'GET', ts: 1 }],
+    });
     const res = await exec({
       selector: '#x',
       sample: 'a',
@@ -211,10 +260,7 @@ describe('chrome_typeahead_probe — happy path', () => {
   });
 
   it('clearFirst:false skips Ctrl+A + Delete', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK])
-      .mockResolvedValueOnce([readbackOk({})]);
-
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
     await exec({ selector: '#x', sample: 'a', clearFirst: false, watchMs: 100 });
 
     const keyEvents = sendCommandMock.mock.calls.filter(
@@ -225,10 +271,7 @@ describe('chrome_typeahead_probe — happy path', () => {
   });
 
   it('clearFirst:true (default) sends Ctrl+A + Delete before typing', async () => {
-    executeScriptMock
-      .mockResolvedValueOnce([INSTALL_OK])
-      .mockResolvedValueOnce([readbackOk({})]);
-
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
     await exec({ selector: '#x', sample: 'a', watchMs: 100 });
 
     const keyEvents = sendCommandMock.mock.calls.filter(
@@ -242,7 +285,7 @@ describe('chrome_typeahead_probe — happy path', () => {
 });
 
 describe('chrome_typeahead_probe — error classification', () => {
-  it('install shim notActionable → NOT_ACTIONABLE', async () => {
+  it('resolve shim notActionable → NOT_ACTIONABLE', async () => {
     executeScriptMock.mockResolvedValueOnce([
       {
         result: {
@@ -258,11 +301,11 @@ describe('chrome_typeahead_probe — error classification', () => {
     const body = parseBody(res);
     expect(body.error.code).toBe('NOT_ACTIONABLE');
     expect(body.error.details.failures).toEqual(['disabled']);
-    // No CDP traffic when install shim refused.
+    // No CDP traffic when resolve shim refused.
     expect(sendCommandMock).not.toHaveBeenCalled();
   });
 
-  it('install shim ok:false without notActionable → UNKNOWN', async () => {
+  it('resolve shim ok:false without notActionable → UNKNOWN', async () => {
     executeScriptMock.mockResolvedValueOnce([
       { result: { ok: false, message: 'selector "#nope" matched no element' } },
     ]);
@@ -272,12 +315,24 @@ describe('chrome_typeahead_probe — error classification', () => {
   });
 
   it('classifies "Another debugger" as CDP_BUSY', async () => {
-    executeScriptMock.mockResolvedValueOnce([INSTALL_OK]);
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
     withSessionMock.mockImplementationOnce(async () => {
       throw new Error('Another debugger is already attached');
     });
     const res = await exec({ selector: '#x', sample: 'a', watchMs: 100 });
     expect(res.isError).toBe(true);
     expect(parseBody(res).error.code).toBe('CDP_BUSY');
+  });
+
+  it('MAIN-world install failure surfaces as UNKNOWN', async () => {
+    executeScriptMock.mockResolvedValueOnce([RESOLVE_OK]);
+    mainInstallResp = {
+      result: { value: { ok: false, message: 'element not found in MAIN world' } },
+    };
+    const res = await exec({ selector: '#x', sample: 'a', watchMs: 100 });
+    expect(res.isError).toBe(true);
+    const body = parseBody(res);
+    expect(body.error.code).toBe('UNKNOWN');
+    expect(body.error.message).toContain('element not found in MAIN world');
   });
 });
