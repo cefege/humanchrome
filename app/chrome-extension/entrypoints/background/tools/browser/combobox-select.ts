@@ -201,6 +201,16 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
 
       await cdpSessionManager.withSession(tabId, OWNER, async () => {
         // Step 2: trusted CDP mouse click on the input center to focus.
+        // mouseMoved first — Bug-002 family: stable Chrome 145 sometimes
+        // drops a bare press/release pair when no preceding move event
+        // established the cursor position.
+        await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: point.x,
+          y: point.y,
+          button: 'none',
+          buttons: 0,
+        });
         await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: point.x,
@@ -218,10 +228,23 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
           clickCount: 1,
         });
 
-        // Step 3: clear existing input value.
+        // Step 3: clear existing input value. Ctrl+A + Delete is the
+        // "human-y" path; we follow up with a native-setter fallback in
+        // case Ctrl+A didn't actually select the existing text (Bug-008
+        // family: stable Chrome can drop synthetic keydown events when
+        // they don't reach a focused-and-believed-focused element).
         if (clearFirst) {
           await sendSelectAll(tabId!);
           await sendKey(tabId!, NAMED_KEYS.Delete.key, NAMED_KEYS.Delete.code, NAMED_KEYS.Delete.vk);
+          // Verify-and-fallback: read the input value; if still non-empty,
+          // force-clear via the native value setter + dispatch a synthetic
+          // `input` event so listeners observe the clear.
+          await chrome.scripting.executeScript({
+            target,
+            world: 'ISOLATED',
+            func: forceClearShim,
+            args: [shimSelector, shimRef],
+          });
         }
 
         // Step 4: type the query char-by-char with realistic cadence.
@@ -456,6 +479,15 @@ function comboboxBboxShim(
     }
 
     target.scrollIntoView({ block: 'center', inline: 'center' });
+    // Belt-and-braces .focus() — CDP click is supposed to focus form
+    // controls but stable Chrome 145 has been shown to not always deliver
+    // mousedown to the focused input (Bug-008 family). Without focus,
+    // subsequent Ctrl+A + Delete + typing keystrokes go nowhere, and a
+    // stale value from a previous interaction (the "LGraphQL" residue
+    // seen in the Skills smoke test) silently sticks around.
+    if (typeof (target as HTMLElement).focus === 'function') {
+      (target as HTMLElement).focus({ preventScroll: true });
+    }
     const rect = target.getBoundingClientRect();
     return {
       ok: true,
@@ -507,6 +539,58 @@ function readComboboxOptions(optionSelector: string): ProbeResult {
     return { ok: true, count: options.length, options };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * ISOLATED-world shim: belt-and-braces clear. Runs after `Ctrl+A + Delete`
+ * (which is the human-y path that fires synthetic key events). If
+ * `input.value` is still non-empty, force-set the value to '' via the
+ * native property descriptor and dispatch a synthetic `input` event so
+ * page-side handlers observe the clear.
+ *
+ * Why this matters: stable Chrome 145 sometimes drops synthetic keydown
+ * events delivered after a CDP click — same Bug-008 family. If Ctrl+A
+ * didn't actually select the existing text, Delete then deletes nothing,
+ * and the query gets appended to whatever stale value was already there
+ * (the "LGraphQL" residue seen on LinkedIn Skills before this fix).
+ *
+ * The native setter + dispatched event is the standard React-friendly
+ * clear pattern — React's internal value tracker watches the native
+ * descriptor's setter and treats `setValue('') + input event` as a valid
+ * controlled-component update.
+ */
+function forceClearShim(selector: string | null, ref: string | null): { ok: boolean; before?: string; after?: string; forced?: boolean } {
+  try {
+    let el: Element | null = null;
+    if (ref) {
+      const map = (window as unknown as { __claudeElementMap?: Record<string, WeakRef<Element>> })
+        .__claudeElementMap;
+      el = map?.[ref]?.deref?.() ?? null;
+    } else if (selector) {
+      el = document.querySelector(selector);
+    }
+    if (!el) return { ok: false };
+    const input = el as HTMLInputElement;
+    const before = typeof input.value === 'string' ? input.value : '';
+    if (before === '') {
+      return { ok: true, before, after: '', forced: false };
+    }
+    const proto =
+      input.tagName === 'TEXTAREA'
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && typeof desc.set === 'function') {
+      desc.set.call(input, '');
+    } else {
+      // Last-resort fallback if some browser misbehaves.
+      input.value = '';
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    return { ok: true, before, after: input.value, forced: true };
+  } catch (err) {
+    return { ok: false };
   }
 }
 
