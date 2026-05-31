@@ -3619,7 +3619,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NATIVE_TYPE,
     description:
-      "Bug-008 workaround: types into an input via REAL OS-level keystrokes (osascript on macOS). Produces trusted `keydown` DOM events that drive Ember/keydown-gated typeaheads (LinkedIn Open to Work) where chrome_type_into's CDP path silently drops keydown on stable Chrome 145. macOS only; brings the Chrome window to the foreground (System Events delivers to frontmost app). Requires Accessibility permission for the host process — System Settings → Privacy & Security → Accessibility. Use chrome_type_into when keydown isn't required. Example: {selector:'input[aria-label=\"Add title\"]', text:'Senior AI Engineer'} → {charsTyped, finalValue}",
+      "Bug-008 workaround: types into an input via REAL OS-level keystrokes (osascript on macOS). Produces trusted `keydown` DOM events that drive Ember/keydown-gated typeaheads (LinkedIn Open to Work) where chrome_type_into's CDP path silently drops keydown on stable Chrome 145. macOS only; brings Chrome to the foreground (System Events delivers to frontmost app). Requires one-time Accessibility permission. Default mode is 'paste' (single Cmd+V — fast, minimal focus-window flicker, saves+restores user clipboard). Safety guards: refuses if focus didn't land on the target input, refuses with `wrong_frontmost_app` if frontmost isn't a Chrome variant after activation, post-keystroke verifies the typed text appears in input.value. Example: {selector:'input[aria-label=\"Add title\"]', text:'Senior AI Engineer'} → {charsTyped, finalValue, verified, frontmostBefore, mode}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3630,10 +3630,19 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         ref: { type: 'string', description: 'Element ref from chrome_read_page (alternative to selector).' },
         text: { type: 'string', description: 'Text to type (≤1024 chars).' },
+        mode: {
+          type: 'string',
+          enum: ['paste', 'keystroke'],
+          description: "'paste' (default, fast — single Cmd+V; saves+restores user clipboard) or 'keystroke' (char-by-char; slower but useful when the page debounces by per-key cadence).",
+        },
         pressEnter: { type: 'boolean', description: 'Press Return after the text. Default false.' },
         focusSettleMs: {
           type: 'number',
           description: 'Wait N ms after window+tab activation before keystrokes start. Default 180.',
+        },
+        verify: {
+          type: 'boolean',
+          description: 'After typing, re-read input.value and refuse with `verification_failed` if it does not contain `text`. Default true.',
         },
         force: { type: 'boolean', description: 'Skip the focus visibility/disabled/readonly check.' },
         tabId: { type: 'number' },

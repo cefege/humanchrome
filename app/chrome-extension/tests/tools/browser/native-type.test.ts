@@ -8,12 +8,16 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const sendNativeRequestMock = vi.fn(async () => ({
-  success: true,
-  platform: 'darwin',
-  charsTyped: 0,
-  durationMs: 0,
-}));
+const sendNativeRequestMock = vi.fn(
+  async (_type: string, _payload: unknown, _timeout?: number) =>
+    ({
+      success: true,
+      platform: 'darwin',
+      mode: 'paste',
+      charsTyped: 0,
+      durationMs: 0,
+    }) as unknown,
+);
 vi.mock('@/entrypoints/background/native-host', () => ({
   sendNativeRequest: (...args: unknown[]) =>
     sendNativeRequestMock(...(args as [string, unknown, number?])),
@@ -44,6 +48,9 @@ function parseBody(res: any): any {
 const FOCUS_OK = {
   result: { ok: true, focused: true, tagName: 'input', inputValue: '' },
 };
+const FOCUS_NOT_LANDED = {
+  result: { ok: true, focused: false, tagName: 'input', inputValue: '' },
+};
 
 beforeEach(() => {
   _resetClientStateForTests();
@@ -51,6 +58,7 @@ beforeEach(() => {
   sendNativeRequestMock.mockResolvedValue({
     success: true,
     platform: 'darwin',
+    mode: 'paste',
     charsTyped: 0,
     durationMs: 12,
   } as any);
@@ -105,15 +113,17 @@ describe('chrome_native_type — validation', () => {
 });
 
 describe('chrome_native_type — happy path', () => {
-  it('activates window + tab, focuses input, dispatches native keystroke', async () => {
+  it('activates window + tab, focuses input, dispatches paste-mode native keystroke + verifies', async () => {
     executeScriptMock
       .mockResolvedValueOnce([FOCUS_OK]) // focus shim
       .mockResolvedValueOnce([{ result: 'Senior AI Engineer' }]); // readback
     sendNativeRequestMock.mockResolvedValueOnce({
       success: true,
       platform: 'darwin',
+      mode: 'paste',
       charsTyped: 18,
       durationMs: 240,
+      frontmostBefore: 'Google Chrome',
     } as any);
 
     const res = await exec({
@@ -126,15 +136,42 @@ describe('chrome_native_type — happy path', () => {
     expect(body.charsTyped).toBe(18);
     expect(body.finalValue).toBe('Senior AI Engineer');
     expect(body.platform).toBe('darwin');
+    expect(body.mode).toBe('paste');
+    expect(body.verified).toBe(true);
+    expect(body.frontmostBefore).toBe('Google Chrome');
 
     // Activated window + tab.
     expect(windowsUpdateMock).toHaveBeenCalledWith(WINDOW_ID, { focused: true });
     expect(tabsUpdateMock).toHaveBeenCalledWith(TAB_ID, { active: true });
 
-    // Native RPC carried the text + no pressEnter by default.
+    // Native RPC carried mode + expectedFrontmostApp.
     expect(sendNativeRequestMock).toHaveBeenCalledWith(
       'native_keystroke',
-      { text: 'Senior AI Engineer', withReturn: false },
+      expect.objectContaining({
+        text: 'Senior AI Engineer',
+        withReturn: false,
+        mode: 'paste',
+        expectedFrontmostApp: expect.arrayContaining(['Google Chrome']),
+      }),
+      15_000,
+    );
+  });
+
+  it("mode:'keystroke' overrides the paste default", async () => {
+    executeScriptMock
+      .mockResolvedValueOnce([FOCUS_OK])
+      .mockResolvedValueOnce([{ result: 'GraphQL' }]);
+    sendNativeRequestMock.mockResolvedValueOnce({
+      success: true,
+      platform: 'darwin',
+      mode: 'keystroke',
+      charsTyped: 7,
+      durationMs: 600,
+    } as any);
+    await exec({ selector: '#x', text: 'GraphQL', mode: 'keystroke', focusSettleMs: 1 });
+    expect(sendNativeRequestMock).toHaveBeenCalledWith(
+      'native_keystroke',
+      expect.objectContaining({ mode: 'keystroke' }),
       15_000,
     );
   });
@@ -146,16 +183,96 @@ describe('chrome_native_type — happy path', () => {
     sendNativeRequestMock.mockResolvedValueOnce({
       success: true,
       platform: 'darwin',
+      mode: 'paste',
       charsTyped: 7,
       durationMs: 90,
     } as any);
-
     await exec({ selector: '#x', text: 'GraphQL', pressEnter: true, focusSettleMs: 1 });
     expect(sendNativeRequestMock).toHaveBeenCalledWith(
       'native_keystroke',
-      { text: 'GraphQL', withReturn: true },
+      expect.objectContaining({ withReturn: true }),
       15_000,
     );
+  });
+});
+
+describe('chrome_native_type — safety guards', () => {
+  it('refuses if focus shim reports focused:false (refuses to type into wrong element)', async () => {
+    executeScriptMock.mockResolvedValueOnce([FOCUS_NOT_LANDED]);
+    const res = await exec({ selector: '#x', text: 'hi', focusSettleMs: 1 });
+    expect(res.isError).toBe(true);
+    const body = parseBody(res);
+    expect(body.error.message).toContain('did not receive focus');
+    expect(body.error.details.hint).toBe('focus_failed');
+    // Native RPC never fires when focus didn't land.
+    expect(sendNativeRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses on wrong_frontmost_app — keystrokes did NOT land in the wrong app', async () => {
+    executeScriptMock.mockResolvedValueOnce([FOCUS_OK]);
+    sendNativeRequestMock.mockResolvedValueOnce({
+      success: false,
+      platform: 'darwin',
+      error: 'Refusing to send keystrokes: frontmost app is "Visual Studio Code", expected one of [Google Chrome, ...]',
+      code: 'wrong_frontmost_app',
+      frontmostBefore: 'Visual Studio Code',
+    } as any);
+    const res = await exec({ selector: '#x', text: 'hi', focusSettleMs: 1 });
+    expect(res.isError).toBe(true);
+    const body = parseBody(res);
+    expect(body.error.details.frontmostBefore).toBe('Visual Studio Code');
+    expect(body.error.details.hint).toBe('wrong_frontmost_app');
+  });
+
+  it("refuses with verification_failed when finalValue doesn't contain the text", async () => {
+    executeScriptMock
+      .mockResolvedValueOnce([FOCUS_OK])
+      .mockResolvedValueOnce([{ result: '' }]); // input cleared / no text landed
+    sendNativeRequestMock.mockResolvedValueOnce({
+      success: true,
+      platform: 'darwin',
+      mode: 'paste',
+      charsTyped: 5,
+      durationMs: 90,
+    } as any);
+    const res = await exec({ selector: '#x', text: 'hello', focusSettleMs: 1 });
+    expect(res.isError).toBe(true);
+    const body = parseBody(res);
+    expect(body.error.details.hint).toBe('verification_failed');
+    expect(body.error.details.finalValue).toBe('');
+  });
+
+  it("refuses when finalValue contains different text (typed into wrong input)", async () => {
+    executeScriptMock
+      .mockResolvedValueOnce([FOCUS_OK])
+      .mockResolvedValueOnce([{ result: 'stale value' }]);
+    sendNativeRequestMock.mockResolvedValueOnce({
+      success: true,
+      platform: 'darwin',
+      mode: 'paste',
+      charsTyped: 5,
+      durationMs: 80,
+    } as any);
+    const res = await exec({ selector: '#x', text: 'hello', focusSettleMs: 1 });
+    expect(res.isError).toBe(true);
+    expect(parseBody(res).error.details.hint).toBe('verification_failed');
+  });
+
+  it('verify:false opts out of post-keystroke verification', async () => {
+    executeScriptMock
+      .mockResolvedValueOnce([FOCUS_OK])
+      .mockResolvedValueOnce([{ result: '' }]); // empty, but verify is off
+    sendNativeRequestMock.mockResolvedValueOnce({
+      success: true,
+      platform: 'darwin',
+      mode: 'paste',
+      charsTyped: 5,
+      durationMs: 80,
+    } as any);
+    const res = await exec({ selector: '#x', text: 'hello', verify: false, focusSettleMs: 1 });
+    expect(res.isError).toBe(false);
+    const body = parseBody(res);
+    expect(body.verified).toBe(null);
   });
 });
 
