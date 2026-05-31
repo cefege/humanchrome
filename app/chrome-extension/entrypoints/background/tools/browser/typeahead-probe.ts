@@ -172,8 +172,19 @@ class TypeaheadProbeTool extends BaseBrowserToolExecutor {
       const inputValueBefore = focusResult.inputValue;
 
       // Step 2: CDP-trusted click on the input center + optional clear +
-      // type the sample char-by-char.
+      // type the sample char-by-char. mouseMoved precedes the press so
+      // Chrome's renderer registers the cursor position before the click —
+      // bare press/release pairs don't reliably focus form controls in
+      // daily Chrome (the same gotcha Bug-002's mouseMoved follow-up fixed
+      // in interaction.ts).
       await cdpSessionManager.withSession(tabId, OWNER, async () => {
+        await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: focusResult.point.x,
+          y: focusResult.point.y,
+          button: 'none',
+          buttons: 0,
+        });
         await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
           type: 'mousePressed',
           x: focusResult.point.x,
@@ -389,8 +400,19 @@ function installProbeShim(selector: string | null, ref: string | null): FocusShi
       origFetch,
     };
 
-    const rect = target.getBoundingClientRect();
     target.scrollIntoView({ block: 'center', inline: 'center' });
+    // Compute rect AFTER scrollIntoView — the rect before scroll is stale
+    // when the element has to move into view (or its scrollable parent does).
+    const rect = target.getBoundingClientRect();
+    // Belt-and-braces focus: the CDP click in BG should focus form controls,
+    // but Bug-008's CFT-vs-daily-Chrome divergence has shown that
+    // CDP-driven focus isn't always reliable on daily Chrome's keyboard
+    // pipeline. .focus() in the shim guarantees keystrokes that follow
+    // land on this element regardless of whether the CDP click delivered
+    // a mousedown.
+    if (typeof (target as HTMLElement).focus === 'function') {
+      (target as HTMLElement).focus({ preventScroll: true });
+    }
     return {
       ok: true,
       tagName: target.tagName.toLowerCase(),

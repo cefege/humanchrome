@@ -148,12 +148,13 @@ describe('chrome_typeahead_probe — happy path', () => {
     expect(body.summary.keydownFired).toBe(false); // no keydown in our mock events
     expect(body.summary.lookupFetchFired).toBe(true); // url matches /typeahead/
 
-    // CDP mouse click + keystrokes
+    // CDP mouse: move + press + release.
     const mouseCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(mouseCalls).toHaveLength(2);
-    expect(mouseCalls[0][2]).toMatchObject({
+    expect(mouseCalls).toHaveLength(3);
+    expect(mouseCalls[0][2]).toMatchObject({ type: 'mouseMoved', x: 200, y: 115 });
+    expect(mouseCalls[1][2]).toMatchObject({
       type: 'mousePressed',
       x: 200,
       y: 115,
