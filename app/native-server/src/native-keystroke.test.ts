@@ -12,10 +12,12 @@ type SpawnCall = { cmd: string; args: string[]; child: FakeChild };
 
 class FakeChild extends EventEmitter {
   stderr: EventEmitter;
+  stdout: EventEmitter;
   killed = false;
   constructor() {
     super();
     this.stderr = new EventEmitter();
+    this.stdout = new EventEmitter();
   }
   kill() {
     this.killed = true;
@@ -81,7 +83,7 @@ describe('nativeKeystroke — non-macOS platforms', () => {
 
 describe('nativeKeystroke — macOS happy path', () => {
   test('builds AppleScript with keystroke clause and resolves on exit 0', async () => {
-    const promise = nativeKeystroke({ text: 'hello' });
+    const promise = nativeKeystroke({ text: 'hello', mode: 'keystroke' });
     // Let spawn fire + osascript "complete" successfully.
     await Promise.resolve();
     expect(spawnCalls.length).toBe(1);
@@ -100,7 +102,7 @@ describe('nativeKeystroke — macOS happy path', () => {
   });
 
   test('pressEnter:true appends key code 36 (Return)', async () => {
-    const promise = nativeKeystroke({ text: 'GraphQL', withReturn: true });
+    const promise = nativeKeystroke({ text: 'GraphQL', withReturn: true, mode: 'keystroke' });
     await Promise.resolve();
     const script = spawnCalls[0].args[1];
     expect(script).toContain('keystroke "GraphQL"');
@@ -110,7 +112,7 @@ describe('nativeKeystroke — macOS happy path', () => {
   });
 
   test('text with double-quotes and backslashes is escaped', async () => {
-    const promise = nativeKeystroke({ text: 'a"b\\c' });
+    const promise = nativeKeystroke({ text: 'a"b\\c', mode: 'keystroke' });
     await Promise.resolve();
     const script = spawnCalls[0].args[1];
     // " → \", \ → \\, so a"b\c becomes a\"b\\c inside the literal
@@ -183,5 +185,86 @@ describe('nativeKeystroke — macOS failure paths', () => {
     // The timeout message should mention Accessibility — first-time
     // osascript hangs are almost always the permission dialog.
     expect(res.success === false && res.error).toContain('Accessibility');
+  });
+});
+
+describe('nativeKeystroke — paste mode', () => {
+  test('builds paste script with clipboard save/restore + Cmd+V', async () => {
+    // First spawn = readFrontmostApp (we did NOT pass expectedFrontmostApp
+    // so it's skipped). Actually with no expectedFrontmostApp, frontmost
+    // probe is skipped entirely.
+    const promise = nativeKeystroke({ text: 'GraphQL', mode: 'paste' });
+    await Promise.resolve();
+    expect(spawnCalls.length).toBe(1);
+    const script = spawnCalls[0].args[1];
+    expect(script).toContain('set _saved to the clipboard');
+    expect(script).toContain('set the clipboard to "GraphQL"');
+    expect(script).toContain('keystroke "v" using command down');
+    expect(script).toContain('set the clipboard to _saved');
+    expect(script).not.toContain('key code 36');
+    spawnCalls[0].child.emit('close', 0);
+    const res = await promise;
+    expect(res.success).toBe(true);
+    expect(res.success && res.mode).toBe('paste');
+  });
+
+  test('paste + pressEnter appends key code 36 inside the System Events tell', async () => {
+    const promise = nativeKeystroke({ text: 'GraphQL', mode: 'paste', withReturn: true });
+    await Promise.resolve();
+    const script = spawnCalls[0].args[1];
+    expect(script).toContain('keystroke "v" using command down');
+    expect(script).toContain('key code 36');
+    spawnCalls[0].child.emit('close', 0);
+    expect((await promise).success).toBe(true);
+  });
+
+  test("explicit mode:'keystroke' uses the char-by-char path, not paste", async () => {
+    const promise = nativeKeystroke({ text: 'hi', mode: 'keystroke' });
+    await Promise.resolve();
+    const script = spawnCalls[0].args[1];
+    expect(script).not.toContain('set the clipboard');
+    expect(script).toContain('keystroke "hi"');
+    spawnCalls[0].child.emit('close', 0);
+    expect((await promise).success).toBe(true);
+  });
+});
+
+describe('nativeKeystroke — frontmost-app guard', () => {
+  test('reads frontmost; refuses when not in expectedFrontmostApp list', async () => {
+    const promise = nativeKeystroke({
+      text: 'hi',
+      expectedFrontmostApp: ['Google Chrome'],
+    });
+    await Promise.resolve();
+    // First spawn = readFrontmostApp probe. Return "Visual Studio Code".
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].args[1]).toContain('frontmost is true');
+    spawnCalls[0].child.stdout.emit('data', Buffer.from('Visual Studio Code\n'));
+    spawnCalls[0].child.emit('close', 0);
+    const res = await promise;
+    expect(res.success).toBe(false);
+    expect(res.success === false && res.code).toBe('wrong_frontmost_app');
+    expect(res.success === false && res.frontmostBefore).toBe('Visual Studio Code');
+    // No keystroke spawn happens after the refusal.
+    expect(spawnCalls.length).toBe(1);
+  });
+
+  test('proceeds when frontmost is in the allow-list; includes frontmostBefore in result', async () => {
+    const promise = nativeKeystroke({
+      text: 'hi',
+      expectedFrontmostApp: ['Google Chrome', 'Google Chrome for Testing'],
+    });
+    await Promise.resolve();
+    // First spawn = frontmost probe — return "Google Chrome".
+    spawnCalls[0].child.stdout.emit('data', Buffer.from('Google Chrome\n'));
+    spawnCalls[0].child.emit('close', 0);
+    // Need a microtask so the keystroke spawn is queued.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(spawnCalls.length).toBe(2);
+    // Second spawn = the actual paste/keystroke. Close with 0.
+    spawnCalls[1].child.emit('close', 0);
+    const res = await promise;
+    expect(res.success).toBe(true);
+    expect(res.success && res.frontmostBefore).toBe('Google Chrome');
   });
 });

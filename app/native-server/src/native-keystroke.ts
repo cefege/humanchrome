@@ -15,16 +15,40 @@ import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
 
 export type NativeKeystrokePayload = {
-  /** Printable text to type. Special chars escaped for AppleScript. */
+  /** Printable text to type or paste. Special chars escaped for AppleScript. */
   text: string;
   /** When true, presses Return after the text (key code 36 on macOS). */
   withReturn?: boolean;
   /** Per-call timeout in ms. Defaults to 10000. */
   timeoutMs?: number;
+  /**
+   * 'paste' (default) is much faster: one Cmd+V keystroke instead of N per-char
+   * keystrokes, so the foreground-Chrome window is shorter. Saves and restores
+   * the user's clipboard so we don't clobber what they had. 'keystroke' types
+   * char-by-char — slower but useful when the page debounces by per-key cadence.
+   */
+  mode?: 'paste' | 'keystroke';
+  /**
+   * Optional list of acceptable frontmost-app names. If provided, the host
+   * reads the actual frontmost app before keystroke and refuses with
+   * `wrong_frontmost_app` if it isn't in the list. Set by the BG tool to
+   * ["Google Chrome", "Google Chrome Canary", "Google Chrome for Testing",
+   * "Chromium"] so the keystrokes don't land in the wrong app if focus
+   * shifted between our activation step and the keystroke.
+   */
+  expectedFrontmostApp?: string[];
 };
 
 export type NativeKeystrokeResult =
-  | { success: true; platform: 'darwin' | 'linux' | 'win32'; charsTyped: number; durationMs: number }
+  | {
+      success: true;
+      platform: 'darwin' | 'linux' | 'win32';
+      mode: 'paste' | 'keystroke';
+      charsTyped: number;
+      durationMs: number;
+      /** Name of the frontmost app immediately BEFORE the keystroke fired. */
+      frontmostBefore?: string;
+    }
   | {
       success: false;
       platform: string;
@@ -34,7 +58,10 @@ export type NativeKeystrokeResult =
         | 'permission_denied'
         | 'osascript_failed'
         | 'invalid_args'
-        | 'timeout';
+        | 'timeout'
+        | 'wrong_frontmost_app';
+      /** Set when code === 'wrong_frontmost_app' — what was actually frontmost. */
+      frontmostBefore?: string;
     };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -78,15 +105,47 @@ export async function nativeKeystroke(
   };
 }
 
-async function runMacOs(
-  payload: NativeKeystrokePayload,
-  timeoutMs: number,
-  start: number,
-): Promise<NativeKeystrokeResult> {
+/**
+ * Read the frontmost-app name via osascript. Returns null if osascript
+ * fails — the caller should treat that as "couldn't verify" not "wrong app".
+ */
+async function readFrontmostApp(timeoutMs: number): Promise<string | null> {
+  return await new Promise<string | null>((resolve) => {
+    const child = spawn('osascript', [
+      '-e',
+      'tell application "System Events" to name of first application process whose frontmost is true',
+    ]);
+    let stdout = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+      resolve(null);
+    }, timeoutMs);
+    child.stdout?.on('data', (d) => {
+      stdout += String(d);
+    });
+    child.on('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code === 0 ? stdout.trim() : null);
+    });
+  });
+}
+
+function buildKeystrokeScript(payload: NativeKeystrokePayload): string {
   // AppleScript string literal escape: \ → \\ and " → \"
   const safeText = payload.text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  // `keystroke ""` is illegal on some macOS versions; only emit the
-  // keystroke clause when there's actual text.
   const parts: string[] = [];
   if (safeText.length > 0) {
     parts.push(`keystroke "${safeText}"`);
@@ -97,15 +156,89 @@ async function runMacOs(
     // dispatch "return" as a printable keyword.
     parts.push('key code 36');
   }
-  if (parts.length === 0) {
+  return `tell application "System Events"\n${parts.map((p) => '  ' + p).join('\n')}\nend tell`;
+}
+
+function buildPasteScript(payload: NativeKeystrokePayload): string {
+  // Paste mode: save the user's clipboard, set ours, Cmd+V, restore.
+  // Wrapped in try/end try so the clipboard restore always runs even if
+  // the paste keystroke fails — leaving the user's clipboard clobbered
+  // is the worst-case UX failure mode here.
+  //
+  // Special handling for the clipboard: AppleScript's `the clipboard`
+  // may not preserve all formats (RTF, image, etc.) — we treat it as a
+  // best-effort restore. For pure-text clipboards (the common case)
+  // round-trips cleanly.
+  const safeText = payload.text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const lines: string[] = [
+    'set _saved to ""',
+    'try',
+    '  set _saved to the clipboard',
+    'end try',
+    `set the clipboard to "${safeText}"`,
+    'tell application "System Events"',
+    '  keystroke "v" using command down',
+  ];
+  if (payload.withReturn === true) {
+    lines.push('  key code 36');
+  }
+  lines.push('end tell');
+  // Small delay so the paste lands BEFORE we overwrite the clipboard back.
+  // 80ms is the empirical floor on a busy Mac — paste keystroke + DOM
+  // insertion + input-event dispatch typically completes in <50ms.
+  lines.push('delay 0.08');
+  lines.push('try');
+  lines.push('  set the clipboard to _saved');
+  lines.push('end try');
+  return lines.join('\n');
+}
+
+async function runMacOs(
+  payload: NativeKeystrokePayload,
+  timeoutMs: number,
+  start: number,
+): Promise<NativeKeystrokeResult> {
+  const mode: 'paste' | 'keystroke' = payload.mode === 'keystroke' ? 'keystroke' : 'paste';
+
+  // Frontmost-app guard. If the caller gave us a list of acceptable apps,
+  // verify we're actually focused on one of them BEFORE firing the
+  // keystroke. Without this guard, a user clicking away during humanchrome's
+  // window-activation settle could send keystrokes into VS Code / Slack /
+  // their terminal — exactly the "fuck things up" failure mode this layer
+  // exists to prevent.
+  let frontmostBefore: string | null = null;
+  if (Array.isArray(payload.expectedFrontmostApp) && payload.expectedFrontmostApp.length > 0) {
+    frontmostBefore = await readFrontmostApp(Math.min(3000, timeoutMs));
+    if (frontmostBefore !== null && !payload.expectedFrontmostApp.includes(frontmostBefore)) {
+      return {
+        success: false,
+        platform: 'darwin',
+        error:
+          `Refusing to send keystrokes: frontmost app is "${frontmostBefore}", ` +
+          `expected one of [${payload.expectedFrontmostApp.join(', ')}]. ` +
+          `Bring Chrome to the foreground and retry.`,
+        code: 'wrong_frontmost_app',
+        frontmostBefore,
+      };
+    }
+  }
+
+  // Short-circuit: no text and no Return to press → done.
+  if (payload.text.length === 0 && payload.withReturn !== true) {
     return {
       success: true,
       platform: 'darwin',
+      mode,
       charsTyped: 0,
       durationMs: Date.now() - start,
+      ...(frontmostBefore ? { frontmostBefore } : {}),
     };
   }
-  const script = `tell application "System Events"\n${parts.map((p) => '  ' + p).join('\n')}\nend tell`;
+
+  const script =
+    mode === 'paste' && payload.text.length > 0
+      ? buildPasteScript(payload)
+      : buildKeystrokeScript(payload);
 
   return await new Promise<NativeKeystrokeResult>((resolve) => {
     let settled = false;
@@ -156,8 +289,10 @@ async function runMacOs(
         resolve({
           success: true,
           platform: 'darwin',
+          mode,
           charsTyped: payload.text.length,
           durationMs: Date.now() - start,
+          ...(frontmostBefore ? { frontmostBefore } : {}),
         });
         return;
       }
