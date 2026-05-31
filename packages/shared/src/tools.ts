@@ -137,6 +137,7 @@ export const TOOL_NAMES = {
     BASIC_AUTH: 'chrome_basic_auth',
     SET_CHECKED: 'chrome_set_checked',
     COMBOBOX_SELECT: 'chrome_combobox_select',
+    TYPEAHEAD_PROBE: 'chrome_typeahead_probe',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3575,6 +3576,45 @@ export const TOOL_SCHEMAS: Tool[] = [
       required: ['query'],
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE,
+    description:
+      "Bug-008 diagnostic: types a sample char into a typeahead input then reports every event that fired (with isTrusted), every fetch the page made, and final aria-expanded/aria-controls/listbox state in one envelope. Use when a typeahead lookup or autocomplete isn't firing — see {summary: {keydownFired, inputFired, lookupFetchFired}} for the trust gate diagnosis. Example: {selector:'input[aria-label=\"Add title\"]', sample:'S'} → {events, fetches, listboxFound, summary}",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: { type: 'string', description: 'CSS (or other selectorType) for the typeahead input.' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string', description: 'Element ref from chrome_read_page (alternative to selector).' },
+        sample: {
+          type: 'string',
+          description: 'Char(s) to type (≤16). Default "a".',
+        },
+        watchMs: {
+          type: 'number',
+          description: 'How long to observe events + fetches after typing. Default 3500.',
+        },
+        clearFirst: {
+          type: 'boolean',
+          description: 'Select-all + Delete before typing. Default true.',
+        },
+        networkUrlPattern: {
+          type: 'string',
+          description: 'Regex (case-insensitive). When set, only fetches matching this pattern are returned. Default matches all.',
+        },
+        optionSelector: {
+          type: 'string',
+          description: "CSS for the option elements (used for the listbox snapshot). Default '[role=\"option\"]'.",
+        },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+    },
+  },
 ];
 
 /**
@@ -3720,6 +3760,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.BASIC_AUTH]: 'Network',
   [TOOL_NAMES.BROWSER.SET_CHECKED]: 'Interaction',
   [TOOL_NAMES.BROWSER.COMBOBOX_SELECT]: 'Interaction',
+  [TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

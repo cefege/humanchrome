@@ -18,7 +18,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Bug-002: ClickTool now dispatches via CDP after the helper returns coords.
-const sendCommandMock = vi.fn(async () => undefined);
+const sendCommandMock = vi.fn(
+  async (_tabId: number, _method: string, _params?: Record<string, unknown>) => undefined,
+);
 const withSessionMock = vi.fn(
   async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
 );

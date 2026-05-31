@@ -29,7 +29,9 @@ import { resolve } from 'node:path';
 // Bug-002: ClickTool now dispatches via CDP `Input.dispatchMouseEvent` after
 // the helper returns coords. Mock cdpSessionManager so unit tests can assert
 // the CDP path is exercised + capture the dispatched arguments.
-const sendCommandMock = vi.fn(async () => undefined);
+const sendCommandMock = vi.fn(
+  async (_tabId: number, _method: string, _params?: Record<string, unknown>) => undefined,
+);
 const withSessionMock = vi.fn(
   async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
 );
@@ -211,12 +213,19 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     )?.[1];
     expect(clickMsg?.cdpDispatch).toBe(true);
 
-    // CDP press + release at the helper-resolved coords.
+    // CDP move + press + release at the helper-resolved coords.
     const cdpCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(cdpCalls).toHaveLength(2);
+    expect(cdpCalls).toHaveLength(3);
     expect(cdpCalls[0][2]).toMatchObject({
+      type: 'mouseMoved',
+      x: 250,
+      y: 400,
+      button: 'none',
+      buttons: 0,
+    });
+    expect(cdpCalls[1][2]).toMatchObject({
       type: 'mousePressed',
       x: 250,
       y: 400,
@@ -224,7 +233,7 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
       buttons: 1,
       clickCount: 1,
     });
-    expect(cdpCalls[1][2]).toMatchObject({
+    expect(cdpCalls[2][2]).toMatchObject({
       type: 'mouseReleased',
       x: 250,
       y: 400,
@@ -252,8 +261,14 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     const cdpCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(cdpCalls).toHaveLength(4);
-    expect(cdpCalls.every((c) => (c[2] as { clickCount?: number }).clickCount === 2)).toBe(true);
+    // move + (press + release) + (press + release) = 5
+    expect(cdpCalls).toHaveLength(5);
+    // mouseMoved doesn't carry clickCount; the 4 press/release events do.
+    const pressRelease = cdpCalls.filter(
+      (c) => (c[2] as { type?: string }).type !== 'mouseMoved',
+    );
+    expect(pressRelease).toHaveLength(4);
+    expect(pressRelease.every((c) => (c[2] as { clickCount?: number }).clickCount === 2)).toBe(true);
   });
 
   it('Bug-002: right-click sends button:right with buttons:2', async () => {
@@ -266,8 +281,10 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     const cdpCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(cdpCalls).toHaveLength(2);
-    expect(cdpCalls[0][2]).toMatchObject({ button: 'right', buttons: 2 });
+    // move + press + release = 3
+    expect(cdpCalls).toHaveLength(3);
+    // First call is mouseMoved (button:'none'), second is mousePressed (button:'right').
+    expect(cdpCalls[1][2]).toMatchObject({ button: 'right', buttons: 2 });
   });
 
   it('Bug-002: passes modifier bitmask (Shift=8, Ctrl=2, etc.) to CDP', async () => {
@@ -280,7 +297,10 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     const cdpCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(cdpCalls[0][2]).toMatchObject({ modifiers: 8 | 2 });
+    // Modifier bitmask passes through every event in the chain.
+    expect(cdpCalls.every((c) => (c[2] as { modifiers?: number }).modifiers === (8 | 2))).toBe(
+      true,
+    );
   });
 
   it('Bug-002: CDP_BUSY is surfaced when debugger is attached elsewhere', async () => {

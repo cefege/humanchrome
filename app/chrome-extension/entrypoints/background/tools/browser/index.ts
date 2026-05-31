@@ -95,3 +95,4 @@ export { mockResponseTool } from './mock-response';
 export { basicAuthTool } from './basic-auth';
 export { setCheckedTool } from './set-checked';
 export { comboboxSelectTool } from './combobox-select';
+export { typeaheadProbeTool } from './typeahead-probe';
