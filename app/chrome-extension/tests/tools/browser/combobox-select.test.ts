@@ -124,6 +124,7 @@ describe('chrome_combobox_select — happy path', () => {
   it('CDP-clicks, clears, types, polls, arrow-downs to match, presses Enter', async () => {
     executeScriptMock
       .mockResolvedValueOnce([BBOX_OK]) // bbox shim
+      .mockResolvedValueOnce([{ result: { ok: true, before: '', after: '', forced: false } }]) // forceClearShim
       .mockResolvedValueOnce([PROBE_ONE_MATCH]); // first poll hit
 
     const res = await exec({
@@ -139,24 +140,25 @@ describe('chrome_combobox_select — happy path', () => {
     expect(body.selectedIndex).toBe(0);
     expect(body.selectedText).toBe('LangGraph');
     expect(body.cleared).toBe(true);
-    // One option at index 0 → exactly one ArrowDown.
     expect(body.arrowDownCount).toBe(1);
 
-    // CDP traffic: 2× Input.dispatchMouseEvent (mousePressed + mouseReleased),
-    // Ctrl+A (rawKeyDown + keyUp), Delete (keyDown + keyUp), 9 chars × 3
-    // (keyDown + insertText + keyUp), ArrowDown (keyDown + keyUp), Enter
-    // (keyDown + keyUp).
+    // CDP traffic: 3× Input.dispatchMouseEvent (mouseMoved + mousePressed +
+    // mouseReleased), Ctrl+A (rawKeyDown + keyUp), Delete (keyDown + keyUp),
+    // 9 chars × 3 (keyDown + char + keyUp), ArrowDown (keyDown + keyUp),
+    // Enter (keyDown + keyUp). Plus an executeScript for forceClearShim
+    // between the clear-keystrokes and the typing.
     const mouseCalls = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchMouseEvent',
     );
-    expect(mouseCalls).toHaveLength(2);
-    expect(mouseCalls[0][2]).toMatchObject({
+    expect(mouseCalls).toHaveLength(3);
+    expect(mouseCalls[0][2]).toMatchObject({ type: 'mouseMoved', x: 200, y: 115, button: 'none' });
+    expect(mouseCalls[1][2]).toMatchObject({
       type: 'mousePressed',
       x: 200,
       y: 115,
       button: 'left',
     });
-    expect(mouseCalls[1][2]).toMatchObject({ type: 'mouseReleased', x: 200, y: 115 });
+    expect(mouseCalls[2][2]).toMatchObject({ type: 'mouseReleased', x: 200, y: 115 });
 
     const keyEvents = sendCommandMock.mock.calls.filter(
       (c) => c[1] === 'Input.dispatchKeyEvent',
@@ -214,19 +216,22 @@ describe('chrome_combobox_select — happy path', () => {
   });
 
   it('matches a later option and ArrowDowns the right number of times', async () => {
-    executeScriptMock.mockResolvedValueOnce([BBOX_OK]).mockResolvedValueOnce([
-      {
-        result: {
-          ok: true,
-          count: 3,
-          options: [
-            { index: 0, text: 'Senior AI Engineer' },
-            { index: 1, text: 'LLM Engineer' },
-            { index: 2, text: 'ML Engineer' },
-          ],
+    executeScriptMock
+      .mockResolvedValueOnce([BBOX_OK])
+      .mockResolvedValueOnce([{ result: { ok: true, before: '', after: '', forced: false } }])
+      .mockResolvedValueOnce([
+        {
+          result: {
+            ok: true,
+            count: 3,
+            options: [
+              { index: 0, text: 'Senior AI Engineer' },
+              { index: 1, text: 'LLM Engineer' },
+              { index: 2, text: 'ML Engineer' },
+            ],
+          },
         },
-      },
-    ]);
+      ]);
 
     const res = await exec({
       comboboxSelector: '#title',
@@ -246,10 +251,13 @@ describe('chrome_combobox_select — happy path', () => {
 
 describe('chrome_combobox_select — polling failures', () => {
   it('returns TIMEOUT when options never render', async () => {
-    // Bbox ok, then every probe returns count:0 forever.
+    // Bbox ok, force-clear ok, then every probe returns count:0 forever.
     executeScriptMock.mockImplementation(async (call: any) => {
       const fn = call.func;
       if (fn?.name === 'comboboxBboxShim') return [BBOX_OK];
+      if (fn?.name === 'forceClearShim') {
+        return [{ result: { ok: true, before: '', after: '', forced: false } }];
+      }
       return [{ result: { ok: true, count: 0, options: [] } }];
     });
 
@@ -269,6 +277,7 @@ describe('chrome_combobox_select — polling failures', () => {
   it('returns UNKNOWN when options render but none match matchText', async () => {
     executeScriptMock
       .mockResolvedValueOnce([BBOX_OK])
+      .mockResolvedValueOnce([{ result: { ok: true, before: '', after: '', forced: false } }])
       .mockResolvedValueOnce([
         {
           result: {
