@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildCallToolEnvelope, NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
+import { nativeKeystroke } from './native-keystroke';
 import { withContext } from './util/logger';
 
 const log = withContext({ component: 'native-messaging-host' });
@@ -277,6 +278,9 @@ export class NativeMessagingHost {
         case 'file_operation':
           await this.handleFileOperation(message);
           break;
+        case 'native_keystroke':
+          await this.handleNativeKeystroke(message);
+          break;
         default:
           // Double check when message type is not supported
           if (!message.responseToRequestId) {
@@ -337,6 +341,43 @@ export class NativeMessagingHost {
         });
       } else {
         this.sendError(`File operation failed: ${errorResponse.error}`);
+      }
+    }
+  }
+
+  /**
+   * Bug-008 workaround: deliver real OS-level keystrokes via the platform's
+   * accessibility API (osascript on macOS). The page sees a trusted `keydown`
+   * DOM event — the suppressed-via-CDP-on-daily-Chrome that the IME-pipeline
+   * `keyDown + insertText + keyUp` path can't produce. See
+   * `discussion/humanchrome-bugs/008-*.md` and `docs/bug-008-chromium-repro/`.
+   */
+  private async handleNativeKeystroke(message: any): Promise<void> {
+    const opLog = withContext({
+      component: 'native-keystroke',
+      requestId: message?.requestId,
+    });
+    try {
+      const result = await nativeKeystroke(message.payload ?? {});
+      if (message.requestId) {
+        this.sendMessage({
+          type: 'native_keystroke_response',
+          responseToRequestId: message.requestId,
+          payload: result,
+        });
+      }
+      opLog.debug({ ok: result.success }, 'native_keystroke handled');
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
+      opLog.error({ err: msg }, 'native_keystroke failed');
+      if (message.requestId) {
+        this.sendMessage({
+          type: 'native_keystroke_response',
+          responseToRequestId: message.requestId,
+          error: msg,
+        });
+      } else {
+        this.sendError(`native_keystroke failed: ${msg}`);
       }
     }
   }
