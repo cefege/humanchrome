@@ -140,18 +140,26 @@ class TypeaheadProbeTool extends BaseBrowserToolExecutor {
     const target: { tabId: number; frameIds?: number[] } = { tabId };
     if (typeof args.frameId === 'number') target.frameIds = [args.frameId];
 
+    // Generate a unique probe id we'll stamp on the target element. The
+    // ISOLATED-world resolve step sets `data-hc-probe-id` so the MAIN-world
+    // monkey-patch (which can't see __claudeElementMap) can find the same
+    // element. Survives the ISOLATED↔MAIN world boundary.
+    const probeId = `hc-probe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
     try {
-      // Step 1: focus shim — resolve, bbox, point, install fetch + event probes.
+      // Step 1a: ISOLATED shim — resolve target via selector/ref (uses
+      // __claudeElementMap which lives in ISOLATED), stamp probeId, return
+      // coords + aria state. No monkey-patching here.
       const focusInjected = await chrome.scripting.executeScript({
         target,
         world: 'ISOLATED',
-        func: installProbeShim,
-        args: [shimSelector, shimRef],
+        func: resolveAndStampShim,
+        args: [shimSelector, shimRef, probeId],
       });
       const focusResult = focusInjected?.[0]?.result as FocusShimResult | undefined;
       if (!focusResult) {
         return createErrorResponse(
-          'typeahead-probe shim returned no result',
+          'typeahead-probe resolve shim returned no result',
           ToolErrorCode.UNKNOWN,
           { tabId, frameId: args.frameId },
         );
@@ -171,13 +179,28 @@ class TypeaheadProbeTool extends BaseBrowserToolExecutor {
       const initialAriaControls = focusResult.ariaControls;
       const inputValueBefore = focusResult.inputValue;
 
-      // Step 2: CDP-trusted click on the input center + optional clear +
-      // type the sample char-by-char. mouseMoved precedes the press so
-      // Chrome's renderer registers the cursor position before the click —
-      // bare press/release pairs don't reliably focus form controls in
-      // daily Chrome (the same gotcha Bug-002's mouseMoved follow-up fixed
-      // in interaction.ts).
+      // Steps 1b → 4 run inside ONE CDP withSession so the debugger stays
+      // attached throughout install → click → keystrokes → wait → readback.
+      // Avoids per-command attach/detach overhead and prevents racing with
+      // the IMP-0119 self-update watcher.
+      let readback: ReadbackResult | undefined;
       await cdpSessionManager.withSession(tabId, OWNER, async () => {
+        // Step 1b: MAIN-world install via CDP Runtime.evaluate. Bypasses
+        // CSP-strict-dynamic (chrome.scripting world:MAIN gets blocked on
+        // LinkedIn and other strict-CSP pages). MAIN world is where the
+        // page's `window.fetch` lives — our ISOLATED-world wrapper from PR
+        // #315 missed every page-side fetch because it patched a different
+        // `window.fetch`.
+        const mainInstall = await evalInMainWorldViaCdp<{ ok: boolean; message?: string }>(
+          tabId,
+          installCaptureInMainWorld,
+          [probeId],
+        );
+        if (!mainInstall || mainInstall.ok !== true) {
+          throw new Error(`MAIN-world install failed: ${mainInstall?.message ?? 'unknown'}`);
+        }
+
+        // Step 2: CDP-trusted click — mouseMoved → mousePressed → mouseReleased.
         await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: focusResult.point.x,
@@ -213,22 +236,21 @@ class TypeaheadProbeTool extends BaseBrowserToolExecutor {
         for (const ch of Array.from(sample)) {
           await sendChar(tabId!, ch);
         }
+
+        // Step 3: wait for the page to react (debounce / lookup / render).
+        await new Promise((r) => setTimeout(r, watchMs));
+
+        // Step 4: MAIN-world readback via CDP Runtime.evaluate.
+        readback = await evalInMainWorldViaCdp<ReadbackResult>(tabId, readCaptureFromMainWorld, [
+          probeId,
+          optionSelector,
+          networkUrlPattern,
+        ]);
       });
 
-      // Step 3: wait for the page to react (debounce / lookup / render).
-      await new Promise((r) => setTimeout(r, watchMs));
-
-      // Step 4: read back what fired.
-      const readbackInjected = await chrome.scripting.executeScript({
-        target,
-        world: 'ISOLATED',
-        func: readProbeResults,
-        args: [shimSelector, shimRef, optionSelector, networkUrlPattern],
-      });
-      const readback = readbackInjected?.[0]?.result as ReadbackResult | undefined;
       if (!readback) {
         return createErrorResponse(
-          'typeahead-probe readback returned no result',
+          'typeahead-probe MAIN-world readback returned no result',
           ToolErrorCode.UNKNOWN,
           { tabId, frameId: args.frameId },
         );
@@ -288,12 +310,56 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 /**
- * ISOLATED-world shim #1: resolve target, install capture probes
- * (fetch + window/document/input-level event listeners), return bbox.
+ * Run a function in the page's MAIN world via CDP `Runtime.evaluate`.
+ * Bypasses CSP-strict-dynamic (chrome.scripting world:MAIN gets refused on
+ * LinkedIn / pages with `script-src 'strict-dynamic' 'nonce-...'`), which is
+ * exactly the kind of page the probe is most useful on.
  *
- * Stored on `window.__hcTypeaheadProbe` so the readback shim can find them.
+ * The caller must already be inside `cdpSessionManager.withSession`.
  */
-function installProbeShim(selector: string | null, ref: string | null): FocusShimResult {
+async function evalInMainWorldViaCdp<T>(
+  tabId: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fn: (...a: any[]) => unknown,
+  args: unknown[],
+): Promise<T | undefined> {
+  // Wrap with an IIFE that injects the function source + invokes it with
+  // JSON-encoded args. `awaitPromise: true` so an async shim resolves.
+  const argList = args.map((a) => JSON.stringify(a)).join(',');
+  const expression = `(function(){ ${fn.toString()}; return ${fn.name}(${argList}); })()`;
+  type Resp = {
+    result?: { value?: T };
+    exceptionDetails?: { text?: string; exception?: { description?: string } };
+  };
+  const resp = (await cdpSessionManager.sendCommand(tabId, 'Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+  })) as Resp;
+  if (resp?.exceptionDetails) {
+    const msg =
+      resp.exceptionDetails.exception?.description ||
+      resp.exceptionDetails.text ||
+      'unknown exception';
+    throw new Error(`MAIN-world ${fn.name} threw: ${msg.slice(0, 300)}`);
+  }
+  return resp?.result?.value;
+}
+
+/**
+ * ISOLATED-world shim: resolve target via selector OR ref (the latter via
+ * __claudeElementMap which only exists in ISOLATED), stamp a unique
+ * `data-hc-probe-id` so MAIN-world code can find the same element later,
+ * scroll into view, call .focus() as a belt-and-braces, and return click
+ * coords + initial aria state.
+ *
+ * NO monkey-patching here — fetch/event capture happens in MAIN world.
+ */
+function resolveAndStampShim(
+  selector: string | null,
+  ref: string | null,
+  probeId: string,
+): FocusShimResult {
   try {
     let el: Element | null = null;
     if (ref) {
@@ -338,78 +404,14 @@ function installProbeShim(selector: string | null, ref: string | null): FocusShi
       };
     }
 
-    type ProbeState = {
-      el: WeakRef<Element>;
-      events: Array<Record<string, unknown>>;
-      fetches: Array<{ url: string; method: string; ts: number }>;
-      installedAt: number;
-      origFetch: typeof window.fetch;
-    };
-    const w = window as unknown as { __hcTypeaheadProbe?: ProbeState };
-
-    if (w.__hcTypeaheadProbe) {
-      // Restore old fetch first so we don't pile up wrappers across runs.
-      try {
-        window.fetch = w.__hcTypeaheadProbe.origFetch;
-      } catch (e) {}
-    }
-
-    const events: Array<Record<string, unknown>> = [];
-    const fetches: Array<{ url: string; method: string; ts: number }> = [];
-    const origFetch = window.fetch.bind(window);
-    window.fetch = function (...a: unknown[]) {
-      try {
-        const u =
-          typeof a[0] === 'string'
-            ? (a[0] as string)
-            : (a[0] as { url?: string })?.url || String(a[0]);
-        const init = (a[1] as { method?: string }) || {};
-        fetches.push({ url: u.slice(0, 400), method: init.method || 'GET', ts: Date.now() });
-      } catch (e) {}
-      return origFetch(...(a as Parameters<typeof origFetch>));
-    } as typeof window.fetch;
-
-    const TRACKED_TYPES = ['keydown', 'keyup', 'keypress', 'input', 'beforeinput'];
-    function record(scope: string, e: Event) {
-      const ke = e as KeyboardEvent;
-      const ie = e as InputEvent;
-      events.push({
-        scope,
-        type: e.type,
-        isTrusted: e.isTrusted,
-        key: ke.key ?? null,
-        code: ke.code ?? null,
-        data: ie.data ?? null,
-        inputType: ie.inputType ?? null,
-        composed: e.composed ?? null,
-        isComposing: ke.isComposing ?? null,
-        ts: Date.now(),
-      });
-    }
-    for (const t of TRACKED_TYPES) {
-      target.addEventListener(t, (e) => record('input', e), true);
-      window.addEventListener(t, (e) => record('window', e), true);
-      document.addEventListener(t, (e) => record('document', e), true);
-    }
-
-    (window as unknown as { __hcTypeaheadProbe: ProbeState }).__hcTypeaheadProbe = {
-      el: new WeakRef(target),
-      events,
-      fetches,
-      installedAt: Date.now(),
-      origFetch,
-    };
+    // Stamp the element with the probe id so MAIN-world code can find it
+    // via `[data-hc-probe-id="..."]` (it can't see __claudeElementMap).
+    target.setAttribute('data-hc-probe-id', probeId);
 
     target.scrollIntoView({ block: 'center', inline: 'center' });
-    // Compute rect AFTER scrollIntoView — the rect before scroll is stale
-    // when the element has to move into view (or its scrollable parent does).
     const rect = target.getBoundingClientRect();
-    // Belt-and-braces focus: the CDP click in BG should focus form controls,
-    // but Bug-008's CFT-vs-daily-Chrome divergence has shown that
-    // CDP-driven focus isn't always reliable on daily Chrome's keyboard
-    // pipeline. .focus() in the shim guarantees keystrokes that follow
-    // land on this element regardless of whether the CDP click delivered
-    // a mousedown.
+    // Belt-and-braces focus: CDP click should focus, but daily-Chrome
+    // CDP focus is inconsistent (Bug-008 family).
     if (typeof (target as HTMLElement).focus === 'function') {
       (target as HTMLElement).focus({ preventScroll: true });
     }
@@ -439,37 +441,111 @@ function installProbeShim(selector: string | null, ref: string | null): FocusShi
 }
 
 /**
- * ISOLATED-world shim #2: harvest the captured logs + final DOM state +
- * uninstall the fetch wrapper. Called once after the watch window elapses.
+ * MAIN-world capture install. Runs via CDP `Runtime.evaluate` so it lands
+ * in the same JS context that owns `window.fetch` and page event handlers.
+ *
+ * - Finds the target element via `[data-hc-probe-id="<probeId>"]` (stamped
+ *   by `resolveAndStampShim` in ISOLATED).
+ * - Patches `window.fetch` and records every fetch (URL, method, ts).
+ * - Adds capture-phase listeners on input + window + document for
+ *   keydown / keyup / keypress / input / beforeinput.
+ * - Stores state on `window.__hcTypeaheadProbe` keyed by probeId.
+ *
+ * Returns `{ok}` after install completes.
  */
-function readProbeResults(
-  selector: string | null,
-  ref: string | null,
+function installCaptureInMainWorld(probeId: string): { ok: boolean; message?: string } {
+  try {
+    const el = document.querySelector(`[data-hc-probe-id="${probeId}"]`);
+    if (!el) {
+      return { ok: false, message: `MAIN-world install: element with data-hc-probe-id=${probeId} not found` };
+    }
+    type ProbeState = {
+      probeId: string;
+      events: Array<Record<string, unknown>>;
+      fetches: Array<{ url: string; method: string; ts: number }>;
+      origFetch: typeof window.fetch;
+      installedAt: number;
+    };
+    const w = window as unknown as { __hcTypeaheadProbe?: ProbeState };
+    if (w.__hcTypeaheadProbe) {
+      try {
+        window.fetch = w.__hcTypeaheadProbe.origFetch;
+      } catch (e) {}
+      delete (window as unknown as { __hcTypeaheadProbe?: ProbeState }).__hcTypeaheadProbe;
+    }
+
+    const events: Array<Record<string, unknown>> = [];
+    const fetches: Array<{ url: string; method: string; ts: number }> = [];
+    const origFetch = window.fetch.bind(window);
+    window.fetch = function (...a: unknown[]) {
+      try {
+        const u =
+          typeof a[0] === 'string'
+            ? (a[0] as string)
+            : (a[0] as { url?: string })?.url || String(a[0]);
+        const init = (a[1] as { method?: string }) || {};
+        fetches.push({ url: u.slice(0, 400), method: init.method || 'GET', ts: Date.now() });
+      } catch (e) {}
+      return origFetch(...(a as Parameters<typeof origFetch>));
+    } as typeof window.fetch;
+
+    const TRACKED = ['keydown', 'keyup', 'keypress', 'input', 'beforeinput'];
+    function record(scope: string, e: Event) {
+      const ke = e as KeyboardEvent;
+      const ie = e as InputEvent;
+      events.push({
+        scope,
+        type: e.type,
+        isTrusted: e.isTrusted,
+        key: ke.key ?? null,
+        code: ke.code ?? null,
+        data: ie.data ?? null,
+        inputType: ie.inputType ?? null,
+        composed: e.composed ?? null,
+        isComposing: ke.isComposing ?? null,
+        ts: Date.now(),
+      });
+    }
+    for (const t of TRACKED) {
+      (el as Element).addEventListener(t, (e) => record('input', e), true);
+      window.addEventListener(t, (e) => record('window', e), true);
+      document.addEventListener(t, (e) => record('document', e), true);
+    }
+
+    (window as unknown as { __hcTypeaheadProbe: ProbeState }).__hcTypeaheadProbe = {
+      probeId,
+      events,
+      fetches,
+      origFetch,
+      installedAt: Date.now(),
+    };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * MAIN-world readback: harvest captured events + fetches from
+ * `window.__hcTypeaheadProbe`, snapshot final DOM state, restore the
+ * original `window.fetch`, and clean up. Runs via CDP `Runtime.evaluate`.
+ */
+function readCaptureFromMainWorld(
+  probeId: string,
   optionSelector: string,
   networkUrlPattern: string,
 ): ReadbackResult {
   type ProbeState = {
-    el: WeakRef<Element>;
+    probeId: string;
     events: Array<Record<string, unknown>>;
     fetches: Array<{ url: string; method: string; ts: number }>;
-    installedAt: number;
     origFetch: typeof window.fetch;
+    installedAt: number;
   };
   const w = window as unknown as { __hcTypeaheadProbe?: ProbeState };
   const state = w.__hcTypeaheadProbe;
-  let el: Element | null = null;
-  if (state) {
-    el = state.el.deref?.() ?? null;
-  }
-  if (!el) {
-    if (ref) {
-      const map = (window as unknown as { __claudeElementMap?: Record<string, WeakRef<Element>> })
-        .__claudeElementMap;
-      el = map?.[ref]?.deref?.() ?? null;
-    } else if (selector) {
-      el = document.querySelector(selector);
-    }
-  }
+  // Find the element via the stamp attribute — survives MAIN/ISOLATED split.
+  const el = document.querySelector(`[data-hc-probe-id="${probeId}"]`);
   const input = el as HTMLInputElement | null;
   const ariaControls = (el as HTMLElement | null)?.getAttribute('aria-controls') ?? null;
   const listbox = ariaControls ? document.getElementById(ariaControls) : null;
@@ -501,6 +577,12 @@ function readProbeResults(
       window.fetch = state.origFetch;
     } catch (e) {}
     delete (window as unknown as { __hcTypeaheadProbe?: ProbeState }).__hcTypeaheadProbe;
+  }
+  // Remove the stamp attribute so repeat runs don't see stale ids.
+  if (el) {
+    try {
+      (el as HTMLElement).removeAttribute('data-hc-probe-id');
+    } catch (e) {}
   }
 
   return {

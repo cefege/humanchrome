@@ -460,7 +460,7 @@ const MATRIX = [
   },
   {
     imp: 'Bug-008-probe',
-    name: 'chrome_typeahead_probe ends-to-end + records summary.keydownFired (Bug-008 divergence baseline)',
+    name: 'chrome_typeahead_probe ends-to-end + sees MAIN-world fetch + records summary.keydownFired',
     run: async () => {
       // Reset input value so re-runs aren't sensitive to prior typing.
       await callTool('chrome_javascript', {
@@ -471,36 +471,31 @@ const MATRIX = [
         sample: 'a',
         watchMs: 1500,
         clearFirst: false,
+        networkUrlPattern: 'typeahead-fixture-stub',
       });
     },
     check: (res) => {
       const p = res.parsed;
-      // Asserted invariants (must hold on every Chrome):
-      // - probe ran end-to-end (no error envelope)
+      // Asserted invariants:
+      // - probe ran end-to-end
       // - inputValueAfter:"a" — insertText reached the focused input
-      // - summary.inputFired true — beforeinput/input events captured
+      // - summary.inputFired — beforeinput/input events captured
+      // - summary.lookupFetchFired — the fixture's MAIN-world fetch is
+      //   visible (PR #316 → MAIN-world capture; previously this was
+      //   unobservable because the probe's fetch wrapper lived in ISOLATED).
       //
-      // The non-asserted datapoint of interest is `summary.keydownFired`:
-      // on Chrome for Testing 145 it's TRUE (keydown fires through the
-      // IMP-0176 keyDown+insertText+keyUp sequence). On the user's daily
-      // Chrome 145 with the same bundle it's FALSE — Chrome's renderer
-      // appears to suppress the synthetic keydown when insertText follows.
-      // The divergence is recorded in discussion/humanchrome-bugs/008-*.md.
-      // This matrix row's primary job is to keep the probe end-to-end
-      // healthy + provide a CFT-side reading we can diff against a future
-      // daily-Chrome run of the same fixture.
-      //
-      // `summary.lookupFetchFired` is NOT asserted because the probe's
-      // fetch-wrapper installs in ISOLATED world (extension context), so
-      // it misses MAIN-world fetches the page issues itself.
+      // `summary.keydownFired` is intentionally NOT asserted — it's the
+      // open Bug-008 divergence datapoint (TRUE in CFT, FALSE in daily
+      // Chrome 145 on the same bundle).
       const ok =
         !res?.isError &&
         p?.ok === true &&
         p?.inputValueAfter === 'a' &&
-        p?.summary?.inputFired === true;
+        p?.summary?.inputFired === true &&
+        p?.summary?.lookupFetchFired === true;
       return assert(
         ok,
-        `expected inputValueAfter:"a" + inputFired, got inputValueAfter=${JSON.stringify(p?.inputValueAfter)} summary=${JSON.stringify(p?.summary)} eventCount=${p?.eventCount} probeErr=${res?.isError ? JSON.stringify(p).slice(0, 300) : 'none'}`,
+        `expected inputValueAfter:"a" + inputFired + lookupFetchFired, got inputValueAfter=${JSON.stringify(p?.inputValueAfter)} summary=${JSON.stringify(p?.summary)} eventCount=${p?.eventCount} fetchCount=${p?.fetchCount} probeErr=${res?.isError ? JSON.stringify(p).slice(0, 300) : 'none'}`,
       );
     },
   },
