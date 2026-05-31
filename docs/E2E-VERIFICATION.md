@@ -207,6 +207,13 @@ vitest coverage:
   class instead.)
 - **IMP-0143** `chrome_type_into` — types `hello` into `#type-target`
   with `perKeyDelayMs:0, jitterMs:0`; asserts `finalValue === 'hello'`.
+- **Bug-007** `chrome_combobox_select` — calls
+  `{comboboxSelector:'#combobox-input', query:'LangGraph',
+  perKeyDelayMs:0, jitterMs:0}` against the keyboard-commit combobox
+  fixture and asserts `#combobox-selected.innerText === 'LangGraph'`.
+  The fixture's option `click` handler is intentionally a no-op (matches
+  LinkedIn Downshift behaviour), so a regression that routes through
+  synthetic option-click fails the assertion.
 - **IMP-0124** `chrome_emulate` — `set_device({preset:'iphone-15'})`
   then `chrome_javascript({code:'innerWidth'})` returns 393. Calls
   `reset_all` at the end so subsequent rows see the original viewport.

@@ -421,6 +421,44 @@ const MATRIX = [
     },
   },
   {
+    imp: 'Bug-007',
+    name: 'chrome_combobox_select keyboard-commits a Downshift-style option',
+    run: async () => {
+      // Reset the fixture state so re-runs see "(none)" before commit.
+      await callTool('chrome_javascript', {
+        code: `document.getElementById('combobox-selected').textContent='(none)'; document.getElementById('combobox-input').value=''; return true;`,
+      });
+      const selectRes = await callTool('chrome_combobox_select', {
+        comboboxSelector: '#combobox-input',
+        query: 'LangGraph',
+        perKeyDelayMs: 0,
+        jitterMs: 0,
+        waitForOptionsMs: 1500,
+      });
+      const verifyRes = await callTool('chrome_javascript', {
+        code: `return document.getElementById('combobox-selected').textContent;`,
+      });
+      return { selectRes, verifyRes };
+    },
+    check: ({ selectRes, verifyRes }) => {
+      const sb = selectRes?.parsed;
+      const selected =
+        typeof verifyRes?.parsed === 'string'
+          ? verifyRes.parsed
+          : verifyRes?.parsed?.result ?? null;
+      const ok =
+        !selectRes?.isError &&
+        sb?.ok === true &&
+        sb?.selectedText === 'LangGraph' &&
+        sb?.arrowDownCount === 1 &&
+        selected === 'LangGraph';
+      return assert(
+        ok,
+        `expected selectedText:"LangGraph" + page state "LangGraph", got selectedText=${JSON.stringify(sb?.selectedText)} arrowDownCount=${sb?.arrowDownCount} pageSelected=${JSON.stringify(selected)} selectErr=${selectRes?.isError ? JSON.stringify(sb).slice(0, 300) : 'none'}`,
+      );
+    },
+  },
+  {
     imp: 'IMP-0124',
     name: 'chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride',
     run: async () => {
