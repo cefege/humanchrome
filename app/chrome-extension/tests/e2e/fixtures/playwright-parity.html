@@ -424,6 +424,87 @@
       <h3>IMP-0143 — <code>chrome_type_into</code> char-by-char typing</h3>
       <p class="muted">Row types "hello" with perKeyDelayMs:0 jitterMs:0 and asserts finalValue.</p>
       <input id="type-target" type="text" placeholder="type here" />
+
+      <h3>Bug-007 — <code>chrome_combobox_select</code> (keyboard-commit combobox)</h3>
+      <p class="muted">
+        Downshift-style mock: option-click is intentionally a no-op; only the keyboard
+        commit path (ArrowDown highlights + Enter binds the form state) updates
+        <code>#combobox-selected</code>. The row calls
+        <code>chrome_combobox_select({comboboxSelector:'#combobox-input', query:'LangGraph'})</code>
+        and asserts <code>#combobox-selected</code> reads "LangGraph". If a future regression
+        re-introduces the synthetic-click code path, the assertion fails because the click never
+        bound the state.
+      </p>
+      <div class="row">
+        <input
+          id="combobox-input"
+          type="text"
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-controls="combobox-listbox"
+          aria-expanded="false"
+          placeholder="Type to filter…"
+        />
+        <ul id="combobox-listbox" role="listbox" style="list-style:none;padding:0;margin:0"></ul>
+        <div>Selected: <span id="combobox-selected">(none)</span></div>
+      </div>
+      <script>
+        (() => {
+          const SOURCE = ['LangGraph', 'LangChain', 'LlamaIndex', 'Pinecone', 'Weaviate'];
+          const input = document.getElementById('combobox-input');
+          const listbox = document.getElementById('combobox-listbox');
+          const selected = document.getElementById('combobox-selected');
+          let activeIndex = -1;
+          let visible = [];
+
+          function render() {
+            const q = input.value.trim().toLowerCase();
+            visible = q
+              ? SOURCE.filter((s) => s.toLowerCase().includes(q))
+              : [];
+            listbox.innerHTML = '';
+            visible.forEach((text, i) => {
+              const li = document.createElement('li');
+              li.setAttribute('role', 'option');
+              li.dataset.idx = String(i);
+              li.textContent = text;
+              if (i === activeIndex) li.style.background = '#cce';
+              // Synthetic click is intentionally a no-op — mirrors LinkedIn's Downshift
+              // behavior. Only keyboard commit (Enter) binds state.
+              li.addEventListener('click', () => {
+                /* intentional no-op for bug-007 reproduction */
+              });
+              listbox.appendChild(li);
+            });
+            input.setAttribute('aria-expanded', visible.length ? 'true' : 'false');
+          }
+
+          input.addEventListener('input', () => {
+            activeIndex = -1;
+            render();
+          });
+
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+              if (visible.length === 0) return;
+              activeIndex = (activeIndex + 1) % visible.length;
+              render();
+              e.preventDefault();
+            } else if (e.key === 'ArrowUp') {
+              if (visible.length === 0) return;
+              activeIndex = (activeIndex - 1 + visible.length) % visible.length;
+              render();
+              e.preventDefault();
+            } else if (e.key === 'Enter') {
+              if (activeIndex < 0 || activeIndex >= visible.length) return;
+              selected.textContent = visible[activeIndex];
+              listbox.innerHTML = '';
+              input.setAttribute('aria-expanded', 'false');
+              e.preventDefault();
+            }
+          });
+        })();
+      </script>
     </section>
 
     <script>

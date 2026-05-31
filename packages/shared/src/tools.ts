@@ -136,6 +136,7 @@ export const TOOL_NAMES = {
     MOCK_RESPONSE: 'chrome_mock_response',
     BASIC_AUTH: 'chrome_basic_auth',
     SET_CHECKED: 'chrome_set_checked',
+    COMBOBOX_SELECT: 'chrome_combobox_select',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -3529,6 +3530,51 @@ export const TOOL_SCHEMAS: Tool[] = [
       },
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.COMBOBOX_SELECT,
+    description:
+      "Trusted commit of a React/Ember combobox option via keyboard. CDP-focuses the input, types the query, waits for [role=option] to render, ArrowDowns to the matching option, presses Enter — the only path that binds Downshift/react-aria/Ember combobox state. Use this for LinkedIn Skills add, Open to Work titles/locations, any typeahead where option-click silently no-ops. Example: {comboboxSelector:'input[aria-label=\"Skill*\"]', query:'LangGraph'} → {selectedIndex, selectedText, optionCount, arrowDownCount}",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        comboboxSelector: { type: 'string', description: 'CSS (or other selectorType) for the combobox input.' },
+        selectorType: {
+          type: 'string',
+          enum: ['css', 'xpath', 'role', 'label', 'placeholder', 'text', 'alt', 'title', 'testid'],
+        },
+        ref: { type: 'string', description: 'Element ref from chrome_read_page (alternative to comboboxSelector).' },
+        query: { type: 'string', description: 'Text to type into the input (≤256 chars).' },
+        matchText: {
+          type: 'string',
+          description: 'Option innerText to commit. Defaults to query. Case-insensitive.',
+        },
+        matchMode: {
+          type: 'string',
+          enum: ['exact', 'contains', 'startsWith'],
+          description: 'How to compare option text against matchText. Default "contains".',
+        },
+        clearFirst: {
+          type: 'boolean',
+          description: 'Select-all + Delete before typing. Default true.',
+        },
+        optionSelector: {
+          type: 'string',
+          description: 'CSS for the option elements. Default \'[role="option"]\'.',
+        },
+        waitForOptionsMs: {
+          type: 'number',
+          description: 'Max time to wait for options to render after typing. Default 5000.',
+        },
+        perKeyDelayMs: { type: 'number', description: 'Base delay between keystrokes. Default 60.' },
+        jitterMs: { type: 'number', description: '± random jitter on perKeyDelayMs. Default 30.' },
+        force: { type: 'boolean', description: 'Skip the combobox visibility/disabled/readonly check.' },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 /**
@@ -3673,6 +3719,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.MOCK_RESPONSE]: 'Network',
   [TOOL_NAMES.BROWSER.BASIC_AUTH]: 'Network',
   [TOOL_NAMES.BROWSER.SET_CHECKED]: 'Interaction',
+  [TOOL_NAMES.BROWSER.COMBOBOX_SELECT]: 'Interaction',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',
