@@ -17,6 +17,23 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Bug-002: ClickTool now dispatches via CDP after the helper returns coords.
+const sendCommandMock = vi.fn(async () => undefined);
+const withSessionMock = vi.fn(
+  async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
+);
+vi.mock('@/utils/cdp-session-manager', () => ({
+  cdpSessionManager: {
+    sendCommand: (...args: unknown[]) => sendCommandMock(...(args as [any, any, any])),
+    withSession: (...args: unknown[]) =>
+      withSessionMock(
+        args[0] as number,
+        args[1] as string,
+        args[2] as () => Promise<unknown>,
+      ),
+  },
+}));
+
 import { clickTool } from '@/entrypoints/background/tools/browser/interaction';
 
 interface ChromeInstall {
@@ -57,12 +74,17 @@ function installChrome(overrides: ChromeInstall = {}) {
       );
     }
     if (msg.action === 'clickElement') {
+      // Bug-002: default success envelope returns helper-resolved coords +
+      // `cdpReady` so ClickTool can dispatch via CDP.
       return (
         overrides.clickResponse ?? {
           success: true,
-          message: 'Element clicked successfully',
+          message: 'Click coords resolved for CDP dispatch',
           elementInfo: { clickMethod: 'ref' },
-          navigationOccurred: false,
+          cdpReady: true,
+          clickX: 10,
+          clickY: 20,
+          isDouble: msg.double === true,
         }
       );
     }
@@ -81,6 +103,7 @@ function installChrome(overrides: ChromeInstall = {}) {
       sendMessage,
       onCreated: { addListener: vi.fn() },
       onRemoved: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
     windows: { update: vi.fn(), onRemoved: { addListener: vi.fn() } },
     scripting: { executeScript: vi.fn(async () => [{ result: undefined }]) },
