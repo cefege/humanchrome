@@ -38,6 +38,16 @@ import { resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Bug-002: ClickTool dispatches via CDP after helper returns coords.
+vi.mock('@/utils/cdp-session-manager', () => ({
+  cdpSessionManager: {
+    sendCommand: vi.fn(async () => undefined),
+    withSession: vi.fn(
+      async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
+    ),
+  },
+}));
+
 import { clickTool, fillTool } from '@/entrypoints/background/tools/browser/interaction';
 
 // ---------------------------------------------------------------------------
@@ -301,6 +311,7 @@ beforeEach(() => {
     query: queryMock,
     get: getTabMock,
     sendMessage: sendMessageMock,
+    onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
   };
 
   (globalThis.chrome as any).scripting = { executeScript: executeScriptMock };
@@ -401,7 +412,16 @@ describe('IMP-0137: assertHelperPresent — ClickTool catches missing actionabil
   it('proceeds normally when actionability_ping returns pong (happy path)', async () => {
     sendMessageMock.mockImplementation(async (_tabId, msg) => {
       if (msg?.action?.endsWith?.('_ping')) return { status: 'pong' };
-      return { success: true, message: 'ok', elementInfo: { tagName: 'BUTTON' } };
+      // Bug-002: helper now hands back resolved coords + cdpReady for BG CDP
+      // dispatch. Without cdpReady the tool errors before CDP fires.
+      return {
+        success: true,
+        message: 'ok',
+        elementInfo: { tagName: 'BUTTON' },
+        cdpReady: true,
+        clickX: 0,
+        clickY: 0,
+      };
     });
 
     const res = await clickTool.execute({ ref: 'r-1', tabId: 7 });

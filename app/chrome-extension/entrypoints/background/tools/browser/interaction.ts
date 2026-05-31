@@ -1,4 +1,5 @@
 import {
+  classifyTabError,
   createErrorResponse,
   createErrorResponseFromThrown,
   ToolResult,
@@ -13,6 +14,7 @@ import {
   type SelectorType,
 } from './_selector-resolve';
 import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
+import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 interface Coordinates {
   x: number;
@@ -167,6 +169,12 @@ class ClickTool extends BaseBrowserToolExecutor {
         failures?: string[];
         method?: string;
         clickPosition?: unknown;
+        // Bug-002: helper now returns coords + cdpReady so BG can dispatch
+        // the click via trusted CDP `Input.dispatchMouseEvent`.
+        cdpReady?: boolean;
+        clickX?: number;
+        clickY?: number;
+        isDouble?: boolean;
       }
       const clickMessage = {
         action: TOOL_MESSAGE_TYPES.CLICK_ELEMENT,
@@ -184,6 +192,13 @@ class ClickTool extends BaseBrowserToolExecutor {
         index: typeof args.index === 'number' ? args.index : undefined,
         force: args.force === true,
         actionabilityTimeoutMs: args.actionabilityTimeoutMs,
+        // Bug-002: ask helper to resolve coords + actionability + return,
+        // skipping the synthetic dispatchEvent path. BG then sends a trusted
+        // CDP click — same path chrome_computer uses. Synthetic dispatch was
+        // silently no-op'ing on Ember-routed nav listitems + React combobox
+        // option commits because `isTrusted:false` events fail the page's
+        // trust gate.
+        cdpDispatch: true,
       };
       let result: ClickHelperResponse;
       try {
@@ -223,6 +238,94 @@ class ClickTool extends BaseBrowserToolExecutor {
         );
       }
 
+      // Bug-002: helper handed us coords; dispatch via CDP from BG.
+      if (
+        !result ||
+        result.cdpReady !== true ||
+        typeof result.clickX !== 'number' ||
+        typeof result.clickY !== 'number'
+      ) {
+        return createErrorResponse(
+          'click-helper did not return CDP-ready coordinates',
+          ToolErrorCode.UNKNOWN,
+          { tabId: tab.id },
+        );
+      }
+      const cdpX = result.clickX;
+      const cdpY = result.clickY;
+      const cdpButton: 'left' | 'middle' | 'right' = button ?? 'left';
+      const cdpButtons = cdpButton === 'right' ? 2 : cdpButton === 'middle' ? 4 : 1;
+      const cdpModifiers =
+        (modifiers?.altKey ? 1 : 0) |
+        (modifiers?.ctrlKey ? 2 : 0) |
+        (modifiers?.metaKey ? 4 : 0) |
+        (modifiers?.shiftKey ? 8 : 0);
+      const isDouble = result.isDouble === true || args.double === true;
+
+      // Set up navigation watcher BEFORE the click so we don't miss a fast
+      // commit. Resolves to true on the next URL change for this tab, or
+      // false on timeout. Used only when caller asked for waitForNavigation.
+      const navWatch =
+        waitForNavigation && tab.id ? watchTabNavigation(tab.id, timeoutMs) : null;
+
+      try {
+        await cdpSessionManager.withSession(tab.id, 'click', async () => {
+          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: cdpX,
+            y: cdpY,
+            button: cdpButton,
+            buttons: cdpButtons,
+            clickCount: isDouble ? 2 : 1,
+            modifiers: cdpModifiers,
+          });
+          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: cdpX,
+            y: cdpY,
+            button: cdpButton,
+            buttons: 0,
+            clickCount: isDouble ? 2 : 1,
+            modifiers: cdpModifiers,
+          });
+          if (isDouble) {
+            await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
+              type: 'mousePressed',
+              x: cdpX,
+              y: cdpY,
+              button: cdpButton,
+              buttons: cdpButtons,
+              clickCount: 2,
+              modifiers: cdpModifiers,
+            });
+            await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
+              type: 'mouseReleased',
+              x: cdpX,
+              y: cdpY,
+              button: cdpButton,
+              buttons: 0,
+              clickCount: 2,
+              modifiers: cdpModifiers,
+            });
+          }
+        });
+      } catch (cdpErr) {
+        const msg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
+        if (/another debugger|already attached/i.test(msg)) {
+          return createErrorResponse(msg, ToolErrorCode.CDP_BUSY, { tabId: tab.id });
+        }
+        return classifyTabError(cdpErr, {
+          toolName: TOOL_NAMES.BROWSER.CLICK,
+          tabId: tab.id,
+          extraDetails: { clickX: cdpX, clickY: cdpY },
+        });
+      }
+
+      let navigationOccurred = false;
+      if (navWatch) {
+        navigationOccurred = await navWatch;
+      }
+
       // Determine actual click method used
       let clickMethod: string;
       if (coordinates) {
@@ -243,8 +346,9 @@ class ClickTool extends BaseBrowserToolExecutor {
               success: true,
               message: result.message || 'Click operation successful',
               elementInfo: result.elementInfo,
-              navigationOccurred: result.navigationOccurred,
+              navigationOccurred,
               clickMethod,
+              clickPosition: { x: cdpX, y: cdpY },
             }),
           },
         ],
@@ -255,6 +359,40 @@ class ClickTool extends BaseBrowserToolExecutor {
       return createErrorResponseFromThrown(error);
     }
   }
+}
+
+/**
+ * Resolve to `true` when the tab navigates (URL changes from snapshot) within
+ * `timeoutMs`, else `false`. Replaces click-helper's beforeunload listener so
+ * waitForNavigation continues to work after the dispatch moved to BG CDP.
+ */
+async function watchTabNavigation(tabId: number, timeoutMs: number): Promise<boolean> {
+  let startUrl = '';
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    startUrl = tab.url ?? '';
+  } catch {
+    return false;
+  }
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+      } catch {}
+      resolve(value);
+    };
+    const onUpdated = (id: number, info: chrome.tabs.TabChangeInfo) => {
+      if (id !== tabId) return;
+      // URL change OR loading state — either signals the click triggered nav.
+      if (info.url && info.url !== startUrl) settle(true);
+      else if (info.status === 'loading') settle(true);
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    setTimeout(() => settle(false), Math.max(0, timeoutMs));
+  });
 }
 
 export const clickTool = new ClickTool();

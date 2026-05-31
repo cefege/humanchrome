@@ -26,6 +26,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+// Bug-002: ClickTool now dispatches via CDP `Input.dispatchMouseEvent` after
+// the helper returns coords. Mock cdpSessionManager so unit tests can assert
+// the CDP path is exercised + capture the dispatched arguments.
+const sendCommandMock = vi.fn(async () => undefined);
+const withSessionMock = vi.fn(
+  async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
+);
+vi.mock('@/utils/cdp-session-manager', () => ({
+  cdpSessionManager: {
+    sendCommand: (...args: unknown[]) => sendCommandMock(...(args as [any, any, any])),
+    withSession: (...args: unknown[]) =>
+      withSessionMock(
+        args[0] as number,
+        args[1] as string,
+        args[2] as () => Promise<unknown>,
+      ),
+  },
+}));
+
 import { clickTool } from '@/entrypoints/background/tools/browser/interaction';
 
 interface ChromeInstall {
@@ -48,12 +67,18 @@ function installChrome(overrides: ChromeInstall = {}) {
       return { status: 'pong' };
     }
     if (msg.action === 'clickElement') {
+      // Bug-002: default success envelope mirrors the new helper return
+      // shape (resolved coords + cdpReady), so the ClickTool can proceed
+      // to its CDP dispatch step.
       return (
         overrides.helperResponse ?? {
           success: true,
           message: 'Element clicked successfully',
           elementInfo: { clickMethod: 'coordinates', clickPosition: { x: 100, y: 100 } },
-          navigationOccurred: false,
+          cdpReady: true,
+          clickX: 100,
+          clickY: 100,
+          isDouble: msg.double === true,
         }
       );
     }
@@ -72,6 +97,7 @@ function installChrome(overrides: ChromeInstall = {}) {
       sendMessage,
       onCreated: { addListener: vi.fn() },
       onRemoved: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
     windows: {
       update: vi.fn(),
@@ -89,6 +115,11 @@ function installChrome(overrides: ChromeInstall = {}) {
   };
   return { tab, sendMessage };
 }
+
+beforeEach(() => {
+  sendCommandMock.mockClear();
+  withSessionMock.mockClear();
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -153,6 +184,114 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     const body = JSON.parse((res.content[0] as any).text);
     expect(body.success).toBe(true);
     expect(body.clickMethod).toBe('coordinates');
+  });
+
+  // Bug-002: assert ClickTool now dispatches the trusted CDP click instead
+  // of relying on the helper's synthetic `dispatchEvent`. Helper returns
+  // resolved coords; BG fires `Input.dispatchMouseEvent` mousePressed +
+  // mouseReleased through cdpSessionManager.
+  it('Bug-002: dispatches via CDP Input.dispatchMouseEvent at helper-resolved coords', async () => {
+    const { sendMessage } = installChrome({
+      helperResponse: {
+        success: true,
+        message: 'Click coords resolved for CDP dispatch',
+        elementInfo: { clickMethod: 'ref', ref: 'r1' },
+        cdpReady: true,
+        clickX: 250,
+        clickY: 400,
+        isDouble: false,
+      },
+    });
+    const res = await clickTool.execute({ ref: 'r1', tabId: 5 });
+    expect(res.isError).toBe(false);
+
+    // Helper got the cdpDispatch flag (so it skipped synthetic dispatch).
+    const clickMsg = sendMessage.mock.calls.find(
+      (c: any[]) => c[1]?.action === 'clickElement',
+    )?.[1];
+    expect(clickMsg?.cdpDispatch).toBe(true);
+
+    // CDP press + release at the helper-resolved coords.
+    const cdpCalls = sendCommandMock.mock.calls.filter(
+      (c) => c[1] === 'Input.dispatchMouseEvent',
+    );
+    expect(cdpCalls).toHaveLength(2);
+    expect(cdpCalls[0][2]).toMatchObject({
+      type: 'mousePressed',
+      x: 250,
+      y: 400,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    });
+    expect(cdpCalls[1][2]).toMatchObject({
+      type: 'mouseReleased',
+      x: 250,
+      y: 400,
+      button: 'left',
+      buttons: 0,
+      clickCount: 1,
+    });
+  });
+
+  it('Bug-002: double-click sends two press+release pairs with clickCount=2', async () => {
+    installChrome({
+      helperResponse: {
+        success: true,
+        message: 'Click coords resolved for CDP dispatch',
+        elementInfo: { clickMethod: 'ref', ref: 'r1' },
+        cdpReady: true,
+        clickX: 10,
+        clickY: 20,
+        isDouble: true,
+      },
+    });
+    const res = await clickTool.execute({ ref: 'r1', double: true, tabId: 5 });
+    expect(res.isError).toBe(false);
+
+    const cdpCalls = sendCommandMock.mock.calls.filter(
+      (c) => c[1] === 'Input.dispatchMouseEvent',
+    );
+    expect(cdpCalls).toHaveLength(4);
+    expect(cdpCalls.every((c) => (c[2] as { clickCount?: number }).clickCount === 2)).toBe(true);
+  });
+
+  it('Bug-002: right-click sends button:right with buttons:2', async () => {
+    installChrome();
+    await clickTool.execute({
+      coordinates: { x: 100, y: 100 },
+      button: 'right',
+      tabId: 5,
+    });
+    const cdpCalls = sendCommandMock.mock.calls.filter(
+      (c) => c[1] === 'Input.dispatchMouseEvent',
+    );
+    expect(cdpCalls).toHaveLength(2);
+    expect(cdpCalls[0][2]).toMatchObject({ button: 'right', buttons: 2 });
+  });
+
+  it('Bug-002: passes modifier bitmask (Shift=8, Ctrl=2, etc.) to CDP', async () => {
+    installChrome();
+    await clickTool.execute({
+      coordinates: { x: 100, y: 100 },
+      modifiers: { shiftKey: true, ctrlKey: true },
+      tabId: 5,
+    });
+    const cdpCalls = sendCommandMock.mock.calls.filter(
+      (c) => c[1] === 'Input.dispatchMouseEvent',
+    );
+    expect(cdpCalls[0][2]).toMatchObject({ modifiers: 8 | 2 });
+  });
+
+  it('Bug-002: CDP_BUSY is surfaced when debugger is attached elsewhere', async () => {
+    installChrome();
+    withSessionMock.mockImplementationOnce(async () => {
+      throw new Error('Another debugger is already attached to this tab');
+    });
+    const res = await clickTool.execute({ coordinates: { x: 100, y: 100 }, tabId: 5 });
+    expect(res.isError).toBe(true);
+    const body = JSON.parse((res.content[0] as any).text);
+    expect(body.error.code).toBe('CDP_BUSY');
   });
 });
 
