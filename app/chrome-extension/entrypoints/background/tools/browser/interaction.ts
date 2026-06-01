@@ -15,6 +15,7 @@ import {
 } from './_selector-resolve';
 import { parsePrefixedSelector } from '@/shared/selector/prefixed-parser';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
+import { cdpClick } from './_keystrokes';
 
 interface Coordinates {
   x: number;
@@ -169,8 +170,8 @@ class ClickTool extends BaseBrowserToolExecutor {
         failures?: string[];
         method?: string;
         clickPosition?: unknown;
-        // Bug-002: helper now returns coords + cdpReady so BG can dispatch
-        // the click via trusted CDP `Input.dispatchMouseEvent`.
+        // BG-CDP dispatch path: helper returns coords instead of dispatching
+        // synthetic events. See the `cdpDispatch` request flag below.
         cdpReady?: boolean;
         clickX?: number;
         clickY?: number;
@@ -192,12 +193,10 @@ class ClickTool extends BaseBrowserToolExecutor {
         index: typeof args.index === 'number' ? args.index : undefined,
         force: args.force === true,
         actionabilityTimeoutMs: args.actionabilityTimeoutMs,
-        // Bug-002: ask helper to resolve coords + actionability + return,
-        // skipping the synthetic dispatchEvent path. BG then sends a trusted
-        // CDP click — same path chrome_computer uses. Synthetic dispatch was
-        // silently no-op'ing on Ember-routed nav listitems + React combobox
-        // option commits because `isTrusted:false` events fail the page's
-        // trust gate.
+        // Ask helper to resolve coords + run actionability + return without
+        // dispatching. BG fires the trusted CDP click — synthetic
+        // `dispatchEvent` is `isTrusted:false` and silently no-ops on
+        // Ember-routed nav listitems + React combobox option commits.
         cdpDispatch: true,
       };
       let result: ClickHelperResponse;
@@ -238,7 +237,6 @@ class ClickTool extends BaseBrowserToolExecutor {
         );
       }
 
-      // Bug-002: helper handed us coords; dispatch via CDP from BG.
       if (
         !result ||
         result.cdpReady !== true ||
@@ -253,74 +251,21 @@ class ClickTool extends BaseBrowserToolExecutor {
       }
       const cdpX = result.clickX;
       const cdpY = result.clickY;
-      const cdpButton: 'left' | 'middle' | 'right' = button ?? 'left';
-      const cdpButtons = cdpButton === 'right' ? 2 : cdpButton === 'middle' ? 4 : 1;
-      const cdpModifiers =
-        (modifiers?.altKey ? 1 : 0) |
-        (modifiers?.ctrlKey ? 2 : 0) |
-        (modifiers?.metaKey ? 4 : 0) |
-        (modifiers?.shiftKey ? 8 : 0);
       const isDouble = result.isDouble === true || args.double === true;
 
       // Set up navigation watcher BEFORE the click so we don't miss a fast
-      // commit. Resolves to true on the next URL change for this tab, or
-      // false on timeout. Used only when caller asked for waitForNavigation.
+      // commit.
       const navWatch =
         waitForNavigation && tab.id ? watchTabNavigation(tab.id, timeoutMs) : null;
 
       try {
-        await cdpSessionManager.withSession(tab.id, 'click', async () => {
-          // Move first — chrome_computer's path does this too. Some click
-          // handlers (Ember route delegates, custom dropdown triggers) gate
-          // on a pointermove preceding the press, which a bare press/release
-          // pair doesn't satisfy.
-          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
-            type: 'mouseMoved',
-            x: cdpX,
-            y: cdpY,
-            button: 'none',
-            buttons: 0,
-            modifiers: cdpModifiers,
-          });
-          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
-            type: 'mousePressed',
-            x: cdpX,
-            y: cdpY,
-            button: cdpButton,
-            buttons: cdpButtons,
-            clickCount: isDouble ? 2 : 1,
-            modifiers: cdpModifiers,
-          });
-          await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
-            type: 'mouseReleased',
-            x: cdpX,
-            y: cdpY,
-            button: cdpButton,
-            buttons: 0,
-            clickCount: isDouble ? 2 : 1,
-            modifiers: cdpModifiers,
-          });
-          if (isDouble) {
-            await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
-              type: 'mousePressed',
-              x: cdpX,
-              y: cdpY,
-              button: cdpButton,
-              buttons: cdpButtons,
-              clickCount: 2,
-              modifiers: cdpModifiers,
-            });
-            await cdpSessionManager.sendCommand(tab.id!, 'Input.dispatchMouseEvent', {
-              type: 'mouseReleased',
-              x: cdpX,
-              y: cdpY,
-              button: cdpButton,
-              buttons: 0,
-              clickCount: 2,
-              modifiers: cdpModifiers,
-            });
-          }
-        });
+        await cdpSessionManager.withSession(tab.id, 'click', () =>
+          cdpClick(tab.id!, cdpX, cdpY, {
+            button: button ?? 'left',
+            double: isDouble,
+            modifiers,
+          }),
+        );
       } catch (cdpErr) {
         const msg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
         if (/another debugger|already attached/i.test(msg)) {

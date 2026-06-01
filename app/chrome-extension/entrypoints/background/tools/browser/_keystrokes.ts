@@ -1,17 +1,34 @@
 /**
- * Shared CDP keystroke helpers.
- *
- * Extracted from type-into.ts so chrome_combobox_select can reuse the same
- * trusted CDP key-event plumbing without duplicating ~100 lines of symbol
- * tables and key-down/insert-text/key-up sequencing.
- *
- * Every callsite must already be inside `cdpSessionManager.withSession` —
- * these helpers send raw CDP commands and assume an attached session.
+ * Shared CDP keystroke + click helpers. Callers must already be inside
+ * `cdpSessionManager.withSession` — these send raw CDP commands and
+ * assume an attached session.
  */
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
-const SHIFT_MODIFIER = 8;
-const CTRL_MODIFIER = 2;
+// CDP `Input.dispatchKeyEvent`/`dispatchMouseEvent` modifier bitmask.
+// Match Chromium's CDP spec values (Alt=1, Ctrl=2, Meta=4, Shift=8).
+export const ALT_MODIFIER = 1;
+export const CTRL_MODIFIER = 2;
+export const META_MODIFIER = 4;
+export const SHIFT_MODIFIER = 8;
+
+export interface KeyboardModifiers {
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+}
+
+/** Pack `{altKey, ctrlKey, metaKey, shiftKey}` into the CDP modifier bitmask. */
+export function buildCdpModifiers(mods?: KeyboardModifiers): number {
+  if (!mods) return 0;
+  return (
+    (mods.altKey ? ALT_MODIFIER : 0) |
+    (mods.ctrlKey ? CTRL_MODIFIER : 0) |
+    (mods.metaKey ? META_MODIFIER : 0) |
+    (mods.shiftKey ? SHIFT_MODIFIER : 0)
+  );
+}
 
 export interface KeyMeta {
   code: string;
@@ -187,4 +204,81 @@ export type NamedKey = keyof typeof NAMED_KEYS;
 export async function sendNamedKey(tabId: number, name: NamedKey): Promise<void> {
   const k = NAMED_KEYS[name];
   await sendKey(tabId, k.key, k.code, k.vk, (k as { text?: string }).text);
+}
+
+export type MouseButton = 'left' | 'middle' | 'right';
+
+export interface CdpClickOptions {
+  /** Default 'left'. */
+  button?: MouseButton;
+  /** Default false. When true, fires a second press/release with clickCount=2. */
+  double?: boolean;
+  /** Keyboard modifiers active during the click. */
+  modifiers?: KeyboardModifiers;
+}
+
+/**
+ * Dispatch a trusted CDP mouse click at (x, y). Always issues the full
+ * `mouseMoved → mousePressed → mouseReleased` sequence — stable Chrome 145
+ * sometimes drops a bare press/release pair on click handlers that gate on
+ * a preceding pointermove (Bug-002 fix). For `double:true`, fires a second
+ * press+release with `clickCount: 2`.
+ */
+export async function cdpClick(
+  tabId: number,
+  x: number,
+  y: number,
+  options: CdpClickOptions = {},
+): Promise<void> {
+  const button: MouseButton = options.button ?? 'left';
+  const buttons = button === 'right' ? 2 : button === 'middle' ? 4 : 1;
+  const modifiers = buildCdpModifiers(options.modifiers);
+  const isDouble = options.double === true;
+
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x,
+    y,
+    button: 'none',
+    buttons: 0,
+    modifiers,
+  });
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x,
+    y,
+    button,
+    buttons,
+    clickCount: isDouble ? 2 : 1,
+    modifiers,
+  });
+  await cdpSessionManager.sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x,
+    y,
+    button,
+    buttons: 0,
+    clickCount: isDouble ? 2 : 1,
+    modifiers,
+  });
+  if (isDouble) {
+    await cdpSessionManager.sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x,
+      y,
+      button,
+      buttons,
+      clickCount: 2,
+      modifiers,
+    });
+    await cdpSessionManager.sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x,
+      y,
+      button,
+      buttons: 0,
+      clickCount: 2,
+      modifiers,
+    });
+  }
 }

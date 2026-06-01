@@ -26,17 +26,12 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
    * @param {{button?:string, bubbles?:boolean, cancelable?:boolean, modifiers?:object, force?:boolean, actionabilityTimeoutMs?:number}} options
    */
   /**
-   * Bug-002 fix (cdpDispatch): when the BG passes `cdpDispatch:true` in the
-   * request, this helper does ALL resolution + actionability + bbox math
-   * but DOES NOT dispatch the click. Instead it returns `clickX/clickY` and
-   * the BG sends the click via CDP `Input.dispatchMouseEvent` (trusted,
-   * `isTrusted:true`) — the same path `chrome_computer` uses. The previous
-   * `element.dispatchEvent(new MouseEvent(...))` synthetic dispatch was
-   * `isTrusted:false`, which silently no-op'd on Ember-routed navigation
-   * listitems (LinkedIn messaging) and React combobox option commits.
-   *
-   * Helper still validates ref-map + actionability + strict-mode + occlusion
-   * — only the final dispatch + waitForNavigation move to BG.
+   * When `options.cdpDispatch` is set, this helper does resolution +
+   * actionability + bbox math but does NOT dispatch the click — BG sends
+   * a trusted CDP `Input.dispatchMouseEvent` instead. The legacy
+   * `element.dispatchEvent(new MouseEvent(...))` path is `isTrusted:false`
+   * and silently no-ops on pages that gate on event trust (Ember-routed
+   * nav listitems, React combobox option commits).
    */
   async function clickElement(
     selector,
@@ -278,10 +273,8 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
         clickY = updatedRect.top + updatedRect.height / 2;
       }
 
-      // Bug-002: when cdpDispatch is set, hand the resolved coords back to
-      // BG without firing a synthetic dispatch. BG will send a trusted CDP
-      // `Input.dispatchMouseEvent` at these coords + handle waitForNavigation
-      // via chrome.tabs.onUpdated.
+      // cdpDispatch path: hand the resolved coords back to BG, which fires
+      // a trusted CDP click + handles waitForNavigation via chrome.tabs.onUpdated.
       if (options && options.cdpDispatch === true) {
         return {
           success: true,
@@ -294,10 +287,8 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
         };
       }
 
-      // Legacy path (no caller in-tree as of Bug-002, kept for fallback /
-      // any downstream code that forks click-helper). Synthetic dispatch +
-      // helper-side waitForNavigation are silent no-ops on Ember-routed nav
-      // listitems and React combobox option commits — prefer cdpDispatch.
+      // Legacy synthetic-dispatch path — no in-tree caller, kept for
+      // downstream forks. Silent no-op on trust-gated handlers.
       let navigationPromise;
       if (waitForNavigation) {
         navigationPromise = new Promise((resolve) => {
