@@ -4,27 +4,15 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { resolveToShimInputs, type SelectorType } from './_selector-resolve';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
-import { sendChar, sendNamedKey, sendSelectAll, sendKey, NAMED_KEYS } from './_keystrokes';
+import { cdpClick, sendChar, sendNamedKey, sendSelectAll } from './_keystrokes';
 
 /**
- * chrome_combobox_select — resolves bug #007.
- *
- * React (Downshift / react-aria) and Ember combobox state machines refuse
- * to bind on a synthetic option click — the option highlights but the
- * form's "selected option" state stays empty, and the next Save click
- * silently no-ops. Only the keyboard commit path (ArrowDown to highlight
- * + Enter to commit) updates that state.
- *
- * This tool wraps the discovered-by-pain working sequence so callers
- * don't waste session time discovering it:
- *   1. CDP mouse click on the combobox input (focus)
- *   2. Optional Ctrl+A + Delete (clearFirst)
- *   3. CDP keystrokes type the query char-by-char
- *   4. Poll for [role="option"] elements to render
- *   5. ArrowDown to the option whose text matches matchText
- *   6. Enter to commit
- *
- * All steps run trusted CDP events under a single `withSession` block.
+ * chrome_combobox_select — commit a React/Ember combobox option via the
+ * keyboard path (ArrowDown to highlight + Enter), the only sequence that
+ * binds Downshift/react-aria/Ember combobox state. Synthetic option
+ * clicks highlight but don't bind, so callers that don't use this end
+ * up with the option visually selected but the form treating no skill
+ * as chosen.
  */
 
 const DEFAULT_PER_KEY_MS = 60;
@@ -161,9 +149,6 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
     if (typeof args.frameId === 'number') target.frameIds = [args.frameId];
 
     try {
-      // Step 1: ISOLATED shim → resolve, visibility-check, return bbox+point
-      // for the CDP click. No focus() here — CDP mouseDown/mouseUp delivers
-      // the trusted focus event the combobox handler is gated on.
       const focusInjected = await chrome.scripting.executeScript({
         target,
         world: 'ISOLATED',
@@ -191,54 +176,22 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
 
       const { point } = focusResult;
 
-      // Steps 2-7: single CDP session for trusted click → type → arrows → enter.
       let typedCount = 0;
       let arrowDownCount = 0;
       let selectedIndex = -1;
       let selectedText = '';
       let optionCount = 0;
-      let probeError: string | null = null;
+      let probeMiss: { reason: 'timeout' | 'no_match'; message: string } | null = null;
 
       await cdpSessionManager.withSession(tabId, OWNER, async () => {
-        // Step 2: trusted CDP mouse click on the input center to focus.
-        // mouseMoved first — Bug-002 family: stable Chrome 145 sometimes
-        // drops a bare press/release pair when no preceding move event
-        // established the cursor position.
-        await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
-          type: 'mouseMoved',
-          x: point.x,
-          y: point.y,
-          button: 'none',
-          buttons: 0,
-        });
-        await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
-          type: 'mousePressed',
-          x: point.x,
-          y: point.y,
-          button: 'left',
-          buttons: 1,
-          clickCount: 1,
-        });
-        await cdpSessionManager.sendCommand(tabId!, 'Input.dispatchMouseEvent', {
-          type: 'mouseReleased',
-          x: point.x,
-          y: point.y,
-          button: 'left',
-          buttons: 0,
-          clickCount: 1,
-        });
+        await cdpClick(tabId!, point.x, point.y);
 
-        // Step 3: clear existing input value. Ctrl+A + Delete is the
-        // "human-y" path; we follow up with a native-setter fallback in
-        // case Ctrl+A didn't actually select the existing text (Bug-008
-        // family: stable Chrome can drop synthetic keydown events when
-        // they don't reach a focused-and-believed-focused element).
         if (clearFirst) {
           await sendSelectAll(tabId!);
-          await sendKey(tabId!, NAMED_KEYS.Delete.key, NAMED_KEYS.Delete.code, NAMED_KEYS.Delete.vk);
-          // Verify-and-fallback: read the input value; if still non-empty,
-          // force-clear via the native value setter + dispatch a synthetic
-          // `input` event so listeners observe the clear.
+          await sendNamedKey(tabId!, 'Delete');
+          // Belt-and-braces clear: Ctrl+A + Delete can no-op if focus
+          // didn't fully land. forceClearShim reads input.value and force-
+          // sets it via the React-friendly native property descriptor.
           await chrome.scripting.executeScript({
             target,
             world: 'ISOLATED',
@@ -247,7 +200,6 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
           });
         }
 
-        // Step 4: type the query char-by-char with realistic cadence.
         for (const ch of Array.from(args.query)) {
           await sendChar(tabId!, ch);
           typedCount += 1;
@@ -255,7 +207,6 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
           if (delay > 0) await sleep(delay);
         }
 
-        // Step 5: poll for [role="option"] (or override) to appear & pick target.
         const probe = await pollForOptions({
           tabId: tabId!,
           frameId: args.frameId,
@@ -265,30 +216,28 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
           timeoutMs: waitForOptionsMs,
         });
         if (!probe.ok) {
-          probeError = probe.message;
+          probeMiss = { reason: probe.reason, message: probe.message };
           return;
         }
         optionCount = probe.count;
         selectedIndex = probe.targetIndex;
         selectedText = probe.targetText;
 
-        // Step 6: ArrowDown to highlight the target option, then Enter.
+        // ArrowDown + Enter to commit. Skip the sleep after the LAST
+        // ArrowDown — Enter doesn't need the highlight animation to settle.
         const downPresses = clamp(selectedIndex + 1, 1, MAX_ARROW_DOWN);
         for (let i = 0; i < downPresses; i += 1) {
           await sendNamedKey(tabId!, 'ArrowDown');
           arrowDownCount += 1;
-          if (perKey > 0) await sleep(Math.min(perKey, 80));
+          if (perKey > 0 && i < downPresses - 1) await sleep(Math.min(perKey, 80));
         }
         await sendNamedKey(tabId!, 'Enter');
       });
 
-      if (probeError !== null) {
-        // Distinguish "options never rendered" (TIMEOUT) from "options rendered
-        // but no match" (UNKNOWN) — the probe.message prefixes the variant.
-        const code = (probeError as string).startsWith('TIMEOUT:')
-          ? ToolErrorCode.TIMEOUT
-          : ToolErrorCode.UNKNOWN;
-        return createErrorResponse((probeError as string).replace(/^[A-Z_]+:\s*/, ''), code, {
+      if (probeMiss !== null) {
+        const { reason, message } = probeMiss as { reason: 'timeout' | 'no_match'; message: string };
+        const code = reason === 'timeout' ? ToolErrorCode.TIMEOUT : ToolErrorCode.UNKNOWN;
+        return createErrorResponse(message, code, {
           tabId,
           frameId: args.frameId,
           query: args.query,
@@ -349,6 +298,7 @@ interface PollHit {
 }
 interface PollMiss {
   ok: false;
+  reason: 'timeout' | 'no_match';
   message: string;
 }
 
@@ -391,12 +341,14 @@ async function pollForOptions(args: PollArgs): Promise<PollHit | PollMiss> {
   if (lastCount === 0) {
     return {
       ok: false,
-      message: `TIMEOUT: no options matching "${args.optionSelector}" rendered within ${args.timeoutMs}ms`,
+      reason: 'timeout',
+      message: `no options matching "${args.optionSelector}" rendered within ${args.timeoutMs}ms`,
     };
   }
   return {
     ok: false,
-    message: `NO_MATCH: ${lastCount} options rendered but none matched "${args.matchText}" (mode=${args.matchMode})`,
+    reason: 'no_match',
+    message: `${lastCount} options rendered but none matched "${args.matchText}" (mode=${args.matchMode})`,
   };
 }
 
@@ -543,22 +495,10 @@ function readComboboxOptions(optionSelector: string): ProbeResult {
 }
 
 /**
- * ISOLATED-world shim: belt-and-braces clear. Runs after `Ctrl+A + Delete`
- * (which is the human-y path that fires synthetic key events). If
- * `input.value` is still non-empty, force-set the value to '' via the
- * native property descriptor and dispatch a synthetic `input` event so
- * page-side handlers observe the clear.
- *
- * Why this matters: stable Chrome 145 sometimes drops synthetic keydown
- * events delivered after a CDP click — same Bug-008 family. If Ctrl+A
- * didn't actually select the existing text, Delete then deletes nothing,
- * and the query gets appended to whatever stale value was already there
- * (the "LGraphQL" residue seen on LinkedIn Skills before this fix).
- *
- * The native setter + dispatched event is the standard React-friendly
- * clear pattern — React's internal value tracker watches the native
- * descriptor's setter and treats `setValue('') + input event` as a valid
- * controlled-component update.
+ * Force-clear an input when Ctrl+A + Delete didn't take. React's internal
+ * value tracker watches the native property descriptor's setter, so
+ * `descriptor.set.call(input, '')` + a synthetic `input` event is the
+ * canonical "clear a controlled input from outside" pattern.
  */
 function forceClearShim(selector: string | null, ref: string | null): { ok: boolean; before?: string; after?: string; forced?: boolean } {
   try {
