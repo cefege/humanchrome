@@ -3534,7 +3534,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.COMBOBOX_SELECT,
     description:
-      "Trusted commit of a React/Ember combobox option via keyboard. CDP-focuses the input, types the query, waits for [role=option] to render, ArrowDowns to the matching option, presses Enter — the only path that binds Downshift/react-aria/Ember combobox state. Use this for LinkedIn Skills add, Open to Work titles/locations, any typeahead where option-click silently no-ops. Example: {comboboxSelector:'input[aria-label=\"Skill*\"]', query:'LangGraph'} → {selectedIndex, selectedText, optionCount, arrowDownCount}",
+      "Trusted keyboard commit of React/Ember combobox state: focus, type query, wait for [role=option], ArrowDown to match, Enter. Use where option-click silently no-ops (LinkedIn Skills, Open-to-Work). Example: {comboboxSelector:'input',query:'LangGraph'} → {selectedIndex,selectedText,optionCount}",
     inputSchema: {
       type: 'object',
       properties: {
@@ -3579,7 +3579,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE,
     description:
-      "Bug-008 diagnostic: types a sample char into a typeahead input then reports every event that fired (with isTrusted), every fetch the page made, and final aria-expanded/aria-controls/listbox state in one envelope. Use when a typeahead lookup or autocomplete isn't firing — see {summary: {keydownFired, inputFired, lookupFetchFired}} for the trust gate diagnosis. Example: {selector:'input[aria-label=\"Add title\"]', sample:'S'} → {events, fetches, listboxFound, summary}",
+      "Diagnostic: types a sample char into a typeahead, reports every event (with isTrusted), every fetch, and final listbox state in one envelope. Use when typeahead/autocomplete isn't firing — check summary.{keydownFired,inputFired,lookupFetchFired}. Example: {selector:'input',sample:'S'} → {events,fetches,listboxFound}",
     inputSchema: {
       type: 'object',
       properties: {
