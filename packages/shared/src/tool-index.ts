@@ -118,6 +118,32 @@ export function isKnownToolName(name: string, tools: readonly Tool[] = TOOL_SCHE
 }
 
 /**
+ * Resolve a possibly-unprefixed tool name to its canonical form (#309).
+ *
+ * Downstream workflow files still reference legacy short names like
+ * `get_windows_and_tabs`. The catalog uses `chrome_*` (most tools) or
+ * `browser_*` (`browser_claim_tab`, `browser_close_my_tabs`,
+ * `browser_alias_tab`). This tries the input verbatim first, then
+ * `chrome_<name>`, then `browser_<name>`, against the catalog ∪ extras.
+ *
+ * Returns the canonical name or `null` when nothing matches.
+ */
+export function resolveToolName(
+  name: string,
+  extras: readonly string[] = [],
+  tools: readonly Tool[] = TOOL_SCHEMAS,
+): string | null {
+  if (typeof name !== 'string' || name.length === 0) return null;
+  const catalog = new Set<string>([...knownToolNames(tools), ...extras]);
+  if (catalog.has(name)) return name;
+  const chromePrefixed = `chrome_${name}`;
+  if (catalog.has(chromePrefixed)) return chromePrefixed;
+  const browserPrefixed = `browser_${name}`;
+  if (catalog.has(browserPrefixed)) return browserPrefixed;
+  return null;
+}
+
+/**
  * Resolve a "did you mean" suggestion for an unknown tool name. Combines the
  * static catalog with an optional dynamic-tool list (the bridge passes the
  * flow.<slug> names so typos like `flo.checkout` get suggested too).

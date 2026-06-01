@@ -1442,6 +1442,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit is truncated and `truncated:true` is set in the response — pass a larger value to opt into a fuller read.',
         },
+        writeResultTo: {
+          type: 'string',
+          description:
+            'Absolute file path. If set, the bridge writes the JSON-serialized `result` to this path and returns a small ack ({writtenTo, bytes, sha256}) instead of the full payload — keeps large blobs (e.g. ~200KB JSON fetches) out of the LLM context. Parent directories are created if missing. Relative paths are rejected with INVALID_ARGS.',
+        },
       },
       required: ['code'],
     },

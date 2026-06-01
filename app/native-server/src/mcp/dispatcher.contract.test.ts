@@ -226,6 +226,38 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     expect(env.error.code).toBe('INVALID_ARGS');
     expect(env.error.details.hint).toBeUndefined();
   });
+
+  // #309 — legacy short-form names route to canonical via prefix-fallback.
+  test('legacy short name "get_windows_and_tabs" routes to chrome_get_windows_and_tabs', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    const res: any = await call({
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'get_windows_and_tabs', args: {} },
+      },
+    });
+    expect(res.isError).toBe(false);
+    const [payload] = sendRequestMock.mock.calls[0] as any[];
+    expect(payload.name).toBe('chrome_get_windows_and_tabs');
+  });
+
+  test('legacy short name "claim_tab" routes to browser_claim_tab', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    await call({
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'claim_tab', args: {} },
+      },
+    });
+    const [payload] = sendRequestMock.mock.calls[0] as any[];
+    expect(payload.name).toBe('browser_claim_tab');
+  });
 });
 
 describe('IMP-0183 dispatcher — idempotency keys', () => {

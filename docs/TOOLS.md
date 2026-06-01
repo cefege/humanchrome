@@ -718,6 +718,7 @@ Execute JS in a tab via CDP Runtime.evaluate (awaitPromise, returnByValue) with 
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `timeoutMs` | number |  | Execution timeout in milliseconds (default: 15000). |
 | `maxOutputBytes` | number |  | Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit is truncated and `truncated:true` is set in the response — pass a larger value to opt into a fuller read. |
+| `writeResultTo` | string |  | Absolute file path. If set, the bridge writes the JSON-serialized `result` to this path and returns a small ack ({writtenTo, bytes, sha256}) instead of the full payload — keeps large blobs (e.g. ~200KB JSON fetches) out of the LLM context. Parent directories are created if missing. Relative paths are rejected with INVALID_ARGS. |
 
 ### `chrome_remove_injected_script`
 

@@ -5,6 +5,7 @@ import {
   buildDispatcherTool,
   knownToolNames,
   isKnownToolName,
+  resolveToolName,
   suggestToolName,
 } from './tool-index';
 import { TOOL_SCHEMAS } from './tools';
@@ -65,6 +66,52 @@ describe('tool-index — dispatcher catalog', () => {
     const first = TOOL_SCHEMAS[0].name;
     expect(isKnownToolName(first)).toBe(true);
     expect(isKnownToolName('not_a_real_tool')).toBe(false);
+  });
+
+  it('resolveToolName accepts canonical names verbatim (idempotent)', () => {
+    expect(resolveToolName('chrome_get_windows_and_tabs')).toBe('chrome_get_windows_and_tabs');
+    expect(resolveToolName('browser_claim_tab')).toBe('browser_claim_tab');
+  });
+
+  it('resolveToolName expands chrome_-prefix legacy short names', () => {
+    expect(resolveToolName('get_windows_and_tabs')).toBe('chrome_get_windows_and_tabs');
+    expect(resolveToolName('javascript')).toBe('chrome_javascript');
+    expect(resolveToolName('read_page')).toBe('chrome_read_page');
+  });
+
+  it('resolveToolName expands browser_-prefix legacy short names', () => {
+    expect(resolveToolName('claim_tab')).toBe('browser_claim_tab');
+    expect(resolveToolName('close_my_tabs')).toBe('browser_close_my_tabs');
+    expect(resolveToolName('alias_tab')).toBe('browser_alias_tab');
+  });
+
+  it('resolveToolName returns null for far-off input', () => {
+    expect(resolveToolName('zzzz_unknown_tool_xyz')).toBeNull();
+  });
+
+  it('resolveToolName returns null for empty or non-string input', () => {
+    expect(resolveToolName('')).toBeNull();
+    expect(resolveToolName(undefined as unknown as string)).toBeNull();
+  });
+
+  it('resolveToolName considers dynamic extras', () => {
+    expect(resolveToolName('flow.foo', ['flow.foo'])).toBe('flow.foo');
+    expect(resolveToolName('foo', ['flow.foo'])).toBeNull();
+  });
+
+  it('resolveToolName has no ambiguous chrome_/browser_ collisions today', () => {
+    // Guard for future drift: if a short name ever exists with both prefixes,
+    // this test fails and forces an explicit policy choice (hard-coded alias
+    // map) rather than silently preferring chrome_*.
+    const names = knownToolNames();
+    const chromeShorts = new Set(
+      names.filter((n) => n.startsWith('chrome_')).map((n) => n.slice('chrome_'.length)),
+    );
+    const browserShorts = new Set(
+      names.filter((n) => n.startsWith('browser_')).map((n) => n.slice('browser_'.length)),
+    );
+    const overlap = [...chromeShorts].filter((s) => browserShorts.has(s));
+    expect(overlap).toEqual([]);
   });
 
   it('suggestToolName returns close match', () => {

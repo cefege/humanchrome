@@ -5,6 +5,7 @@ import {
   buildDispatcherTool,
   DISPATCHER_TOOL_NAME,
   isKnownToolName,
+  resolveToolName,
   suggestToolName,
   ToolErrorCode,
   serializeToolError,
@@ -70,10 +71,18 @@ export const setupTools = (server: Server, clientId?: string) => {
         );
       }
 
+      // #309: resolve legacy short names (`get_windows_and_tabs`) to the
+      // canonical prefixed form (`chrome_get_windows_and_tabs`) before
+      // dispatching, so downstream workflow files written against older
+      // catalogs keep working without a sweep.
+      let resolvedName = innerName;
       if (!isKnownToolName(innerName)) {
         const dynamic = await listDynamicFlowTools();
         const dynamicNames = dynamic.map((t) => t.name);
-        if (!dynamicNames.includes(innerName)) {
+        const aliased = resolveToolName(innerName, dynamicNames);
+        if (aliased) {
+          resolvedName = aliased;
+        } else if (!dynamicNames.includes(innerName)) {
           const guess = suggestToolName(innerName, dynamicNames);
           return invalidArgsResult(
             `Unknown tool: "${innerName}". ${guess ? `Did you mean "${guess}"?` : 'See the humanchrome description for the catalog.'}`,
@@ -93,15 +102,15 @@ export const setupTools = (server: Server, clientId?: string) => {
       // IMP-0183: short-circuit on a cached idempotent hit before paying for
       // dispatch. Per-tool tools don't see idemKey — it lives only on the
       // outer dispatcher surface.
-      const cached = lookupIdempotentResult(clientId, innerName, idemKey);
+      const cached = lookupIdempotentResult(clientId, resolvedName, idemKey);
       if (cached) return cached;
 
       // Don't inject `raw: false` — preserves the inner args shape when the
       // caller omitted `raw`. Tools that branch on `'raw' in args` would
       // misread the unconditional spread as an explicit opt-in.
       const forwardArgs = wantsRaw ? { ...innerArgs, raw: true } : innerArgs;
-      const result = await dispatchTool(innerName, forwardArgs, clientId);
-      recordIdempotentResult(clientId, innerName, idemKey, result);
+      const result = await dispatchTool(resolvedName, forwardArgs, clientId);
+      recordIdempotentResult(clientId, resolvedName, idemKey, result);
       return result;
     }
 
