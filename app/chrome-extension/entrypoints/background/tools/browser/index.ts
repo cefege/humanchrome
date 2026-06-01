@@ -96,4 +96,3 @@ export { basicAuthTool } from './basic-auth';
 export { setCheckedTool } from './set-checked';
 export { comboboxSelectTool } from './combobox-select';
 export { typeaheadProbeTool } from './typeahead-probe';
-export { nativeTypeTool } from './native-type';
