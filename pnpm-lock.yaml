@@ -72,8 +72,8 @@ importers:
         specifier: ^1.48.2
         version: 1.48.2(vue@3.5.34(typescript@6.0.3))
       date-fns:
-        specifier: ^4.1.0
-        version: 4.1.0
+        specifier: ^4.3.0
+        version: 4.3.0
       elkjs:
         specifier: ^0.11.1
         version: 0.11.1
@@ -2555,8 +2555,8 @@ packages:
     resolution: {integrity: sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
 
-  date-fns@4.1.0:
-    resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
+  date-fns@4.3.0:
+    resolution: {integrity: sha512-OYcL+3N/jyWbYdFGqoMAhytDgxP9pbYPUUiRCOgn4Fewaadk9l/Wam4Avciiyp2BgkpfQyBV9B+ehnVJych+eQ==}
 
   dateformat@4.6.3:
     resolution: {integrity: sha512-2P0p0pFGzHS5EMnhdxQi7aJN+iMheud0UhG4dlE1DLAlvL8JHjJJTX/CSm4JXwV0Ka5nGk3zC5mcb5bUQUxxMA==}
@@ -7969,7 +7969,7 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  date-fns@4.1.0: {}
+  date-fns@4.3.0: {}
 
   dateformat@4.6.3: {}
 
