@@ -54,6 +54,7 @@ Navigate to a URL, refresh, or go back/forward in history. Optionally open in a 
 |-------|------|----------|-------------|
 | `url` | string |  | URL to navigate to. Special values: "back" or "forward" to navigate browser history in the target tab. |
 | `newWindow` | boolean |  | Create a new window to navigate to the URL or not. Defaults to false |
+| `newTab` | boolean |  | Force a fresh tab even when a same-host tab is already open. Without this flag the navigate tool activates the existing tab instead. Ignored when tabId is also set. Defaults to false. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `background` | boolean |  | Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward. |

@@ -55,23 +55,34 @@ class CDPSessionManager {
   }
 
   /**
-   * Translate raw Chrome attach errors and onDetach reasons into a
-   * user-actionable message that names DevTools explicitly when that's
-   * what's blocking us — instead of leaving callers to puzzle out
-   * "Another debugger is already attached" in their logs.
+   * Distinguish the three real attach-blocked cases so the caller sees an
+   * actionable message instead of generic "DevTools appears to be
+   * attached":
+   *   1. The user really opened Chrome DevTools on this tab — Chrome
+   *      emits `replaced_with_devtools` on detach. Only case where the
+   *      "open DevTools panel" wording is correct.
+   *   2. The bridge's own prior CDP session was never released cleanly
+   *      (race after `detach`, SW restart leaving a stale registration,
+   *      etc). Handled by `attach()` directly via defensive
+   *      detach-and-retry; this error is only thrown if even that fails.
+   *   3. Another CDP client (different extension, another humanchrome
+   *      bridge instance, a remote debugger session) holds the tab.
    */
-  private devtoolsErrorFor(tabId: number, raw?: unknown): Error {
-    const lastReason = this.lastDetachReason.get(tabId);
+  private devtoolsPanelError(tabId: number): Error {
+    return new Error(
+      `Chrome DevTools is open on tab ${tabId}. Close the DevTools panel on that tab ` +
+        `(Cmd+Option+I on macOS, F12 on Windows/Linux), then retry.`,
+    );
+  }
+
+  private foreignClientError(tabId: number, raw?: unknown): Error {
     const rawMsg = raw instanceof Error ? raw.message : raw ? String(raw) : '';
-    const looksLikeDevtools =
-      lastReason === 'replaced_with_devtools' ||
-      /already attached|another (debugger|client)/i.test(rawMsg);
-    if (looksLikeDevtools) {
-      return new Error(
-        `DevTools appears to be attached to tab ${tabId}. Close the DevTools panel on that tab and retry.`,
-      );
-    }
-    return raw instanceof Error ? raw : new Error(rawMsg || `Debugger attach failed for tab ${tabId}`);
+    const suffix = rawMsg ? ` (raw: ${rawMsg})` : '';
+    return new Error(
+      `Another CDP client is attached to tab ${tabId} — could be Chrome DevTools, ` +
+        `another extension, or another humanchrome bridge instance. Close DevTools or ` +
+        `disconnect the other client, then retry.${suffix}`,
+    );
   }
 
   /**
@@ -84,12 +95,12 @@ class CDPSessionManager {
    */
   private timeoutErrorFor(tabId: number, method: string, timeoutMs: number): Error {
     if (this.lastDetachReason.get(tabId) === 'replaced_with_devtools') {
-      return this.devtoolsErrorFor(tabId);
+      return this.devtoolsPanelError(tabId);
     }
     return new Error(
       `CDP command "${method}" on tab ${tabId} did not return within ${timeoutMs}ms. ` +
         `If the page is legitimately slow, retry with a higher timeoutMs (max 120000). ` +
-        `If this keeps happening, DevTools may be attached — close it and retry.`,
+        `If this keeps happening, Chrome DevTools may be open on that tab — close it and retry.`,
     );
   }
 
@@ -106,7 +117,7 @@ class CDPSessionManager {
     // attach that will hang or throw an opaque error.
     const lastReason = this.lastDetachReason.get(tabId);
     if (lastReason === 'replaced_with_devtools') {
-      throw this.devtoolsErrorFor(tabId);
+      throw this.devtoolsPanelError(tabId);
     }
 
     // Check existing attachments
@@ -122,19 +133,38 @@ class CDPSessionManager {
         });
         return;
       }
-      // Another client (DevTools/other extension) is attached
-      throw new Error(
-        `DevTools appears to be attached to tab ${tabId}. Close the DevTools panel on that tab and retry.`,
-      );
+      // Another client holds the tab (DevTools panel, another extension,
+      // another bridge instance, or a remote debugger).
+      throw this.foreignClientError(tabId);
     }
 
-    // Attach freshly. Chrome itself will throw "Another debugger is
-    // already attached" when DevTools owns the tab — normalise that into
-    // the same DevTools-specific error users see from the early checks.
+    // Fresh attach. Chrome occasionally throws "Another debugger is
+    // already attached" even when getTargets() shows no entry — that's
+    // the bridge's own stale registration (race after a prior detach, or
+    // SW restart leaving Chrome holding our name). Defensively detach
+    // and retry once before treating the slot as foreign-owned.
     try {
       await chrome.debugger.attach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
     } catch (e) {
-      throw this.devtoolsErrorFor(tabId, e);
+      const rawMsg = e instanceof Error ? e.message : String(e ?? '');
+      const looksAlreadyAttached = /already attached|another (debugger|client)/i.test(rawMsg);
+      if (!looksAlreadyAttached) {
+        throw e instanceof Error
+          ? e
+          : new Error(rawMsg || `Debugger attach failed for tab ${tabId}`);
+      }
+      try {
+        await chrome.debugger.detach({ tabId });
+      } catch {
+        // Not attached or already released — fine. `chrome.debugger.detach`
+        // only releases sessions owned by THIS extension, so it can never
+        // disturb a third-party CDP client.
+      }
+      try {
+        await chrome.debugger.attach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
+      } catch (retryErr) {
+        throw this.foreignClientError(tabId, retryErr);
+      }
     }
     // Successful fresh attach: clear any stale detach reason from a prior
     // DevTools session that has since been closed.
