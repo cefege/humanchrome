@@ -10,6 +10,7 @@ const DEFAULT_WINDOW_HEIGHT = 720;
 interface NavigateToolParams {
   url?: string;
   newWindow?: boolean;
+  newTab?: boolean;
   width?: number;
   height?: number;
   refresh?: boolean;
@@ -42,6 +43,7 @@ class NavigateTool extends BaseBrowserToolExecutor {
   async execute(args: NavigateToolParams): Promise<ToolResult> {
     const {
       newWindow = false,
+      newTab = false,
       width,
       height,
       url,
@@ -157,8 +159,16 @@ class NavigateTool extends BaseBrowserToolExecutor {
         };
       }
 
-      // 1. Check if URL is already open
-      // Prefer Chrome's URL match patterns for robust matching (host/path variations)
+      // 1. Check if URL is already open — UNLESS the caller explicitly asked
+      // for a fresh tab. `newTab:true` is the documented override for
+      // workflows that need a guaranteed-clean tab (e.g. a send flow that
+      // must not inherit a stale CDP session left on a same-host tab).
+      // Skipping this whole block also skips the host-match activation
+      // below, so we fall straight through to the new-tab creation path.
+      const skipExistingTabLookup = newTab === true && typeof tabId !== 'number';
+      if (skipExistingTabLookup) {
+        console.log('newTab:true — bypassing existing-tab lookup');
+      }
       console.log(`Checking if URL is already open: ${url}`);
 
       // Build robust match patterns from the provided URL.
@@ -207,7 +217,9 @@ class NavigateTool extends BaseBrowserToolExecutor {
       };
 
       const urlPatterns = buildUrlPatterns(url);
-      const candidateTabs = await chrome.tabs.query({ url: urlPatterns });
+      const candidateTabs = skipExistingTabLookup
+        ? []
+        : await chrome.tabs.query({ url: urlPatterns });
       console.log(`Found ${candidateTabs.length} matching tabs with patterns:`, urlPatterns);
 
       // Prefer strict match when user specifies a concrete path/query.

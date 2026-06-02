@@ -89,26 +89,51 @@ describe('cdp-session-manager: DevTools detection', () => {
 
     // Next attach must not silently re-use the stale state; it should
     // throw a DevTools-named error on the fast path.
-    await expect(mgr.attach(42, 'computer')).rejects.toThrow(/DevTools.*tab 42/i);
+    await expect(mgr.attach(42, 'computer')).rejects.toThrow(/Chrome DevTools is open on tab 42/i);
     // Importantly, we should NOT have called Chrome's attach API again —
     // the early check fired first.
     expect(chromeMock.debugger.attach).toHaveBeenCalledTimes(1);
   });
 
-  it('normalises Chrome\'s "Another debugger is already attached" into a DevTools-named error', async () => {
+  it('auto-releases + retries when Chrome reports "already attached" — the bridge-own stale-session case (#335)', async () => {
     const mgr = await loadManager();
-    chromeMock.debugger.attach.mockRejectedValueOnce(
-      new Error('Another debugger is already attached to this tab.'),
-    );
-    await expect(mgr.attach(7, 'computer')).rejects.toThrow(/DevTools.*tab 7/i);
+    // First attach rejects as if our own prior session leaked; second
+    // attach (after defensive detach) succeeds. The caller must see a
+    // clean resolve, not a "DevTools" error.
+    chromeMock.debugger.attach
+      .mockRejectedValueOnce(new Error('Another debugger is already attached to this tab.'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(mgr.attach(7, 'computer')).resolves.toBeUndefined();
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 7 });
+    expect(chromeMock.debugger.attach).toHaveBeenCalledTimes(2);
   });
 
-  it('flags an existing non-extension attachment from getTargets() as DevTools', async () => {
+  it('surfaces a "another CDP client" error only when the auto-release retry also fails (#335)', async () => {
+    const mgr = await loadManager();
+    // Both attach attempts reject — the second one means the slot is
+    // genuinely held by someone we cannot dislodge.
+    chromeMock.debugger.attach.mockRejectedValue(
+      new Error('Another debugger is already attached to this tab.'),
+    );
+
+    await expect(mgr.attach(8, 'computer')).rejects.toThrow(
+      /Another CDP client is attached to tab 8/i,
+    );
+    // Must NOT mention "DevTools panel" as the only cause — wording
+    // should name the realistic alternatives too.
+    await expect(mgr.attach(8, 'computer')).rejects.toThrow(/another extension|bridge instance/i);
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 8 });
+  });
+
+  it('flags an existing non-extension attachment from getTargets() as a foreign CDP client', async () => {
     const mgr = await loadManager();
     chromeMock.debugger.getTargets.mockResolvedValueOnce([
       { tabId: 99, attached: true /* no extensionId — DevTools front-end */ },
     ]);
-    await expect(mgr.attach(99, 'computer')).rejects.toThrow(/DevTools.*tab 99/i);
+    await expect(mgr.attach(99, 'computer')).rejects.toThrow(
+      /Another CDP client is attached to tab 99/i,
+    );
     // Manager should not have called Chrome's attach API in this case.
     expect(chromeMock.debugger.attach).not.toHaveBeenCalled();
   });
