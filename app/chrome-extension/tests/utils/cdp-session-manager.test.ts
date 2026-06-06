@@ -126,16 +126,37 @@ describe('cdp-session-manager: DevTools detection', () => {
     expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 8 });
   });
 
-  it('flags an existing non-extension attachment from getTargets() as a foreign CDP client', async () => {
+  it('flags an existing attachment that we cannot dislodge as a foreign CDP client', async () => {
+    // Tab targets do not carry the attacher's extensionId, so getTargets()
+    // alone cannot distinguish "our own stale session" from "a foreign
+    // client". The manager probes by trying detach + attach; only when
+    // BOTH fail do we conclude it's foreign.
     const mgr = await loadManager();
     chromeMock.debugger.getTargets.mockResolvedValueOnce([
       { tabId: 99, attached: true /* no extensionId — DevTools front-end */ },
     ]);
+    chromeMock.debugger.detach.mockRejectedValueOnce(new Error('No debugger attached'));
+    chromeMock.debugger.attach.mockRejectedValueOnce(
+      new Error('Another debugger is already attached to this tab.'),
+    );
     await expect(mgr.attach(99, 'computer')).rejects.toThrow(
       /Another CDP client is attached to tab 99/i,
     );
-    // Manager should not have called Chrome's attach API in this case.
-    expect(chromeMock.debugger.attach).not.toHaveBeenCalled();
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 99 });
+    expect(chromeMock.debugger.attach).toHaveBeenCalledWith({ tabId: 99 }, expect.any(String));
+  });
+
+  it('recovers when getTargets shows attached but it was our own stale session (the IMP-pulled-from-live-bug case)', async () => {
+    // After SW restart, our prior debugger session may still appear in
+    // getTargets() as attached. The target's extensionId is undefined for
+    // tab targets so the manager can't tell from getTargets alone. It
+    // tries detach (succeeds — was ours) then re-attaches cleanly.
+    const mgr = await loadManager();
+    chromeMock.debugger.getTargets.mockResolvedValueOnce([{ tabId: 77, attached: true }]);
+    // detach + attach both succeed
+    await expect(mgr.attach(77, 'computer')).resolves.toBeUndefined();
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 77 });
+    expect(chromeMock.debugger.attach).toHaveBeenCalledWith({ tabId: 77 }, expect.any(String));
   });
 
   it('after DevTools closes, a fresh attach succeeds and clears the stale reason', async () => {

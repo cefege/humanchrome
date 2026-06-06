@@ -120,22 +120,50 @@ class CDPSessionManager {
       throw this.devtoolsPanelError(tabId);
     }
 
-    // Check existing attachments
+    // Check existing attachments. NOTE: for `type: 'tab'` targets the
+    // `extensionId` field identifies the BEING-DEBUGGED extension (always
+    // undefined for tabs), NOT the attaching client. So we can't tell
+    // from getTargets() alone whether we or a foreign client own the
+    // existing attachment. Strategy: attempt `chrome.debugger.detach` —
+    // it only releases sessions owned by THIS extension, so success
+    // means it was ours (stale from a prior SW lifecycle) and we can
+    // re-attach cleanly; failure means a foreign client holds it.
     const targets = await chrome.debugger.getTargets();
     const existing = targets.find((t) => t.tabId === tabId && t.attached);
     if (existing) {
-      if (existing.extensionId === chrome.runtime.id) {
-        // Already attached by us (e.g., previous tool). Adopt and refcount.
+      // First, check if we already have live cached state for this tab —
+      // means a prior tool in the same SW lifecycle is using it. Adopt.
+      if (state?.attachedByUs) {
         this.setState(tabId, {
-          refCount: state ? state.refCount + 1 : 1,
-          owners: new Set([...(state?.owners || []), owner]),
+          refCount: state.refCount + 1,
+          owners: new Set([...state.owners, owner]),
           attachedByUs: true,
         });
         return;
       }
-      // Another client holds the tab (DevTools panel, another extension,
-      // another bridge instance, or a remote debugger).
-      throw this.foreignClientError(tabId);
+      // No cached state but Chrome shows attached → either our own stale
+      // session (SW restart, dropped state) or a foreign client. Try a
+      // defensive detach; if it succeeds, we owned it.
+      let releasedOurs = false;
+      try {
+        await chrome.debugger.detach({ tabId });
+        releasedOurs = true;
+      } catch {
+        // Not our session; do not throw yet — fall through and let the
+        // attach attempt below give Chrome's authoritative answer.
+      }
+      try {
+        await chrome.debugger.attach({ tabId }, DEBUGGER_PROTOCOL_VERSION);
+        this.lastDetachReason.delete(tabId);
+        this.setState(tabId, { refCount: 1, owners: new Set([owner]), attachedByUs: true });
+        return;
+      } catch (attachErr) {
+        // Attach failed too. If we managed to detach, the foreign client
+        // re-attached in the race window — surface as foreign. If we
+        // didn't detach, also foreign. Either way: foreignClientError.
+        void releasedOurs; // silence unused-var; kept for future telemetry
+        throw this.foreignClientError(tabId, attachErr);
+      }
     }
 
     // Fresh attach. Chrome occasionally throws "Another debugger is
