@@ -267,26 +267,50 @@ async function executeViaCdp(
   try {
     const expression = wrapUserCode(code);
 
-    const response = await withTimeout(
-      cdpSessionManager.withSession(tabId, CDP_SESSION_KEY, async () => {
-        return (await cdpSessionManager.sendCommand(
-          tabId,
-          'Runtime.evaluate',
-          {
-            expression,
-            returnByValue: true,
-            awaitPromise: true,
-            // CDP-side timeout (ms); paired with outer withTimeout for belt-and-suspenders
-            timeout: options.timeoutMs,
-          },
-          // Tell the session manager the same budget — its own default timeout
-          // (10s) is too tight for user code with awaitPromise:true.
+    // Run the evaluate INSIDE withSession so the timeout path can call
+    // Runtime.terminateExecution before the session is torn down. If the
+    // outer withTimeout fires instead, the in-page script keeps running
+    // until its own setTimeout chain finishes — which holds the CDP
+    // session and the per-tab lock for minutes. Terminating from inside
+    // withSession's body kills the runaway script immediately and lets
+    // withSession's finally detach cleanly.
+    const response = await cdpSessionManager.withSession(tabId, CDP_SESSION_KEY, async () => {
+      try {
+        return (await withTimeout(
+          cdpSessionManager.sendCommand(
+            tabId,
+            'Runtime.evaluate',
+            {
+              expression,
+              returnByValue: true,
+              awaitPromise: true,
+              // CDP-side timeout (ms); paired with outer withTimeout for belt-and-suspenders
+              timeout: options.timeoutMs,
+            },
+            // Tell the session manager the same budget — its own default timeout
+            // (10s) is too tight for user code with awaitPromise:true.
+            options.timeoutMs + 1000,
+          ),
+          // Outer timeout adds slack so CDP has time to surface its own timeout response
           options.timeoutMs + 1000,
         )) as CDPEvaluateResult;
-      }),
-      // Outer timeout adds slack so CDP has time to surface its own timeout response
-      options.timeoutMs + 1000,
-    );
+      } catch (timeoutErr) {
+        if (isTimeoutError(timeoutErr)) {
+          // Kill the in-page script before the session unwinds. Without
+          // this, the user's setTimeout chain runs to its natural end
+          // and the next chrome_javascript call blocks on the per-tab
+          // lock until that completes. Fire-and-forget; a 2s budget is
+          // generous for what is effectively a noop CDP command.
+          try {
+            await cdpSessionManager.sendCommand(tabId, 'Runtime.terminateExecution', {}, 2000);
+          } catch {
+            // best-effort — if terminate itself times out, the detach
+            // in withSession's finally still releases our debugger seat
+          }
+        }
+        throw timeoutErr;
+      }
+    });
 
     // Check for exception
     if (response?.exceptionDetails) {
