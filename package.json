@@ -71,5 +71,12 @@
     ],
     "packages/shared/src/tools.ts": "node .claude/scripts/regen-tools-doc.mjs",
     "packages/shared/src/tool-schemas/*.ts": "node .claude/scripts/regen-tools-doc.mjs"
+  },
+  "pnpm": {
+    "overrides": {
+      "hono@<4.12.21": ">=4.12.21",
+      "tmp@<0.2.6": ">=0.2.6",
+      "qs@>=6.11.1 <=6.15.1": ">=6.15.2"
+    }
   }
 }
