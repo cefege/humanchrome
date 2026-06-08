@@ -154,8 +154,8 @@ importers:
         specifier: ^12.10.0
         version: 12.10.0
       chrome-devtools-frontend:
-        specifier: ^1.0.1638082
-        version: 1.0.1638082
+        specifier: ^1.0.1642845
+        version: 1.0.1642845
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -2309,8 +2309,8 @@ packages:
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
 
-  chrome-devtools-frontend@1.0.1638082:
-    resolution: {integrity: sha512-KfbM5kZrgseWciU9Y6ic6hDtYWKY7SY6L8jkeq23KF5CgZ1cU7P+janhysDLN+XZr6U4Ro5V+2W7YOHjKW4PAw==}
+  chrome-devtools-frontend@1.0.1642845:
+    resolution: {integrity: sha512-74XZ4L7VFHbwNvOZdLEy1iLBESAf0asei+32VPtLFvdhxjlcrscWyf5tqV3NVWLd7NziJhANwIV8oJSu5IVvAA==}
 
   chrome-launcher@1.2.0:
     resolution: {integrity: sha512-JbuGuBNss258bvGil7FT4HKdC3SC2K7UAEUqiPy3ACS3Yxo3hAW6bvFpCu2HsIJLgTqxgEX6BkujvzZfLpUD0Q==}
@@ -7746,7 +7746,7 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  chrome-devtools-frontend@1.0.1638082: {}
+  chrome-devtools-frontend@1.0.1642845: {}
 
   chrome-launcher@1.2.0:
     dependencies:
