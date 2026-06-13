@@ -7,6 +7,7 @@ import {
   consumePacingDelay,
   recordClientTab,
   recordClientWindow,
+  releaseTabFromClient,
   resolveAliasForClient,
   resolveOwnedTabIdForClient,
   resolveOwnedWindowIdForClient,
@@ -517,6 +518,30 @@ export const handleCallTool = async (
     );
   }
   let tabId = resolved.tabId;
+
+  // Liveness probe: resolveOwnedTabIdForClient is sync and trusts the
+  // owned-set + activeTabId hints. Those can stay stale across a
+  // service-worker restart (the chrome.tabs.onRemoved listener
+  // re-attaches on SW boot, but events fired during the dead window
+  // are lost — the closed tabId resurrects). Probe chrome.tabs.get
+  // before returning; on miss, evict + fall through to auto-spawn.
+  if (typeof tabId === 'number' && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+    try {
+      await chrome.tabs.get(tabId);
+    } catch {
+      // Tab no longer exists. Evict from this client's owned set so the
+      // next dispatch doesn't resurrect it, then drop tabId so the
+      // auto-spawn path below fires for mutating tools.
+      if (clientId) {
+        try {
+          releaseTabFromClient(clientId, tabId);
+        } catch {
+          /* ignore */
+        }
+      }
+      tabId = undefined;
+    }
+  }
 
   // If a mutating tool has no resolved owned tab and didn't opt out of
   // auto-spawn (and the caller didn't supply a url for tools like navigate
