@@ -1,13 +1,27 @@
 /**
  * chrome_print_to_pdf tests.
  *
- * Wraps Page.printToPDF via chrome.debugger.
+ * Wraps Page.printToPDF via cdpSessionManager.withSession.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/entrypoints/background/native-host', () => ({
   sendNativeRequest: vi.fn(),
+}));
+
+const sendCommandMock = vi.fn(async () => ({ data: SAMPLE_PDF_DATA }));
+const withSessionMock = vi.fn(async (_tabId: number, _owner: string, fn: () => Promise<any>) =>
+  fn(),
+);
+
+vi.mock('@/utils/cdp-session-manager', () => ({
+  cdpSessionManager: {
+    withSession: (...args: unknown[]) => (withSessionMock as (...a: unknown[]) => unknown)(...args),
+    attach: vi.fn(async () => undefined),
+    detach: vi.fn(async () => undefined),
+    sendCommand: vi.fn(async () => undefined),
+  },
 }));
 
 import { printToPdfTool } from '@/entrypoints/background/tools/browser/print-to-pdf';
@@ -24,22 +38,20 @@ function exec(args: any): Promise<any> {
   return runWithContext({ clientId: TEST_CLIENT }, () => printToPdfTool.execute(args));
 }
 
-let attachMock: ReturnType<typeof vi.fn>;
-let detachMock: ReturnType<typeof vi.fn>;
-let sendCommandMock: ReturnType<typeof vi.fn>;
 let tabsGetMock: ReturnType<typeof vi.fn>;
 
 const SAMPLE_PDF_DATA = 'JVBERi0xLjQKJeLjz9MK'; // valid-looking base64 prefix
 
 beforeEach(() => {
   _resetClientStateForTests();
-  attachMock = vi.fn().mockResolvedValue(undefined);
-  detachMock = vi.fn().mockResolvedValue(undefined);
-  sendCommandMock = vi.fn().mockResolvedValue({ data: SAMPLE_PDF_DATA });
+  sendCommandMock.mockReset();
+  sendCommandMock.mockResolvedValue({ data: SAMPLE_PDF_DATA });
+  withSessionMock.mockReset();
+  withSessionMock.mockImplementation(
+    async (_tabId: number, _owner: string, fn: () => Promise<any>) => fn(),
+  );
   tabsGetMock = vi.fn(async (id: number) => ({ id, url: 'https://example.com', windowId: 1 }));
   (globalThis.chrome as any).debugger = {
-    attach: attachMock,
-    detach: detachMock,
     sendCommand: sendCommandMock,
   };
   (globalThis.chrome as any).tabs = {
@@ -91,7 +103,8 @@ describe('chrome_print_to_pdf', () => {
       marginLeftIn: 0.5,
       pageRanges: '1-3',
     });
-    const params = sendCommandMock.mock.calls[0][2];
+    const call = sendCommandMock.mock.calls[0] as unknown as [unknown, string, any];
+    const params = call[2];
     expect(params.landscape).toBe(true);
     expect(params.printBackground).toBe(false);
     expect(params.scale).toBe(0.8);
@@ -125,18 +138,19 @@ describe('chrome_print_to_pdf', () => {
     sendCommandMock.mockRejectedValueOnce(new Error('No tab with id: 7'));
     const res = await exec({ tabId: 7 });
     expect(res.isError).toBe(true);
-    expect((res.content[0] as any).text).toContain('TAB_CLOSED');
+    expect(parseBody(res).error.code).toBe('TAB_CLOSED');
   });
 
-  it('detaches the debugger after a successful print', async () => {
+  it('uses withSession for balanced CDP lifecycle', async () => {
     await exec({ tabId: 7 });
-    expect(detachMock).toHaveBeenCalledWith({ tabId: 7 });
+    expect(withSessionMock).toHaveBeenCalledWith(7, 'print-to-pdf', expect.any(Function));
   });
 
-  it('treats "already attached" as success and does NOT detach (preserving caller state)', async () => {
-    attachMock.mockRejectedValueOnce(new Error('Another debugger is already attached'));
-    await exec({ tabId: 7 });
-    expect(detachMock).not.toHaveBeenCalled();
+  it('classifies CDP_BUSY from withSession', async () => {
+    withSessionMock.mockRejectedValueOnce(new Error('Another CDP client is attached to tab 7'));
+    const res = await exec({ tabId: 7 });
+    expect(res.isError).toBe(true);
+    expect(parseBody(res).error.code).toBe('CDP_BUSY');
   });
 
   it('reports a bridge save failure', async () => {

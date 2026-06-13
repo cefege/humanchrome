@@ -3,6 +3,7 @@ import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { sendNativeRequest } from '@/entrypoints/background/native-host';
+import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 interface PrintToPdfParams {
   tabId?: number;
@@ -32,26 +33,6 @@ interface BridgeFileResp {
   message?: string;
 }
 
-async function attachDebuggerOnce(tabId: number): Promise<boolean> {
-  try {
-    await chrome.debugger.attach({ tabId }, '1.3');
-    return true;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/already attached/i.test(msg)) return false;
-    throw err;
-  }
-}
-
-async function detachDebuggerSafe(tabId: number): Promise<void> {
-  try {
-    await chrome.debugger.detach({ tabId });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!/not attached/i.test(msg)) throw err;
-  }
-}
-
 class PrintToPdfTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.PRINT_TO_PDF;
   static readonly mutates = false;
@@ -63,7 +44,11 @@ class PrintToPdfTool extends BaseBrowserToolExecutor {
 
     let tabId = typeof args.tabId === 'number' ? args.tabId : undefined;
     if (tabId === undefined) {
-      const tab = await this.getOwnedTab({ windowId: args.windowId, required: false, isRead: true });
+      const tab = await this.getOwnedTab({
+        windowId: args.windowId,
+        required: false,
+        isRead: true,
+      });
       if (!tab || typeof tab.id !== 'number') {
         return createErrorResponse(
           'No active tab found',
@@ -74,22 +59,25 @@ class PrintToPdfTool extends BaseBrowserToolExecutor {
       tabId = tab.id;
     }
 
-    let weAttached = false;
     try {
-      weAttached = await attachDebuggerOnce(tabId);
-      const result = (await chrome.debugger.sendCommand({ tabId }, 'Page.printToPDF', {
-        landscape: !!args.landscape,
-        printBackground: args.printBackground !== false,
-        scale: typeof args.scale === 'number' ? args.scale : 1,
-        paperWidth: typeof args.paperWidthIn === 'number' ? args.paperWidthIn : 8.5,
-        paperHeight: typeof args.paperHeightIn === 'number' ? args.paperHeightIn : 11,
-        marginTop: typeof args.marginTopIn === 'number' ? args.marginTopIn : 0.4,
-        marginBottom: typeof args.marginBottomIn === 'number' ? args.marginBottomIn : 0.4,
-        marginLeft: typeof args.marginLeftIn === 'number' ? args.marginLeftIn : 0.4,
-        marginRight: typeof args.marginRightIn === 'number' ? args.marginRightIn : 0.4,
-        pageRanges: typeof args.pageRanges === 'string' ? args.pageRanges : '',
-        transferMode: 'ReturnAsBase64',
-      })) as PrintToPdfCdpResult | undefined;
+      const result = await cdpSessionManager.withSession<PrintToPdfCdpResult | undefined>(
+        tabId,
+        'print-to-pdf',
+        () =>
+          chrome.debugger.sendCommand({ tabId: tabId! }, 'Page.printToPDF', {
+            landscape: !!args.landscape,
+            printBackground: args.printBackground !== false,
+            scale: typeof args.scale === 'number' ? args.scale : 1,
+            paperWidth: typeof args.paperWidthIn === 'number' ? args.paperWidthIn : 8.5,
+            paperHeight: typeof args.paperHeightIn === 'number' ? args.paperHeightIn : 11,
+            marginTop: typeof args.marginTopIn === 'number' ? args.marginTopIn : 0.4,
+            marginBottom: typeof args.marginBottomIn === 'number' ? args.marginBottomIn : 0.4,
+            marginLeft: typeof args.marginLeftIn === 'number' ? args.marginLeftIn : 0.4,
+            marginRight: typeof args.marginRightIn === 'number' ? args.marginRightIn : 0.4,
+            pageRanges: typeof args.pageRanges === 'string' ? args.pageRanges : '',
+            transferMode: 'ReturnAsBase64',
+          }) as Promise<PrintToPdfCdpResult | undefined>,
+      );
 
       if (!result?.data) {
         return createErrorResponse('Page.printToPDF returned no data', ToolErrorCode.UNKNOWN, {
@@ -139,18 +127,15 @@ class PrintToPdfTool extends BaseBrowserToolExecutor {
       if (/no tab with id|target closed|cannot access/i.test(msg)) {
         return createErrorResponse(`Tab ${tabId} not found`, ToolErrorCode.TAB_CLOSED, { tabId });
       }
+      if (
+        /another cdp client|chrome devtools is open|another debugger|already attached/i.test(msg)
+      ) {
+        return createErrorResponse(msg, ToolErrorCode.CDP_BUSY, { tabId });
+      }
       console.error('Error in PrintToPdfTool.execute:', error);
       return createErrorResponse(`chrome_print_to_pdf failed: ${msg}`, ToolErrorCode.UNKNOWN, {
         tabId,
       });
-    } finally {
-      if (weAttached) {
-        try {
-          await detachDebuggerSafe(tabId);
-        } catch {
-          // already detached
-        }
-      }
     }
   }
 }

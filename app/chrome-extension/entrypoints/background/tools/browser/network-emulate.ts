@@ -2,6 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { jsonOk } from './_common';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { cdpSessionManager } from '@/utils/cdp-session-manager';
 
 type NetworkEmulateAction = 'set' | 'reset';
 
@@ -15,26 +16,7 @@ interface NetworkEmulateParams {
 }
 
 const KBPS_TO_BYTES_PER_SEC = 1024 / 8;
-
-async function attachDebugger(tabId: number): Promise<void> {
-  try {
-    await chrome.debugger.attach({ tabId }, '1.3');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // "Another debugger is already attached" — fine, existing attach is reusable.
-    if (!/already attached/i.test(msg)) throw err;
-  }
-}
-
-async function detachDebugger(tabId: number): Promise<void> {
-  try {
-    await chrome.debugger.detach({ tabId });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // "is not attached" — already detached, fine.
-    if (!/not attached/i.test(msg)) throw err;
-  }
-}
+const SESSION_OWNER = 'network-emulate';
 
 class NetworkEmulateTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.NETWORK_EMULATE;
@@ -59,24 +41,21 @@ class NetworkEmulateTool extends BaseBrowserToolExecutor {
     }
 
     try {
-      await attachDebugger(args.tabId);
+      await cdpSessionManager.attach(args.tabId, SESSION_OWNER);
 
       if (action === 'reset') {
-        await chrome.debugger.sendCommand(
-          { tabId: args.tabId },
-          'Network.emulateNetworkConditions',
-          {
-            offline: false,
-            latency: 0,
-            downloadThroughput: -1,
-            uploadThroughput: -1,
-          },
-        );
-        await detachDebugger(args.tabId);
+        await cdpSessionManager.sendCommand(args.tabId, 'Network.emulateNetworkConditions', {
+          offline: false,
+          latency: 0,
+          downloadThroughput: -1,
+          uploadThroughput: -1,
+        });
+        await cdpSessionManager.detach(args.tabId, SESSION_OWNER);
         return jsonOk({ ok: true, action: 'reset', tabId: args.tabId });
       }
 
-      // set
+      // set — stay attached via the session manager so the conditions persist
+      // and other tools using cdpSessionManager share the same session safely.
       const conditions = {
         offline: !!args.offline,
         latency: typeof args.latencyMs === 'number' ? args.latencyMs : 0,
@@ -89,25 +68,24 @@ class NetworkEmulateTool extends BaseBrowserToolExecutor {
             ? args.uploadKbps * KBPS_TO_BYTES_PER_SEC
             : -1,
       };
-      await chrome.debugger.sendCommand(
-        { tabId: args.tabId },
+      await cdpSessionManager.sendCommand(
+        args.tabId,
         'Network.emulateNetworkConditions',
         conditions,
       );
-      // Stay attached so subsequent calls don't need to re-attach.
       return jsonOk({ ok: true, action: 'set', tabId: args.tabId, conditions });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // Best-effort detach so a stale attach doesn't block the user manually opening DevTools.
-      try {
-        await detachDebugger(args.tabId);
-      } catch {
-        // already cleaned up or never attached
-      }
+      await cdpSessionManager.detach(args.tabId, SESSION_OWNER);
       if (/no tab with id|cannot access|target closed/i.test(msg)) {
         return createErrorResponse(`Tab ${args.tabId} not found`, ToolErrorCode.TAB_CLOSED, {
           tabId: args.tabId,
         });
+      }
+      if (
+        /another cdp client|chrome devtools is open|another debugger|already attached/i.test(msg)
+      ) {
+        return createErrorResponse(msg, ToolErrorCode.CDP_BUSY, { tabId: args.tabId });
       }
       console.error('Error in NetworkEmulateTool.execute:', error);
       return createErrorResponse(`chrome_network_emulate failed: ${msg}`, ToolErrorCode.UNKNOWN, {

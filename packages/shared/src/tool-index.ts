@@ -26,11 +26,9 @@ import { didYouMean } from './invalid-args';
 export const DISPATCHER_TOOL_NAME = 'humanchrome';
 
 /**
- * Trim a tool description to its verb-phrase (first sentence) for the
- * dispatcher catalog. Full skeleton descriptions (including `Example:`
- * clauses) remain in TOOL_SCHEMAS for legacy mode; the IMP-0178 envelope
- * + IMP-0180 verb-phrase together give the LLM enough to pick + shape a
- * call without bloating the cache-stable lazy-mode manifest.
+ * Trim a tool description to its verb-phrase (first sentence). Used by
+ * `chrome_help` to return picking signal on demand without bloating the
+ * cache-stable dispatcher description (BUG-003).
  */
 function firstSentence(desc: string): string {
   if (!desc) return '';
@@ -44,8 +42,14 @@ function sortedTools(tools: readonly Tool[]): Tool[] {
 }
 
 /**
- * Build the dispatcher tool's `description` field. Begins with a short
- * usage header, then one line per tool: `- <name>: <first-sentence>`.
+ * Build the dispatcher tool's `description` field. Names-only catalog
+ * (BUG-003 fix): MCP clients (notably Claude Code's tool-list renderer)
+ * truncate tool descriptions around ~2 KB, which previously hid ~80% of
+ * the catalog when each entry carried its first-sentence verb-phrase.
+ *
+ * The verb-phrase is still discoverable per-call via the `chrome_help`
+ * meta-tool, which returns `{name → firstSentence}` for one or all tools
+ * as a regular tool result (not bounded by description rendering).
  *
  * The default-args path is memoized so `tools/list` doesn't rebuild the
  * catalog on every call — this also makes the IMP-0181 byte-stability
@@ -56,19 +60,49 @@ export function buildDispatcherDescription(tools: readonly Tool[] = TOOL_SCHEMAS
   if (tools === TOOL_SCHEMAS && cachedDefaultDescription !== undefined) {
     return cachedDefaultDescription;
   }
-  const header =
-    [
-      'Dispatches any humanchrome browser-automation tool by name. Args validated server-side; on INVALID_ARGS the response carries `details.expected` (schema fragment) and `details.hint` (did-you-mean) so you can self-correct in one round-trip.',
-      'Call as `{ name: "<tool>", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the dispatcher\'s output-size cap.',
-      'Catalog:',
-      '',
-    ].join('\n');
-  const lines = sortedTools(tools).map(
-    (t) => `- ${t.name}: ${firstSentence(t.description ?? '')}`,
-  );
+  const sorted = sortedTools(tools);
+  const header = [
+    'Dispatches any humanchrome browser-automation tool by name. Args validated server-side; on INVALID_ARGS the response carries `details.expected` (schema fragment) and `details.hint` (did-you-mean) so you can self-correct.',
+    'Call as `{ name: "<tool>", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the output-size cap. Use `chrome_help({})` for one-line descriptions of every tool, or `chrome_help({name: "<tool>"})` for a single tool.',
+    'Errors: isError=true + JSON body `{"error":{"code":"...","message":"...","details":{...}}}`. Recovery by code: TAB_CLOSED→chrome_navigate to open a new tab; TAB_NOT_FOUND→chrome_get_windows_and_tabs then pass explicit tabId; TARGET_NAVIGATED_AWAY→chrome_read_page then retry with fresh refs; INJECTION_FAILED→fall back to chrome_javascript (CDP path bypasses CSP); CDP_BUSY→retry after 2s or fall back to chrome_inject_script for DOM ops;NOT_ACTIONABLE→check details.failures, scroll/dismiss overlay or pass force:true; TIMEOUT→retry with a larger timeoutMs arg; UNKNOWN→chrome_debug_dump to triage.',
+    `Catalog (${sorted.length} tools):`,
+    '',
+  ].join('\n');
+  const lines = sorted.map((t) => `- ${t.name}`);
   const out = header + lines.join('\n');
   if (tools === TOOL_SCHEMAS) cachedDefaultDescription = out;
   return out;
+}
+
+/**
+ * Build the payload returned by the `chrome_help` meta-tool.
+ *
+ * - `buildToolHelp()` returns `{ tools: [{name, summary}, ...] }` covering every
+ *   schema, sorted by name. Use to recover the picking signal that lived in
+ *   the pre-BUG-003 dispatcher description.
+ * - `buildToolHelp(name)` returns `{ name, summary, description }` for a
+ *   single tool (full description, not just first sentence). Returns
+ *   `{ name, found: false }` if `name` is not in the catalog.
+ */
+export function buildToolHelp(
+  name?: string,
+  tools: readonly Tool[] = TOOL_SCHEMAS,
+): Record<string, unknown> {
+  if (typeof name === 'string' && name.length > 0) {
+    const t = tools.find((tool) => tool.name === name);
+    if (!t) return { name, found: false };
+    return {
+      name: t.name,
+      summary: firstSentence(t.description ?? ''),
+      description: t.description ?? '',
+    };
+  }
+  return {
+    tools: sortedTools(tools).map((t) => ({
+      name: t.name,
+      summary: firstSentence(t.description ?? ''),
+    })),
+  };
 }
 
 /**

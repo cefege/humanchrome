@@ -1,26 +1,32 @@
 /**
  * chrome_network_emulate tests.
  *
- * Wraps chrome.debugger.sendCommand('Network.emulateNetworkConditions').
+ * Wraps cdpSessionManager to send Network.emulateNetworkConditions.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const attachMock = vi.fn(async () => undefined);
+const detachMock = vi.fn(async () => undefined);
+const sendCommandMock = vi.fn(async () => ({}));
+
+vi.mock('@/utils/cdp-session-manager', () => ({
+  cdpSessionManager: {
+    attach: (...args: unknown[]) => (attachMock as (...a: unknown[]) => unknown)(...args),
+    detach: (...args: unknown[]) => (detachMock as (...a: unknown[]) => unknown)(...args),
+    sendCommand: (...args: unknown[]) => (sendCommandMock as (...a: unknown[]) => unknown)(...args),
+    withSession: vi.fn(),
+  },
+}));
+
 import { networkEmulateTool } from '@/entrypoints/background/tools/browser/network-emulate';
 
-let attachMock: ReturnType<typeof vi.fn>;
-let detachMock: ReturnType<typeof vi.fn>;
-let sendCommandMock: ReturnType<typeof vi.fn>;
-
 beforeEach(() => {
-  attachMock = vi.fn().mockResolvedValue(undefined);
-  detachMock = vi.fn().mockResolvedValue(undefined);
-  sendCommandMock = vi.fn().mockResolvedValue({});
-  (globalThis.chrome as any).debugger = {
-    attach: attachMock,
-    detach: detachMock,
-    sendCommand: sendCommandMock,
-  };
+  attachMock.mockClear();
+  detachMock.mockClear();
+  sendCommandMock.mockReset();
+  sendCommandMock.mockResolvedValue({});
+  (globalThis.chrome as any).debugger = {};
 });
 
 afterEach(() => {
@@ -43,7 +49,7 @@ describe('chrome_network_emulate', () => {
     expect((res.content[0] as any).text).toContain('tabId');
   });
 
-  it('set attaches the debugger and sends emulateNetworkConditions', async () => {
+  it('set attaches via session manager and sends emulateNetworkConditions', async () => {
     await networkEmulateTool.execute({
       action: 'set',
       tabId: 7,
@@ -52,8 +58,10 @@ describe('chrome_network_emulate', () => {
       downloadKbps: 1024,
       uploadKbps: 256,
     });
-    expect(attachMock).toHaveBeenCalledWith({ tabId: 7 }, '1.3');
-    const params = sendCommandMock.mock.calls[0][2];
+    expect(attachMock).toHaveBeenCalledWith(7, 'network-emulate');
+    const call = sendCommandMock.mock.calls[0] as unknown as [unknown, string, any];
+    expect(call[1]).toBe('Network.emulateNetworkConditions');
+    const params = call[2];
     expect(params.offline).toBe(false);
     expect(params.latency).toBe(500);
     // 1024 kbps → 1024 * (1024/8) = 131072 bytes/sec
@@ -61,47 +69,48 @@ describe('chrome_network_emulate', () => {
     expect(params.uploadThroughput).toBe(256 * (1024 / 8));
   });
 
-  it('set leaves the debugger attached for follow-up calls', async () => {
+  it('set leaves the session attached for follow-up calls', async () => {
     await networkEmulateTool.execute({ action: 'set', tabId: 7, offline: true });
     expect(detachMock).not.toHaveBeenCalled();
   });
 
-  it('reset clears conditions and detaches', async () => {
+  it('reset clears conditions and detaches via session manager', async () => {
     await networkEmulateTool.execute({ action: 'reset', tabId: 7 });
-    const params = sendCommandMock.mock.calls[0][2];
-    expect(params).toEqual({
+    const call = sendCommandMock.mock.calls[0] as unknown as [unknown, string, any];
+    expect(call[1]).toBe('Network.emulateNetworkConditions');
+    expect(call[2]).toEqual({
       offline: false,
       latency: 0,
       downloadThroughput: -1,
       uploadThroughput: -1,
     });
-    expect(detachMock).toHaveBeenCalledWith({ tabId: 7 });
+    expect(detachMock).toHaveBeenCalledWith(7, 'network-emulate');
   });
 
-  it('treats "already attached" as success and proceeds', async () => {
-    attachMock.mockRejectedValueOnce(new Error('Another debugger is already attached'));
+  it('classifies "Another CDP client" attach error as CDP_BUSY', async () => {
+    attachMock.mockRejectedValueOnce(new Error('Another CDP client is attached to tab 7'));
     const res = await networkEmulateTool.execute({ action: 'set', tabId: 7 });
-    expect(res.isError).toBe(false);
-    expect(sendCommandMock).toHaveBeenCalled();
+    expect(res.isError).toBe(true);
+    expect(parseBody(res).error.code).toBe('CDP_BUSY');
   });
 
   it('classifies "no tab with id" as TAB_CLOSED', async () => {
     sendCommandMock.mockRejectedValueOnce(new Error('No tab with id: 7'));
     const res = await networkEmulateTool.execute({ action: 'set', tabId: 7 });
     expect(res.isError).toBe(true);
-    expect((res.content[0] as any).text).toContain('TAB_CLOSED');
+    expect(parseBody(res).error.code).toBe('TAB_CLOSED');
   });
 
-  it('on error best-effort detaches', async () => {
+  it('on error detaches via session manager', async () => {
     sendCommandMock.mockRejectedValueOnce(new Error('something broke'));
     await networkEmulateTool.execute({ action: 'set', tabId: 7 });
-    expect(detachMock).toHaveBeenCalledWith({ tabId: 7 });
+    expect(detachMock).toHaveBeenCalledWith(7, 'network-emulate');
   });
 
   it('omitting downloadKbps leaves throughput uncapped (-1)', async () => {
     await networkEmulateTool.execute({ action: 'set', tabId: 7 });
-    const params = sendCommandMock.mock.calls[0][2];
-    expect(params.downloadThroughput).toBe(-1);
-    expect(params.uploadThroughput).toBe(-1);
+    const call = sendCommandMock.mock.calls[0] as unknown as [unknown, string, any];
+    expect(call[2].downloadThroughput).toBe(-1);
+    expect(call[2].uploadThroughput).toBe(-1);
   });
 });
