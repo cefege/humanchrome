@@ -265,7 +265,7 @@ async function findBookmarksByUrl(
  * Used to search bookmarks in Chrome browser
  */
 class BookmarkSearchTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.BOOKMARK_SEARCH;
+  name = 'chrome_bookmark__search_internal';
 
   /**
    * Execute bookmark search
@@ -376,7 +376,7 @@ class BookmarkSearchTool extends BaseBrowserToolExecutor {
  * Used to add new bookmarks to Chrome browser
  */
 class BookmarkAddTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.BOOKMARK_ADD;
+  name = 'chrome_bookmark__add_internal';
 
   /**
    * Execute add bookmark operation
@@ -528,7 +528,7 @@ class BookmarkAddTool extends BaseBrowserToolExecutor {
  * targets the same way (id beats url; url+matchTitle disambiguates).
  */
 class BookmarkUpdateTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.BOOKMARK_UPDATE;
+  name = 'chrome_bookmark__update_internal';
 
   async execute(args: BookmarkUpdateToolParams): Promise<ToolResult> {
     const { bookmarkId, url, matchTitle, newUrl, newTitle, newParentId } = args || {};
@@ -655,7 +655,7 @@ class BookmarkUpdateTool extends BaseBrowserToolExecutor {
  * Used to delete bookmarks in Chrome browser
  */
 class BookmarkDeleteTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.BOOKMARK_DELETE;
+  name = 'chrome_bookmark__delete_internal';
 
   /**
    * Execute delete bookmark operation
@@ -765,7 +765,58 @@ class BookmarkDeleteTool extends BaseBrowserToolExecutor {
   }
 }
 
-export const bookmarkSearchTool = new BookmarkSearchTool();
-export const bookmarkAddTool = new BookmarkAddTool();
-export const bookmarkUpdateTool = new BookmarkUpdateTool();
-export const bookmarkDeleteTool = new BookmarkDeleteTool();
+const bookmarkSearchInternal = new BookmarkSearchTool();
+const bookmarkAddInternal = new BookmarkAddTool();
+const bookmarkUpdateInternal = new BookmarkUpdateTool();
+const bookmarkDeleteInternal = new BookmarkDeleteTool();
+
+/**
+ * Unified chrome_bookmark tool (Slice 4 of IMP-0188 catalog consolidation).
+ * Routes by `action` to the four internal handlers that previously lived as
+ * separate tools (chrome_bookmark_search/add/update/delete).
+ */
+type BookmarkAction = 'search' | 'add' | 'update' | 'delete';
+const BOOKMARK_ACTIONS: readonly BookmarkAction[] = ['search', 'add', 'update', 'delete'] as const;
+
+interface BookmarkToolParams
+  extends
+    BookmarkSearchToolParams,
+    BookmarkAddToolParams,
+    BookmarkUpdateToolParams,
+    BookmarkDeleteToolParams {
+  action: BookmarkAction;
+}
+
+class BookmarkTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.BOOKMARK;
+  static readonly mutates = true;
+
+  async execute(args: BookmarkToolParams): Promise<ToolResult> {
+    if (!args || typeof args.action !== 'string') {
+      return createErrorResponse(
+        `\`action\` is required (one of: ${BOOKMARK_ACTIONS.join(', ')})`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (!BOOKMARK_ACTIONS.includes(args.action)) {
+      return createErrorResponse(
+        `Invalid action "${args.action}": expected one of ${BOOKMARK_ACTIONS.join(', ')}`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    switch (args.action) {
+      case 'search':
+        return bookmarkSearchInternal.execute(args);
+      case 'add':
+        return bookmarkAddInternal.execute(args);
+      case 'update':
+        return bookmarkUpdateInternal.execute(args);
+      case 'delete':
+        return bookmarkDeleteInternal.execute(args);
+    }
+  }
+}
+
+export const bookmarkTool = new BookmarkTool();

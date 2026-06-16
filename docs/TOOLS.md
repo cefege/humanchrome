@@ -937,49 +937,25 @@ Delete browsing history entries (chrome.history.deleteUrl/deleteRange/deleteAll)
 | `all` | boolean |  | When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode. |
 | `confirmDeleteAll` | boolean |  | Required safety acknowledgement when `all` is true. Has no effect for url or range mode. |
 
-### `chrome_bookmark_search`
+### `chrome_bookmark`
 
-Search Chrome bookmarks by title/URL substring; optional folderPath scopes to a subtree. Example: {query:"github", maxResults:10} → {bookmarks:[{id, title, url}]}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `query` | string |  | Search query to match against bookmark titles and URLs. Leave empty to retrieve all bookmarks. |
-| `maxResults` | number |  | Maximum number of bookmarks to return (default: 50) |
-| `folderPath` | string |  | Optional folder path or ID to limit search to a specific bookmark folder. Can be a path string (e.g., "Work/Projects") or a folder ID. |
-
-### `chrome_bookmark_add`
-
-Add a new bookmark; optional parentId targets a folder, createFolder:true auto-creates missing folder paths. Example: {url:"https://x.com", title:"X", parentId:"3"} → {bookmarkId:"42"}
+Bookmarks CRUD via action enum. Replaces the four separate chrome_bookmark_search/add/update/delete tools. Example: {action:"search", query:"github"} → {bookmarks:[...]}; {action:"add", url, title, parentId} → {bookmarkId}; {action:"update", bookmarkId, newTitle} → {success:true}; {action:"delete", bookmarkId} → {success:true, deleted:1}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `url` | string |  | URL to bookmark. If not provided, uses the current active tab URL. |
-| `title` | string |  | Title for the bookmark. If not provided, uses the page title from the URL. |
-| `parentId` | string |  | Parent folder path or ID to add the bookmark to. Can be a path string (e.g., "Work/Projects") or a folder ID. If not provided, adds to the "Bookmarks Bar" folder. |
-| `createFolder` | boolean |  | Whether to create the parent folder if it does not exist (default: false) |
-
-### `chrome_bookmark_update`
-
-Rename, re-URL, or move a bookmark; identify by bookmarkId (preferred) or url+optional matchTitle. Example: {bookmarkId:"42", newTitle:"Renamed", newParentId:"3"} → {success:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `bookmarkId` | string |  | ID of the bookmark to update. Either bookmarkId or url must be provided. When url matches multiple bookmarks, all matches are updated; pass bookmarkId to disambiguate. |
-| `url` | string |  | URL of the bookmark to update. Used to look up the bookmark when bookmarkId is omitted. |
-| `matchTitle` | string |  | Optional title substring used to disambiguate when looking up by url. Case-sensitive substring match. |
-| `newUrl` | string |  | New URL to set on the bookmark. |
-| `newTitle` | string |  | New title to set on the bookmark. |
-| `newParentId` | string |  | New parent folder path or ID to move the bookmark into (e.g., "Work/Projects" or a folder ID). The parent must exist. |
-
-### `chrome_bookmark_delete`
-
-Delete a bookmark by id (preferred) or by matching url/title. Irreversible — no trash. Example: {bookmarkId:"42"} → {success:true, deleted:1}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `bookmarkId` | string |  | ID of the bookmark to delete. Either bookmarkId or url must be provided. |
-| `url` | string |  | URL of the bookmark to delete. Used if bookmarkId is not provided. |
-| `title` | string |  | Title of the bookmark to help with matching when deleting by URL. |
+| `action` | `search` \| `add` \| `update` \| `delete` | ✓ | Which bookmark operation. search=query/list, add=create, update=rename/move/re-URL, delete=remove. |
+| `query` | string |  | For action=search: match against bookmark titles/URLs. Empty returns all. |
+| `maxResults` | number |  | For action=search: max results (default 50). |
+| `folderPath` | string |  | For action=search: optional folder path/ID to scope (e.g. "Work/Projects"). |
+| `url` | string |  | For action=add: URL to bookmark (defaults to active tab). For action=update/delete: lookup by URL when bookmarkId omitted. |
+| `title` | string |  | For action=add: bookmark title (defaults to page title). For action=delete: optional title hint for disambiguation. |
+| `parentId` | string |  | For action=add: parent folder path/ID (defaults to "Bookmarks Bar"). |
+| `createFolder` | boolean |  | For action=add: auto-create missing parent folder (default false). |
+| `bookmarkId` | string |  | For action=update/delete: ID of bookmark to operate on. Preferred over url-based lookup. |
+| `matchTitle` | string |  | For action=update: optional title substring to disambiguate when matching by url. |
+| `newUrl` | string |  | For action=update: new URL. |
+| `newTitle` | string |  | For action=update: new title. |
+| `newParentId` | string |  | For action=update: new parent folder path/ID. |
 
 ### `chrome_get_cookies`
 

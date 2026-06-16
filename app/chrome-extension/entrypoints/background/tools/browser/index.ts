@@ -39,12 +39,7 @@ export { interceptResponseTool } from './intercept-response';
 export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
 export { keyboardTool } from './keyboard';
 export { historyTool, historyDeleteTool } from './history';
-export {
-  bookmarkSearchTool,
-  bookmarkAddTool,
-  bookmarkUpdateTool,
-  bookmarkDeleteTool,
-} from './bookmark';
+export { bookmarkTool } from './bookmark';
 export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
 export {
   injectScriptTool,

@@ -76,12 +76,7 @@ import {} from './browser/network-capture-web-request';
 import { keyboardTool } from './browser/keyboard';
 import { historyTool, historyDeleteTool } from './browser/history';
 import { listFramesTool } from './browser/list-frames';
-import {
-  bookmarkSearchTool,
-  bookmarkAddTool,
-  bookmarkUpdateTool,
-  bookmarkDeleteTool,
-} from './browser/bookmark';
+import { bookmarkTool } from './browser/bookmark';
 import { getCookiesTool, setCookieTool, removeCookieTool } from './browser/cookies';
 import {
   injectScriptTool,
@@ -194,10 +189,7 @@ const eagerTools: ToolInstance[] = [
   historyTool,
   historyDeleteTool,
   listFramesTool,
-  bookmarkSearchTool,
-  bookmarkAddTool,
-  bookmarkUpdateTool,
-  bookmarkDeleteTool,
+  bookmarkTool,
   getCookiesTool,
   setCookieTool,
   removeCookieTool,

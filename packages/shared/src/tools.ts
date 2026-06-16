@@ -56,10 +56,7 @@ export const TOOL_NAMES = {
     KEYBOARD: 'chrome_keyboard',
     HISTORY: 'chrome_history',
     HISTORY_DELETE: 'chrome_history_delete',
-    BOOKMARK_SEARCH: 'chrome_bookmark_search',
-    BOOKMARK_ADD: 'chrome_bookmark_add',
-    BOOKMARK_UPDATE: 'chrome_bookmark_update',
-    BOOKMARK_DELETE: 'chrome_bookmark_delete',
+    BOOKMARK: 'chrome_bookmark',
     GET_COOKIES: 'chrome_get_cookies',
     SET_COOKIE: 'chrome_set_cookie',
     REMOVE_COOKIE: 'chrome_remove_cookie',
@@ -1092,118 +1089,73 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.BOOKMARK_SEARCH,
+    name: TOOL_NAMES.BROWSER.BOOKMARK,
     description:
-      'Search Chrome bookmarks by title/URL substring; optional folderPath scopes to a subtree. Example: {query:"github", maxResults:10} → {bookmarks:[{id, title, url}]}',
+      'Bookmarks CRUD via action enum. Replaces the four separate chrome_bookmark_search/add/update/delete tools. Example: {action:"search", query:"github"} → {bookmarks:[...]}; {action:"add", url, title, parentId} → {bookmarkId}; {action:"update", bookmarkId, newTitle} → {success:true}; {action:"delete", bookmarkId} → {success:true, deleted:1}.',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['search', 'add', 'update', 'delete'],
+          description:
+            'Which bookmark operation. search=query/list, add=create, update=rename/move/re-URL, delete=remove.',
+        },
         query: {
           type: 'string',
-          description:
-            'Search query to match against bookmark titles and URLs. Leave empty to retrieve all bookmarks.',
+          description: 'For action=search: match against bookmark titles/URLs. Empty returns all.',
         },
         maxResults: {
           type: 'number',
-          description: 'Maximum number of bookmarks to return (default: 50)',
+          description: 'For action=search: max results (default 50).',
         },
         folderPath: {
           type: 'string',
           description:
-            'Optional folder path or ID to limit search to a specific bookmark folder. Can be a path string (e.g., "Work/Projects") or a folder ID.',
+            'For action=search: optional folder path/ID to scope (e.g. "Work/Projects").',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.BOOKMARK_ADD,
-    description:
-      'Add a new bookmark; optional parentId targets a folder, createFolder:true auto-creates missing folder paths. Example: {url:"https://x.com", title:"X", parentId:"3"} → {bookmarkId:"42"}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         url: {
           type: 'string',
-          description: 'URL to bookmark. If not provided, uses the current active tab URL.',
+          description:
+            'For action=add: URL to bookmark (defaults to active tab). For action=update/delete: lookup by URL when bookmarkId omitted.',
         },
         title: {
           type: 'string',
-          description: 'Title for the bookmark. If not provided, uses the page title from the URL.',
+          description:
+            'For action=add: bookmark title (defaults to page title). For action=delete: optional title hint for disambiguation.',
         },
         parentId: {
           type: 'string',
-          description:
-            'Parent folder path or ID to add the bookmark to. Can be a path string (e.g., "Work/Projects") or a folder ID. If not provided, adds to the "Bookmarks Bar" folder.',
+          description: 'For action=add: parent folder path/ID (defaults to "Bookmarks Bar").',
         },
         createFolder: {
           type: 'boolean',
-          description: 'Whether to create the parent folder if it does not exist (default: false)',
+          description: 'For action=add: auto-create missing parent folder (default false).',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.BOOKMARK_UPDATE,
-    description:
-      'Rename, re-URL, or move a bookmark; identify by bookmarkId (preferred) or url+optional matchTitle. Example: {bookmarkId:"42", newTitle:"Renamed", newParentId:"3"} → {success:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         bookmarkId: {
           type: 'string',
           description:
-            'ID of the bookmark to update. Either bookmarkId or url must be provided. When url matches multiple bookmarks, all matches are updated; pass bookmarkId to disambiguate.',
-        },
-        url: {
-          type: 'string',
-          description:
-            'URL of the bookmark to update. Used to look up the bookmark when bookmarkId is omitted.',
+            'For action=update/delete: ID of bookmark to operate on. Preferred over url-based lookup.',
         },
         matchTitle: {
           type: 'string',
           description:
-            'Optional title substring used to disambiguate when looking up by url. Case-sensitive substring match.',
+            'For action=update: optional title substring to disambiguate when matching by url.',
         },
         newUrl: {
           type: 'string',
-          description: 'New URL to set on the bookmark.',
+          description: 'For action=update: new URL.',
         },
         newTitle: {
           type: 'string',
-          description: 'New title to set on the bookmark.',
+          description: 'For action=update: new title.',
         },
         newParentId: {
           type: 'string',
-          description:
-            'New parent folder path or ID to move the bookmark into (e.g., "Work/Projects" or a folder ID). The parent must exist.',
+          description: 'For action=update: new parent folder path/ID.',
         },
       },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.BOOKMARK_DELETE,
-    description:
-      'Delete a bookmark by id (preferred) or by matching url/title. Irreversible — no trash. Example: {bookmarkId:"42"} → {success:true, deleted:1}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        bookmarkId: {
-          type: 'string',
-          description: 'ID of the bookmark to delete. Either bookmarkId or url must be provided.',
-        },
-        url: {
-          type: 'string',
-          description: 'URL of the bookmark to delete. Used if bookmarkId is not provided.',
-        },
-        title: {
-          type: 'string',
-          description: 'Title of the bookmark to help with matching when deleting by URL.',
-        },
-      },
-      required: [],
+      required: ['action'],
     },
   },
   {
@@ -3686,10 +3638,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CONSOLE]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY_DELETE]: 'State',
-  [TOOL_NAMES.BROWSER.BOOKMARK_SEARCH]: 'State',
-  [TOOL_NAMES.BROWSER.BOOKMARK_ADD]: 'State',
-  [TOOL_NAMES.BROWSER.BOOKMARK_UPDATE]: 'State',
-  [TOOL_NAMES.BROWSER.BOOKMARK_DELETE]: 'State',
+  [TOOL_NAMES.BROWSER.BOOKMARK]: 'State',
   [TOOL_NAMES.BROWSER.GET_COOKIES]: 'State',
   [TOOL_NAMES.BROWSER.SET_COOKIE]: 'State',
   [TOOL_NAMES.BROWSER.REMOVE_COOKIE]: 'State',
