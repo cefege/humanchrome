@@ -13,7 +13,7 @@ interface QueueInspectParams {
  * queue drains correctly after closing a stuck tab.
  */
 class QueueInspectTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.QUEUE_INSPECT;
+  name = 'chrome_diagnostics__queue_internal';
   static readonly autoSpawnTab = false;
 
   async execute(args: QueueInspectParams = {}): Promise<ToolResult> {

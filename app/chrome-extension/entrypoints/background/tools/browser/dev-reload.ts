@@ -3,7 +3,7 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
 
 class DevReloadTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.DEV_RELOAD;
+  name = 'chrome_diagnostics__dev_reload_internal';
   static readonly autoSpawnTab = false;
 
   async execute(): Promise<ToolResult> {

@@ -10,7 +10,7 @@ declare const __HC_BUILT_AT__: string;
 const STARTED_AT = Date.now();
 
 class RuntimeInfoTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.RUNTIME_INFO;
+  name = 'chrome_diagnostics__runtime_info_internal';
   static readonly autoSpawnTab = false;
 
   async execute(): Promise<ToolResult> {

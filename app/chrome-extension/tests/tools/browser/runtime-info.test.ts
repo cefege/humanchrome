@@ -70,10 +70,9 @@ describe('chrome_runtime_info', () => {
     expect(body.toolCount).toBe(body.toolNames.length);
   });
 
-  it('includes its own tool name in toolNames (confirms registry round-trip)', async () => {
+  it('includes the diagnostics tool name in toolNames (registry round-trip)', async () => {
     const body = parseBody(await runtimeInfoTool.execute());
-    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.RUNTIME_INFO);
-    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.DEV_RELOAD);
+    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.DIAGNOSTICS);
   });
 
   it('includes a well-known stable tool name (chrome_pace) — sanity check on registry', async () => {
@@ -104,9 +103,8 @@ describe('chrome_runtime_info', () => {
     expect(b.uptimeMs).toBeGreaterThanOrEqual(a.uptimeMs);
   });
 
-  it('uses the registered TOOL_NAMES.BROWSER.RUNTIME_INFO name', () => {
-    expect(runtimeInfoTool.name).toBe(TOOL_NAMES.BROWSER.RUNTIME_INFO);
-    expect(runtimeInfoTool.name).toBe('chrome_runtime_info');
+  it('uses an internal name (folded into chrome_diagnostics)', () => {
+    expect(runtimeInfoTool.name).toBe('chrome_diagnostics__runtime_info_internal');
   });
 
   it('opts out of autoSpawnTab', () => {

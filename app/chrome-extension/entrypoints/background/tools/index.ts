@@ -89,16 +89,13 @@ import { fileUploadTool } from './browser/file-upload';
 import { handleDialogTool } from './browser/dialog';
 import { handleDownloadTool, downloadTool } from './browser/download';
 import { storageTool } from './browser/storage';
-import { debugDumpTool } from './browser/debug-dump';
+import { diagnosticsTool } from './browser/diagnostics';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
 import { ownedTabsTool } from './browser/owned-tabs';
-import { queueInspectTool } from './browser/queue-inspect';
 import { locatorHandlerTool } from './browser/locator-handler';
-import { devReloadTool } from './browser/dev-reload';
-import { runtimeInfoTool } from './browser/runtime-info';
 import { aliasTabTool } from './browser/alias-tab';
 import { extraHttpHeadersTool } from './browser/extra-http-headers';
 import { ariaSnapshotTool } from './browser/aria-snapshot';
@@ -194,16 +191,13 @@ const eagerTools: ToolInstance[] = [
   handleDownloadTool,
   downloadTool,
   storageTool,
-  debugDumpTool,
+  diagnosticsTool,
   assertTool,
   waitForTool,
   paceTool,
   claimTabTool,
   ownedTabsTool,
-  queueInspectTool,
   locatorHandlerTool,
-  devReloadTool,
-  runtimeInfoTool,
   aliasTabTool,
   extraHttpHeadersTool,
   ariaSnapshotTool,

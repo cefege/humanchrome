@@ -147,14 +147,6 @@ Claim an unowned tab into the calling client's owned set so implicit tab-resolut
 | `tabId` | number | ✓ | Tab ID to claim for the calling client. |
 | `force` | boolean |  | When true, claim the tab even if another client currently owns it. The previous owner is reported in the response and audit-logged via `debugLog.warn`. Defaults to false — without `force`, claiming an owned-by-other tab returns TAB_NOT_OWNED. Only use when you know the previous owner is gone (stale session, crashed bridge) or when intentionally handing off between operator-driven sessions. |
 
-### `chrome_queue_inspect`
-
-Diagnostic snapshot of per-tab serialization queues with EWMA wait estimates. Returns {tabs:[{tabId, depth, holder, waiters:[{clientId, expectedWaitMs}]}]}. Read-only. Pass tabId to scope. Example: {tabId:42} → {tabs:[{tabId:42, depth:2}]}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | Optional tab to scope the snapshot to. Omit for every active queue. |
-
 ### `chrome_owned_tabs`
 
 Return tabs owned by the calling MCP client as {tabId, windowId, url, title, active, isPinnedActive}. Narrower than chrome_get_windows_and_tabs (whole browser). Optional tabId filters to one row. Example: {} → {clientId, count:2, ownedTabs:[]}
@@ -1093,18 +1085,6 @@ OAuth2 + profile lookup via chrome.identity for calling Google APIs without brow
 | `interactive` | boolean |  | For `get_token`. When true, Chrome shows a consent UI if needed; when false, the call fails fast if the user has not already consented. Default false. |
 | `token` | string |  | For `remove_token`. The token previously returned by `get_token`. |
 
-### `chrome_dev_reload`
-
-Trigger chrome.runtime.reload() from the SW so unattended E2E rebuild→reload→re-test runs need no operator click. Reply returns immediately; reload fires ~50ms later, pause 1-2s before next call. Dev/test only. Example: {} → {ok:true}
-
-No parameters.
-
-### `chrome_runtime_info`
-
-Return SW identity for E2E runners to verify bundle freshness. Output includes buildHash and toolNames so callers can detect stale SWs. Example: {} → {extensionVersion, buildHash, toolNames, toolCount, uptimeMs}
-
-No parameters.
-
 ## Performance
 
 ### `chrome_performance_trace`
@@ -1135,20 +1115,21 @@ Live Core Web Vitals collector via PerformanceObserver in MAIN world. Lighter th
 
 ## Diagnostics
 
-### `chrome_debug_dump`
+### `chrome_diagnostics`
 
-Return recent extension debug-log entries correlated by requestId to the MCP call that produced them; filters compose AND. Use to diagnose a failed call without re-running it. Example: {tool:"chrome_click_element", level:"error", limit:20} → {entries:[...]}
+Extension diagnostics via action enum. Replaces chrome_debug_dump + chrome_queue_inspect + chrome_runtime_info + chrome_dev_reload. Example: {action:"dump_logs", level:"error", limit:20} → {entries:[...]}; {action:"queue"} → {pending, owned}; {action:"runtime_info"} → {clientId, buildHash, toolNames}; {action:"dev_reload"} → triggers chrome.runtime.reload().
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `requestId` | string |  | Only return entries with this correlation id. |
-| `tool` | string |  | Only return entries for this tool name (e.g. "chrome_navigate"). |
-| `tabId` | number |  | Only return entries scoped to this tabId. |
-| `level` | `debug` \| `info` \| `warn` \| `error` |  | Filter by severity. |
-| `sinceMs` | number |  | Absolute epoch milliseconds — only return entries newer than this. |
-| `limit` | number |  | Maximum entries to return. Defaults to 200, max 1000. |
-| `clear` | boolean |  | When true, wipe the buffer instead of returning entries. |
-| `persist` | boolean |  | Toggle whether log entries are written through to chrome.storage.local across SW restarts. Off by default (steady-state SW CPU optimization, IMP-0059) — `true` enables persistence so future logs survive a service-worker restart, `false` disables it and clears the persisted blob, omitted leaves the current state unchanged. The response always includes `persistEnabled` so callers can check the current state. |
+| `action` | `dump_logs` \| `queue` \| `runtime_info` \| `dev_reload` | ✓ | dump_logs=recent debug entries; queue=per-tab queue snapshot; runtime_info=SW identity / buildHash / toolNames; dev_reload=trigger chrome.runtime.reload() (dev only). |
+| `requestId` | string |  | For action=dump_logs: correlation id filter. |
+| `tool` | string |  | For action=dump_logs: only entries for this tool name. |
+| `tabId` | number |  | For action=dump_logs/queue: scope to this tabId. |
+| `level` | `debug` \| `info` \| `warn` \| `error` |  | For action=dump_logs: severity filter. |
+| `sinceMs` | number |  | For action=dump_logs: only entries newer than this epoch-ms. |
+| `limit` | number |  | For action=dump_logs: max entries (default 200, max 1000). |
+| `clear` | boolean |  | For action=dump_logs: wipe buffer instead of returning entries. |
+| `persist` | boolean |  | For action=dump_logs: toggle persist-through-SW-restart (default off). |
 
 ### `chrome_help`
 

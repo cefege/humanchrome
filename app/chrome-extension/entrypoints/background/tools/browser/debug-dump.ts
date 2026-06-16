@@ -36,7 +36,7 @@ interface DebugDumpArgs {
 }
 
 class DebugDumpTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.DEBUG_DUMP;
+  name = 'chrome_diagnostics__dump_logs_internal';
 
   async execute(args: DebugDumpArgs = {}): Promise<ToolResult> {
     if (args.level && !(DEBUG_LOG_LEVELS as readonly string[]).includes(args.level)) {

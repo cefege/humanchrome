@@ -71,7 +71,7 @@ export const TOOL_NAMES = {
     USERSCRIPT: 'chrome_userscript',
     PERFORMANCE_TRACE: 'chrome_performance_trace',
     GIF_RECORDER: 'chrome_gif_recorder',
-    DEBUG_DUMP: 'chrome_debug_dump',
+    DIAGNOSTICS: 'chrome_diagnostics',
     ASSERT: 'chrome_assert',
     WAIT_FOR: 'chrome_wait_for',
     PACE: 'chrome_pace',
@@ -99,10 +99,7 @@ export const TOOL_NAMES = {
     DOWNLOAD: 'chrome_download',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     CLAIM_TAB: 'browser_claim_tab',
-    QUEUE_INSPECT: 'chrome_queue_inspect',
     LOCATOR_HANDLER: 'chrome_locator_handler',
-    DEV_RELOAD: 'chrome_dev_reload',
-    RUNTIME_INFO: 'chrome_runtime_info',
     OWNED_TABS: 'chrome_owned_tabs',
     ALIAS_TAB: 'browser_alias_tab',
     SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
@@ -1781,48 +1778,53 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.DEBUG_DUMP,
+    name: TOOL_NAMES.BROWSER.DIAGNOSTICS,
     description:
-      'Return recent extension debug-log entries correlated by requestId to the MCP call that produced them; filters compose AND. Use to diagnose a failed call without re-running it. Example: {tool:"chrome_click_element", level:"error", limit:20} → {entries:[...]}',
+      'Extension diagnostics via action enum. Replaces chrome_debug_dump + chrome_queue_inspect + chrome_runtime_info + chrome_dev_reload. Example: {action:"dump_logs", level:"error", limit:20} → {entries:[...]}; {action:"queue"} → {pending, owned}; {action:"runtime_info"} → {clientId, buildHash, toolNames}; {action:"dev_reload"} → triggers chrome.runtime.reload().',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['dump_logs', 'queue', 'runtime_info', 'dev_reload'],
+          description:
+            'dump_logs=recent debug entries; queue=per-tab queue snapshot; runtime_info=SW identity / buildHash / toolNames; dev_reload=trigger chrome.runtime.reload() (dev only).',
+        },
         requestId: {
           type: 'string',
-          description: 'Only return entries with this correlation id.',
+          description: 'For action=dump_logs: correlation id filter.',
         },
         tool: {
           type: 'string',
-          description: 'Only return entries for this tool name (e.g. "chrome_navigate").',
+          description: 'For action=dump_logs: only entries for this tool name.',
         },
         tabId: {
           type: 'number',
-          description: 'Only return entries scoped to this tabId.',
+          description: 'For action=dump_logs/queue: scope to this tabId.',
         },
         level: {
           type: 'string',
           enum: ['debug', 'info', 'warn', 'error'],
-          description: 'Filter by severity.',
+          description: 'For action=dump_logs: severity filter.',
         },
         sinceMs: {
           type: 'number',
-          description: 'Absolute epoch milliseconds — only return entries newer than this.',
+          description: 'For action=dump_logs: only entries newer than this epoch-ms.',
         },
         limit: {
           type: 'number',
-          description: 'Maximum entries to return. Defaults to 200, max 1000.',
+          description: 'For action=dump_logs: max entries (default 200, max 1000).',
         },
         clear: {
           type: 'boolean',
-          description: 'When true, wipe the buffer instead of returning entries.',
+          description: 'For action=dump_logs: wipe buffer instead of returning entries.',
         },
         persist: {
           type: 'boolean',
-          description:
-            'Toggle whether log entries are written through to chrome.storage.local across SW restarts. Off by default (steady-state SW CPU optimization, IMP-0059) — `true` enables persistence so future logs survive a service-worker restart, `false` disables it and clears the persisted blob, omitted leaves the current state unchanged. The response always includes `persistEnabled` so callers can check the current state.',
+          description: 'For action=dump_logs: toggle persist-through-SW-restart (default off).',
         },
       },
-      required: [],
+      required: ['action'],
     },
   },
   {
@@ -2831,21 +2833,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.QUEUE_INSPECT,
-    description:
-      'Diagnostic snapshot of per-tab serialization queues with EWMA wait estimates. Returns {tabs:[{tabId, depth, holder, waiters:[{clientId, expectedWaitMs}]}]}. Read-only. Pass tabId to scope. Example: {tabId:42} → {tabs:[{tabId:42, depth:2}]}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description: 'Optional tab to scope the snapshot to. Omit for every active queue.',
-        },
-      },
-      required: [],
-    },
-  },
-  {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
     description:
       'Delete a recorded flow by ID; always unpublishes first so the dynamic flow.<slug> MCP tool disappears. Example: {flowId:"f1"} → {deleted:true, unpublished:true, flowId:"f1"}',
@@ -2917,24 +2904,6 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['action'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.DEV_RELOAD,
-    description:
-      'Trigger chrome.runtime.reload() from the SW so unattended E2E rebuild→reload→re-test runs need no operator click. Reply returns immediately; reload fires ~50ms later, pause 1-2s before next call. Dev/test only. Example: {} → {ok:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.RUNTIME_INFO,
-    description:
-      'Return SW identity for E2E runners to verify bundle freshness. Output includes buildHash and toolNames so callers can detect stale SWs. Example: {} → {extensionVersion, buildHash, toolNames, toolCount, uptimeMs}',
-    inputSchema: {
-      type: 'object',
-      properties: {},
     },
   },
   {
@@ -3474,7 +3443,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.PERFORMANCE_TRACE]: 'Performance',
 
-  [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
+  [TOOL_NAMES.BROWSER.DIAGNOSTICS]: 'Diagnostics',
 
   [TOOL_NAMES.BROWSER.PACE]: 'Pacing',
 
@@ -3502,10 +3471,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DOWNLOAD]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
-  [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',
   [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
-  [TOOL_NAMES.BROWSER.DEV_RELOAD]: 'System',
-  [TOOL_NAMES.BROWSER.RUNTIME_INFO]: 'System',
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',

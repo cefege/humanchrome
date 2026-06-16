@@ -49,9 +49,8 @@ describe('chrome_dev_reload', () => {
     expect(reloadMock).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the registered TOOL_NAMES.BROWSER.DEV_RELOAD name', () => {
-    expect(devReloadTool.name).toBe(TOOL_NAMES.BROWSER.DEV_RELOAD);
-    expect(devReloadTool.name).toBe('chrome_dev_reload');
+  it('uses an internal name (folded into chrome_diagnostics)', () => {
+    expect(devReloadTool.name).toBe('chrome_diagnostics__dev_reload_internal');
   });
 
   it('opts out of autoSpawnTab so it does not open a new tab', () => {
