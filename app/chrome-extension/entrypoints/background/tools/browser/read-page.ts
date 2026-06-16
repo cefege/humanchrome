@@ -46,7 +46,13 @@ class ReadPageTool extends BaseBrowserToolExecutor {
   static readonly outputBudgetBytes = 256 * 1024;
 
   // Execute read page
-  async execute(args: ReadPageParams): Promise<ToolResult> {
+  async execute(args: ReadPageParams & { format?: 'tree' | 'aria' }): Promise<ToolResult> {
+    // Slice 12 fold: format:"aria" → delegate to chrome_aria_snapshot's
+    // Playwright-style tree (4-6x smaller, ref-roundtripping).
+    if (args?.format === 'aria') {
+      const { ariaSnapshotTool } = await import('./aria-snapshot');
+      return ariaSnapshotTool.execute(args as Parameters<typeof ariaSnapshotTool.execute>[0]);
+    }
     const { filter, depth, refId } = args || {};
 
     // Validate refId parameter

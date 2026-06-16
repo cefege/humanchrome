@@ -46,7 +46,7 @@ interface AriaSnapshotParams {
 const MAX_OUTPUT_BYTES = MAX_RESPONSE_BODY_BYTES;
 
 class AriaSnapshotTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.ARIA_SNAPSHOT;
+  name = 'chrome_read_page__aria_internal';
 
   async execute(args: AriaSnapshotParams = {}): Promise<ToolResult> {
     try {
@@ -143,7 +143,7 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
       // classifyTabError preserves structured ToolError codes (e.g.
       // TAB_NOT_FOUND from getOwnedTab) and handles the "no tab with id"
       // → TAB_CLOSED mapping.
-      return classifyTabError(err, { toolName: TOOL_NAMES.BROWSER.ARIA_SNAPSHOT });
+      return classifyTabError(err, { toolName: 'chrome_read_page' });
     }
   }
 }
@@ -158,10 +158,7 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
  * Implemented as a regex chain on each line — cheap, runs once per snapshot,
  * preserves the indentation prefix that conveys tree depth.
  */
-function formatPageContent(
-  pageContent: string,
-  opts: { includeRefs: boolean },
-): string {
+function formatPageContent(pageContent: string, opts: { includeRefs: boolean }): string {
   const out: string[] = [];
   for (const raw of pageContent.split('\n')) {
     if (raw.trim().length === 0) continue;

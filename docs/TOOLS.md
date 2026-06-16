@@ -168,10 +168,14 @@ Bind a per-client alias to an owned tab so later calls can target it by name. Al
 
 ### `chrome_read_page`
 
-Return an accessibility-tree snapshot of viewport-visible elements; optionally filter to interactive-only or expand from a refId. If your target is missing, fall back to the computer tool's screenshot for coordinates. Example: {filter:"interactive"} → {nodes:[]}
+Return an accessibility-tree snapshot. format:"tree" (default) is the viewport-visible interactive element tree; format:"aria" is a Playwright-style ARIA snapshot (4-6x smaller, ref-roundtripping with chrome_click_element) — replaces former chrome_aria_snapshot. If your target is missing, fall back to chrome_computer screenshot for coordinates. Example: {filter:"interactive"} → {nodes:[]}; {format:"aria"} → {snapshot:"...", refs}. Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
+| `format` | `tree` \| `aria` |  | Snapshot format. "tree" (default) = viewport interactive tree; "aria" = Playwright-style ARIA snapshot (compact, ref-driven). |
+| `interactiveOnly` | boolean |  | For format=aria: include only interactive elements (default true). Ignored when format=tree. |
+| `includeRefs` | boolean |  | For format=aria: print [ref=…] markers so callers can pivot to refs. |
+| `maxDepth` | number |  | For format=aria: cap traversal depth. |
 | `filter` | string |  | Filter elements: "interactive" for such as buttons/links/inputs only (default: all visible elements) |
 | `depth` | number |  | Maximum DOM depth to traverse (integer >= 0). Lower values reduce output size and can improve performance. |
 | `refId` | string |  | Focus on the subtree rooted at this element refId (e.g., "ref_12"). The refId must come from a recent chrome_read_page response in the same tab (refs may expire). |
@@ -249,19 +253,6 @@ Save a tab as PDF via CDP Page.printToPDF. Returns base64 by default; with saveP
 | `marginBottomIn` | number |  | Bottom margin in inches. Default 0.4. |
 | `marginLeftIn` | number |  | Left margin in inches. Default 0.4. |
 | `pageRanges` | string |  | Page ranges to print, e.g. `"1-5,8,11-13"`. Empty = all pages. |
-
-### `chrome_aria_snapshot`
-
-Playwright-style ARIA accessibility-tree snapshot of the page (4-6x smaller than chrome_read_page, ref-roundtripping with chrome_click_element). Niche: structured a11y tree for navigation. For viewport-only with marker overlay use chrome_read_page. Example: {interactiveOnly:true} → {snapshot:"...", refs} Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | Target tab. Defaults to caller's owned tab. |
-| `windowId` | number |  | Optional window-id filter on the owned-tab pick. |
-| `refId` | string |  | Snapshot a subtree rooted at this ref instead of the whole page. |
-| `maxDepth` | number |  | Cap traversal depth. The helper enforces a hard ceiling regardless. |
-| `interactiveOnly` | boolean |  | Include only interactive elements (default true). Set false for structure dumps. |
-| `includeRefs` | boolean |  | Print `[ref=...]` markers so the LLM can pivot to ref-based selectors. Default true. |
 
 ### `chrome_get_attributes`
 

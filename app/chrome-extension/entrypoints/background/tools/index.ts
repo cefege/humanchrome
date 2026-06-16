@@ -97,7 +97,6 @@ import { ownedTabsTool } from './browser/owned-tabs';
 import { locatorHandlerTool } from './browser/locator-handler';
 import { aliasTabTool } from './browser/alias-tab';
 import { extraHttpHeadersTool } from './browser/extra-http-headers';
-import { ariaSnapshotTool } from './browser/aria-snapshot';
 import { emulateTool } from './browser/emulate';
 import { getAttributesTool } from './browser/get-attributes';
 import { hoverTool } from './browser/hover';
@@ -198,7 +197,6 @@ const eagerTools: ToolInstance[] = [
   locatorHandlerTool,
   aliasTabTool,
   extraHttpHeadersTool,
-  ariaSnapshotTool,
   emulateTool,
   getAttributesTool,
   hoverTool,

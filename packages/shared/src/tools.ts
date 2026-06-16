@@ -102,7 +102,6 @@ export const TOOL_NAMES = {
     OWNED_TABS: 'chrome_owned_tabs',
     ALIAS_TAB: 'browser_alias_tab',
     SET_EXTRA_HTTP_HEADERS: 'chrome_set_extra_http_headers',
-    ARIA_SNAPSHOT: 'chrome_aria_snapshot',
     EMULATE: 'chrome_emulate',
     GET_ATTRIBUTES: 'chrome_get_attributes',
     HOVER: 'chrome_hover',
@@ -231,10 +230,29 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.READ_PAGE,
     description:
-      'Return an accessibility-tree snapshot of viewport-visible elements; optionally filter to interactive-only or expand from a refId. If your target is missing, fall back to the computer tool\'s screenshot for coordinates. Example: {filter:"interactive"} → {nodes:[]}',
+      'Return an accessibility-tree snapshot. format:"tree" (default) is the viewport-visible interactive element tree; format:"aria" is a Playwright-style ARIA snapshot (4-6x smaller, ref-roundtripping with chrome_click_element) — replaces former chrome_aria_snapshot. If your target is missing, fall back to chrome_computer screenshot for coordinates. Example: {filter:"interactive"} → {nodes:[]}; {format:"aria"} → {snapshot:"...", refs}. Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
+        format: {
+          type: 'string',
+          enum: ['tree', 'aria'],
+          description:
+            'Snapshot format. "tree" (default) = viewport interactive tree; "aria" = Playwright-style ARIA snapshot (compact, ref-driven).',
+        },
+        interactiveOnly: {
+          type: 'boolean',
+          description:
+            'For format=aria: include only interactive elements (default true). Ignored when format=tree.',
+        },
+        includeRefs: {
+          type: 'boolean',
+          description: 'For format=aria: print [ref=…] markers so callers can pivot to refs.',
+        },
+        maxDepth: {
+          type: 'number',
+          description: 'For format=aria: cap traversal depth.',
+        },
         filter: {
           type: 'string',
           description:
@@ -2903,39 +2921,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.ARIA_SNAPSHOT,
-    description:
-      'Playwright-style ARIA accessibility-tree snapshot of the page (4-6x smaller than chrome_read_page, ref-roundtripping with chrome_click_element). Niche: structured a11y tree for navigation. For viewport-only with marker overlay use chrome_read_page. Example: {interactiveOnly:true} → {snapshot:"...", refs} Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: { type: 'number', description: "Target tab. Defaults to caller's owned tab." },
-        windowId: {
-          type: 'number',
-          description: 'Optional window-id filter on the owned-tab pick.',
-        },
-        refId: {
-          type: 'string',
-          description: 'Snapshot a subtree rooted at this ref instead of the whole page.',
-        },
-        maxDepth: {
-          type: 'number',
-          description: 'Cap traversal depth. The helper enforces a hard ceiling regardless.',
-        },
-        interactiveOnly: {
-          type: 'boolean',
-          description:
-            'Include only interactive elements (default true). Set false for structure dumps.',
-        },
-        includeRefs: {
-          type: 'boolean',
-          description:
-            'Print `[ref=...]` markers so the LLM can pivot to ref-based selectors. Default true.',
-        },
-      },
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.SET_CHECKED,
     description:
       'Idempotently set a checkbox or radio to a desired boolean state — re-clicks only if current state differs. Niche: idempotent toggle. For unconditional click use chrome_click_element. Example: {selector:"#tos", checked:true} → {checked:true, changed:true, priorChecked:false} Cross-ref: locator.setChecked, locator.check, locator.uncheck (Playwright API).',
@@ -3448,7 +3433,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.ALIAS_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.SET_EXTRA_HTTP_HEADERS]: 'Network',
-  [TOOL_NAMES.BROWSER.ARIA_SNAPSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.EMULATE]: 'State',
   [TOOL_NAMES.BROWSER.GET_ATTRIBUTES]: 'Reading',
   [TOOL_NAMES.BROWSER.HOVER]: 'Interaction',
