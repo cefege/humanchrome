@@ -957,46 +957,24 @@ Bookmarks CRUD via action enum. Replaces the four separate chrome_bookmark_searc
 | `newTitle` | string |  | For action=update: new title. |
 | `newParentId` | string |  | For action=update: new parent folder path/ID. |
 
-### `chrome_get_cookies`
+### `chrome_cookies`
 
-Read cookies via chrome.cookies.getAll. At least one of url or domain is required to bound the response. Example: {domain:".linkedin.com", name:"li_at"} → [{name, value, domain, path, secure, httpOnly, sameSite, ...}] Cross-ref: browserContext.cookies (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string |  | Restrict to cookies that would be sent to this URL (matches scheme, host, and path). Either `url` or `domain` is required. |
-| `domain` | string |  | Restrict to cookies whose domain matches (or is a subdomain of) this domain (e.g. "linkedin.com"). Either `url` or `domain` is required. |
-| `name` | string |  | Optional: only return cookies with this exact name. |
-| `path` | string |  | Optional: restrict to cookies with this path. |
-| `secure` | boolean |  | Optional: when set, filter by the Secure flag. |
-| `session` | boolean |  | Optional: when true, only session cookies; when false, only persistent cookies. |
-| `storeId` | string |  | Optional: cookie store ID (e.g. for incognito). When omitted, the current execution context's store is used. |
-
-### `chrome_set_cookie`
-
-Set a single cookie via chrome.cookies.set. The url arg is required (used to derive domain/path and validate Secure). Example: {url:"https://x.com", name:"li_at", value:"abc"} → {Cookie} Cross-ref: browserContext.addCookies (Playwright API).
+Cookies CRUD via chrome.cookies. Replaces chrome_get_cookies/set_cookie/remove_cookie. Example: {action:"get", domain:".linkedin.com", name:"li_at"} → {cookies:[...]}; {action:"set", url:"https://x.com", name, value} → {cookie}; {action:"remove", url, name} → {removed:{...}}. Cross-ref: browserContext.cookies, browserContext.addCookies (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `url` | string | ✓ | URL associated with the cookie (required). Determines default domain/path and is used to validate Secure cookies. |
-| `name` | string |  | Name of the cookie. Empty string by default. |
-| `value` | string |  | Value of the cookie. Empty string by default. |
-| `domain` | string |  | Domain of the cookie. If omitted, the cookie becomes a host-only cookie for the URL. |
-| `path` | string |  | Path of the cookie. Defaults to the path portion of `url`. |
-| `secure` | boolean |  | Whether the cookie should be marked Secure. Default: false. |
-| `httpOnly` | boolean |  | Whether the cookie should be marked HttpOnly. Default: false. |
-| `sameSite` | `no_restriction` \| `lax` \| `strict` \| `unspecified` |  | SameSite attribute. Default: "unspecified". |
-| `expirationDate` | number |  | Expiration date in seconds since the Unix epoch. If omitted, the cookie becomes a session cookie. |
-| `storeId` | string |  | The ID of the cookie store. By default the cookie is set in the current execution context's store. |
-
-### `chrome_remove_cookie`
-
-Delete a single cookie by URL + name via chrome.cookies.remove. Returns {url, name, storeId} or null if no match. Use to clear an auth cookie and force re-login without driving a logout flow. Example: {url:"https://x.com", name:"sid"} → {url,name,storeId}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string | ✓ | URL associated with the cookie to delete. Combined with `name` to identify a unique cookie. |
-| `name` | string | ✓ | Name of the cookie to delete. |
-| `storeId` | string |  | Optional: cookie store ID. When omitted, the current execution context's store is used. |
+| `action` | `get` \| `set` \| `remove` | ✓ | get=list, set=create/update single, remove=delete single. |
+| `url` | string |  | For get: scope by URL. For set: required (derives default domain/path). For remove: required to identify cookie. |
+| `domain` | string |  | For get: scope by domain (e.g. "linkedin.com"). For set: cookie domain (defaults to host-only). |
+| `name` | string |  | For get: filter to this name. For set: cookie name. For remove: required to identify cookie. |
+| `value` | string |  | For set: cookie value. |
+| `path` | string |  | Cookie path (get filter or set value). |
+| `secure` | boolean |  | Cookie Secure flag (get filter or set value). |
+| `session` | boolean |  | For get: filter session vs persistent cookies. |
+| `httpOnly` | boolean |  | For set: HttpOnly flag. |
+| `sameSite` | `no_restriction` \| `lax` \| `strict` \| `unspecified` |  | For set: SameSite attribute (default "unspecified"). |
+| `expirationDate` | number |  | For set: expiry in seconds since epoch. Omit for session cookie. |
+| `storeId` | string |  | Optional cookie store ID (e.g. incognito). |
 
 ### `chrome_console`
 

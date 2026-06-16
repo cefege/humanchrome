@@ -49,7 +49,7 @@ interface RemoveCookieParams {
  * passing neither could return every cookie in the profile.
  */
 class GetCookiesTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.GET_COOKIES;
+  name = 'chrome_cookies__get_internal';
 
   async execute(args: GetCookiesParams): Promise<ToolResult> {
     const { url, domain, name, path, secure, session, storeId } = args || {};
@@ -104,7 +104,7 @@ class GetCookiesTool extends BaseBrowserToolExecutor {
  * to derive default `domain`/`path` and to validate Secure cookies.
  */
 class SetCookieTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.SET_COOKIE;
+  name = 'chrome_cookies__set_internal';
 
   async execute(args: SetCookieParams): Promise<ToolResult> {
     const { url, name, value, domain, path, secure, httpOnly, sameSite, expirationDate, storeId } =
@@ -170,7 +170,7 @@ class SetCookieTool extends BaseBrowserToolExecutor {
  * Delete a single cookie by URL + name.
  */
 class RemoveCookieTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.REMOVE_COOKIE;
+  name = 'chrome_cookies__remove_internal';
 
   async execute(args: RemoveCookieParams): Promise<ToolResult> {
     const { url, name, storeId } = args || {};
@@ -214,6 +214,49 @@ class RemoveCookieTool extends BaseBrowserToolExecutor {
   }
 }
 
-export const getCookiesTool = new GetCookiesTool();
-export const setCookieTool = new SetCookieTool();
-export const removeCookieTool = new RemoveCookieTool();
+const getCookiesInternal = new GetCookiesTool();
+const setCookieInternal = new SetCookieTool();
+const removeCookieInternal = new RemoveCookieTool();
+
+/**
+ * Unified chrome_cookies tool (Slice 5 of IMP-0188 catalog consolidation).
+ * Routes by `action` to the get/set/remove handlers.
+ */
+type CookiesAction = 'get' | 'set' | 'remove';
+const COOKIES_ACTIONS: readonly CookiesAction[] = ['get', 'set', 'remove'] as const;
+
+interface CookiesToolParams extends GetCookiesParams, SetCookieParams, RemoveCookieParams {
+  action: CookiesAction;
+}
+
+class CookiesTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.COOKIES;
+  static readonly mutates = true;
+
+  async execute(args: CookiesToolParams): Promise<ToolResult> {
+    if (!args || typeof args.action !== 'string') {
+      return createErrorResponse(
+        `\`action\` is required (one of: ${COOKIES_ACTIONS.join(', ')})`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (!COOKIES_ACTIONS.includes(args.action)) {
+      return createErrorResponse(
+        `Invalid action "${args.action}": expected one of ${COOKIES_ACTIONS.join(', ')}`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    switch (args.action) {
+      case 'get':
+        return getCookiesInternal.execute(args);
+      case 'set':
+        return setCookieInternal.execute(args);
+      case 'remove':
+        return removeCookieInternal.execute(args);
+    }
+  }
+}
+
+export const cookiesTool = new CookiesTool();

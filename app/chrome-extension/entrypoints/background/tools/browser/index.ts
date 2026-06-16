@@ -40,7 +40,7 @@ export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-cap
 export { keyboardTool } from './keyboard';
 export { historyTool, historyDeleteTool } from './history';
 export { bookmarkTool } from './bookmark';
-export { getCookiesTool, setCookieTool, removeCookieTool } from './cookies';
+export { cookiesTool } from './cookies';
 export {
   injectScriptTool,
   listInjectedScriptsTool,

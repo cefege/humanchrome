@@ -77,7 +77,7 @@ import { keyboardTool } from './browser/keyboard';
 import { historyTool, historyDeleteTool } from './browser/history';
 import { listFramesTool } from './browser/list-frames';
 import { bookmarkTool } from './browser/bookmark';
-import { getCookiesTool, setCookieTool, removeCookieTool } from './browser/cookies';
+import { cookiesTool } from './browser/cookies';
 import {
   injectScriptTool,
   listInjectedScriptsTool,
@@ -190,9 +190,7 @@ const eagerTools: ToolInstance[] = [
   historyDeleteTool,
   listFramesTool,
   bookmarkTool,
-  getCookiesTool,
-  setCookieTool,
-  removeCookieTool,
+  cookiesTool,
   injectScriptTool,
   listInjectedScriptsTool,
   sendCommandToInjectScriptTool,

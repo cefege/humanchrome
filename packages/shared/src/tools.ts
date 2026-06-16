@@ -57,9 +57,7 @@ export const TOOL_NAMES = {
     HISTORY: 'chrome_history',
     HISTORY_DELETE: 'chrome_history_delete',
     BOOKMARK: 'chrome_bookmark',
-    GET_COOKIES: 'chrome_get_cookies',
-    SET_COOKIE: 'chrome_set_cookie',
-    REMOVE_COOKIE: 'chrome_remove_cookie',
+    COOKIES: 'chrome_cookies',
     INJECT_SCRIPT: 'chrome_inject_script',
     LIST_INJECTED_SCRIPTS: 'chrome_list_injected_scripts',
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
@@ -1159,127 +1157,49 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.GET_COOKIES,
+    name: TOOL_NAMES.BROWSER.COOKIES,
     description:
-      'Read cookies via chrome.cookies.getAll. At least one of url or domain is required to bound the response. Example: {domain:".linkedin.com", name:"li_at"} → [{name, value, domain, path, secure, httpOnly, sameSite, ...}] Cross-ref: browserContext.cookies (Playwright API).',
+      'Cookies CRUD via chrome.cookies. Replaces chrome_get_cookies/set_cookie/remove_cookie. Example: {action:"get", domain:".linkedin.com", name:"li_at"} → {cookies:[...]}; {action:"set", url:"https://x.com", name, value} → {cookie}; {action:"remove", url, name} → {removed:{...}}. Cross-ref: browserContext.cookies, browserContext.addCookies (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'set', 'remove'],
+          description: 'get=list, set=create/update single, remove=delete single.',
+        },
         url: {
           type: 'string',
           description:
-            'Restrict to cookies that would be sent to this URL (matches scheme, host, and path). Either `url` or `domain` is required.',
+            'For get: scope by URL. For set: required (derives default domain/path). For remove: required to identify cookie.',
         },
         domain: {
           type: 'string',
           description:
-            'Restrict to cookies whose domain matches (or is a subdomain of) this domain (e.g. "linkedin.com"). Either `url` or `domain` is required.',
+            'For get: scope by domain (e.g. "linkedin.com"). For set: cookie domain (defaults to host-only).',
         },
         name: {
           type: 'string',
-          description: 'Optional: only return cookies with this exact name.',
-        },
-        path: {
-          type: 'string',
-          description: 'Optional: restrict to cookies with this path.',
-        },
-        secure: {
-          type: 'boolean',
-          description: 'Optional: when set, filter by the Secure flag.',
-        },
-        session: {
-          type: 'boolean',
           description:
-            'Optional: when true, only session cookies; when false, only persistent cookies.',
+            'For get: filter to this name. For set: cookie name. For remove: required to identify cookie.',
         },
-        storeId: {
-          type: 'string',
-          description:
-            "Optional: cookie store ID (e.g. for incognito). When omitted, the current execution context's store is used.",
-        },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.SET_COOKIE,
-    description:
-      'Set a single cookie via chrome.cookies.set. The url arg is required (used to derive domain/path and validate Secure). Example: {url:"https://x.com", name:"li_at", value:"abc"} → {Cookie} Cross-ref: browserContext.addCookies (Playwright API).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description:
-            'URL associated with the cookie (required). Determines default domain/path and is used to validate Secure cookies.',
-        },
-        name: {
-          type: 'string',
-          description: 'Name of the cookie. Empty string by default.',
-        },
-        value: {
-          type: 'string',
-          description: 'Value of the cookie. Empty string by default.',
-        },
-        domain: {
-          type: 'string',
-          description:
-            'Domain of the cookie. If omitted, the cookie becomes a host-only cookie for the URL.',
-        },
-        path: {
-          type: 'string',
-          description: 'Path of the cookie. Defaults to the path portion of `url`.',
-        },
-        secure: {
-          type: 'boolean',
-          description: 'Whether the cookie should be marked Secure. Default: false.',
-        },
-        httpOnly: {
-          type: 'boolean',
-          description: 'Whether the cookie should be marked HttpOnly. Default: false.',
-        },
+        value: { type: 'string', description: 'For set: cookie value.' },
+        path: { type: 'string', description: 'Cookie path (get filter or set value).' },
+        secure: { type: 'boolean', description: 'Cookie Secure flag (get filter or set value).' },
+        session: { type: 'boolean', description: 'For get: filter session vs persistent cookies.' },
+        httpOnly: { type: 'boolean', description: 'For set: HttpOnly flag.' },
         sameSite: {
           type: 'string',
           enum: ['no_restriction', 'lax', 'strict', 'unspecified'],
-          description: 'SameSite attribute. Default: "unspecified".',
+          description: 'For set: SameSite attribute (default "unspecified").',
         },
         expirationDate: {
           type: 'number',
-          description:
-            'Expiration date in seconds since the Unix epoch. If omitted, the cookie becomes a session cookie.',
+          description: 'For set: expiry in seconds since epoch. Omit for session cookie.',
         },
-        storeId: {
-          type: 'string',
-          description:
-            "The ID of the cookie store. By default the cookie is set in the current execution context's store.",
-        },
+        storeId: { type: 'string', description: 'Optional cookie store ID (e.g. incognito).' },
       },
-      required: ['url'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.REMOVE_COOKIE,
-    description:
-      'Delete a single cookie by URL + name via chrome.cookies.remove. Returns {url, name, storeId} or null if no match. Use to clear an auth cookie and force re-login without driving a logout flow. Example: {url:"https://x.com", name:"sid"} → {url,name,storeId}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description:
-            'URL associated with the cookie to delete. Combined with `name` to identify a unique cookie.',
-        },
-        name: {
-          type: 'string',
-          description: 'Name of the cookie to delete.',
-        },
-        storeId: {
-          type: 'string',
-          description:
-            "Optional: cookie store ID. When omitted, the current execution context's store is used.",
-        },
-      },
-      required: ['url', 'name'],
+      required: ['action'],
     },
   },
   {
@@ -3639,9 +3559,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.HISTORY]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY_DELETE]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK]: 'State',
-  [TOOL_NAMES.BROWSER.GET_COOKIES]: 'State',
-  [TOOL_NAMES.BROWSER.SET_COOKIE]: 'State',
-  [TOOL_NAMES.BROWSER.REMOVE_COOKIE]: 'State',
+  [TOOL_NAMES.BROWSER.COOKIES]: 'State',
 
   [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: 'Performance',
   [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: 'Performance',
