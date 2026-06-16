@@ -213,7 +213,7 @@ List frames in a tab via chrome.webNavigation.getAllFrames as {frameId, parentFr
 
 ### `chrome_screenshot`
 
-Take a screenshot of the page or element. Prefer chrome_read_page or chrome_computer action=screenshot for new code; use this only for advanced options. Example: {selector:"#hero", fullPage:false} → {savedPath, width, height} Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).
+Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For element discovery prefer chrome_aria_snapshot or chrome_read_page (ref-roundtripping); for coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height} Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -274,7 +274,7 @@ Save a tab as PDF via CDP Page.printToPDF. Returns base64 by default; with saveP
 
 ### `chrome_aria_snapshot`
 
-Token-efficient Playwright-style ARIA tree snapshot returning indented `- role "name" [ref=ref_N]` lines; refs round-trip into selectorType:"ref". 4-6x smaller than chrome_read_page; prefer this unless you need bounding boxes. Example: {interactiveOnly:true} → {snapshot:"...", refs} Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).
+Playwright-style ARIA accessibility-tree snapshot of the page (4-6x smaller than chrome_read_page, ref-roundtripping with chrome_click_element). Niche: structured a11y tree for navigation. For viewport-only with marker overlay use chrome_read_page. Example: {interactiveOnly:true} → {snapshot:"...", refs} Cross-ref: browser_snapshot (MCP @playwright/mcp); page.accessibility.snapshot, locator.ariaSnapshot (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -307,7 +307,7 @@ Read DOM attributes, properties, and computed CSS by selector or ref. Read-only;
 
 ### `chrome_computer`
 
-Mouse/keyboard/screenshot omnibus tool driving the browser like a computer. Always read_page first to get refs for icon clicks; click cursor tip at element center. Example: {action:"screenshot"} → {image, width, height}
+Mouse/keyboard/screenshot omnibus by raw coordinates (Anthropic computer-use API contract). Niche: when you only have screen coordinates, not a selector or ref. For selector-driven actions prefer chrome_click_element / chrome_fill_or_select / chrome_screenshot which have richer error envelopes. Example: {action:"screenshot"} → {image, width, height}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -341,7 +341,7 @@ Mouse/keyboard/screenshot omnibus tool driving the browser like a computer. Alwa
 
 ### `chrome_click_element`
 
-Click an element by CSS/XPath/Playwright locator, ref, or viewport coordinates. Strict mode: multi-match without explicit index or multi:true errors INVALID_ARGS with details.matchCount. Example: {selector:"#submit"} → {clicked:true, frameId:0} Cross-ref: browser_click (MCP @playwright/mcp); page.click, locator.click (Playwright API).
+Click by selector / ref / coordinates via CDP Input.dispatchMouseEvent (trusted event, fires React onClick + dnd-kit). Niche: the canonical click. For idempotent checkbox/radio use chrome_set_checked; for coordinate-only mouse work without a selector use chrome_computer.left_click. Example: {selector:"#submit"} → {clicked:true, frameId:0} Cross-ref: browser_click (MCP @playwright/mcp); page.click, locator.click (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -364,7 +364,7 @@ Click an element by CSS/XPath/Playwright locator, ref, or viewport coordinates. 
 
 ### `chrome_fill_or_select`
 
-Fill or select an input/textarea/select/checkbox/radio by selector or ref. Supports Playwright-style locators. Strict-mode multi-match errors unless index or multi:true is passed. Example: {selector:"#email", value:"a@b.com"} → {filled:true} Cross-ref: browser_fill_form (MCP @playwright/mcp); locator.fill, page.selectOption (Playwright API).
+Set value of plain text inputs or <select> options via DOM .value + input/change events. Niche: when the page only listens for input/change. For React onChange that requires keystroke-by-keystroke handling, use chrome_type_into; for combobox autocomplete (Headless UI / Radix), use chrome_combobox_select; for rich editors (contenteditable), use chrome_paste. Example: {selector:"#email", value:"a@b.com"} → {filled:true} Cross-ref: browser_fill_form (MCP @playwright/mcp); locator.fill, page.selectOption (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -393,7 +393,7 @@ Request the user to manually select elements on the page as a human-in-the-loop 
 
 ### `chrome_keyboard`
 
-Simulate keyboard input — single keys, chords, text, or a high-level shortcut enum (copy/paste/undo/save/etc.) that maps to the platform-correct chord at dispatch. Targets a selector or the focused element. Example: {shortcut:"paste"} → {dispatched:true} Cross-ref: browser_press_key (MCP @playwright/mcp); page.keyboard.press, page.keyboard.type, keyboard.down, keyboard.up (Playwright API).
+Simulate keyboard input — single keys, chord (Cmd+S), or shortcut sequences via CDP Input.dispatchKeyEvent. Niche: keyboard-only flows (shortcuts, navigation). For typing text into a field use chrome_type_into or chrome_fill_or_select. Example: {shortcut:"paste"} → {dispatched:true} Cross-ref: browser_press_key (MCP @playwright/mcp); page.keyboard.press, page.keyboard.type, keyboard.down, keyboard.up (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -471,7 +471,7 @@ Focus an element by selector or ref before keyboard input (chrome_paste, chrome_
 
 ### `chrome_paste`
 
-Focus an element by selector or ref and paste text — seeds the clipboard then dispatches BOTH a synthetic ClipboardEvent and execCommand(insertText) so rich editors and plain inputs both accept it. Example: {selector:"#msg", text:"hi"} → {focused:true, pasted:true, mode:"both"}
+Focus element + dispatch ClipboardEvent + execCommand("paste") to land text into rich-text editors (CKEditor, TinyMCE, Slate, contenteditable). Niche: editors that ignore plain .value or keystrokes. For plain inputs use chrome_fill_or_select. Example: {selector:"#msg", text:"hi"} → {focused:true, pasted:true, mode:"both"}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -538,7 +538,7 @@ Auto-dismiss sticky overlays (cookie banners, GDPR modals) that intercept clicks
 
 ### `chrome_set_checked`
 
-Idempotent checkbox/radio/switch state set — matches Playwright locator.setChecked. Non-checkable elements return INVALID_ARGS. Example: {selector:"#tos", checked:true} → {checked:true, changed:true, priorChecked:false} Cross-ref: locator.setChecked, locator.check, locator.uncheck (Playwright API).
+Idempotently set a checkbox or radio to a desired boolean state — re-clicks only if current state differs. Niche: idempotent toggle. For unconditional click use chrome_click_element. Example: {selector:"#tos", checked:true} → {checked:true, changed:true, priorChecked:false} Cross-ref: locator.setChecked, locator.check, locator.uncheck (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -555,7 +555,7 @@ Idempotent checkbox/radio/switch state set — matches Playwright locator.setChe
 
 ### `chrome_type_into`
 
-Char-by-char keystroke typing with realistic per-key delay to bypass anti-bot cadence heuristics. Max 1024 chars. Example: {selector:"#q", text:"hello", perKeyDelayMs:60, pressEnter:true} → {typed, finalValue, pressedEnter} Cross-ref: browser_type (MCP @playwright/mcp); locator.type, locator.pressSequentially, locator.fill (Playwright API).
+Type text into a focused element char-by-char with cadence, generating keypress/keydown/keyup events. Niche: anti-bot platforms or React/Vue onChange that require real keystrokes. For instant value-set, use chrome_fill_or_select. Example: {selector:"#q", text:"hello", perKeyDelayMs:60, pressEnter:true} → {typed, finalValue, pressedEnter} Cross-ref: browser_type (MCP @playwright/mcp); locator.type, locator.pressSequentially, locator.fill (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -593,7 +593,7 @@ Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mou
 
 ### `chrome_combobox_select`
 
-Trusted keyboard commit of React/Ember combobox state: focus, type query, wait for [role=option], ArrowDown to match, Enter. Use where option-click silently no-ops (LinkedIn Skills, Open-to-Work). Example: {comboboxSelector:'input',query:'LangGraph'} → {selectedIndex,selectedText,optionCount} Cross-ref: browser_select_option (MCP @playwright/mcp); page.selectOption, locator.selectOption (Playwright API).
+Trusted keyboard commit for React/Ember/Headless UI combobox: focus, type query, wait for [role=option], ArrowDown, Enter. Niche: comboboxes that wire selection through option-keyboard events. For plain <select> use chrome_fill_or_select. Example: {comboboxSelector:'input',query:'LangGraph'} → {selectedIndex,selectedText,optionCount} Cross-ref: browser_select_option (MCP @playwright/mcp); page.selectOption, locator.selectOption (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -635,7 +635,7 @@ Diagnostic: types a sample char into a typeahead, reports every event (with isTr
 
 ### `chrome_userscript`
 
-Unified userscript tool (create/list/get/enable/disable/update/remove/send_command/export). Auto-selects best strategy with CSP-aware fallbacks. Example: {action:"create", args:{code:"...", runAt:"document_end"}} → {id, strategy}
+Persistent CSP-aware user scripts via chrome.userScripts. Actions: create/list/get/update/remove/send_command. mode:"once" matches chrome_inject_script semantics but with CSP safety. Niche: persistent or CSP-blocked sites. For one-shot CDP eval use chrome_javascript. Example: {action:"create", args:{code:"...", runAt:"document_end"}} → {id, strategy}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -644,7 +644,7 @@ Unified userscript tool (create/list/get/enable/disable/update/remove/send_comma
 
 ### `chrome_inject_script`
 
-Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custom event bridge. For persistent/CSP-aware injections use chrome_userscript instead. Example: {jsScript:"console.log('hi')", type:"MAIN"} → {injected:true, tabId} Cross-ref: page.addInitScript, page.evaluate (Playwright API).
+Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custom event bridge. For persistent / CSP-aware injections prefer chrome_userscript with mode:"once". Example: {jsScript:"console.log('hi')", type:"MAIN"} → {injected:true, tabId} Cross-ref: page.addInitScript, page.evaluate (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -657,7 +657,7 @@ Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custo
 
 ### `chrome_list_injected_scripts`
 
-List user scripts currently injected via chrome_inject_script across tabs as {tabId, world, scriptLength, injectedAt}. Use for idempotent inject-once pre-flight checks. Read-only. Example: {} → {scripts:[{tabId:42, world:"MAIN"}]}
+List the per-tab scripts injected by chrome_inject_script with their world and timestamp. For chrome_userscript-managed scripts use chrome_userscript({action:"list"}). Example: {} → {scripts:[{tabId:42, world:"MAIN"}]}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -665,7 +665,7 @@ List user scripts currently injected via chrome_inject_script across tabs as {ta
 
 ### `chrome_send_command_to_inject_script`
 
-Dispatch a user-defined event to a script previously installed via chrome_inject_script. Example: {tabId:5, eventName:"refresh", payload:{id:42}} → {dispatched:true}
+Dispatch a custom event into a tab's previously injected chrome_inject_script bridge. For chrome_userscript-managed scripts use chrome_userscript({action:"send_command"}). Example: {tabId:5, eventName:"refresh", payload:{id:42}} → {dispatched:true}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -675,7 +675,7 @@ Dispatch a user-defined event to a script previously installed via chrome_inject
 
 ### `chrome_javascript`
 
-Execute JS in a tab via CDP Runtime.evaluate (awaitPromise, returnByValue) with chrome.scripting ISOLATED fallback. Wrapped in async IIFE so top-level await works; bare expressions auto-return. Output sanitized + capped at maxOutputBytes. Example: {code:"document.title"} → {success:true, result:"...", truncated:false} Cross-ref: browser_evaluate, browser_run_code_unsafe (MCP @playwright/mcp); page.evaluate, locator.evaluate (Playwright API).
+Execute JS via CDP Runtime.evaluate in a tab (one-shot, CSP-bypassing). For persistent injection use chrome_userscript; for chrome.scripting.executeScript with event bridge use chrome_inject_script. Example: {code:"document.title"} → {success:true, result:"...", truncated:false} Cross-ref: browser_evaluate, browser_run_code_unsafe (MCP @playwright/mcp); page.evaluate, locator.evaluate (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -687,7 +687,7 @@ Execute JS in a tab via CDP Runtime.evaluate (awaitPromise, returnByValue) with 
 
 ### `chrome_remove_injected_script`
 
-Tear down a user script previously installed via chrome_inject_script by sending humanchrome:cleanup and dropping the tab from the registry. Idempotent — removed:false when no injection existed. Example: {tabId:42} → {removed:true, tabId:42}
+Tear down a chrome_inject_script previously installed in a tab. For chrome_userscript-managed scripts use chrome_userscript({action:"remove"}). Example: {tabId:42} → {removed:true, tabId:42}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -737,7 +737,7 @@ Wait for the next network response matching urlPattern on a tab and return its p
 
 ### `chrome_network_emulate`
 
-Emulate network conditions on a tab via CDP Network.emulateNetworkConditions. Actions: set (offline | latencyMs | downloadKbps | uploadKbps), reset. State persists per-tab until reset or tab close. Example: {action:"set", offline:true} → {applied:true}
+Throttle/offline a tab via CDP Network.emulateNetworkConditions (network domain only). Niche: throttle latency/bandwidth or simulate offline. For viewport/UA/locale/geo/device emulation use chrome_emulate (CDP Emulation domain — separate layer). Example: {action:"set", offline:true} → {applied:true}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -750,7 +750,7 @@ Emulate network conditions on a tab via CDP Network.emulateNetworkConditions. Ac
 
 ### `chrome_block_or_redirect`
 
-Block or redirect URLs via declarativeNetRequest session rules (cleared on Chrome restart). Actions: add, remove, list, clear. Example: {action:"add", urlFilter:"||tracker.com", ruleAction:"block"} → {ruleId:1, success:true} Cross-ref: page.route, browserContext.route (Playwright API).
+Block or redirect requests via declarativeNetRequest session rules (request-side). Niche: cancel/302 a URL pattern before the network sees it. For response-body replacement use chrome_mock_response (CDP Fetch.fulfillRequest); for header injection use chrome_set_extra_http_headers (CDP). Example: {action:"add", urlFilter:"||tracker.com", ruleAction:"block"} → {ruleId:1, success:true} Cross-ref: page.route, browserContext.route (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -789,7 +789,7 @@ Autoresponder for HTTP Basic/Digest 401 prompts via CDP Fetch.continueWithAuth �
 
 ### `chrome_mock_response`
 
-Synthesize fake response bodies for matched URLs via CDP Fetch.fulfillRequest before the request leaves the browser. Actions: register/list_mocks/unregister_mock/clear. bodyJson auto-serializes. Example: {action:"register", urlPattern:"/api/me", status:200, bodyJson:{ok:true}} → {handlerId} Cross-ref: page.route, route.fulfill (Playwright API).
+Replace response bodies for matching URLs via CDP Fetch.fulfillRequest (response-side mock). Niche: fake what the page receives. For block/redirect by URL pattern use chrome_block_or_redirect (DNR session rules — request-side); for header injection use chrome_set_extra_http_headers (CDP setExtraHTTPHeaders). Example: {action:"register", urlPattern:"/api/me", status:200, bodyJson:{ok:true}} → {handlerId} Cross-ref: page.route, route.fulfill (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -819,7 +819,7 @@ Format chrome_network_capture buffers as HAR 1.2 JSON for DevTools/Charles/Playw
 
 ### `chrome_set_extra_http_headers`
 
-Inject extra HTTP headers on every request a tab makes via CDP, persistent until cleared. Forbidden headers (Host, etc.) rejected with INVALID_ARGS. Example: {action:"set", headers:{Authorization:"Bearer x"}} → {set:true}
+Inject extra HTTP request headers per tab via CDP Network.setExtraHTTPHeaders. Niche: add Authorization, X-Token, custom headers. For body replacement use chrome_mock_response; for block/redirect use chrome_block_or_redirect. Example: {action:"set", headers:{Authorization:"Bearer x"}} → {set:true}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -985,7 +985,7 @@ Capture console output: snapshot mode (one-time ~2s wait) or buffer mode (persis
 
 ### `chrome_clear_browsing_data`
 
-Wipe browsing-data stores via chrome.browsingData.remove. Required dataTypes[] subset of cookies/localStorage/indexedDB/cache/history/etc; unknown types reject as INVALID_ARGS. Optional since(epoch ms) and origins[] filter. Example: {dataTypes:["cookies","cache"], since:0} → {success:true}
+Wipe browsingData stores (cookies, cache, localStorage, history, etc.) via chrome.browsingData.remove. Niche: bulk multi-store wipe. For single-cookie removal use chrome_cookies({action:"remove"}); for single-URL history deletion use chrome_history({action:"delete"}). Example: {dataTypes:["cookies","cache"], since:0} → {success:true}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -995,7 +995,7 @@ Wipe browsing-data stores via chrome.browsingData.remove. Required dataTypes[] s
 
 ### `chrome_emulate`
 
-Per-tab CDP Emulation overrides (UA, locale, timezone, geolocation, device, color-scheme). Persistent until reset_all or tab close. Actions: set_device|set_ua|set_locale|set_timezone|set_geolocation|set_color_scheme|reset_all|get_state. Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true} Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).
+Per-tab CDP Emulation overrides: viewport (set_device), user-agent (set_ua), locale (set_locale), timezone, geolocation, color scheme. Niche: identity/render context. For network throttling use chrome_network_emulate (CDP Network domain). Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true} Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
