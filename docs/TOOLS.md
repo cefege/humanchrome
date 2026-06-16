@@ -193,23 +193,6 @@ List frames in a tab via chrome.webNavigation.getAllFrames as {frameId, parentFr
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `urlContains` | string |  | Optional case-insensitive substring filter applied to each frame URL after the round-trip (handy for picking out a third-party iframe by domain without iterating all of them yourself). |
 
-### `chrome_screenshot`
-
-Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height}. Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string |  | Name for the screenshot, if saving as PNG |
-| `selector` | string |  | CSS selector for element to screenshot |
-| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
-| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
-| `background` | boolean |  |  |
-| `width` | number |  |  |
-| `height` | number |  |  |
-| `storeBase64` | boolean |  |  |
-| `fullPage` | boolean |  |  |
-| `savePng` | boolean |  |  |
-
 ### `chrome_get_web_content`
 
 Fetch a page's raw HTML, plain text, or reader-mode Markdown. Optionally scoped by selector, saved to savePath, or fetched in a background tab. Example: {url:"https://example.com", markdownContent:true} → {markdown:"..."}
@@ -610,29 +593,6 @@ Persistent CSP-aware user scripts via chrome.userScripts. Actions: create/list/g
 |-------|------|----------|-------------|
 | `action` | `create` \| `list` \| `get` \| `enable` \| `disable` \| `update` \| `remove` \| `send_command` \| `export` | ✓ | Operation to perform |
 | `args` | object |  | Arguments for the specified action. - create: { script (required), name?, description?, matches?: string[], excludes?: string[], persist?: boolean (default true), runAt?: "document_start"\|"document_end"\|"document_idle"\|"auto", world?: "auto"\|"ISOLATED"\|"MAIN", allFrames?: boolean (default true), mode?: "auto"\|"css"\|"persistent"\|"once", dnrFallback?: boolean (default true), tags?: string[] } - list: { query?: string, status?: "enabled"\|"disabled", domain?: string } - get: { id (required) } - enable/disable: { id (required) } - update: { id (required), script?, name?, description?, matches?, excludes?, runAt?, world?, allFrames?, persist?, dnrFallback?, tags? } - remove: { id (required) } - send_command: { id (required), payload?: string, tabId?: number } - export: {} Tip: For a one-off execution that returns a value, use create with args.mode="once". The returned value is included as onceResult in the tool response. |
-
-### `chrome_inject_script`
-
-Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custom event bridge. For persistent / CSP-aware injections prefer chrome_userscript with mode:"once". Example: {jsScript:"console.log('hi')", type:"MAIN"} → {injected:true, tabId} Cross-ref: page.addInitScript, page.evaluate (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string |  | If a URL is specified, inject the script into the webpage corresponding to the URL. If no matching tab exists, a new tab is created. |
-| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
-| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
-| `background` | boolean |  | Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward. |
-| `type` | `ISOLATED` \| `MAIN` | ✓ | The JavaScript world the script should execute in. Must be ISOLATED or MAIN. |
-| `jsScript` | string | ✓ | The JavaScript source to inject. |
-
-### `chrome_send_command_to_inject_script`
-
-Dispatch a custom event into a tab's previously injected chrome_inject_script bridge. For chrome_userscript-managed scripts use chrome_userscript({action:"send_command"}). Example: {tabId:5, eventName:"refresh", payload:{id:42}} → {dispatched:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
-| `eventName` | string | ✓ | The event name your injected content script listens for. |
-| `payload` | string |  | The payload passed to the event. Must be a JSON string. |
 
 ### `chrome_javascript`
 

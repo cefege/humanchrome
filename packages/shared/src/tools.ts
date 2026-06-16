@@ -699,26 +699,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.SCREENSHOT,
-    description:
-      'Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height}. Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Name for the screenshot, if saving as PNG' },
-        selector: { type: 'string', description: 'CSS selector for element to screenshot' },
-        ...TAB_TARGETING_NO_BG,
-        background: { type: 'boolean', default: true },
-        width: { type: 'number' },
-        height: { type: 'number' },
-        storeBase64: { type: 'boolean' },
-        fullPage: { type: 'boolean' },
-        savePng: { type: 'boolean' },
-      },
-      required: [],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.CLOSE_TABS,
     description:
       'Close tabs via action enum. Replaces chrome_close_tab + chrome_close_tabs_matching + browser_close_my_tabs. Example: {action:"ids", tabIds:[3,5]} → {closed:[3,5]}; {action:"matching", urlMatches:"/example/", dryRun:true} → {matched, tabIds}; {action:"mine"} → close all caller-owned tabs. Cross-ref: browser_close (MCP @playwright/mcp); page.close (Playwright API).',
@@ -1150,53 +1130,6 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['query'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
-    description:
-      'Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custom event bridge. For persistent / CSP-aware injections prefer chrome_userscript with mode:"once". Example: {jsScript:"console.log(\'hi\')", type:"MAIN"} → {injected:true, tabId} Cross-ref: page.addInitScript, page.evaluate (Playwright API).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        url: {
-          type: 'string',
-          description:
-            'If a URL is specified, inject the script into the webpage corresponding to the URL. If no matching tab exists, a new tab is created.',
-        },
-        ...TAB_TARGETING,
-        type: {
-          type: 'string',
-          enum: ['ISOLATED', 'MAIN'],
-          description:
-            'The JavaScript world the script should execute in. Must be ISOLATED or MAIN.',
-        },
-        jsScript: {
-          type: 'string',
-          description: 'The JavaScript source to inject.',
-        },
-      },
-      required: ['type', 'jsScript'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT,
-    description:
-      'Dispatch a custom event into a tab\'s previously injected chrome_inject_script bridge. For chrome_userscript-managed scripts use chrome_userscript({action:"send_command"}). Example: {tabId:5, eventName:"refresh", payload:{id:42}} → {dispatched:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: TAB_ID_PROP,
-        eventName: {
-          type: 'string',
-          description: 'The event name your injected content script listens for.',
-        },
-        payload: {
-          type: 'string',
-          description: 'The payload passed to the event. Must be a JSON string.',
-        },
-      },
-      required: ['eventName'],
     },
   },
   {
@@ -3316,7 +3249,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.TAB_GROUPS]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
-  [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.STORAGE]: 'State',
   [TOOL_NAMES.BROWSER.LIST_FRAMES]: 'Reading',
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
@@ -3332,8 +3264,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.WAIT_FOR]: 'Interaction',
 
   [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
-  [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',
-  [TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.USERSCRIPT]: 'Scripting',
 
   [TOOL_NAMES.BROWSER.NETWORK_REQUEST]: 'Network',
