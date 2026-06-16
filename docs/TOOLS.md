@@ -1121,33 +1121,20 @@ No parameters.
 
 ## Performance
 
-### `chrome_performance_start_trace`
+### `chrome_performance_trace`
 
-Start a performance trace recording on the selected page. Optionally reload first and/or auto-stop after a duration. Example: {reload:true, autoStop:true, durationMs:5000} → {started:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `reload` | boolean |  | Determines if, once tracing has started, the page should be automatically reloaded (ignore cache). |
-| `autoStop` | boolean |  | Determines if the trace should be automatically stopped (default false). |
-| `durationMs` | number |  | Auto-stop duration in milliseconds when autoStop is true (default 5000). |
-
-### `chrome_performance_stop_trace`
-
-Stop the active performance trace recording on the selected page. Optionally save the raw trace to Downloads. Example: {saveToDownloads:true, filenamePrefix:"home"} → {stopped:true, path}
+Performance trace via action enum. Replaces chrome_performance_start_trace/stop_trace/analyze_insight. Example: {action:"start", reload:true, autoStop:true, durationMs:5000} → {started:true}; {action:"stop", saveToDownloads:true} → {stopped, path}; {action:"analyze", insightName:"LCP"} → {summary}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `saveToDownloads` | boolean |  | Whether to save the trace as a JSON file in Downloads (default true). |
-| `filenamePrefix` | string |  | Optional filename prefix for the downloaded trace JSON. |
-
-### `chrome_performance_analyze_insight`
-
-Lightweight summary of the last recorded performance trace. For deep insights (CWV, breakdowns) integrate the native-side DevTools trace engine. Example: {insightName:"LCP"} → {summary:{}}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `insightName` | string |  | Optional insight name for future deep analysis (e.g., "DocumentLatency"). Currently informational only. |
-| `timeoutMs` | number |  | Timeout for deep analysis via native host (milliseconds). Default 60000. Increase for large traces. |
+| `action` | `start` \| `stop` \| `analyze` | ✓ | start=begin trace, stop=end + optionally save, analyze=summary of last trace. |
+| `reload` | boolean |  | For action=start: reload page after start (cache-ignored). |
+| `autoStop` | boolean |  | For action=start: auto-stop after durationMs. |
+| `durationMs` | number |  | For action=start: auto-stop after this many ms (default 5000). |
+| `saveToDownloads` | boolean |  | For action=stop: save trace JSON to Downloads (default true). |
+| `filenamePrefix` | string |  | For action=stop: filename prefix for the saved trace. |
+| `insightName` | string |  | For action=analyze: optional insight key (e.g. "LCP"). |
+| `timeoutMs` | number |  | For action=analyze: native-host timeout (ms, default 60000). |
 
 ### `chrome_web_vitals`
 

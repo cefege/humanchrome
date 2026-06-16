@@ -70,9 +70,7 @@ export const TOOL_NAMES = {
     HANDLE_DIALOG: 'chrome_handle_dialog',
     HANDLE_DOWNLOAD: 'chrome_handle_download',
     USERSCRIPT: 'chrome_userscript',
-    PERFORMANCE_START_TRACE: 'chrome_performance_start_trace',
-    PERFORMANCE_STOP_TRACE: 'chrome_performance_stop_trace',
-    PERFORMANCE_ANALYZE_INSIGHT: 'chrome_performance_analyze_insight',
+    PERFORMANCE_TRACE: 'chrome_performance_trace',
     GIF_RECORDER: 'chrome_gif_recorder',
     DEBUG_DUMP: 'chrome_debug_dump',
     ASSERT: 'chrome_assert',
@@ -195,67 +193,45 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE,
+    name: TOOL_NAMES.BROWSER.PERFORMANCE_TRACE,
     description:
-      'Start a performance trace recording on the selected page. Optionally reload first and/or auto-stop after a duration. Example: {reload:true, autoStop:true, durationMs:5000} → {started:true}',
+      'Performance trace via action enum. Replaces chrome_performance_start_trace/stop_trace/analyze_insight. Example: {action:"start", reload:true, autoStop:true, durationMs:5000} → {started:true}; {action:"stop", saveToDownloads:true} → {stopped, path}; {action:"analyze", insightName:"LCP"} → {summary}.',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['start', 'stop', 'analyze'],
+          description:
+            'start=begin trace, stop=end + optionally save, analyze=summary of last trace.',
+        },
         reload: {
           type: 'boolean',
-          description:
-            'Determines if, once tracing has started, the page should be automatically reloaded (ignore cache).',
+          description: 'For action=start: reload page after start (cache-ignored).',
         },
-        autoStop: {
-          type: 'boolean',
-          description: 'Determines if the trace should be automatically stopped (default false).',
-        },
+        autoStop: { type: 'boolean', description: 'For action=start: auto-stop after durationMs.' },
         durationMs: {
           type: 'number',
-          description: 'Auto-stop duration in milliseconds when autoStop is true (default 5000).',
+          description: 'For action=start: auto-stop after this many ms (default 5000).',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE,
-    description:
-      'Stop the active performance trace recording on the selected page. Optionally save the raw trace to Downloads. Example: {saveToDownloads:true, filenamePrefix:"home"} → {stopped:true, path}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         saveToDownloads: {
           type: 'boolean',
-          description: 'Whether to save the trace as a JSON file in Downloads (default true).',
+          description: 'For action=stop: save trace JSON to Downloads (default true).',
         },
         filenamePrefix: {
           type: 'string',
-          description: 'Optional filename prefix for the downloaded trace JSON.',
+          description: 'For action=stop: filename prefix for the saved trace.',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT,
-    description:
-      'Lightweight summary of the last recorded performance trace. For deep insights (CWV, breakdowns) integrate the native-side DevTools trace engine. Example: {insightName:"LCP"} → {summary:{}}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         insightName: {
           type: 'string',
-          description:
-            'Optional insight name for future deep analysis (e.g., "DocumentLatency"). Currently informational only.',
+          description: 'For action=analyze: optional insight key (e.g. "LCP").',
         },
         timeoutMs: {
           type: 'number',
-          description:
-            'Timeout for deep analysis via native host (milliseconds). Default 60000. Increase for large traces.',
+          description: 'For action=analyze: native-host timeout (ms, default 60000).',
         },
       },
-      required: [],
+      required: ['action'],
     },
   },
   {
@@ -3526,9 +3502,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.BOOKMARK]: 'State',
   [TOOL_NAMES.BROWSER.COOKIES]: 'State',
 
-  [TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE]: 'Performance',
-  [TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE]: 'Performance',
-  [TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT]: 'Performance',
+  [TOOL_NAMES.BROWSER.PERFORMANCE_TRACE]: 'Performance',
 
   [TOOL_NAMES.BROWSER.DEBUG_DUMP]: 'Diagnostics',
 

@@ -156,8 +156,8 @@ function getOrCreateStopPromise(session: TraceSessionState): Promise<{ completed
 /**
  * Start performance trace
  */
-class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.PERFORMANCE_START_TRACE;
+class PerformanceStartTraceInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_performance_trace__start_internal';
 
   async execute(args: StartTraceParams): Promise<ToolResult> {
     const { reload = false, autoStop = false, durationMs = 5000 } = args || {};
@@ -260,8 +260,8 @@ class PerformanceStartTraceTool extends BaseBrowserToolExecutor {
 /**
  * Stop performance trace
  */
-class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.PERFORMANCE_STOP_TRACE;
+class PerformanceStopTraceInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_performance_trace__stop_internal';
 
   async execute(args: StopTraceParams): Promise<ToolResult> {
     const { saveToDownloads = true, filenamePrefix } = args || {};
@@ -363,8 +363,8 @@ class PerformanceStopTraceTool extends BaseBrowserToolExecutor {
  * Note: Deep insights require DevTools front-end trace engine on the native side; this is a
  * pragmatic first step returning basic metrics and a quick event histogram.
  */
-class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.PERFORMANCE_ANALYZE_INSIGHT;
+class PerformanceAnalyzeInsightInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_performance_trace__analyze_internal';
 
   async execute(args: AnalyzeInsightParams): Promise<ToolResult> {
     const { insightName } = args || {};
@@ -389,10 +389,7 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
         try {
           const timeoutMs = Math.max(
             10_000,
-            Math.min(
-              args?.timeoutMs ?? DEFAULT_PERF_TRACE_MAX_DURATION_MS,
-              MAX_TOOL_TIMEOUT_MS,
-            ),
+            Math.min(args?.timeoutMs ?? DEFAULT_PERF_TRACE_MAX_DURATION_MS, MAX_TOOL_TIMEOUT_MS),
           );
           const resp = await sendNativeRequest<{
             success?: boolean;
@@ -469,6 +466,56 @@ class PerformanceAnalyzeInsightTool extends BaseBrowserToolExecutor {
   }
 }
 
-export const performanceStartTraceTool = new PerformanceStartTraceTool();
-export const performanceStopTraceTool = new PerformanceStopTraceTool();
-export const performanceAnalyzeInsightTool = new PerformanceAnalyzeInsightTool();
+const performanceStartTraceInternal = new PerformanceStartTraceInternal();
+const performanceStopTraceInternal = new PerformanceStopTraceInternal();
+const performanceAnalyzeInsightInternal = new PerformanceAnalyzeInsightInternal();
+
+// Backward-compat exports for tests that import the per-action handlers.
+export const performanceStartTraceTool = performanceStartTraceInternal;
+export const performanceStopTraceTool = performanceStopTraceInternal;
+export const performanceAnalyzeInsightTool = performanceAnalyzeInsightInternal;
+
+/**
+ * Unified chrome_performance_trace tool (Slice 8 of IMP-0188 catalog consolidation).
+ * Routes by `action` to start/stop/analyze.
+ */
+type PerformanceTraceAction = 'start' | 'stop' | 'analyze';
+const PERFORMANCE_ACTIONS: readonly PerformanceTraceAction[] = [
+  'start',
+  'stop',
+  'analyze',
+] as const;
+
+class PerformanceTraceTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.PERFORMANCE_TRACE;
+  static readonly mutates = true;
+
+  async execute(
+    args: { action: PerformanceTraceAction } & Record<string, unknown>,
+  ): Promise<ToolResult> {
+    if (!args || typeof args.action !== 'string') {
+      return createErrorResponse(
+        `\`action\` is required (one of: ${PERFORMANCE_ACTIONS.join(', ')})`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (!PERFORMANCE_ACTIONS.includes(args.action)) {
+      return createErrorResponse(
+        `Invalid action "${args.action}": expected one of ${PERFORMANCE_ACTIONS.join(', ')}`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    switch (args.action) {
+      case 'start':
+        return performanceStartTraceInternal.execute(args as any);
+      case 'stop':
+        return performanceStopTraceInternal.execute(args as any);
+      case 'analyze':
+        return performanceAnalyzeInsightInternal.execute(args as any);
+    }
+  }
+}
+
+export const performanceTraceTool = new PerformanceTraceTool();

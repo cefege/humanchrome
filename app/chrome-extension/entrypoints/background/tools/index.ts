@@ -130,11 +130,7 @@ import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-re
 import { javascriptTool } from './browser/javascript';
 import { readPageTool } from './browser/read-page';
 import { userscriptTool } from './browser/userscript';
-import {
-  performanceStartTraceTool,
-  performanceStopTraceTool,
-  performanceAnalyzeInsightTool,
-} from './browser/performance';
+import { performanceTraceTool } from './browser/performance';
 import { elementPickerTool } from './browser/element-picker';
 // vector-search.ts is now a thin RPC shim — the heavy ML graph lives in
 // the offscreen document, so static import is safe (no SW dynamic-import()
@@ -231,9 +227,7 @@ const eagerTools: ToolInstance[] = [
   javascriptTool,
   readPageTool,
   userscriptTool,
-  performanceStartTraceTool,
-  performanceStopTraceTool,
-  performanceAnalyzeInsightTool,
+  performanceTraceTool,
   elementPickerTool,
   vectorSearchTabsContentTool,
 ];

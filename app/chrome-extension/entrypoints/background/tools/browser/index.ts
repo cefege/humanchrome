@@ -58,6 +58,7 @@ export { handleDialogTool } from './dialog';
 export { handleDownloadTool } from './download';
 export { userscriptTool } from './userscript';
 export {
+  performanceTraceTool,
   performanceStartTraceTool,
   performanceStopTraceTool,
   performanceAnalyzeInsightTool,
