@@ -47,6 +47,8 @@ export {
   sendCommandToInjectScriptTool,
   removeInjectedScriptTool,
 } from './inject-script';
+// Slice 2: listInjectedScriptsTool + removeInjectedScriptTool stay exported
+// for tests but are no longer in TOOL_NAMES / TOOL_SCHEMAS / category map.
 export { javascriptTool } from './javascript';
 export { consoleTool } from './console';
 export { fileUploadTool } from './file-upload';

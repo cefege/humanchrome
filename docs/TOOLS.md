@@ -195,7 +195,7 @@ List frames in a tab via chrome.webNavigation.getAllFrames as {frameId, parentFr
 
 ### `chrome_screenshot`
 
-Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For element discovery prefer chrome_aria_snapshot or chrome_read_page (ref-roundtripping); for coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height} Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).
+Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height}. Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -203,12 +203,12 @@ Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Ni
 | `selector` | string |  | CSS selector for element to screenshot |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
-| `background` | boolean |  | Attempt capture without bringing tab/window to foreground. CDP-based capture is used for simple viewport captures. For element/full-page capture, the tab may still be made active in its window without focusing the window. Default: true. Pass false to foreground. |
-| `width` | number |  | Width in pixels (default: 800) |
-| `height` | number |  | Height in pixels (default: 600) |
-| `storeBase64` | boolean |  | return screenshot in base64 format (default: false) if you want to see the page, recommend set this to be true |
-| `fullPage` | boolean |  | Store screenshot of the entire page (default: true) |
-| `savePng` | boolean |  | Save screenshot as PNG file (default: true)，if you want to see the page, recommend set this to be false, and set storeBase64 to be true |
+| `background` | boolean |  |  |
+| `width` | number |  |  |
+| `height` | number |  |  |
+| `storeBase64` | boolean |  |  |
+| `fullPage` | boolean |  |  |
+| `savePng` | boolean |  |  |
 
 ### `chrome_get_web_content`
 
@@ -624,14 +624,6 @@ Inject a one-off content script into a tab (ISOLATED or MAIN world) with a custo
 | `type` | `ISOLATED` \| `MAIN` | ✓ | The JavaScript world the script should execute in. Must be ISOLATED or MAIN. |
 | `jsScript` | string | ✓ | The JavaScript source to inject. |
 
-### `chrome_list_injected_scripts`
-
-List the per-tab scripts injected by chrome_inject_script with their world and timestamp. For chrome_userscript-managed scripts use chrome_userscript({action:"list"}). Example: {} → {scripts:[{tabId:42, world:"MAIN"}]}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | When provided, return only the entry for this tab id (or an empty array if no injection). Omit to list every injected tab. |
-
 ### `chrome_send_command_to_inject_script`
 
 Dispatch a custom event into a tab's previously injected chrome_inject_script bridge. For chrome_userscript-managed scripts use chrome_userscript({action:"send_command"}). Example: {tabId:5, eventName:"refresh", payload:{id:42}} → {dispatched:true}
@@ -653,14 +645,6 @@ Execute JS via CDP Runtime.evaluate in a tab (one-shot, CSP-bypassing). For pers
 | `timeoutMs` | number |  | Execution timeout in milliseconds (default: 15000). |
 | `maxOutputBytes` | number |  | Maximum output size in bytes after sanitization (default: 51200). Output exceeding this limit is truncated and `truncated:true` is set in the response — pass a larger value to opt into a fuller read. |
 | `writeResultTo` | string |  | Absolute file path. If set, the bridge writes the JSON-serialized `result` to this path and returns a small ack ({writtenTo, bytes, sha256}) instead of the full payload — keeps large blobs (e.g. ~200KB JSON fetches) out of the LLM context. Parent directories are created if missing. Relative paths are rejected with INVALID_ARGS. |
-
-### `chrome_remove_injected_script`
-
-Tear down a chrome_inject_script previously installed in a tab. For chrome_userscript-managed scripts use chrome_userscript({action:"remove"}). Example: {tabId:42} → {removed:true, tabId:42}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | Target tab. Falls back to the active tab in the focused window when omitted. |
 
 ## Network
 

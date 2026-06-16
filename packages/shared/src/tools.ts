@@ -57,7 +57,6 @@ export const TOOL_NAMES = {
     BOOKMARK: 'chrome_bookmark',
     COOKIES: 'chrome_cookies',
     INJECT_SCRIPT: 'chrome_inject_script',
-    LIST_INJECTED_SCRIPTS: 'chrome_list_injected_scripts',
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
     JAVASCRIPT: 'chrome_javascript',
     CONSOLE: 'chrome_console',
@@ -96,7 +95,6 @@ export const TOOL_NAMES = {
     IDENTITY: 'chrome_identity',
     DRAG_DROP: 'chrome_drag_drop',
     DOWNLOAD: 'chrome_download',
-    REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     CLAIM_TAB: 'browser_claim_tab',
     LOCATOR_HANDLER: 'chrome_locator_handler',
     OWNED_TABS: 'chrome_owned_tabs',
@@ -703,35 +701,19 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.SCREENSHOT,
     description:
-      'Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For element discovery prefer chrome_aria_snapshot or chrome_read_page (ref-roundtripping); for coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height} Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).',
+      'Take a PNG/JPEG screenshot of page or element via CDP Page.captureScreenshot. Niche: lightweight image capture. For coordinate-driven workflows use chrome_computer({action:"screenshot"}). Example: {selector:"#hero", fullPage:false} → {savedPath, width, height}. Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Name for the screenshot, if saving as PNG' },
         selector: { type: 'string', description: 'CSS selector for element to screenshot' },
         ...TAB_TARGETING_NO_BG,
-        background: {
-          type: 'boolean',
-          description:
-            'Attempt capture without bringing tab/window to foreground. CDP-based capture is used for simple viewport captures. For element/full-page capture, the tab may still be made active in its window without focusing the window. Default: true. Pass false to foreground.',
-          default: true,
-        },
-        width: { type: 'number', description: 'Width in pixels (default: 800)' },
-        height: { type: 'number', description: 'Height in pixels (default: 600)' },
-        storeBase64: {
-          type: 'boolean',
-          description:
-            'return screenshot in base64 format (default: false) if you want to see the page, recommend set this to be true',
-        },
-        fullPage: {
-          type: 'boolean',
-          description: 'Store screenshot of the entire page (default: true)',
-        },
-        savePng: {
-          type: 'boolean',
-          description:
-            'Save screenshot as PNG file (default: true)，if you want to see the page, recommend set this to be false, and set storeBase64 to be true',
-        },
+        background: { type: 'boolean', default: true },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        storeBase64: { type: 'boolean' },
+        fullPage: { type: 'boolean' },
+        savePng: { type: 'boolean' },
       },
       required: [],
     },
@@ -1195,22 +1177,6 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['type', 'jsScript'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS,
-    description:
-      'List the per-tab scripts injected by chrome_inject_script with their world and timestamp. For chrome_userscript-managed scripts use chrome_userscript({action:"list"}). Example: {} → {scripts:[{tabId:42, world:"MAIN"}]}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description:
-            'When provided, return only the entry for this tab id (or an empty array if no injection). Omit to list every injected tab.',
-        },
-      },
-      required: [],
     },
   },
   {
@@ -2777,22 +2743,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT,
-    description:
-      'Tear down a chrome_inject_script previously installed in a tab. For chrome_userscript-managed scripts use chrome_userscript({action:"remove"}). Example: {tabId:42} → {removed:true, tabId:42}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description:
-            'Target tab. Falls back to the active tab in the focused window when omitted.',
-        },
-      },
-      required: [],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.CLAIM_TAB,
     description:
       "Claim an unowned tab into the calling client's owned set so implicit tab-resolution can target it. Use force:true to seize a tab owned by another client (audit-logged). Example: {tabId:42} → {tabId:42, previousOwner:null}",
@@ -3366,10 +3316,10 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.TAB_GROUPS]: 'Browser management',
 
   [TOOL_NAMES.BROWSER.READ_PAGE]: 'Reading',
+  [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.STORAGE]: 'State',
   [TOOL_NAMES.BROWSER.LIST_FRAMES]: 'Reading',
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
-  [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: 'Reading',
 
   [TOOL_NAMES.BROWSER.CLICK]: 'Interaction',
@@ -3383,7 +3333,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.JAVASCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.INJECT_SCRIPT]: 'Scripting',
-  [TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS]: 'Scripting',
   [TOOL_NAMES.BROWSER.SEND_COMMAND_TO_INJECT_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.USERSCRIPT]: 'Scripting',
 
@@ -3427,7 +3376,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.IDENTITY]: 'System',
   [TOOL_NAMES.BROWSER.DRAG_DROP]: 'Interaction',
   [TOOL_NAMES.BROWSER.DOWNLOAD]: 'Files',
-  [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
   [TOOL_NAMES.BROWSER.OWNED_TABS]: 'Browser management',

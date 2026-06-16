@@ -145,7 +145,9 @@ const injectedTabs = createOwnedRegistry<InjectedTabEntry>({
     // Tab closed or client released — nothing to send to the page (tab
     // is gone or unowned). handleCleanup is the orchestrator for the
     // live-tab cleanup path; this only handles the auto-eviction case.
-    console.log(`inject-script: evicted clientId=${clientId} tabId=${tabId} (tab-close or client-release)`);
+    console.log(
+      `inject-script: evicted clientId=${clientId} tabId=${tabId} (tab-close or client-release)`,
+    );
   },
 });
 
@@ -470,7 +472,7 @@ async function handleCleanup(tabId: number) {
  * chrome_inject_script already declares.
  */
 class ListInjectedScriptsTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.LIST_INJECTED_SCRIPTS;
+  name = 'chrome_inject_script__list_internal';
 
   async execute(args: ListInjectedScriptsToolParam): Promise<ToolResult> {
     const filterTabId = typeof args?.tabId === 'number' ? args.tabId : undefined;
@@ -525,7 +527,7 @@ export interface RemoveInjectedScriptParams {
  * nothing to remove, so callers that don't track state can call freely.
  */
 class RemoveInjectedScriptTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT;
+  name = 'chrome_inject_script__remove_internal';
   static readonly mutates = true;
 
   async execute(args: RemoveInjectedScriptParams = {}): Promise<ToolResult> {

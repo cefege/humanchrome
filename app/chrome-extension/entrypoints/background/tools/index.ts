@@ -77,12 +77,7 @@ import { historyTool } from './browser/history';
 import { listFramesTool } from './browser/list-frames';
 import { bookmarkTool } from './browser/bookmark';
 import { cookiesTool } from './browser/cookies';
-import {
-  injectScriptTool,
-  listInjectedScriptsTool,
-  sendCommandToInjectScriptTool,
-  removeInjectedScriptTool,
-} from './browser/inject-script';
+import { injectScriptTool, sendCommandToInjectScriptTool } from './browser/inject-script';
 import { consoleTool } from './browser/console';
 import { fileUploadTool } from './browser/file-upload';
 import { handleDialogTool } from './browser/dialog';
@@ -179,9 +174,7 @@ const eagerTools: ToolInstance[] = [
   bookmarkTool,
   cookiesTool,
   injectScriptTool,
-  listInjectedScriptsTool,
   sendCommandToInjectScriptTool,
-  removeInjectedScriptTool,
   consoleTool,
   fileUploadTool,
   handleDialogTool,
