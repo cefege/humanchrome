@@ -10,6 +10,8 @@ const EMULATE_ACTIONS = [
   'set_timezone',
   'set_geolocation',
   'set_color_scheme',
+  'set_network',
+  'reset_network',
   'reset_all',
   'get_state',
 ] as const;
@@ -52,6 +54,8 @@ type Action =
   | 'set_timezone'
   | 'set_geolocation'
   | 'set_color_scheme'
+  | 'set_network'
+  | 'reset_network'
   | 'reset_all'
   | 'get_state';
 
@@ -294,7 +298,9 @@ class EmulateTool extends BaseBrowserToolExecutor {
             );
           }
           const accuracy =
-            typeof args.accuracy === 'number' && Number.isFinite(args.accuracy) && args.accuracy >= 0
+            typeof args.accuracy === 'number' &&
+            Number.isFinite(args.accuracy) &&
+            args.accuracy >= 0
               ? args.accuracy
               : 100;
           await cdpSessionManager.withSession(tabId, OWNER, async () => {
@@ -353,6 +359,24 @@ class EmulateTool extends BaseBrowserToolExecutor {
           });
         }
 
+        case 'set_network': {
+          // Slice 10 fold: delegate to chrome_network_emulate's CDP Network domain logic.
+          const { networkEmulateTool } = await import('./network-emulate');
+          return networkEmulateTool.execute({
+            ...args,
+            action: 'set',
+            tabId,
+          } as unknown as Parameters<typeof networkEmulateTool.execute>[0]);
+        }
+
+        case 'reset_network': {
+          const { networkEmulateTool } = await import('./network-emulate');
+          return networkEmulateTool.execute({
+            action: 'reset',
+            tabId,
+          } as unknown as Parameters<typeof networkEmulateTool.execute>[0]);
+        }
+
         case 'reset_all': {
           // Best-effort: send the clears we know about; ignore individual
           // command rejections (the override may not have been set in the
@@ -393,10 +417,14 @@ class EmulateTool extends BaseBrowserToolExecutor {
       if (/another debugger|already attached/i.test(msg)) {
         return createErrorResponse(msg, ToolErrorCode.CDP_BUSY, { tabId });
       }
-      return createErrorResponse(`chrome_emulate(${action}) failed: ${msg}`, ToolErrorCode.UNKNOWN, {
-        tabId,
-        action,
-      });
+      return createErrorResponse(
+        `chrome_emulate(${action}) failed: ${msg}`,
+        ToolErrorCode.UNKNOWN,
+        {
+          tabId,
+          action,
+        },
+      );
     }
   }
 
@@ -411,7 +439,14 @@ class EmulateTool extends BaseBrowserToolExecutor {
 function resolveDevice(
   args: EmulateParams,
 ):
-  | { width: number; height: number; deviceScaleFactor: number; mobile: boolean; hasTouch: boolean; preset?: string }
+  | {
+      width: number;
+      height: number;
+      deviceScaleFactor: number;
+      mobile: boolean;
+      hasTouch: boolean;
+      preset?: string;
+    }
   | { error: string; arg: string } {
   let base: Partial<DevicePreset> & { preset?: string } = {};
   if (args.preset) {

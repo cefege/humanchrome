@@ -19,7 +19,7 @@ const KBPS_TO_BYTES_PER_SEC = 1024 / 8;
 const SESSION_OWNER = 'network-emulate';
 
 class NetworkEmulateTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.NETWORK_EMULATE;
+  name = 'chrome_emulate__network_internal';
   static readonly mutates = true;
 
   async execute(args: NetworkEmulateParams): Promise<ToolResult> {

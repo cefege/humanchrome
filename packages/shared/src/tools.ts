@@ -79,7 +79,6 @@ export const TOOL_NAMES = {
     CLIPBOARD: 'chrome_clipboard',
     SESSIONS: 'chrome_sessions',
     TAB_LIFECYCLE: 'chrome_tab_lifecycle',
-    NETWORK_EMULATE: 'chrome_network_emulate',
     PRINT_TO_PDF: 'chrome_print_to_pdf',
     BLOCK_OR_REDIRECT: 'chrome_block_or_redirect',
     ACTION_BADGE: 'chrome_action_badge',
@@ -2108,43 +2107,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.NETWORK_EMULATE,
-    description:
-      'Throttle/offline a tab via CDP Network.emulateNetworkConditions (network domain only). Niche: throttle latency/bandwidth or simulate offline. For viewport/UA/locale/geo/device emulation use chrome_emulate (CDP Emulation domain — separate layer). Example: {action:"set", offline:true} → {applied:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['set', 'reset'],
-          description: 'Operation to perform.',
-        },
-        tabId: {
-          type: 'number',
-          description: 'Target tab. Required for both actions.',
-        },
-        offline: {
-          type: 'boolean',
-          description: 'When true, force the tab offline. Default false.',
-        },
-        latencyMs: {
-          type: 'number',
-          description:
-            'Round-trip latency in milliseconds. 0 disables latency emulation. Used by `set`.',
-        },
-        downloadKbps: {
-          type: 'number',
-          description: 'Max download throughput in kbps. -1 disables (unbounded). Used by `set`.',
-        },
-        uploadKbps: {
-          type: 'number',
-          description: 'Max upload throughput in kbps. -1 disables. Used by `set`.',
-        },
-      },
-      required: ['action', 'tabId'],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.PRINT_TO_PDF,
     description:
       'Save a tab as PDF via CDP Page.printToPDF. Returns base64 by default; with savePath the bridge writes to disk and returns {path, bytes}. Common page/margin options exposed. Example: {savePath:"/tmp/out.pdf", landscape:true} → {path, bytes} Cross-ref: page.pdf (Playwright API).',
@@ -3169,7 +3131,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.EMULATE,
     description:
-      'Per-tab CDP Emulation overrides: viewport (set_device), user-agent (set_ua), locale (set_locale), timezone, geolocation, color scheme. Niche: identity/render context. For network throttling use chrome_network_emulate (CDP Network domain). Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true} Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).',
+      'Per-tab CDP Emulation overrides AND network throttling. Actions: set_device, set_ua, set_locale, set_timezone, set_geolocation, set_color_scheme (CDP Emulation domain); set_network, reset_network (CDP Network domain, replaces former chrome_network_emulate). Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true}; {action:"set_network", offline:true} → {applied:true}. Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3182,9 +3144,21 @@ export const TOOL_SCHEMAS: Tool[] = [
             'set_timezone',
             'set_geolocation',
             'set_color_scheme',
+            'set_network',
+            'reset_network',
             'reset_all',
             'get_state',
           ],
+        },
+        offline: { type: 'boolean', description: 'For set_network: force offline.' },
+        latencyMs: { type: 'number', description: 'For set_network: round-trip latency ms.' },
+        downloadKbps: {
+          type: 'number',
+          description: 'For set_network: max download throughput kbps (-1 unbounded).',
+        },
+        uploadKbps: {
+          type: 'number',
+          description: 'For set_network: max upload throughput kbps (-1 unbounded).',
         },
         tabId: { type: 'number' },
         preset: { type: 'string', description: 'Device preset name (set_device).' },
@@ -3451,7 +3425,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.CLIPBOARD]: 'System',
   [TOOL_NAMES.BROWSER.SESSIONS]: 'Browser management',
   [TOOL_NAMES.BROWSER.TAB_LIFECYCLE]: 'Browser management',
-  [TOOL_NAMES.BROWSER.NETWORK_EMULATE]: 'Network',
   [TOOL_NAMES.BROWSER.PRINT_TO_PDF]: 'Reading',
   [TOOL_NAMES.BROWSER.BLOCK_OR_REDIRECT]: 'Network',
   [TOOL_NAMES.BROWSER.ACTION_BADGE]: 'System',

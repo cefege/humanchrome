@@ -50,7 +50,6 @@ import { notificationsTool } from './browser/notifications';
 import { clipboardTool } from './browser/clipboard';
 import { sessionsTool } from './browser/sessions';
 import { tabLifecycleTool } from './browser/tab-lifecycle';
-import { networkEmulateTool } from './browser/network-emulate';
 import { printToPdfTool } from './browser/print-to-pdf';
 import { blockOrRedirectTool } from './browser/block-or-redirect';
 import { actionBadgeTool } from './browser/action-badge';
@@ -153,7 +152,6 @@ const eagerTools: ToolInstance[] = [
   clipboardTool,
   sessionsTool,
   tabLifecycleTool,
-  networkEmulateTool,
   printToPdfTool,
   blockOrRedirectTool,
   actionBadgeTool,

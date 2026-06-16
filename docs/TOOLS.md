@@ -713,19 +713,6 @@ Wait for the next network response matching urlPattern on a tab and return its p
 | `returnBody` | boolean |  | When false (default true), skip getResponseBody and return only headers + status. Useful when you only need to detect that the call fired. |
 | `count` | number |  | How many matching responses to accumulate before detaching (default 1, max 100). When 1 (default), the tool resolves on the first match and returns the single-response shape (ok, tabId, requestId, url, method, status, ...). When >1, it accumulates up to N matches (or until timeoutMs fires) and returns { ok, tabId, count, matched, responses: [{...}, ...] } — matched may be less than count on timeout. On timeout with zero matches, the same TIMEOUT envelope is returned regardless of count. |
 
-### `chrome_network_emulate`
-
-Throttle/offline a tab via CDP Network.emulateNetworkConditions (network domain only). Niche: throttle latency/bandwidth or simulate offline. For viewport/UA/locale/geo/device emulation use chrome_emulate (CDP Emulation domain — separate layer). Example: {action:"set", offline:true} → {applied:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `action` | `set` \| `reset` | ✓ | Operation to perform. |
-| `tabId` | number | ✓ | Target tab. Required for both actions. |
-| `offline` | boolean |  | When true, force the tab offline. Default false. |
-| `latencyMs` | number |  | Round-trip latency in milliseconds. 0 disables latency emulation. Used by `set`. |
-| `downloadKbps` | number |  | Max download throughput in kbps. -1 disables (unbounded). Used by `set`. |
-| `uploadKbps` | number |  | Max upload throughput in kbps. -1 disables. Used by `set`. |
-
 ### `chrome_block_or_redirect`
 
 Block or redirect requests via declarativeNetRequest session rules (request-side). Niche: cancel/302 a URL pattern before the network sees it. For response-body replacement use chrome_mock_response (CDP Fetch.fulfillRequest); for header injection use chrome_set_extra_http_headers (CDP). Example: {action:"add", urlFilter:"||tracker.com", ruleAction:"block"} → {ruleId:1, success:true} Cross-ref: page.route, browserContext.route (Playwright API).
@@ -973,11 +960,15 @@ Wipe browsingData stores (cookies, cache, localStorage, history, etc.) via chrom
 
 ### `chrome_emulate`
 
-Per-tab CDP Emulation overrides: viewport (set_device), user-agent (set_ua), locale (set_locale), timezone, geolocation, color scheme. Niche: identity/render context. For network throttling use chrome_network_emulate (CDP Network domain). Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true} Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).
+Per-tab CDP Emulation overrides AND network throttling. Actions: set_device, set_ua, set_locale, set_timezone, set_geolocation, set_color_scheme (CDP Emulation domain); set_network, reset_network (CDP Network domain, replaces former chrome_network_emulate). Example: {action:"set_timezone", timezone:"Europe/London"} → {ok:true}; {action:"set_network", offline:true} → {applied:true}. Cross-ref: browser_resize (MCP @playwright/mcp); page.setViewportSize, page.emulateMedia, browser.newContext (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action` | `set_device` \| `set_ua` \| `set_locale` \| `set_timezone` \| `set_geolocation` \| `set_color_scheme` \| `reset_all` \| `get_state` | ✓ |  |
+| `action` | `set_device` \| `set_ua` \| `set_locale` \| `set_timezone` \| `set_geolocation` \| `set_color_scheme` \| `set_network` \| `reset_network` \| `reset_all` \| `get_state` | ✓ |  |
+| `offline` | boolean |  | For set_network: force offline. |
+| `latencyMs` | number |  | For set_network: round-trip latency ms. |
+| `downloadKbps` | number |  | For set_network: max download throughput kbps (-1 unbounded). |
+| `uploadKbps` | number |  | For set_network: max upload throughput kbps (-1 unbounded). |
 | `tabId` | number |  |  |
 | `preset` | string |  | Device preset name (set_device). |
 | `width` | number |  |  |
