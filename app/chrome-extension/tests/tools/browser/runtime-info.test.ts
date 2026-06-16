@@ -76,9 +76,9 @@ describe('chrome_runtime_info', () => {
     expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.DEV_RELOAD);
   });
 
-  it('includes a well-known stable tool name (chrome_pace_get) — sanity check on registry', async () => {
+  it('includes a well-known stable tool name (chrome_pace) — sanity check on registry', async () => {
     const body = parseBody(await runtimeInfoTool.execute());
-    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.PACE_GET);
+    expect(body.toolNames).toContain(TOOL_NAMES.BROWSER.PACE);
   });
 
   it('reports the build-time-injected buildHash', async () => {

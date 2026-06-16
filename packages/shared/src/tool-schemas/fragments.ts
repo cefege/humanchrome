@@ -3,7 +3,7 @@
  *
  * Keeps the canonical wording for cross-cutting concepts (tab targeting,
  * generic timeouts, ref/selector) in one place. Tools that need different
- * semantics (e.g. chrome_wait_for_tab requiring tabId) override the field
+ * semantics (e.g. tools that require a specific tabId) override the field
  * inline after the spread.
  */
 

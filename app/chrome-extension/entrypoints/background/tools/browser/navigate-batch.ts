@@ -30,7 +30,7 @@ interface NavigateBatchToolParams {
  * The fan-out workflow — open N tabs, then iterate through them sequentially
  * — needs a single round-trip primitive instead of N `chrome_navigate` calls.
  * Tabs open in the background by default so the user's foreground tab keeps
- * focus while everything loads. Pair with `chrome_wait_for_tab` to drain.
+ * focus while everything loads. Pair with `chrome_wait_for kind:"load_state"` to drain.
  *
  * Concurrency
  * -----------
@@ -130,7 +130,7 @@ class NavigateBatchTool extends BaseBrowserToolExecutor {
     if (!useWorkerPool) {
       // Legacy path: open sequentially with optional perTabDelayMs spacing,
       // do NOT wait for tabs to finish loading. This preserves the prior
-      // contract (caller drains via chrome_wait_for_tab).
+      // contract (caller drains via chrome_wait_for kind:"load_state").
       for (let i = 0; i < urls.length; i++) {
         await openOne(i);
         if (perTabDelayMs > 0 && i < urls.length - 1) {

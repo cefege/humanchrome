@@ -64,7 +64,7 @@ Navigate to a URL, refresh, or go back/forward in history. Optionally open in a 
 
 ### `chrome_navigate_batch`
 
-Open many URLs at once and return their tabIds; tabs open backgrounded by default. Pair with chrome_wait_for_tab to drain sequentially. maxConcurrent blocks per batch. Example: {urls:["a.com","b.com"], maxConcurrent:2} → {tabIds:[101,102]}
+Open many URLs at once and return their tabIds; tabs open backgrounded by default. Pair with chrome_wait_for kind:"load_state" state:"complete" to drain sequentially. maxConcurrent blocks per batch. Example: {urls:["a.com","b.com"], maxConcurrent:2} → {tabIds:[101,102]}
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -74,15 +74,6 @@ Open many URLs at once and return their tabIds; tabs open backgrounded by defaul
 | `perTabDelayMs` | number |  | Delay between consecutive opens, in milliseconds. Default 0. Use a small value (50-200ms) on sites that flag burst opens. When maxConcurrent is also set, this delay applies WITHIN each worker (between consecutive opens by the same worker). |
 | `maxConcurrent` | number |  | Cap the number of in-flight tab loads. When omitted (or <= 0), all URLs open in parallel (current behavior). When set to N, opens N tabs and waits for each to finish loading before starting the next — useful on anti-bot platforms (LinkedIn, Instagram) that flag concurrent opens. Each waited tab uses a 30s load timeout; on timeout the tab is still recorded and the worker continues. |
 | `perUrlTimeoutMs` | number |  | Per-URL load timeout in ms when maxConcurrent is set. Default 30000. Ignored when maxConcurrent is not set. |
-
-### `chrome_wait_for_tab`
-
-Block until a tab reaches status:complete via chrome.tabs.onUpdated (no polling). Throws TAB_CLOSED or TIMEOUT. Example: {tabId:4, timeoutMs:10000} → {complete:true, tookMs}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number | ✓ | Tab to wait on. Required (no implicit active-tab fallback). Pass the tabId returned by chrome_navigate or chrome_navigate_batch. |
-| `timeoutMs` | number |  | Maximum wait in milliseconds (default 30000). |
 
 ### `chrome_close_tab`
 
@@ -262,15 +253,6 @@ Semantic vector search across content of currently open tabs. Returns matching t
 |-------|------|----------|-------------|
 | `query` | string | ✓ | The query to search for related content across open tabs. |
 
-### `chrome_console_clear`
-
-Reset the per-tab chrome_console buffer (and chrome_assert console_clean predicate) so subsequent reads are scoped to after the clear. No-op if buffer not yet started. Example: {tabId:42} → {success:true, cleared:12, bufferActive:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
-| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
-
 ### `chrome_print_to_pdf`
 
 Save a tab as PDF via CDP Page.printToPDF. Returns base64 by default; with savePath the bridge writes to disk and returns {path, bytes}. Common page/margin options exposed. Example: {savePath:"/tmp/out.pdf", landscape:true} → {path, bytes} Cross-ref: page.pdf (Playwright API).
@@ -424,24 +406,6 @@ Simulate keyboard input — single keys, chords, text, or a high-level shortcut 
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `frameId` | number |  | Target frame ID for iframe support. |
 
-### `chrome_await_element`
-
-Wait via MutationObserver for an element to be present or absent; returns immediately if goal state already true. Prefer over polling chrome_javascript for UI state changes. TIMEOUT envelope on expiry. Example: {selector:"#modal", state:"absent", timeoutMs:5000} → {success:true, found:false, absent:true} Cross-ref: browser_wait_for (MCP @playwright/mcp); locator.waitFor, page.waitForSelector (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `selector` | string |  | Selector for the element. Default kind is CSS; Playwright-style prefixed strings are also accepted: `role:button[name="Submit"]`, `label:Email`, `placeholder:Search`, `alt:Logo`, `title:Close`, `testid:submit-btn`, `text:Login`. Composite (iframe traversal) still uses `\|>` between the frame selector and inner selector: `iframe#payment \|> role:button[name="Pay"]`. Set `selectorType` explicitly when you want to disambiguate. |
-| `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
-| `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
-| `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
-| `ref` | string |  | Element ref from chrome_read_page. Takes precedence over selector. For state="absent", waits until the referenced element is detached or the ref no longer resolves. |
-| `state` | `present` \| `absent` |  | Target state to wait for: "present" (default) waits for a matching element to appear, "absent" waits for it to disappear. |
-| `timeoutMs` | number |  | Timeout in milliseconds (default: 15000, max: 120000). Returns a TIMEOUT error when the goal state is not reached in time. |
-| `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
-| `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
-| `background` | boolean |  | Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward. |
-| `frameId` | number |  | Target frame ID for iframe support. |
-
 ### `chrome_handle_dialog`
 
 Handle JS alert/confirm/prompt dialogs via CDP. Actions: handle_dialog (one-shot accept/dismiss), register_default (per-tab auto-handler, holds persistent debugger attach), unregister_default, list_defaults. Example: {action:"handle_dialog", behavior:"accept"} → {handled:true} Cross-ref: browser_handle_dialog (MCP @playwright/mcp); page.on("dialog"), dialog.accept, dialog.dismiss (Playwright API).
@@ -467,7 +431,7 @@ Run one or more predicates against the page and return structured pass/fail; ok 
 
 ### `chrome_wait_for`
 
-Wait for one of: element, network idle, response, JS expression, load state, or URL pattern. Replaces JS spin-polls; kind:"element" is preferred over chrome_await_element. Example: {kind:"network", quietMs:500} → {success:true, tookMs} Cross-ref: browser_wait_for (MCP @playwright/mcp); page.waitForSelector, page.waitForFunction, page.waitForLoadState (Playwright API).
+Wait for one of: element, network idle, response, JS expression, load state, or URL pattern. Replaces JS spin-polls. Example: {kind:"network", quietMs:500} → {success:true, tookMs} Cross-ref: browser_wait_for (MCP @playwright/mcp); page.waitForSelector, page.waitForFunction, page.waitForLoadState (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -498,7 +462,7 @@ Focus an element by selector or ref before keyboard input (chrome_paste, chrome_
 | `selectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Selector kind. `css` (default) and `xpath` are the legacy options. Playwright-style values resolve via the matching strategy: `role` (implicit/explicit ARIA role + accessible name), `label` (form labels), `placeholder` (input/textarea placeholder), `alt` (img/area alt text), `title` (title attribute), `testid` (data-testid/cy/test/qa), `text` (visible text). When set to a non-css/xpath value, the `selector` field carries the strategy payload (e.g. `button[name="Submit",exact=true]` for `role`, or the search text for `label`/`placeholder`/etc.). |
 | `index` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
 | `multi` | boolean |  | Disable strict mode — accept any matching element (first wins) instead of erroring on multi-match. Default false. Prefer `index` when you know which match to pick. |
-| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Required if `selector` is omitted; mutually exclusive with `selector`. |
+| `ref` | string |  | Element ref from chrome_read_page. Required if `selector` is omitted; mutually exclusive with `selector`. |
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
 | `frameId` | number |  | Optional frame to scope the lookup to. Defaults to the main frame. |
@@ -512,7 +476,7 @@ Focus an element by selector or ref and paste text — seeds the clipboard then 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `selector` | string |  | CSS selector for the target. Mutually exclusive with `ref`. |
-| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`. |
+| `ref` | string |  | Element ref from chrome_read_page. Mutually exclusive with `selector`. |
 | `text` | string |  | Optional text to seed the clipboard with before pasting. When omitted, whatever is currently on the OS clipboard is used. |
 | `tabId` | number |  | Target tab. Falls back to the active tab when omitted. |
 | `windowId` | number |  | Target window for active-tab lookup when `tabId` is omitted. |
@@ -525,7 +489,7 @@ Select text inside an element via setSelectionRange (inputs) or DOM Range (every
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `selector` | string |  | CSS selector for the target. Mutually exclusive with `ref`. |
-| `ref` | string |  | Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`. |
+| `ref` | string |  | Element ref from chrome_read_page. Mutually exclusive with `selector`. |
 | `substring` | string |  | Substring to find and select (first occurrence). Mutually exclusive with `start`+`end`. |
 | `start` | number |  | Character offset where the selection starts. Required if `end` is set. |
 | `end` | number |  | Character offset where the selection ends. Required if `start` is set. |
@@ -542,7 +506,7 @@ Drag from one element to another by synthesizing the full HTML5 DnD + Pointer-Ev
 | `fromSelector` | string |  | Selector for the drag source. Accepts CSS, XPath (via `selectorType="xpath"`), or Playwright-style prefixed forms (`role:button[name="Card"]`, `label:Email`, etc.). Mutually exclusive with `fromRef`. |
 | `fromSelectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Optional selector kind for `fromSelector`. Defaults to `css`. See chrome_click_element for the full list. |
 | `fromIndex` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
-| `fromRef` | string |  | Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`. |
+| `fromRef` | string |  | Element ref (chrome_read_page) for the drag source. Mutually exclusive with `fromSelector`. |
 | `toSelector` | string |  | Selector for the drop target — same kinds as `fromSelector`. Mutually exclusive with `toRef`. |
 | `toSelectorType` | `css` \| `xpath` \| `role` \| `label` \| `placeholder` \| `alt` \| `title` \| `testid` \| `text` |  | Optional selector kind for `toSelector`. Defaults to `css`. |
 | `toIndex` | number |  | Zero-based index to pick when the selector matches multiple elements. Default behavior is strict mode — multi-match without `index` or `multi:true` errors with INVALID_ARGS + `details: {matchCount, samples}`. Use this when you intentionally want the N-th match. |
@@ -612,7 +576,7 @@ Char-by-char keystroke typing with realistic per-key delay to bypass anti-bot ca
 
 ### `chrome_hover`
 
-Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mouseenter→pointerenter chain with actionability). Pair with chrome_await_element to wait for revealed UI. Example: {selector:".profile-card"} → {hovered:true, bbox, point, tagName} Cross-ref: browser_hover (MCP @playwright/mcp); page.hover, locator.hover (Playwright API).
+Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mouseenter→pointerenter chain with actionability). Pair with chrome_wait_for kind:"element" to wait for revealed UI. Example: {selector:".profile-card"} → {hovered:true, bbox, point, tagName} Cross-ref: browser_hover (MCP @playwright/mcp); page.hover, locator.hover (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1275,7 +1239,7 @@ Return recent extension debug-log entries correlated by requestId to the MCP cal
 
 ### `chrome_help`
 
-Search or browse the tool catalog. Three modes: {} → full {tools:[{name,summary}...]} index; {query:"click"} → ranked {matches:[{name,summary,score}...]} filtered by keyword (name + summary scored, typos tolerated); {name:"chrome_click_element"} → full {name,summary,description}. Use `query` first when you don't know the canonical name — beats guessing.
+Search or browse the tool catalog. Three modes: {} returns full index; {query} returns ranked matches (typos tolerated); {name} returns full description. Use {query} first when the canonical name is unknown. Example: {query:"click"} → {matches:[{name:"chrome_click_element",summary,score}...]}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1287,19 +1251,13 @@ Search or browse the tool catalog. Three modes: {} → full {tools:[{name,summar
 
 ### `chrome_pace`
 
-Set a per-MCP-client pacing profile so mutating tools sleep a profile-derived gap before firing (human-like rhythm for anti-bot platforms). Reads are un-throttled. State resets on SW restart. Example: {profile:"careful"} → {profile:"careful", minGapMs, jitterMs}
+Get or set per-MCP-client pacing. With profile, mutating tools sleep a profile-derived gap (anti-bot rhythm). With no args, returns current profile + resolved gap/jitter. Reads un-throttled. State resets on SW restart. Example: {profile:"careful"} → {profile, minGapMs, jitterMs}; {} → {profile:"off", minGapMs:0, jitterMs:0}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `profile` | `off` \| `human` \| `careful` \| `fast` | ✓ | Pacing preset. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait. |
+| `profile` | `off` \| `human` \| `careful` \| `fast` |  | Pacing preset. Omit to read current state. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait. |
 | `minGapMs` | number |  | Optional override: inclusive lower bound on gap between mutating dispatches (ms). Stacks with the profile preset. |
 | `jitterMs` | number |  | Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs. |
-
-### `chrome_pace_get`
-
-Read-only counterpart of chrome_pace. Returns the active pacing profile and the resolved gap/jitter for the next mutating call. Returns off-defaults when unset. Example: {} → {profile:"off", minGapMs:0, jitterMs:0}
-
-No parameters.
 
 ## Workflows
 

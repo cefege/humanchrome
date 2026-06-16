@@ -48,8 +48,16 @@ interface EvalCase {
  */
 const CASES: EvalCase[] = [
   // Page-reading + interaction chains.
-  { intent: 'Open https://example.com in the current tab', expectedTool: 'chrome_navigate', expectedArgKeys: ['url'] },
-  { intent: 'Take a screenshot of the page', expectedTool: 'chrome_computer', expectedAction: 'screenshot' },
+  {
+    intent: 'Open https://example.com in the current tab',
+    expectedTool: 'chrome_navigate',
+    expectedArgKeys: ['url'],
+  },
+  {
+    intent: 'Take a screenshot of the page',
+    expectedTool: 'chrome_computer',
+    expectedAction: 'screenshot',
+  },
   { intent: 'Get the accessibility tree of the visible page', expectedTool: 'chrome_read_page' },
   { intent: 'Click the button with id "submit"', expectedTool: 'chrome_click_element' },
   { intent: 'Fill the #email input with "user@x.com"', expectedTool: 'chrome_fill_or_select' },
@@ -57,38 +65,72 @@ const CASES: EvalCase[] = [
   { intent: 'Type "hello world" character-by-character into #q', expectedTool: 'chrome_type_into' },
   { intent: 'Press the keyboard shortcut for paste', expectedTool: 'chrome_keyboard' },
   { intent: 'Drag #card1 onto #col2', expectedTool: 'chrome_drag_drop' },
-  { intent: 'Wait for the #modal element to disappear', expectedTool: 'chrome_await_element' },
+  { intent: 'Wait for the #modal element to disappear', expectedTool: 'chrome_wait_for' },
 
   // Tabs + windows.
-  { intent: 'List all open browser windows and their tabs', expectedTool: 'chrome_get_windows_and_tabs' },
+  {
+    intent: 'List all open browser windows and their tabs',
+    expectedTool: 'chrome_get_windows_and_tabs',
+  },
   { intent: 'Switch focus to tab id 7', expectedTool: 'chrome_switch_tab' },
   { intent: 'Close tabs 3 and 5', expectedTool: 'chrome_close_tab' },
-  { intent: 'Group tabs 1 and 2 into a new "agent" group, colored blue', expectedTool: 'chrome_tab_groups', expectedAction: 'create' },
+  {
+    intent: 'Group tabs 1 and 2 into a new "agent" group, colored blue',
+    expectedTool: 'chrome_tab_groups',
+    expectedAction: 'create',
+  },
   { intent: 'Restore the most recently closed tab', expectedTool: 'chrome_sessions' },
 
   // Network.
-  { intent: 'Start capturing network traffic on this tab', expectedTool: 'chrome_network_capture', expectedAction: 'start' },
-  { intent: 'Stop the active network capture and return the buffer', expectedTool: 'chrome_network_capture', expectedAction: 'stop' },
-  { intent: 'Wait for the next /api/users response and return its JSON body', expectedTool: 'chrome_intercept_response' },
+  {
+    intent: 'Start capturing network traffic on this tab',
+    expectedTool: 'chrome_network_capture',
+    expectedAction: 'start',
+  },
+  {
+    intent: 'Stop the active network capture and return the buffer',
+    expectedTool: 'chrome_network_capture',
+    expectedAction: 'stop',
+  },
+  {
+    intent: 'Wait for the next /api/users response and return its JSON body',
+    expectedTool: 'chrome_intercept_response',
+  },
   { intent: 'Mock the /api/me endpoint to return {ok:true}', expectedTool: 'chrome_mock_response' },
   { intent: 'Block all requests to tracker.com', expectedTool: 'chrome_block_or_redirect' },
 
   // Storage / state.
   { intent: 'Read all cookies for linkedin.com', expectedTool: 'chrome_get_cookies' },
-  { intent: 'Delete the session cookie "sid" on https://example.com', expectedTool: 'chrome_remove_cookie' },
-  { intent: 'Read the localStorage key "flag" on this tab', expectedTool: 'chrome_storage', expectedAction: 'get' },
+  {
+    intent: 'Delete the session cookie "sid" on https://example.com',
+    expectedTool: 'chrome_remove_cookie',
+  },
+  {
+    intent: 'Read the localStorage key "flag" on this tab',
+    expectedTool: 'chrome_storage',
+    expectedAction: 'get',
+  },
 
   // Scripting + reading.
   { intent: 'Run document.title in this tab and return it', expectedTool: 'chrome_javascript' },
   { intent: 'Get the full page text as Markdown', expectedTool: 'chrome_get_web_content' },
-  { intent: 'Read href attributes of all links on the page', expectedTool: 'chrome_get_attributes' },
+  {
+    intent: 'Read href attributes of all links on the page',
+    expectedTool: 'chrome_get_attributes',
+  },
 
   // Performance / vitals.
-  { intent: 'Start a performance trace and reload the page', expectedTool: 'chrome_performance_start_trace' },
+  {
+    intent: 'Start a performance trace and reload the page',
+    expectedTool: 'chrome_performance_start_trace',
+  },
   { intent: 'Collect Core Web Vitals on this tab', expectedTool: 'chrome_web_vitals' },
 
   // Diagnostics + ownership.
-  { intent: 'Show me recent debug-log entries for chrome_click_element', expectedTool: 'chrome_debug_dump' },
+  {
+    intent: 'Show me recent debug-log entries for chrome_click_element',
+    expectedTool: 'chrome_debug_dump',
+  },
   { intent: 'Claim tab id 42 for this client', expectedTool: 'browser_claim_tab' },
 ];
 
@@ -252,7 +294,6 @@ describe('IMP-0184 evals harness wiring', () => {
   test('gate matches RUN_EVALS + ANTHROPIC_API_KEY presence', () => {
     const enabled = Boolean(RUN_EVALS && ANTHROPIC_API_KEY);
     if (!enabled) {
-      // eslint-disable-next-line no-console
       console.log(
         'IMP-0184 evals skipped — set RUN_EVALS=1 and ANTHROPIC_API_KEY to run live eval against the dispatcher.',
       );

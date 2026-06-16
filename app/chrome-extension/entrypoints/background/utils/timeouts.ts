@@ -18,7 +18,7 @@
  * pre-existing — this file is a pure rename, not a behavior change.
  */
 
-/** Default timeout for `chrome_await_element` waits (no element/state goal hit). */
+/** Default timeout for element-wait (chrome_wait_for kind:"element") when no explicit timeoutMs given. */
 export const DEFAULT_AWAIT_ELEMENT_TIMEOUT_MS = 15_000;
 
 /** Default timeout for the unified `chrome_wait_for` tool. */

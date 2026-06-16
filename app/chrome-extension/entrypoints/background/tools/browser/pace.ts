@@ -5,7 +5,7 @@ import { getCurrentRequestContext } from '../../utils/request-context';
 import { setClientPacing, getClientPacing, type PacingProfile } from '../../utils/client-state';
 
 interface PaceToolParams {
-  profile: PacingProfile;
+  profile?: PacingProfile;
   minGapMs?: number;
   jitterMs?: number;
 }
@@ -13,10 +13,14 @@ interface PaceToolParams {
 const VALID_PROFILES: PacingProfile[] = ['off', 'human', 'careful', 'fast'];
 
 /**
- * Set a per-MCP-client pacing profile. The throttle gate lives in
- * `tools/index.ts:handleCallTool` — when a mutating tool is dispatched and
- * the calling client has a profile, the handler sleeps for the computed gap
- * before forwarding to the tool's `execute()`. Reads stay un-throttled.
+ * Per-MCP-client pacing profile. Calling with `profile` sets it; calling
+ * with no `profile` returns the current state (replaces the previous
+ * `chrome_pace_get` tool — Slice 1 of catalog consolidation).
+ *
+ * The throttle gate lives in `tools/index.ts:handleCallTool` — when a
+ * mutating tool is dispatched and the calling client has a profile, the
+ * handler sleeps for the computed gap before forwarding to the tool's
+ * `execute()`. Reads stay un-throttled.
  *
  * State lives in `utils/client-state.ts` next to the existing per-client
  * tab pinning. Service-worker restart resets to off (intentional —
@@ -26,13 +30,42 @@ class PaceTool extends BaseBrowserToolExecutor {
   name = TOOL_NAMES.BROWSER.PACE;
   static readonly autoSpawnTab = false;
 
-  async execute(args: PaceToolParams): Promise<ToolResult> {
+  async execute(args: PaceToolParams = {}): Promise<ToolResult> {
     const ctx = getCurrentRequestContext();
     const clientId = ctx?.clientId;
 
-    if (!args || typeof args.profile !== 'string') {
+    if (!clientId) {
+      // Without a clientId we have nowhere to attach the profile — this
+      // shouldn't happen on the MCP path (the bridge always passes it),
+      // but guard against the REST path or test contexts.
       return createErrorResponse(
-        '`profile` is required (one of: off, human, careful, fast)',
+        'No client id available — pacing profiles are per-MCP-client. Set X-Client-Id on REST calls.',
+        ToolErrorCode.INVALID_ARGS,
+      );
+    }
+
+    // No profile arg → read current pacing (former chrome_pace_get path).
+    if (args.profile === undefined) {
+      const pacing = getClientPacing(clientId);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              clientId,
+              profile: pacing?.profile ?? 'off',
+              minGapMs: pacing?.minGapMs ?? 0,
+              jitterMs: pacing?.jitterMs ?? 0,
+            }),
+          },
+        ],
+        isError: false,
+      };
+    }
+
+    if (typeof args.profile !== 'string') {
+      return createErrorResponse(
+        '`profile` must be one of: off, human, careful, fast (or omit it to read current state)',
         ToolErrorCode.INVALID_ARGS,
         { arg: 'profile' },
       );
@@ -42,15 +75,6 @@ class PaceTool extends BaseBrowserToolExecutor {
         `Invalid profile "${args.profile}": expected one of ${VALID_PROFILES.join(', ')}`,
         ToolErrorCode.INVALID_ARGS,
         { arg: 'profile' },
-      );
-    }
-    if (!clientId) {
-      // Without a clientId we have nowhere to attach the profile — this
-      // shouldn't happen on the MCP path (the bridge always passes it),
-      // but guard against the REST path or test contexts.
-      return createErrorResponse(
-        'No client id available — pacing profiles are per-MCP-client. Set X-Client-Id on REST calls.',
-        ToolErrorCode.INVALID_ARGS,
       );
     }
 
@@ -79,42 +103,4 @@ class PaceTool extends BaseBrowserToolExecutor {
   }
 }
 
-/**
- * Read-only counterpart of `chrome_pace`. Returns the current per-client
- * pacing profile and the resolved gap/jitter that would be applied on the
- * next mutating call. When no profile is set, returns `{profile: 'off'}`.
- * No mutation, no client-state side effects.
- */
-class PaceGetTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.PACE_GET;
-  static readonly autoSpawnTab = false;
-
-  async execute(): Promise<ToolResult> {
-    const ctx = getCurrentRequestContext();
-    const clientId = ctx?.clientId;
-    if (!clientId) {
-      return createErrorResponse(
-        'No client id available — pacing profiles are per-MCP-client. Set X-Client-Id on REST calls.',
-        ToolErrorCode.INVALID_ARGS,
-      );
-    }
-    const pacing = getClientPacing(clientId);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            clientId,
-            profile: pacing?.profile ?? 'off',
-            minGapMs: pacing?.minGapMs ?? 0,
-            jitterMs: pacing?.jitterMs ?? 0,
-          }),
-        },
-      ],
-      isError: false,
-    };
-  }
-}
-
 export const paceTool = new PaceTool();
-export const paceGetTool = new PaceGetTool();

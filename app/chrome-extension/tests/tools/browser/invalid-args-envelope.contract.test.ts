@@ -23,7 +23,6 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { awaitElementTool } from '@/entrypoints/background/tools/browser/await-element';
 import { tabGroupsTool } from '@/entrypoints/background/tools/browser/tab-groups';
 import { sessionsTool } from '@/entrypoints/background/tools/browser/sessions';
 import { networkCaptureTool } from '@/entrypoints/background/tools/browser/network-capture';
@@ -53,30 +52,6 @@ beforeEach(() => {
 });
 
 describe('IMP-0178 INVALID_ARGS envelope', () => {
-  it('chrome_await_element bad state → details.arg/received/expected/hint', async () => {
-    const res = await awaitElementTool.execute({ selector: '#x', state: 'persent' } as any);
-    expect(res.isError).toBe(true);
-    const env = parseEnvelope(res);
-    expect(env.error.code).toBe('INVALID_ARGS');
-    expect(env.error.details.arg).toBe('state');
-    expect(env.error.details.received).toBe('persent');
-    expect(env.error.details.expected).toEqual({ enum: ['present', 'absent'] });
-    expect(env.error.details.hint).toBe('Did you mean "present"?');
-  });
-
-  it('chrome_await_element bad selectorType → enum + hint when close', async () => {
-    const res = await awaitElementTool.execute({
-      selector: '#x',
-      selectorType: 'cs' as any,
-    });
-    const env = parseEnvelope(res);
-    expect(env.error.code).toBe('INVALID_ARGS');
-    expect(env.error.details.arg).toBe('selectorType');
-    expect(env.error.details.received).toBe('cs');
-    expect(env.error.details.expected.enum).toContain('css');
-    expect(env.error.details.hint).toBe('Did you mean "css"?');
-  });
-
   it('chrome_tab_groups bad action → enum + hint', async () => {
     const res = await tabGroupsTool.execute({ action: 'creat' } as any);
     const env = parseEnvelope(res);

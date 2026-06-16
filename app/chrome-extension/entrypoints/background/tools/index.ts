@@ -67,11 +67,9 @@ import { clearBrowsingDataTool } from './browser/clear-browsing-data';
 import { proxyTool } from './browser/proxy';
 import { identityTool } from './browser/identity';
 import { dragDropTool } from './browser/drag-drop';
-import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
 import { webFetcherTool } from './browser/web-fetcher';
 import { clickTool, fillTool } from './browser/interaction';
-import { awaitElementTool } from './browser/await-element';
 import { networkRequestTool } from './browser/network-request';
 import { networkCaptureTool } from './browser/network-capture';
 import {
@@ -95,7 +93,6 @@ import {
   removeInjectedScriptTool,
 } from './browser/inject-script';
 import { consoleTool } from './browser/console';
-import { consoleClearTool } from './browser/console-clear';
 import { fileUploadTool } from './browser/file-upload';
 import { handleDialogTool } from './browser/dialog';
 import { handleDownloadTool, downloadListTool, downloadCancelTool } from './browser/download';
@@ -103,7 +100,7 @@ import { storageTool } from './browser/storage';
 import { debugDumpTool } from './browser/debug-dump';
 import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
-import { paceTool, paceGetTool } from './browser/pace';
+import { paceTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
 import { closeMyTabsTool } from './browser/close-my-tabs';
 import { ownedTabsTool } from './browser/owned-tabs';
@@ -190,12 +187,10 @@ const eagerTools: ToolInstance[] = [
   proxyTool,
   identityTool,
   dragDropTool,
-  waitForTabTool,
   windowTool,
   webFetcherTool,
   clickTool,
   fillTool,
-  awaitElementTool,
   networkRequestTool,
   networkCaptureTool,
   networkCaptureStartTool,
@@ -216,7 +211,6 @@ const eagerTools: ToolInstance[] = [
   sendCommandToInjectScriptTool,
   removeInjectedScriptTool,
   consoleTool,
-  consoleClearTool,
   fileUploadTool,
   handleDialogTool,
   handleDownloadTool,
@@ -227,7 +221,6 @@ const eagerTools: ToolInstance[] = [
   assertTool,
   waitForTool,
   paceTool,
-  paceGetTool,
   claimTabTool,
   closeMyTabsTool,
   ownedTabsTool,

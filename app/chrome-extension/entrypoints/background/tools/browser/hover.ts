@@ -20,8 +20,8 @@ import { resolveToShimInputs, type SelectorType } from './_selector-resolve';
  * computes element-center (or position offset), then dispatches
  * `pointermove` → `mouseover` → `mouseenter` → `pointerenter` —
  * exactly the chain a real mouse generates. Returns `{hovered, bbox,
- * tabId}`. Pair with `chrome_await_element` after dispatch to wait
- * for the revealed UI before clicking it.
+ * tabId}`. Pair with `chrome_wait_for` kind:"element" after dispatch
+ * to wait for the revealed UI before clicking it.
  */
 
 interface HoverParams {
@@ -205,7 +205,8 @@ function hoverShim(
 
     target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     const rect = target.getBoundingClientRect();
-    const px = position && Number.isFinite(position.x) ? rect.x + position.x : rect.x + rect.width / 2;
+    const px =
+      position && Number.isFinite(position.x) ? rect.x + position.x : rect.x + rect.width / 2;
     const py =
       position && Number.isFinite(position.y) ? rect.y + position.y : rect.y + rect.height / 2;
 
@@ -216,7 +217,11 @@ function hoverShim(
       if (hit && hit !== target && !target.contains(hit) && !hit.contains(target)) {
         const occluderTag =
           (hit as HTMLElement).tagName?.toLowerCase() +
-          (hit.id ? `#${hit.id}` : hit.className ? `.${String(hit.className).trim().split(/\s+/)[0]}` : '');
+          (hit.id
+            ? `#${hit.id}`
+            : hit.className
+              ? `.${String(hit.className).trim().split(/\s+/)[0]}`
+              : '');
         return {
           ok: false,
           message: `element is occluded by ${occluderTag}`,

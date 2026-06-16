@@ -41,7 +41,6 @@ export const TOOL_NAMES = {
     SEARCH_TABS_CONTENT: 'chrome_search_tabs_content',
     NAVIGATE: 'chrome_navigate',
     NAVIGATE_BATCH: 'chrome_navigate_batch',
-    WAIT_FOR_TAB: 'chrome_wait_for_tab',
     SCREENSHOT: 'chrome_screenshot',
     CLOSE_TAB: 'chrome_close_tab',
     CLOSE_TABS_MATCHING: 'chrome_close_tabs_matching',
@@ -60,7 +59,6 @@ export const TOOL_NAMES = {
     NETWORK_DEBUGGER_STOP: 'chrome_network_debugger_stop',
     INTERCEPT_RESPONSE: 'chrome_intercept_response',
     KEYBOARD: 'chrome_keyboard',
-    AWAIT_ELEMENT: 'chrome_await_element',
     HISTORY: 'chrome_history',
     HISTORY_DELETE: 'chrome_history_delete',
     BOOKMARK_SEARCH: 'chrome_bookmark_search',
@@ -75,7 +73,6 @@ export const TOOL_NAMES = {
     SEND_COMMAND_TO_INJECT_SCRIPT: 'chrome_send_command_to_inject_script',
     JAVASCRIPT: 'chrome_javascript',
     CONSOLE: 'chrome_console',
-    CONSOLE_CLEAR: 'chrome_console_clear',
     FILE_UPLOAD: 'chrome_upload_file',
     READ_PAGE: 'chrome_read_page',
     STORAGE: 'chrome_storage',
@@ -116,7 +113,6 @@ export const TOOL_NAMES = {
     DOWNLOAD_LIST: 'chrome_download_list',
     DOWNLOAD_CANCEL: 'chrome_download_cancel',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
-    PACE_GET: 'chrome_pace_get',
     CLAIM_TAB: 'browser_claim_tab',
     CLOSE_MY_TABS: 'browser_close_my_tabs',
     QUEUE_INSPECT: 'chrome_queue_inspect',
@@ -690,7 +686,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.NAVIGATE_BATCH,
     description:
-      'Open many URLs at once and return their tabIds; tabs open backgrounded by default. Pair with chrome_wait_for_tab to drain sequentially. maxConcurrent blocks per batch. Example: {urls:["a.com","b.com"], maxConcurrent:2} → {tabIds:[101,102]}',
+      'Open many URLs at once and return their tabIds; tabs open backgrounded by default. Pair with chrome_wait_for kind:"load_state" state:"complete" to drain sequentially. maxConcurrent blocks per batch. Example: {urls:["a.com","b.com"], maxConcurrent:2} → {tabIds:[101,102]}',
     inputSchema: {
       type: 'object',
       properties: {
@@ -726,26 +722,6 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
       },
       required: ['urls'],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.WAIT_FOR_TAB,
-    description:
-      'Block until a tab reaches status:complete via chrome.tabs.onUpdated (no polling). Throws TAB_CLOSED or TIMEOUT. Example: {tabId:4, timeoutMs:10000} → {complete:true, tookMs}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description:
-            'Tab to wait on. Required (no implicit active-tab fallback). Pass the tabId returned by chrome_navigate or chrome_navigate_batch.',
-        },
-        timeoutMs: {
-          type: 'number',
-          description: 'Maximum wait in milliseconds (default 30000).',
-        },
-      },
-      required: ['tabId'],
     },
   },
   {
@@ -1660,39 +1636,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.AWAIT_ELEMENT,
-    description:
-      'Wait via MutationObserver for an element to be present or absent; returns immediately if goal state already true. Prefer over polling chrome_javascript for UI state changes. TIMEOUT envelope on expiry. Example: {selector:"#modal", state:"absent", timeoutMs:5000} → {success:true, found:false, absent:true} Cross-ref: browser_wait_for (MCP @playwright/mcp); locator.waitFor, page.waitForSelector (Playwright API).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        selector: SELECTOR_PROP,
-        selectorType: SELECTOR_TYPE_PROP,
-        index: SELECTOR_INDEX_PROP,
-        multi: SELECTOR_MULTI_PROP,
-        ref: {
-          type: 'string',
-          description:
-            'Element ref from chrome_read_page. Takes precedence over selector. For state="absent", waits until the referenced element is detached or the ref no longer resolves.',
-        },
-        state: {
-          type: 'string',
-          enum: ['present', 'absent'],
-          description:
-            'Target state to wait for: "present" (default) waits for a matching element to appear, "absent" waits for it to disappear.',
-        },
-        timeoutMs: {
-          type: 'number',
-          description:
-            'Timeout in milliseconds (default: 15000, max: 120000). Returns a TIMEOUT error when the goal state is not reached in time.',
-        },
-        ...TAB_TARGETING,
-        frameId: FRAME_ID_PROP,
-      },
-      required: [],
-    },
-  },
-  {
     name: TOOL_NAMES.BROWSER.CONSOLE,
     description:
       'Capture console output: snapshot mode (one-time ~2s wait) or buffer mode (persistent per-tab, instant read/clear). Response.truncation reports caps; retry with raw:true (snapshot only) if argsTruncated. Example: {mode:"buffer", onlyErrors:true} → {messages:[...], truncation} Cross-ref: browser_console_messages (MCP @playwright/mcp); page.on("console") (Playwright API).',
@@ -1754,19 +1697,6 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             "Snapshot mode only: skip the per-arg serializer caps (maxDepth=3, maxProps=100) so deeply nested or large console arguments survive intact. Use when the previous response's `truncation.argsTruncated` was true. Buffer mode replays already-serialized args and ignores this flag.",
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.CONSOLE_CLEAR,
-    description:
-      'Reset the per-tab chrome_console buffer (and chrome_assert console_clean predicate) so subsequent reads are scoped to after the clear. No-op if buffer not yet started. Example: {tabId:42} → {success:true, cleared:12, bufferActive:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: TAB_ID_PROP,
-        windowId: WINDOW_ID_PROP,
       },
       required: [],
     },
@@ -2164,7 +2094,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.WAIT_FOR,
     description:
-      'Wait for one of: element, network idle, response, JS expression, load state, or URL pattern. Replaces JS spin-polls; kind:"element" is preferred over chrome_await_element. Example: {kind:"network", quietMs:500} → {success:true, tookMs} Cross-ref: browser_wait_for (MCP @playwright/mcp); page.waitForSelector, page.waitForFunction, page.waitForLoadState (Playwright API).',
+      'Wait for one of: element, network idle, response, JS expression, load state, or URL pattern. Replaces JS spin-polls. Example: {kind:"network", quietMs:500} → {success:true, tookMs} Cross-ref: browser_wait_for (MCP @playwright/mcp); page.waitForSelector, page.waitForFunction, page.waitForLoadState (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2229,7 +2159,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.PACE,
     description:
-      'Set a per-MCP-client pacing profile so mutating tools sleep a profile-derived gap before firing (human-like rhythm for anti-bot platforms). Reads are un-throttled. State resets on SW restart. Example: {profile:"careful"} → {profile:"careful", minGapMs, jitterMs}',
+      'Get or set per-MCP-client pacing. With profile, mutating tools sleep a profile-derived gap (anti-bot rhythm). With no args, returns current profile + resolved gap/jitter. Reads un-throttled. State resets on SW restart. Example: {profile:"careful"} → {profile, minGapMs, jitterMs}; {} → {profile:"off", minGapMs:0, jitterMs:0}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2237,7 +2167,7 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'string',
           enum: ['off', 'human', 'careful', 'fast'],
           description:
-            'Pacing preset. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait.',
+            'Pacing preset. Omit to read current state. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait.',
         },
         minGapMs: {
           type: 'number',
@@ -2250,7 +2180,7 @@ export const TOOL_SCHEMAS: Tool[] = [
             'Optional override: random extra gap added in [0, jitterMs] (ms). Total gap = minGapMs + Math.random() * jitterMs.',
         },
       },
-      required: ['profile'],
+      required: [],
     },
   },
   {
@@ -2620,7 +2550,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         ref: {
           type: 'string',
           description:
-            'Element ref from chrome_read_page / chrome_await_element. Required if `selector` is omitted; mutually exclusive with `selector`.',
+            'Element ref from chrome_read_page. Required if `selector` is omitted; mutually exclusive with `selector`.',
         },
         tabId: {
           type: 'number',
@@ -2661,8 +2591,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         ref: {
           type: 'string',
-          description:
-            'Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`.',
+          description: 'Element ref from chrome_read_page. Mutually exclusive with `selector`.',
         },
         text: {
           type: 'string',
@@ -2698,8 +2627,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         },
         ref: {
           type: 'string',
-          description:
-            'Element ref from chrome_read_page / chrome_await_element. Mutually exclusive with `selector`.',
+          description: 'Element ref from chrome_read_page. Mutually exclusive with `selector`.',
         },
         substring: {
           type: 'string',
@@ -2979,7 +2907,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         fromRef: {
           type: 'string',
           description:
-            'Element ref (chrome_read_page / chrome_await_element) for the drag source. Mutually exclusive with `fromSelector`.',
+            'Element ref (chrome_read_page) for the drag source. Mutually exclusive with `fromSelector`.',
         },
         toSelector: {
           type: 'string',
@@ -3082,16 +3010,6 @@ export const TOOL_SCHEMAS: Tool[] = [
             'Target tab. Falls back to the active tab in the focused window when omitted.',
         },
       },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.PACE_GET,
-    description:
-      'Read-only counterpart of chrome_pace. Returns the active pacing profile and the resolved gap/jitter for the next mutating call. Returns off-defaults when unset. Example: {} → {profile:"off", minGapMs:0, jitterMs:0}',
-    inputSchema: {
-      type: 'object',
-      properties: {},
       required: [],
     },
   },
@@ -3451,7 +3369,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HOVER,
     description:
-      'Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mouseenter→pointerenter chain with actionability). Pair with chrome_await_element to wait for revealed UI. Example: {selector:".profile-card"} → {hovered:true, bbox, point, tagName} Cross-ref: browser_hover (MCP @playwright/mcp); page.hover, locator.hover (Playwright API).',
+      'Programmatic mouse hover to trigger tooltips and dropdown menus (mouseover→mouseenter→pointerenter chain with actionability). Pair with chrome_wait_for kind:"element" to wait for revealed UI. Example: {selector:".profile-card"} → {hovered:true, bbox, point, tagName} Cross-ref: browser_hover (MCP @playwright/mcp); page.hover, locator.hover (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3673,7 +3591,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HELP,
     description:
-      'Search or browse the tool catalog. Three modes: {} → full {tools:[{name,summary}...]} index; {query:"click"} → ranked {matches:[{name,summary,score}...]} filtered by keyword (name + summary scored, typos tolerated); {name:"chrome_click_element"} → full {name,summary,description}. Use `query` first when you don\'t know the canonical name — beats guessing.',
+      'Search or browse the tool catalog. Three modes: {} returns full index; {query} returns ranked matches (typos tolerated); {name} returns full description. Use {query} first when the canonical name is unknown. Example: {query:"click"} → {matches:[{name:"chrome_click_element",summary,score}...]}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3735,7 +3653,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.NAVIGATE]: 'Browser management',
   [TOOL_NAMES.BROWSER.NAVIGATE_BATCH]: 'Browser management',
-  [TOOL_NAMES.BROWSER.WAIT_FOR_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING]: 'Browser management',
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
@@ -3747,7 +3664,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.WEB_FETCHER]: 'Reading',
   [TOOL_NAMES.BROWSER.SCREENSHOT]: 'Reading',
   [TOOL_NAMES.BROWSER.SEARCH_TABS_CONTENT]: 'Reading',
-  [TOOL_NAMES.BROWSER.CONSOLE_CLEAR]: 'Reading',
 
   [TOOL_NAMES.BROWSER.CLICK]: 'Interaction',
   [TOOL_NAMES.BROWSER.FILL]: 'Interaction',
@@ -3755,7 +3671,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.COMPUTER]: 'Interaction',
   [TOOL_NAMES.BROWSER.REQUEST_ELEMENT_SELECTION]: 'Interaction',
   [TOOL_NAMES.BROWSER.HANDLE_DIALOG]: 'Interaction',
-  [TOOL_NAMES.BROWSER.AWAIT_ELEMENT]: 'Interaction',
   [TOOL_NAMES.BROWSER.ASSERT]: 'Interaction',
   [TOOL_NAMES.BROWSER.WAIT_FOR]: 'Interaction',
 
@@ -3816,7 +3731,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DOWNLOAD_LIST]: 'Files',
   [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
-  [TOOL_NAMES.BROWSER.PACE_GET]: 'Pacing',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',

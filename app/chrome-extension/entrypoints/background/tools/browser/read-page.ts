@@ -9,7 +9,7 @@ const READ_PAGE_NEXT = [
   'chrome_click_element',
   'chrome_fill_or_select',
   'chrome_hover',
-  'chrome_await_element',
+  'chrome_wait_for',
 ] as const;
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
