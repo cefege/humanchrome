@@ -69,7 +69,7 @@ import { identityTool } from './browser/identity';
 import { dragDropTool } from './browser/drag-drop';
 import { waitForTabTool } from './browser/wait-for-tab';
 import { windowTool } from './browser/window';
-import { webFetcherTool, getInteractiveElementsTool } from './browser/web-fetcher';
+import { webFetcherTool } from './browser/web-fetcher';
 import { clickTool, fillTool } from './browser/interaction';
 import { awaitElementTool } from './browser/await-element';
 import { networkRequestTool } from './browser/network-request';
@@ -193,7 +193,6 @@ const eagerTools: ToolInstance[] = [
   waitForTabTool,
   windowTool,
   webFetcherTool,
-  getInteractiveElementsTool,
   clickTool,
   fillTool,
   awaitElementTool,
@@ -551,6 +550,16 @@ export const handleCallTool = async (
   const callerSuppliesUrl = typeof param.args?.url === 'string' && param.args.url.length > 0;
   if (tabId === undefined && mutates && autoSpawn && clientId !== undefined && !callerSuppliesUrl) {
     tabId = await autoSpawnOwnedTab(clientId);
+  }
+
+  // When the caller provides a URL but no explicit tabId, URL-handling tools
+  // (e.g. chrome_navigate) resolve their own target tab via chrome.tabs.query.
+  // Don't inject the dispatcher-resolved owned tabId in this case: if the owned
+  // tab is dead the tool would get TAB_NOT_FOUND instead of gracefully
+  // finding or creating an appropriate tab via its URL-matching logic.
+  const callerSuppliedTabId = typeof param.args?.tabId === 'number';
+  if (callerSuppliesUrl && !callerSuppliedTabId && tabId !== undefined) {
+    tabId = undefined;
   }
 
   let windowId =

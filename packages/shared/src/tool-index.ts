@@ -63,7 +63,7 @@ export function buildDispatcherDescription(tools: readonly Tool[] = TOOL_SCHEMAS
   const sorted = sortedTools(tools);
   const header = [
     'Dispatches any humanchrome browser-automation tool by name. Args validated server-side; on INVALID_ARGS the response carries `details.expected` (schema fragment) and `details.hint` (did-you-mean) so you can self-correct.',
-    'Call as `{ name: "<tool>", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the output-size cap. Use `chrome_help({})` for one-line descriptions of every tool, or `chrome_help({name: "<tool>"})` for a single tool.',
+    'Call as `{ name: "<tool>", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the output-size cap. Use `chrome_help({query})` to search the catalog, `chrome_help({})` for the full index, or `chrome_help({name})` for one tool.',
     'Errors: isError=true + JSON body `{"error":{"code":"...","message":"...","details":{...}}}`. Recovery by code: TAB_CLOSED→chrome_navigate to open a new tab; TAB_NOT_FOUND→chrome_get_windows_and_tabs then pass explicit tabId; TARGET_NAVIGATED_AWAY→chrome_read_page then retry with fresh refs; INJECTION_FAILED→fall back to chrome_javascript (CDP path bypasses CSP); CDP_BUSY→retry after 2s or fall back to chrome_inject_script for DOM ops;NOT_ACTIONABLE→check details.failures, scroll/dismiss overlay or pass force:true; TIMEOUT→retry with a larger timeoutMs arg; UNKNOWN→chrome_debug_dump to triage.',
     `Catalog (${sorted.length} tools):`,
     '',
@@ -75,28 +75,155 @@ export function buildDispatcherDescription(tools: readonly Tool[] = TOOL_SCHEMAS
 }
 
 /**
+ * Tokenize a string into lowercase word-ish parts. Splits on non-alphanumerics
+ * AND camelCase boundaries so `chrome_click_element` and `clickElement` both
+ * yield `[chrome, click, element]`.
+ */
+function tokenize(s: string): string[] {
+  if (!s) return [];
+  return s
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/** Cheap iterative Damerau-Levenshtein-ish edit distance (small strings only). */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const al = a.length;
+  const bl = b.length;
+  if (!al) return bl;
+  if (!bl) return al;
+  const v0 = new Array<number>(bl + 1);
+  const v1 = new Array<number>(bl + 1);
+  for (let i = 0; i <= bl; i++) v0[i] = i;
+  for (let i = 0; i < al; i++) {
+    v1[0] = i + 1;
+    for (let j = 0; j < bl; j++) {
+      const cost = a.charCodeAt(i) === b.charCodeAt(j) ? 0 : 1;
+      v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+    }
+    for (let j = 0; j <= bl; j++) v0[j] = v1[j];
+  }
+  return v0[bl];
+}
+
+/**
+ * Rank tools against a free-text query using token overlap + substring hits +
+ * name proximity. Pure heuristic — no embeddings — but the scoring weights
+ * make name matches dominate description matches so `query:"click"` surfaces
+ * `chrome_click_element` first and synonyms (e.g. tools whose description
+ * mentions "click") show up further down.
+ *
+ * Returns matches sorted by descending score. Caller applies the limit.
+ */
+export interface ToolSearchHit {
+  name: string;
+  summary: string;
+  score: number;
+}
+
+export function searchTools(query: string, tools: readonly Tool[] = TOOL_SCHEMAS): ToolSearchHit[] {
+  if (typeof query !== 'string' || !query.trim()) return [];
+  // Drop noise tokens (length < 3) so a query like "no such thing" doesn't
+  // score every description that happens to contain "no" or "to" or "is".
+  const qTokens = tokenize(query).filter((t) => t.length >= 3);
+  if (qTokens.length === 0) return [];
+  const qLower = query.toLowerCase();
+  // Anything that scores only via description hits (3 per token) without any
+  // name-side anchor is discarded — that's the "click" tool surfacing for an
+  // unrelated query because some description mentioned click in passing.
+  const MIN_SCORE = 8;
+
+  const hits: ToolSearchHit[] = [];
+  for (const t of tools) {
+    const name = t.name;
+    const nameLower = name.toLowerCase();
+    const desc = (t.description ?? '').toLowerCase();
+    const nameTokens = tokenize(name);
+    let score = 0;
+
+    // Whole-query substring in name dominates ("click" inside "chrome_click_element").
+    if (nameLower.includes(qLower)) score += 50;
+    // Whole-query phrase as substring of description — the load-bearing signal
+    // for cross-vocabulary lookups like `page.goto` or `browser_press_key`,
+    // which appear verbatim in our cross-ref lines. Without this, a query
+    // whose tokens (`page`, `browser`) happen to live in unrelated tool names
+    // (`chrome_read_page`, `browser_claim_tab`) wins on the name-token bonus.
+    else if (qLower.length >= 4 && desc.includes(qLower)) score += 30;
+
+    // Per-token contributions: exact token match in name > token substring in
+    // name > token substring in description.
+    for (const q of qTokens) {
+      if (nameTokens.includes(q)) score += 20;
+      else if (nameLower.includes(q)) score += 8;
+      if (desc.includes(q)) score += 3;
+    }
+
+    // Proximity bonus: edit distance of query against best name token, capped
+    // so it only matters for short queries (typos like "clik" → "click").
+    if (qLower.length <= 12) {
+      let best = Infinity;
+      for (const nt of nameTokens) {
+        const d = editDistance(qLower, nt);
+        if (d < best) best = d;
+      }
+      if (best <= 2) score += (3 - best) * 4;
+    }
+
+    if (score >= MIN_SCORE) hits.push({ name, summary: firstSentence(t.description ?? ''), score });
+  }
+
+  hits.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return hits;
+}
+
+export interface ToolHelpArgs {
+  name?: string;
+  query?: string;
+  limit?: number;
+}
+
+/**
  * Build the payload returned by the `chrome_help` meta-tool.
  *
  * - `buildToolHelp()` returns `{ tools: [{name, summary}, ...] }` covering every
  *   schema, sorted by name. Use to recover the picking signal that lived in
  *   the pre-BUG-003 dispatcher description.
- * - `buildToolHelp(name)` returns `{ name, summary, description }` for a
+ * - `buildToolHelp({name})` returns `{ name, summary, description }` for a
  *   single tool (full description, not just first sentence). Returns
  *   `{ name, found: false }` if `name` is not in the catalog.
+ * - `buildToolHelp({query: "click"})` returns `{ query, matches:
+ *   [{name, summary, score}, ...] }` ranked by relevance — the way an agent
+ *   should discover tools when it doesn't know the canonical name.
+ *
+ * Legacy positional form `buildToolHelp("chrome_click_element")` is still
+ * accepted for in-process callers; the MCP handler always passes the object.
  */
 export function buildToolHelp(
-  name?: string,
+  arg?: string | ToolHelpArgs | Record<string, unknown>,
   tools: readonly Tool[] = TOOL_SCHEMAS,
 ): Record<string, unknown> {
-  if (typeof name === 'string' && name.length > 0) {
-    const t = tools.find((tool) => tool.name === name);
-    if (!t) return { name, found: false };
+  const args: ToolHelpArgs =
+    typeof arg === 'string' ? { name: arg } : ((arg ?? {}) as ToolHelpArgs);
+
+  if (typeof args.query === 'string' && args.query.trim().length > 0) {
+    const limit = Math.max(1, Math.min(50, args.limit ?? 10));
+    const hits = searchTools(args.query, tools).slice(0, limit);
+    return { query: args.query, matches: hits };
+  }
+
+  if (typeof args.name === 'string' && args.name.length > 0) {
+    const t = tools.find((tool) => tool.name === args.name);
+    if (!t) return { name: args.name, found: false };
     return {
       name: t.name,
       summary: firstSentence(t.description ?? ''),
       description: t.description ?? '',
     };
   }
+
   return {
     tools: sortedTools(tools).map((t) => ({
       name: t.name,

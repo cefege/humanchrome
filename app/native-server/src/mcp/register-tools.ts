@@ -2,7 +2,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   TOOL_SCHEMAS,
+  TOOL_NAMES,
   buildDispatcherTool,
+  buildToolHelp,
   DISPATCHER_TOOL_NAME,
   isKnownToolName,
   resolveToolName,
@@ -58,7 +60,8 @@ export const setupTools = (server: Server, clientId?: string) => {
       const innerName = bag.name;
       const innerArgs = (bag.args as Record<string, unknown> | undefined) ?? {};
       const wantsRaw = bag.raw === true;
-      const idemKey = typeof bag.idemKey === 'string' && bag.idemKey.length > 0 ? bag.idemKey : undefined;
+      const idemKey =
+        typeof bag.idemKey === 'string' && bag.idemKey.length > 0 ? bag.idemKey : undefined;
 
       if (typeof innerName !== 'string' || innerName.length === 0) {
         return invalidArgsResult(
@@ -69,6 +72,20 @@ export const setupTools = (server: Server, clientId?: string) => {
             expected: { type: 'string', description: 'Tool name from humanchrome catalog.' },
           }),
         );
+      }
+
+      // BUG-003: short-circuit `chrome_help` at the dispatcher layer. It's a
+      // pure catalog lookup — no need to round-trip through the extension,
+      // and the catalog already lives in this process.
+      if (innerName === TOOL_NAMES.BROWSER.HELP) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(buildToolHelp(innerArgs as Record<string, unknown>)),
+            },
+          ],
+        };
       }
 
       // #309: resolve legacy short names (`get_windows_and_tabs`) to the
@@ -84,14 +101,26 @@ export const setupTools = (server: Server, clientId?: string) => {
           resolvedName = aliased;
         } else if (!dynamicNames.includes(innerName)) {
           const guess = suggestToolName(innerName, dynamicNames);
+          // Strip chrome_/browser_ prefix when seeding the search query so
+          // `chrome_click` → search "click" (which ranks chrome_click_element
+          // first), and `browser_open_tab` → search "open tab".
+          const searchSeed = innerName.replace(/^(chrome|browser)_/, '').replace(/_/g, ' ');
+          // `hint` stays backward-compatible (just the did-you-mean); the
+          // chrome_help search nudge lives in the human-readable message and
+          // in `details.recovery` so programmatic consumers can opt in.
+          const recoveryHint = `Call chrome_help({query:"${searchSeed}"}) to search the catalog.`;
+          const message = guess
+            ? `Unknown tool: "${innerName}". Did you mean "${guess}"? Or ${recoveryHint.charAt(0).toLowerCase() + recoveryHint.slice(1)}`
+            : `Unknown tool: "${innerName}". ${recoveryHint}`;
           return invalidArgsResult(
-            `Unknown tool: "${innerName}". ${guess ? `Did you mean "${guess}"?` : 'See the humanchrome description for the catalog.'}`,
+            message,
             buildInvalidArgsDetails({
               arg: 'name',
               received: innerName,
               expected: {
                 kind: 'tool_name',
                 catalogSize: TOOL_SCHEMAS.length + dynamicNames.length,
+                recovery: recoveryHint,
               },
               hint: guess ? `Did you mean "${guess}"?` : undefined,
             }),
@@ -112,6 +141,15 @@ export const setupTools = (server: Server, clientId?: string) => {
       const result = await dispatchTool(resolvedName, forwardArgs, clientId);
       recordIdempotentResult(clientId, resolvedName, idemKey, result);
       return result;
+    }
+
+    // Legacy mode: also intercept `chrome_help` here so the catalog meta-tool
+    // works the same way regardless of surface mode.
+    if (name === TOOL_NAMES.BROWSER.HELP) {
+      const helpArgs = (args as Record<string, unknown> | undefined) ?? {};
+      return {
+        content: [{ type: 'text', text: JSON.stringify(buildToolHelp(helpArgs)) }],
+      };
     }
 
     return dispatchTool(name, args || {}, clientId);

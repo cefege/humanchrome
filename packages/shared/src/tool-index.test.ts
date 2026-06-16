@@ -3,6 +3,7 @@ import {
   DISPATCHER_TOOL_NAME,
   buildDispatcherDescription,
   buildDispatcherTool,
+  buildToolHelp,
   knownToolNames,
   isKnownToolName,
   resolveToolName,
@@ -29,7 +30,7 @@ describe('tool-index — dispatcher catalog', () => {
   it('description contains every TOOL_SCHEMAS entry', () => {
     const desc = buildDispatcherDescription();
     for (const t of TOOL_SCHEMAS) {
-      expect(desc).toContain(`- ${t.name}:`);
+      expect(desc).toContain(`- ${t.name}`);
     }
   });
 
@@ -44,16 +45,62 @@ describe('tool-index — dispatcher catalog', () => {
     const lines = desc
       .split('\n')
       .filter((l) => l.startsWith('- '))
-      .map((l) => l.slice(2).split(':')[0]);
+      .map((l) => l.slice(2).trim());
     const sorted = [...lines].sort((a, b) => a.localeCompare(b));
     expect(lines).toEqual(sorted);
   });
 
   it('description shrinks the boot manifest at least 10× vs raw TOOL_SCHEMAS', () => {
-    const desc = buildDispatcherDescription();
     const rawSize = JSON.stringify(TOOL_SCHEMAS).length;
     const dispatcherSize = JSON.stringify(buildDispatcherTool()).length;
     expect(dispatcherSize).toBeLessThan(rawSize / 10);
+  });
+
+  it('description fits inside common MCP-client display caps (BUG-003)', () => {
+    // Claude Code's tool-list renderer truncates around ~2 KB. The previous
+    // verb-phrase catalog was ~11 KB and hid ~80% of the catalog. Hold the
+    // names-only catalog under 3 KB so future growth fails CI before it
+    // silently disappears from clients again.
+    const desc = buildDispatcherDescription();
+    expect(desc.length).toBeLessThan(3000);
+  });
+
+  it('chrome_help is part of the catalog', () => {
+    const desc = buildDispatcherDescription();
+    expect(desc).toContain('- chrome_help');
+    expect(desc).toContain('chrome_help(');
+  });
+
+  it('buildToolHelp() returns one summary per TOOL_SCHEMAS entry, sorted', () => {
+    const help = buildToolHelp() as { tools: { name: string; summary: string }[] };
+    expect(Array.isArray(help.tools)).toBe(true);
+    expect(help.tools).toHaveLength(TOOL_SCHEMAS.length);
+    const names = help.tools.map((t) => t.name);
+    expect([...names].sort()).toEqual(names);
+    // Every entry has a non-empty summary (verb-phrase recovered from the
+    // original first-sentence trimming).
+    for (const t of help.tools) {
+      expect(typeof t.summary).toBe('string');
+      expect(t.summary.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('buildToolHelp(name) returns the full description for a known tool', () => {
+    const target = TOOL_SCHEMAS[0];
+    const help = buildToolHelp(target.name) as {
+      name: string;
+      summary: string;
+      description: string;
+    };
+    expect(help.name).toBe(target.name);
+    expect(help.description).toBe(target.description);
+    expect(help.summary.length).toBeGreaterThan(0);
+  });
+
+  it('buildToolHelp(unknown) reports found:false', () => {
+    const help = buildToolHelp('not_a_real_tool') as { name: string; found: boolean };
+    expect(help.found).toBe(false);
+    expect(help.name).toBe('not_a_real_tool');
   });
 
   it('knownToolNames is sorted and covers all TOOL_SCHEMAS', () => {
@@ -99,6 +146,84 @@ describe('tool-index — dispatcher catalog', () => {
     expect(resolveToolName('foo', ['flow.foo'])).toBeNull();
   });
 
+  it('buildToolHelp({query}) ranks click-like names ahead of unrelated tools', () => {
+    const out = buildToolHelp({ query: 'click' }) as {
+      query: string;
+      matches: Array<{ name: string; summary: string; score: number }>;
+    };
+    expect(out.query).toBe('click');
+    expect(out.matches.length).toBeGreaterThan(0);
+    // chrome_click_element has "click" as a name token, so it must rank first.
+    expect(out.matches[0].name).toBe('chrome_click_element');
+    // Scores are descending.
+    for (let i = 1; i < out.matches.length; i++) {
+      expect(out.matches[i].score).toBeLessThanOrEqual(out.matches[i - 1].score);
+    }
+  });
+
+  it('buildToolHelp({query}) tolerates short typos via edit-distance bonus', () => {
+    const out = buildToolHelp({ query: 'clik' }) as {
+      matches: Array<{ name: string; score: number }>;
+    };
+    expect(out.matches.length).toBeGreaterThan(0);
+    expect(out.matches.some((m) => m.name === 'chrome_click_element')).toBe(true);
+  });
+
+  it('buildToolHelp({query, limit}) caps results', () => {
+    const out = buildToolHelp({ query: 'tab', limit: 3 }) as {
+      matches: Array<{ name: string }>;
+    };
+    expect(out.matches.length).toBeLessThanOrEqual(3);
+  });
+
+  it('buildToolHelp({query}) ranks the canonical humanchrome tool first for Playwright vocabulary', () => {
+    const cases: Array<[string, string]> = [
+      ['browser_click', 'chrome_click_element'],
+      ['page.click', 'chrome_click_element'],
+      ['page.goto', 'chrome_navigate'],
+      ['browser_navigate', 'chrome_navigate'],
+      ['browser_snapshot', 'chrome_aria_snapshot'],
+      ['browser_press_key', 'chrome_keyboard'],
+      ['locator.fill', 'chrome_fill_or_select'],
+      ['browser_take_screenshot', 'chrome_screenshot'],
+      ['browser_console_messages', 'chrome_console'],
+      ['page.hover', 'chrome_hover'],
+      ['page.pdf', 'chrome_print_to_pdf'],
+      ['browser_file_upload', 'chrome_upload_file'],
+      ['browser_handle_dialog', 'chrome_handle_dialog'],
+      ['browser_select_option', 'chrome_combobox_select'],
+    ];
+    for (const [query, expected] of cases) {
+      const out = buildToolHelp({ query }) as {
+        matches: Array<{ name: string }>;
+      };
+      expect(out.matches[0]?.name, `query "${query}" should rank "${expected}" first`).toBe(
+        expected,
+      );
+    }
+  });
+
+  it('buildToolHelp({query}) returns empty matches for a query that hits nothing', () => {
+    const out = buildToolHelp({ query: 'zzzzz_no_such_thing_xyz' }) as {
+      matches: unknown[];
+    };
+    expect(out.matches).toEqual([]);
+  });
+
+  it('buildToolHelp({name}) still returns full description for a known tool', () => {
+    const out = buildToolHelp({ name: 'chrome_help' }) as Record<string, unknown>;
+    expect(out.name).toBe('chrome_help');
+    expect(typeof out.description).toBe('string');
+    expect((out.description as string).length).toBeGreaterThan(0);
+  });
+
+  it('buildToolHelp({}) returns the full sorted catalog', () => {
+    const out = buildToolHelp({}) as { tools: Array<{ name: string }> };
+    expect(out.tools.length).toBe(TOOL_SCHEMAS.length);
+    const names = out.tools.map((t) => t.name);
+    expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
+  });
+
   it('resolveToolName has no ambiguous chrome_/browser_ collisions today', () => {
     // Guard for future drift: if a short name ever exists with both prefixes,
     // this test fails and forces an explicit policy choice (hard-coded alias
@@ -128,14 +253,14 @@ describe('tool-index — dispatcher catalog', () => {
     expect(suggestToolName('flo.checkout', ['flow.checkout'])).toBe('flow.checkout');
   });
 
-  it('description first-sentence trim does not produce empty lines', () => {
+  it('every catalog line is a clean "- <name>" with no trailing colon or blank tail', () => {
+    // BUG-003: catalog is names-only now. Lines must be exactly "- <name>"
+    // (no trailing colon, no leftover verb-phrase whitespace). Verb-phrases
+    // are recovered on demand via `chrome_help`.
     const desc = buildDispatcherDescription();
     const toolLines = desc.split('\n').filter((l) => l.startsWith('- '));
     for (const line of toolLines) {
-      // Format: "- <name>: <first-sentence>" — sentence may be empty for
-      // tools without descriptions, but the line still must start with
-      // "- <name>:" (no trailing colon-newline blank).
-      expect(line).toMatch(/^- [a-z_.]+:/);
+      expect(line).toMatch(/^- [a-z_.]+$/);
     }
   });
 });
