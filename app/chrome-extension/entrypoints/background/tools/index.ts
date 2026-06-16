@@ -43,8 +43,8 @@ import { runWithContext } from '../utils/request-context';
 import { navigateTool } from './browser/common';
 import { navigateBatchTool } from './browser/navigate-batch';
 import { closeTabsTool } from './browser/close-tabs';
+// close-tabs-matching and close-my-tabs are imported by close-tabs.ts internally.
 import { switchTabTool } from './browser/switch-tab';
-import { closeTabsMatchingTool } from './browser/close-tabs-matching';
 import { tabGroupsTool } from './browser/tab-groups';
 import { notificationsTool } from './browser/notifications';
 import { clipboardTool } from './browser/clipboard';
@@ -94,7 +94,6 @@ import { assertTool } from './browser/assert';
 import { waitForTool } from './browser/wait-for';
 import { paceTool } from './browser/pace';
 import { claimTabTool } from './browser/claim-tab';
-import { closeMyTabsTool } from './browser/close-my-tabs';
 import { ownedTabsTool } from './browser/owned-tabs';
 import { queueInspectTool } from './browser/queue-inspect';
 import { locatorHandlerTool } from './browser/locator-handler';
@@ -151,7 +150,6 @@ const eagerTools: ToolInstance[] = [
   navigateTool,
   navigateBatchTool,
   closeTabsTool,
-  closeTabsMatchingTool,
   switchTabTool,
   tabGroupsTool,
   notificationsTool,
@@ -201,7 +199,6 @@ const eagerTools: ToolInstance[] = [
   waitForTool,
   paceTool,
   claimTabTool,
-  closeMyTabsTool,
   ownedTabsTool,
   queueInspectTool,
   locatorHandlerTool,

@@ -75,27 +75,21 @@ Open many URLs at once and return their tabIds; tabs open backgrounded by defaul
 | `maxConcurrent` | number |  | Cap the number of in-flight tab loads. When omitted (or <= 0), all URLs open in parallel (current behavior). When set to N, opens N tabs and waits for each to finish loading before starting the next — useful on anti-bot platforms (LinkedIn, Instagram) that flag concurrent opens. Each waited tab uses a 30s load timeout; on timeout the tab is still recorded and the worker continues. |
 | `perUrlTimeoutMs` | number |  | Per-URL load timeout in ms when maxConcurrent is set. Default 30000. Ignored when maxConcurrent is not set. |
 
-### `chrome_close_tab`
+### `chrome_close_tabs`
 
-Close one or more tabs by tabIds[] or by matching url. Example: {tabIds:[3,5]} → {success:true, closed:[3,5]} Cross-ref: browser_close (MCP @playwright/mcp); page.close (Playwright API).
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `tabIds` | array<number> |  | Array of tab IDs to close. If not provided, will close the active tab. |
-| `url` | string |  | Close tabs matching this URL. Can be used instead of tabIds. |
-
-### `chrome_close_tabs_matching`
-
-Bulk close tabs by filters; at least one of urlMatches/titleMatches/olderThanMs required (no-filter rejected). URL/title accept substring or /regex/flags. Honors last-tab-in-window guard. Example: {urlMatches:"/example.com/", dryRun:true} → {closed:0, matched:3, tabIds:[...]}
+Close tabs via action enum. Replaces chrome_close_tab + chrome_close_tabs_matching + browser_close_my_tabs. Example: {action:"ids", tabIds:[3,5]} → {closed:[3,5]}; {action:"matching", urlMatches:"/example/", dryRun:true} → {matched, tabIds}; {action:"mine"} → close all caller-owned tabs. Cross-ref: browser_close (MCP @playwright/mcp); page.close (Playwright API).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `urlMatches` | string |  | URL filter. Plain text → case-insensitive substring match against `tab.url`. Wrap in `/.../flags` (e.g. `/voyager\/api/i`) for regex match. Combined with other filters via AND. |
-| `titleMatches` | string |  | Title filter. Same matching rules as `urlMatches` but applied against `tab.title`. Combined with other filters via AND. |
-| `olderThanMs` | number |  | Close tabs whose creation time was more than N milliseconds ago. The check uses Chrome's wall-clock view of when the tab was created (via the existing tab-tracking record). Tabs with unknown creation time are NOT matched by this filter alone. |
-| `exceptTabIds` | array<number> |  | Tab IDs to always preserve, even if they would otherwise match the filters. |
-| `windowId` | number |  | Optional window scope. When provided, only tabs in this window are considered. Default: every window the extension can see. |
-| `dryRun` | boolean |  | When true, returns the matched tab IDs without actually closing them. Useful as a pre-flight check before destructive bulk close. |
+| `action` | `ids` \| `matching` \| `mine` | ✓ | ids=close specific tabIds; matching=bulk close by url/title/age filter; mine=close all tabs owned by the calling client. |
+| `tabIds` | array<number> |  | For action=ids: tab IDs to close. Omit for active tab. |
+| `url` | string |  | For action=ids: alternative to tabIds — close tabs matching this URL. |
+| `urlMatches` | string |  | For action=matching: URL filter. Plain text → case-insensitive substring; wrap in /…/flags for regex. |
+| `titleMatches` | string |  | For action=matching: title filter, same syntax as urlMatches. |
+| `olderThanMs` | number |  | For action=matching: tabs older than N ms. |
+| `exceptTabIds` | array<number> |  | For action=matching/mine: tab IDs to always preserve. |
+| `windowId` | number |  | For action=matching: optional window scope. |
+| `dryRun` | boolean |  | For action=matching/mine: report matched tabs without closing. |
 
 ### `chrome_switch_tab`
 
@@ -160,14 +154,6 @@ Diagnostic snapshot of per-tab serialization queues with EWMA wait estimates. Re
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `tabId` | number |  | Optional tab to scope the snapshot to. Omit for every active queue. |
-
-### `browser_close_my_tabs`
-
-Close every tab owned by the calling client; optional keep[] preserves specific tabIds. beforeunload prompts are bypassed silently. Example: {keep:[7]} → {success:true, closed:[3,5], kept:[7], failed:[]}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `keep` | array<number> |  | Tab IDs to preserve (kept owned by the calling client, not closed). Each id must be in the caller's owned set; non-owned ids are silently dropped from `kept`. |
 
 ### `chrome_owned_tabs`
 

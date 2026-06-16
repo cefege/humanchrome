@@ -26,7 +26,7 @@ interface FailedClose {
  * `reason: 'TAB_CLOSED'` in `failed[]` and `success` stays `true`.
  */
 class CloseMyTabsTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.CLOSE_MY_TABS;
+  name = 'chrome_close_tabs__mine_internal';
   static readonly autoSpawnTab = false;
 
   async execute(args: CloseMyTabsParams = {}): Promise<ToolResult> {

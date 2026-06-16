@@ -150,9 +150,7 @@ async function persistNow(): Promise<void> {
       activeTabId: s.activeTabId,
       lastWindowId: s.lastWindowId,
       lastSeenAt: s.lastSeenAt,
-      ...(s.aliases && s.aliases.size > 0
-        ? { aliases: Object.fromEntries(s.aliases) }
-        : {}),
+      ...(s.aliases && s.aliases.size > 0 ? { aliases: Object.fromEntries(s.aliases) } : {}),
     };
   }
   try {
@@ -449,7 +447,15 @@ export function resolveOwnedTabIdForClient(
   // order is preserved in JavaScript, so the last `add` wins.
   let last: number | undefined;
   for (const id of state.ownedTabs) last = id;
-  return last !== undefined ? { tabId: last } : {};
+  if (last !== undefined) return { tabId: last };
+  // Owned set is empty. Clear a stale activeTabId that wasn't evicted by
+  // onRemoved (e.g. the SW was sleeping when the tab closed and the event
+  // was missed). Prevents a stale id from leaking into future liveness probes.
+  if (state.activeTabId !== undefined) {
+    state.activeTabId = undefined;
+    schedulePersist();
+  }
+  return {};
 }
 
 /**
@@ -587,9 +593,7 @@ export function resolveAliasForClient(
 }
 
 /** Snapshot the alias→tabId map for a client (for `chrome_owned_tabs`). */
-export function listAliasesForClient(
-  clientId: string | undefined,
-): Record<string, number> {
+export function listAliasesForClient(clientId: string | undefined): Record<string, number> {
   if (!clientId) return {};
   const state = STATE.get(clientId);
   if (!state || !state.aliases) return {};

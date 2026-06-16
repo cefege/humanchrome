@@ -42,8 +42,7 @@ export const TOOL_NAMES = {
     NAVIGATE: 'chrome_navigate',
     NAVIGATE_BATCH: 'chrome_navigate_batch',
     SCREENSHOT: 'chrome_screenshot',
-    CLOSE_TAB: 'chrome_close_tab',
-    CLOSE_TABS_MATCHING: 'chrome_close_tabs_matching',
+    CLOSE_TABS: 'chrome_close_tabs',
     SWITCH_TAB: 'chrome_switch_tab',
     TAB_GROUPS: 'chrome_tab_groups',
     WEB_FETCHER: 'chrome_get_web_content',
@@ -100,7 +99,6 @@ export const TOOL_NAMES = {
     DOWNLOAD: 'chrome_download',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     CLAIM_TAB: 'browser_claim_tab',
-    CLOSE_MY_TABS: 'browser_close_my_tabs',
     QUEUE_INSPECT: 'chrome_queue_inspect',
     LOCATOR_HANDLER: 'chrome_locator_handler',
     DEV_RELOAD: 'chrome_dev_reload',
@@ -725,65 +723,55 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.CLOSE_TAB,
+    name: TOOL_NAMES.BROWSER.CLOSE_TABS,
     description:
-      'Close one or more tabs by tabIds[] or by matching url. Example: {tabIds:[3,5]} → {success:true, closed:[3,5]} Cross-ref: browser_close (MCP @playwright/mcp); page.close (Playwright API).',
+      'Close tabs via action enum. Replaces chrome_close_tab + chrome_close_tabs_matching + browser_close_my_tabs. Example: {action:"ids", tabIds:[3,5]} → {closed:[3,5]}; {action:"matching", urlMatches:"/example/", dryRun:true} → {matched, tabIds}; {action:"mine"} → close all caller-owned tabs. Cross-ref: browser_close (MCP @playwright/mcp); page.close (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['ids', 'matching', 'mine'],
+          description:
+            'ids=close specific tabIds; matching=bulk close by url/title/age filter; mine=close all tabs owned by the calling client.',
+        },
         tabIds: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Array of tab IDs to close. If not provided, will close the active tab.',
+          description: 'For action=ids: tab IDs to close. Omit for active tab.',
         },
         url: {
           type: 'string',
-          description: 'Close tabs matching this URL. Can be used instead of tabIds.',
+          description: 'For action=ids: alternative to tabIds — close tabs matching this URL.',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING,
-    description:
-      'Bulk close tabs by filters; at least one of urlMatches/titleMatches/olderThanMs required (no-filter rejected). URL/title accept substring or /regex/flags. Honors last-tab-in-window guard. Example: {urlMatches:"/example.com/", dryRun:true} → {closed:0, matched:3, tabIds:[...]}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         urlMatches: {
           type: 'string',
           description:
-            'URL filter. Plain text → case-insensitive substring match against `tab.url`. Wrap in `/.../flags` (e.g. `/voyager\\/api/i`) for regex match. Combined with other filters via AND.',
+            'For action=matching: URL filter. Plain text → case-insensitive substring; wrap in /…/flags for regex.',
         },
         titleMatches: {
           type: 'string',
-          description:
-            'Title filter. Same matching rules as `urlMatches` but applied against `tab.title`. Combined with other filters via AND.',
+          description: 'For action=matching: title filter, same syntax as urlMatches.',
         },
         olderThanMs: {
           type: 'number',
-          description:
-            "Close tabs whose creation time was more than N milliseconds ago. The check uses Chrome's wall-clock view of when the tab was created (via the existing tab-tracking record). Tabs with unknown creation time are NOT matched by this filter alone.",
+          description: 'For action=matching: tabs older than N ms.',
         },
         exceptTabIds: {
           type: 'array',
           items: { type: 'number' },
-          description:
-            'Tab IDs to always preserve, even if they would otherwise match the filters.',
+          description: 'For action=matching/mine: tab IDs to always preserve.',
         },
         windowId: {
           type: 'number',
-          description:
-            'Optional window scope. When provided, only tabs in this window are considered. Default: every window the extension can see.',
+          description: 'For action=matching: optional window scope.',
         },
         dryRun: {
           type: 'boolean',
-          description:
-            'When true, returns the matched tab IDs without actually closing them. Useful as a pre-flight check before destructive bulk close.',
+          description: 'For action=matching/mine: report matched tabs without closing.',
         },
       },
-      required: [],
+      required: ['action'],
     },
   },
   {
@@ -2858,23 +2846,6 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.CLOSE_MY_TABS,
-    description:
-      'Close every tab owned by the calling client; optional keep[] preserves specific tabIds. beforeunload prompts are bypassed silently. Example: {keep:[7]} → {success:true, closed:[3,5], kept:[7], failed:[]}',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        keep: {
-          type: 'array',
-          items: { type: 'number' },
-          description:
-            "Tab IDs to preserve (kept owned by the calling client, not closed). Each id must be in the caller's owned set; non-owned ids are silently dropped from `kept`.",
-        },
-      },
-      required: [],
-    },
-  },
-  {
     name: TOOL_NAMES.RECORD_REPLAY.FLOW_DELETE,
     description:
       'Delete a recorded flow by ID; always unpublishes first so the dynamic flow.<slug> MCP tool disappears. Example: {flowId:"f1"} → {deleted:true, unpublished:true, flowId:"f1"}',
@@ -3462,8 +3433,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.NAVIGATE]: 'Browser management',
   [TOOL_NAMES.BROWSER.NAVIGATE_BATCH]: 'Browser management',
-  [TOOL_NAMES.BROWSER.CLOSE_TAB]: 'Browser management',
-  [TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING]: 'Browser management',
+  [TOOL_NAMES.BROWSER.CLOSE_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.SWITCH_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.TAB_GROUPS]: 'Browser management',
 
@@ -3532,7 +3502,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.DOWNLOAD]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
-  [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',
   [TOOL_NAMES.BROWSER.QUEUE_INSPECT]: 'Browser management',
   [TOOL_NAMES.BROWSER.LOCATOR_HANDLER]: 'Interaction',
   [TOOL_NAMES.BROWSER.DEV_RELOAD]: 'System',

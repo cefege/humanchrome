@@ -56,7 +56,7 @@ function compileMatcher(raw: string | undefined): ((value: string) => boolean) |
 }
 
 class CloseTabsMatchingTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.CLOSE_TABS_MATCHING;
+  name = 'chrome_close_tabs__matching_internal';
   static readonly mutates = true;
 
   async execute(args: CloseTabsMatchingParams = {}): Promise<ToolResult> {

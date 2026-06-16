@@ -61,9 +61,11 @@
               <span>{{
                 isConnecting
                   ? getMessage('connectingStatus')
-                  : nativeConnectionStatus === 'connected'
-                    ? getMessage('disconnectButton')
-                    : getMessage('connectButton')
+                  : isServiceStuck
+                    ? getMessage('restartServiceButton')
+                    : nativeConnectionStatus === 'connected'
+                      ? getMessage('disconnectButton')
+                      : getMessage('connectButton')
               }}</span>
             </button>
           </div>
@@ -446,6 +448,15 @@ const serverStatus = ref<{
 
 const showMcpConfig = computed(() => {
   return nativeConnectionStatus.value === 'connected' && serverStatus.value.isRunning;
+});
+
+// SW has a live NM port but the bridge isn't actually serving on the port.
+// Happens after IMP-0119 self-update reload when the new SW reuses a stale
+// nativePort reference: ensureNativeConnected becomes a no-op, no fresh
+// bridge ever spawns. The button switches to "Restart Service" and forces
+// a full disconnect → reconnect cycle so a fresh subprocess comes up.
+const isServiceStuck = computed(() => {
+  return nativeConnectionStatus.value === 'connected' && !serverStatus.value.isRunning;
 });
 
 const copyButtonText = ref(getMessage('copyConfigButton'));
@@ -965,7 +976,22 @@ const testNativeConnection = async () => {
   if (isConnecting.value) return;
   isConnecting.value = true;
   try {
-    if (nativeConnectionStatus.value === 'connected') {
+    if (isServiceStuck.value) {
+      // Stuck-state recovery: tear down the stale NM port, then immediately
+      // reconnect so the SW spawns a fresh bridge subprocess.
+      await chrome.runtime.sendMessage({ type: 'disconnect_native' });
+      const response = await chrome.runtime.sendMessage({
+        type: 'connectNative',
+        port: nativeServerPort.value,
+      });
+      if (response && response.success) {
+        nativeConnectionStatus.value = 'connected';
+        await savePortPreference(nativeServerPort.value);
+      } else {
+        nativeConnectionStatus.value = 'disconnected';
+        console.error('Restart failed:', response);
+      }
+    } else if (nativeConnectionStatus.value === 'connected') {
       await chrome.runtime.sendMessage({ type: 'disconnect_native' });
       nativeConnectionStatus.value = 'disconnected';
     } else {

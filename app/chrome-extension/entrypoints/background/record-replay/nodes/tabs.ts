@@ -39,10 +39,10 @@ export const switchTabNode: NodeRuntime<StepSwitchTab> = {
 export const closeTabNode: NodeRuntime<StepCloseTab> = {
   run: async (ctx: ExecCtx, step: StepCloseTab) => {
     const s = expandTemplatesDeep<StepCloseTab>(step, ctx.vars);
-    const args: { tabIds?: number[]; url?: string } = {};
+    const args: { action: 'ids'; tabIds?: number[]; url?: string } = { action: 'ids' };
     if (Array.isArray(s.tabIds) && s.tabIds.length) args.tabIds = s.tabIds;
     if (s.url) args.url = s.url;
-    const res = await handleCallTool({ name: TOOL_NAMES.BROWSER.CLOSE_TAB, args });
+    const res = await handleCallTool({ name: TOOL_NAMES.BROWSER.CLOSE_TABS, args });
     if ((res as { isError?: boolean }).isError) throw new Error('closeTab failed');
     return {} as ExecResult;
   },

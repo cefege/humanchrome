@@ -51,6 +51,10 @@
     "message": "Disconnect",
     "description": "Disconnect button text"
   },
+  "restartServiceButton": {
+    "message": "Restart Service",
+    "description": "Restart button shown when NM is connected but the bridge isn't serving"
+  },
   "connectingStatus": {
     "message": "Connecting...",
     "description": "Connecting status message"

@@ -16,8 +16,8 @@ interface CloseTabsToolParams {
  *      separately rather than aborting).
  *   3. Neither → close the caller's owned (active) tab.
  */
-class CloseTabsTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.CLOSE_TAB;
+class CloseTabsByIdsInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_close_tabs__ids_internal';
 
   async execute(args: CloseTabsToolParams): Promise<ToolResult> {
     const { tabIds, url } = args;
@@ -193,4 +193,52 @@ class CloseTabsTool extends BaseBrowserToolExecutor {
   }
 }
 
-export const closeTabsTool = new CloseTabsTool();
+import { closeTabsMatchingTool as _closeTabsMatching } from './close-tabs-matching';
+import { closeMyTabsTool as _closeMyTabs } from './close-my-tabs';
+import { createErrorResponse as _createErr } from '@/common/tool-handler';
+import { ToolErrorCode as _ErrCode } from 'humanchrome-shared';
+
+const closeTabsByIdsInternal = new CloseTabsByIdsInternal();
+
+/**
+ * Unified chrome_close_tabs tool (Slice 9 of IMP-0188 catalog consolidation).
+ * Routes by `action` to the three previous close-tab tools.
+ */
+type CloseTabsAction = 'ids' | 'matching' | 'mine';
+const CLOSE_TABS_ACTIONS: readonly CloseTabsAction[] = ['ids', 'matching', 'mine'] as const;
+
+class CloseTabsUnifiedTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.CLOSE_TABS;
+  static readonly mutates = true;
+
+  async execute(args: { action: CloseTabsAction } & Record<string, unknown>): Promise<ToolResult> {
+    if (!args || typeof args.action !== 'string') {
+      return _createErr(
+        `\`action\` is required (one of: ${CLOSE_TABS_ACTIONS.join(', ')})`,
+        _ErrCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (!CLOSE_TABS_ACTIONS.includes(args.action)) {
+      return _createErr(
+        `Invalid action "${args.action}": expected one of ${CLOSE_TABS_ACTIONS.join(', ')}`,
+        _ErrCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    switch (args.action) {
+      case 'ids':
+        return closeTabsByIdsInternal.execute(args as unknown as CloseTabsToolParams);
+      case 'matching':
+        return _closeTabsMatching.execute(
+          args as unknown as Parameters<typeof _closeTabsMatching.execute>[0],
+        );
+      case 'mine':
+        return _closeMyTabs.execute(args as unknown as Parameters<typeof _closeMyTabs.execute>[0]);
+      default:
+        return _createErr(`Unreachable: ${args.action}`, _ErrCode.INVALID_ARGS);
+    }
+  }
+}
+
+export const closeTabsTool = new CloseTabsUnifiedTool();
