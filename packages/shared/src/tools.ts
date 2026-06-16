@@ -51,12 +51,7 @@ export const TOOL_NAMES = {
     FILL: 'chrome_fill_or_select',
     REQUEST_ELEMENT_SELECTION: 'chrome_request_element_selection',
     NETWORK_CAPTURE: 'chrome_network_capture',
-    // Legacy tool names (kept for internal use, not exposed in TOOL_SCHEMAS)
-    NETWORK_CAPTURE_START: 'chrome_network_capture_start',
-    NETWORK_CAPTURE_STOP: 'chrome_network_capture_stop',
     NETWORK_REQUEST: 'chrome_network_request',
-    NETWORK_DEBUGGER_START: 'chrome_network_debugger_start',
-    NETWORK_DEBUGGER_STOP: 'chrome_network_debugger_stop',
     INTERCEPT_RESPONSE: 'chrome_intercept_response',
     KEYBOARD: 'chrome_keyboard',
     HISTORY: 'chrome_history',

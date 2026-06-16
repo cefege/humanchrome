@@ -371,8 +371,14 @@ class ExecutionOrchestrator {
     if (this.options.captureNetwork) {
       try {
         const res = await handleCallTool({
-          name: TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START,
-          args: { includeStatic: false, maxCaptureTime: 3 * 60_000, inactivityTimeout: 0 },
+          name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
+          args: {
+            action: 'start',
+            needResponseBody: true,
+            includeStatic: false,
+            maxCaptureTime: 3 * 60_000,
+            inactivityTimeout: 0,
+          },
         });
         let started = false;
         try {
@@ -764,8 +770,8 @@ class ExecutionOrchestrator {
     if (this.networkCaptureStarted) {
       try {
         const stopRes = await handleCallTool({
-          name: TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP,
-          args: {},
+          name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
+          args: { action: 'stop' },
         });
         const text = (stopRes?.content || []).find((c: any) => c.type === 'text')?.text;
         if (text) {

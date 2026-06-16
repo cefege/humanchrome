@@ -104,8 +104,9 @@ export async function waitForNetworkIdle(totalTimeoutMs: number, idleThresholdMs
   const threshold = Math.max(200, idleThresholdMs);
   while (Date.now() < deadline) {
     await handleCallTool({
-      name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE_START,
+      name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
       args: {
+        action: 'start',
         includeStatic: false,
         // Ensure capture remains active until we explicitly stop it
         maxCaptureTime: Math.min(60_000, Math.max(threshold + 500, 2_000)),
@@ -114,8 +115,8 @@ export async function waitForNetworkIdle(totalTimeoutMs: number, idleThresholdMs
     });
     await new Promise((r) => setTimeout(r, threshold + 200));
     const stopRes = await handleCallTool({
-      name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE_STOP,
-      args: {},
+      name: TOOL_NAMES.BROWSER.NETWORK_CAPTURE,
+      args: { action: 'stop' },
     });
     const text = (stopRes as any)?.content?.find((c: any) => c.type === 'text')?.text;
     try {

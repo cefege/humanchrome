@@ -66,11 +66,8 @@ const MAX_RESPONSE_BODY_SIZE_BYTES = MAX_RESPONSE_BODY_BYTES;
 /**
  * Network capture start tool - uses Chrome Debugger API to start capturing network requests
  */
-class NetworkDebuggerStartTool extends NetworkCaptureBase<
-  NetworkRequestInfo,
-  DebuggerCaptureInfo
-> {
-  name = TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START;
+class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, DebuggerCaptureInfo> {
+  name = 'chrome_network_debugger_start__internal';
   private pendingResponseBodies: Map<string, Promise<any>> = new Map(); // requestId -> promise for getResponseBody
   private static MAX_REQUESTS_PER_CAPTURE = MAX_REQUESTS_PER_CAPTURE; // Max requests to store to prevent memory issues
   public static instance: NetworkDebuggerStartTool | null = null;
@@ -863,7 +860,7 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<
  * Network capture stop tool - stops capture and returns results for the active tab
  */
 class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP;
+  name = 'chrome_network_debugger_stop__internal';
   public static instance: NetworkDebuggerStopTool | null = null;
 
   constructor() {

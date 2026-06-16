@@ -29,10 +29,24 @@ import {
   _resetLazyToolCacheForTest,
 } from '@/entrypoints/background/tools';
 
+/**
+ * Names handled at the native-server dispatcher layer rather than by the
+ * extension. They appear in `TOOL_NAMES.BROWSER` so the catalog advertises
+ * them, but the call short-circuits before reaching the extension's
+ * `handleCallTool`, so the extension intentionally has no handler.
+ *
+ * BUG-003: `chrome_help` returns the dispatcher catalog with verb-phrase
+ * summaries — pure metadata lookup that already lives in the native
+ * server's process; no need to round-trip through Chrome.
+ */
+const DISPATCHER_HANDLED: ReadonlySet<string> = new Set<string>([TOOL_NAMES.BROWSER.HELP]);
+
 describe('lazy tool registry (IMP-0056)', () => {
   it('registers a handler for every TOOL_NAMES.BROWSER entry', () => {
     const registered = new Set(listRegisteredToolNames());
-    const expected = Object.values(TOOL_NAMES.BROWSER) as string[];
+    const expected = (Object.values(TOOL_NAMES.BROWSER) as string[]).filter(
+      (name) => !DISPATCHER_HANDLED.has(name),
+    );
 
     const missing = expected.filter((name) => !registered.has(name));
     expect(missing).toEqual([]);
@@ -76,8 +90,6 @@ describe('lazy tools — chunks that still land back in background.js', () => {
   // javascript/read-page/userscript/performance/element-picker.
   const STILL_LAZY = [
     TOOL_NAMES.BROWSER.SCREENSHOT,
-    TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START,
-    TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP,
     TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
     TOOL_NAMES.BROWSER.COMPUTER,
     TOOL_NAMES.BROWSER.GIF_RECORDER,

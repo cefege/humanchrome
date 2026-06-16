@@ -79,7 +79,7 @@ interface CaptureInfo extends BaseCaptureInfo<NetworkRequestInfo> {
  * Network Capture Start Tool V2 - Uses Chrome webRequest API to start capturing network requests
  */
 class NetworkCaptureStartTool extends NetworkCaptureBase<NetworkRequestInfo, CaptureInfo> {
-  name = TOOL_NAMES.BROWSER.NETWORK_CAPTURE_START;
+  name = 'chrome_network_capture_start__internal';
   public static instance: NetworkCaptureStartTool | null = null;
   public static MAX_REQUESTS_PER_CAPTURE = MAX_REQUESTS_PER_CAPTURE; // Maximum capture request count
   private listeners: { [key: string]: ((details: any) => void) | undefined } = {};
@@ -813,7 +813,7 @@ class NetworkCaptureStartTool extends NetworkCaptureBase<NetworkRequestInfo, Cap
  * Network capture stop tool V2 - Stop webRequest API capture and return results
  */
 class NetworkCaptureStopTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.NETWORK_CAPTURE_STOP;
+  name = 'chrome_network_capture_stop__internal';
   public static instance: NetworkCaptureStopTool | null = null;
 
   constructor() {

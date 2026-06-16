@@ -72,10 +72,7 @@ import { webFetcherTool } from './browser/web-fetcher';
 import { clickTool, fillTool } from './browser/interaction';
 import { networkRequestTool } from './browser/network-request';
 import { networkCaptureTool } from './browser/network-capture';
-import {
-  networkCaptureStartTool,
-  networkCaptureStopTool,
-} from './browser/network-capture-web-request';
+import {} from './browser/network-capture-web-request';
 import { keyboardTool } from './browser/keyboard';
 import { historyTool, historyDeleteTool } from './browser/history';
 import { listFramesTool } from './browser/list-frames';
@@ -193,8 +190,6 @@ const eagerTools: ToolInstance[] = [
   fillTool,
   networkRequestTool,
   networkCaptureTool,
-  networkCaptureStartTool,
-  networkCaptureStopTool,
   keyboardTool,
   historyTool,
   historyDeleteTool,
@@ -277,10 +272,6 @@ const lazyLoaders: Record<string, LazyLoader> = {
   // promote them to `eagerTools` (see the eager-import block above).
   [TOOL_NAMES.BROWSER.SCREENSHOT]: async () =>
     (await import('./browser/screenshot')).screenshotTool,
-  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_START]: async () =>
-    (await import('./browser/network-capture-debugger')).networkDebuggerStartTool,
-  [TOOL_NAMES.BROWSER.NETWORK_DEBUGGER_STOP]: async () =>
-    (await import('./browser/network-capture-debugger')).networkDebuggerStopTool,
   [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: async () =>
     (await import('./browser/intercept-response')).interceptResponseTool,
   [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
