@@ -74,7 +74,7 @@ import { networkRequestTool } from './browser/network-request';
 import { networkCaptureTool } from './browser/network-capture';
 import {} from './browser/network-capture-web-request';
 import { keyboardTool } from './browser/keyboard';
-import { historyTool, historyDeleteTool } from './browser/history';
+import { historyTool } from './browser/history';
 import { listFramesTool } from './browser/list-frames';
 import { bookmarkTool } from './browser/bookmark';
 import { cookiesTool } from './browser/cookies';
@@ -187,7 +187,6 @@ const eagerTools: ToolInstance[] = [
   networkCaptureTool,
   keyboardTool,
   historyTool,
-  historyDeleteTool,
   listFramesTool,
   bookmarkTool,
   cookiesTool,

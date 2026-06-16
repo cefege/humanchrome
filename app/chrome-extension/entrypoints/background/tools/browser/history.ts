@@ -107,8 +107,8 @@ function formatDate(timestamp: number): string {
   return format(timestamp, 'yyyy-MM-dd HH:mm:ss');
 }
 
-class HistoryTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.HISTORY;
+class HistorySearchInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_history__search_internal';
   private static readonly ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
   async execute(args: HistoryToolParams): Promise<ToolResult> {
@@ -138,7 +138,7 @@ class HistoryTool extends BaseBrowserToolExecutor {
         startTimeMs = parsedStart;
       } else {
         // Default to 24 hours ago if startTime is not provided
-        startTimeMs = now - HistoryTool.ONE_DAY_MS;
+        startTimeMs = now - HistorySearchInternal.ONE_DAY_MS;
       }
 
       // Parse endTime
@@ -237,8 +237,8 @@ class HistoryTool extends BaseBrowserToolExecutor {
   }
 }
 
-class HistoryDeleteTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.HISTORY_DELETE;
+class HistoryDeleteInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_history__delete_internal';
 
   async execute(args: HistoryDeleteToolParams): Promise<ToolResult> {
     const { url, startTime, endTime, all, confirmDeleteAll } = args ?? {};
@@ -366,5 +366,32 @@ function jsonResult(payload: unknown): ToolResult {
   };
 }
 
+const historySearchInternal = new HistorySearchInternal();
+const historyDeleteInternal = new HistoryDeleteInternal();
+
+/**
+ * Unified chrome_history tool (Slice 6 of IMP-0188 catalog consolidation).
+ * action:"search" (default) → search history; action:"delete" → delete by url/range.
+ */
+type HistoryAction = 'search' | 'delete';
+const HISTORY_ACTIONS: readonly HistoryAction[] = ['search', 'delete'] as const;
+
+class HistoryTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.HISTORY;
+  static readonly mutates = true;
+
+  async execute(args: HistoryToolParams & { action?: HistoryAction }): Promise<ToolResult> {
+    const action = args?.action ?? 'search';
+    if (!HISTORY_ACTIONS.includes(action)) {
+      return createErrorResponse(
+        `Invalid action "${action}": expected one of ${HISTORY_ACTIONS.join(', ')}`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (action === 'delete') return historyDeleteInternal.execute(args);
+    return historySearchInternal.execute(args);
+  }
+}
+
 export const historyTool = new HistoryTool();
-export const historyDeleteTool = new HistoryDeleteTool();

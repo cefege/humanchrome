@@ -38,7 +38,7 @@ export { interceptResponseTool } from './intercept-response';
 // Legacy exports (for internal use by networkCaptureTool)
 export { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
 export { keyboardTool } from './keyboard';
-export { historyTool, historyDeleteTool } from './history';
+export { historyTool } from './history';
 export { bookmarkTool } from './bookmark';
 export { cookiesTool } from './cookies';
 export {

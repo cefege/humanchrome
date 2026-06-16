@@ -55,7 +55,6 @@ export const TOOL_NAMES = {
     INTERCEPT_RESPONSE: 'chrome_intercept_response',
     KEYBOARD: 'chrome_keyboard',
     HISTORY: 'chrome_history',
-    HISTORY_DELETE: 'chrome_history_delete',
     BOOKMARK: 'chrome_bookmark',
     COOKIES: 'chrome_cookies',
     INJECT_SCRIPT: 'chrome_inject_script',
@@ -1017,70 +1016,47 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.HISTORY,
     description:
-      'Search browsing history via chrome.history.search. Filter by text, time range, or result count; set excludeCurrentTabs to skip open tabs. Example: {text:"github", maxResults:50} → {items:[{url, title, lastVisitTime, visitCount}]}',
+      'Search or delete browsing history via chrome.history. action:"search" (default) filters by text/time/maxResults; action:"delete" removes by url, startTime+endTime range, or all:true (requires confirmDeleteAll:true). Permanent. Example: {action:"search", text:"github"} → {items:[...]}; {action:"delete", url:"https://x.com"} → {deleted:true}.',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['search', 'delete'],
+          description: 'search (default) or delete. Omit for search-mode.',
+        },
         text: {
           type: 'string',
-          description:
-            'Text to search for in history URLs and titles. Leave empty to retrieve all history entries within the time range.',
+          description: 'For action=search: query against URLs/titles. Empty returns all in range.',
         },
         startTime: {
           type: 'string',
           description:
-            'Start time as a date string. Supports ISO format (e.g., "2023-10-01", "2023-10-01T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: 24 hours ago',
+            'For search: start of range (default 24h ago). For delete: required with endTime for range mode. Supports ISO, "1 day ago", "yesterday", etc.',
         },
         endTime: {
           type: 'string',
-          description:
-            'End time as a date string. Supports ISO format (e.g., "2023-10-31", "2023-10-31T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: current time',
+          description: 'End of range. Same date formats. Default current time.',
         },
         maxResults: {
           type: 'number',
-          description:
-            'Maximum number of history entries to return. Use this to limit results for performance or to focus on the most relevant entries. (default: 100)',
+          description: 'For action=search: max entries (default 100).',
         },
         excludeCurrentTabs: {
           type: 'boolean',
-          description:
-            "When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false)",
+          description: 'For action=search: filter out URLs currently open in any tab.',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.HISTORY_DELETE,
-    description:
-      'Delete browsing history entries (chrome.history.deleteUrl/deleteRange/deleteAll). Permanent. Pick exactly one mode: url, startTime+endTime, or all:true with confirmDeleteAll:true. Example: {url:"https://x.com"} → {deleted:true}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         url: {
           type: 'string',
-          description:
-            'When provided, removes all visits to this exact URL (chrome.history.deleteUrl). Mutually exclusive with the time-range and `all` modes.',
-        },
-        startTime: {
-          type: 'string',
-          description:
-            'Start of the deletion window. Same date formats as chrome_history (ISO, "1 day ago", "yesterday", etc.). Required together with `endTime`. Mutually exclusive with `url` and `all`.',
-        },
-        endTime: {
-          type: 'string',
-          description:
-            'End of the deletion window. Same date formats as chrome_history. Required together with `startTime`. Mutually exclusive with `url` and `all`.',
+          description: 'For action=delete: remove visits to this exact URL.',
         },
         all: {
           type: 'boolean',
-          description:
-            'When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode.',
+          description: 'For action=delete: wipe entire history. Requires confirmDeleteAll:true.',
         },
         confirmDeleteAll: {
           type: 'boolean',
-          description:
-            'Required safety acknowledgement when `all` is true. Has no effect for url or range mode.',
+          description: 'Safety ack for delete + all:true.',
         },
       },
       required: [],
@@ -3557,7 +3533,6 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   [TOOL_NAMES.BROWSER.CONSOLE]: 'State',
   [TOOL_NAMES.BROWSER.HISTORY]: 'State',
-  [TOOL_NAMES.BROWSER.HISTORY_DELETE]: 'State',
   [TOOL_NAMES.BROWSER.BOOKMARK]: 'State',
   [TOOL_NAMES.BROWSER.COOKIES]: 'State',
 

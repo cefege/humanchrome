@@ -915,27 +915,19 @@ Read/write/clear a tab's localStorage or sessionStorage via a MAIN-world shim. I
 
 ### `chrome_history`
 
-Search browsing history via chrome.history.search. Filter by text, time range, or result count; set excludeCurrentTabs to skip open tabs. Example: {text:"github", maxResults:50} → {items:[{url, title, lastVisitTime, visitCount}]}
+Search or delete browsing history via chrome.history. action:"search" (default) filters by text/time/maxResults; action:"delete" removes by url, startTime+endTime range, or all:true (requires confirmDeleteAll:true). Permanent. Example: {action:"search", text:"github"} → {items:[...]}; {action:"delete", url:"https://x.com"} → {deleted:true}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `text` | string |  | Text to search for in history URLs and titles. Leave empty to retrieve all history entries within the time range. |
-| `startTime` | string |  | Start time as a date string. Supports ISO format (e.g., "2023-10-01", "2023-10-01T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: 24 hours ago |
-| `endTime` | string |  | End time as a date string. Supports ISO format (e.g., "2023-10-31", "2023-10-31T14:30:00"), relative times (e.g., "1 day ago", "2 weeks ago", "3 months ago", "1 year ago"), and special keywords ("now", "today", "yesterday"). Default: current time |
-| `maxResults` | number |  | Maximum number of history entries to return. Use this to limit results for performance or to focus on the most relevant entries. (default: 100) |
-| `excludeCurrentTabs` | boolean |  | When set to true, filters out URLs that are currently open in any browser tab. Useful for finding pages you've visited but don't have open anymore. (default: false) |
-
-### `chrome_history_delete`
-
-Delete browsing history entries (chrome.history.deleteUrl/deleteRange/deleteAll). Permanent. Pick exactly one mode: url, startTime+endTime, or all:true with confirmDeleteAll:true. Example: {url:"https://x.com"} → {deleted:true}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string |  | When provided, removes all visits to this exact URL (chrome.history.deleteUrl). Mutually exclusive with the time-range and `all` modes. |
-| `startTime` | string |  | Start of the deletion window. Same date formats as chrome_history (ISO, "1 day ago", "yesterday", etc.). Required together with `endTime`. Mutually exclusive with `url` and `all`. |
-| `endTime` | string |  | End of the deletion window. Same date formats as chrome_history. Required together with `startTime`. Mutually exclusive with `url` and `all`. |
-| `all` | boolean |  | When true, deletes the entire browsing history (chrome.history.deleteAll). Must be combined with `confirmDeleteAll: true`. Mutually exclusive with `url` and the time-range mode. |
-| `confirmDeleteAll` | boolean |  | Required safety acknowledgement when `all` is true. Has no effect for url or range mode. |
+| `action` | `search` \| `delete` |  | search (default) or delete. Omit for search-mode. |
+| `text` | string |  | For action=search: query against URLs/titles. Empty returns all in range. |
+| `startTime` | string |  | For search: start of range (default 24h ago). For delete: required with endTime for range mode. Supports ISO, "1 day ago", "yesterday", etc. |
+| `endTime` | string |  | End of range. Same date formats. Default current time. |
+| `maxResults` | number |  | For action=search: max entries (default 100). |
+| `excludeCurrentTabs` | boolean |  | For action=search: filter out URLs currently open in any tab. |
+| `url` | string |  | For action=delete: remove visits to this exact URL. |
+| `all` | boolean |  | For action=delete: wipe entire history. Requires confirmDeleteAll:true. |
+| `confirmDeleteAll` | boolean |  | Safety ack for delete + all:true. |
 
 ### `chrome_bookmark`
 

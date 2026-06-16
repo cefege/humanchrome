@@ -32,7 +32,12 @@ import { clipboardTool } from '@/entrypoints/background/tools/browser/clipboard'
 import { storageTool } from '@/entrypoints/background/tools/browser/storage';
 import { emulateTool } from '@/entrypoints/background/tools/browser/emulate';
 import { keyboardTool } from '@/entrypoints/background/tools/browser/keyboard';
-import { historyDeleteTool } from '@/entrypoints/background/tools/browser/history';
+import { historyTool } from '@/entrypoints/background/tools/browser/history';
+
+// Slice 6: history_delete folded into history under action="delete".
+const historyDeleteTool = {
+  execute: (args: any) => historyTool.execute({ ...args, action: 'delete' }),
+};
 
 function parseEnvelope(res: any): any {
   return JSON.parse(res.content[0].text);

@@ -9,7 +9,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { historyDeleteTool } from '@/entrypoints/background/tools/browser/history';
+import { historyTool } from '@/entrypoints/background/tools/browser/history';
+
+// Slice 6: chrome_history_delete folded into chrome_history under action="delete".
+// Wrap the unified tool so existing test cases keep their original shape.
+const historyDeleteTool = {
+  execute: (args: any) => historyTool.execute({ ...args, action: 'delete' }),
+};
 
 interface HistoryStubs {
   deleteUrl: ReturnType<typeof vi.fn>;
