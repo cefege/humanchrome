@@ -99,8 +99,7 @@ export const TOOL_NAMES = {
     PROXY: 'chrome_proxy',
     IDENTITY: 'chrome_identity',
     DRAG_DROP: 'chrome_drag_drop',
-    DOWNLOAD_LIST: 'chrome_download_list',
-    DOWNLOAD_CANCEL: 'chrome_download_cancel',
+    DOWNLOAD: 'chrome_download',
     REMOVE_INJECTED_SCRIPT: 'chrome_remove_injected_script',
     CLAIM_TAB: 'browser_claim_tab',
     CLOSE_MY_TABS: 'browser_close_my_tabs',
@@ -2799,45 +2798,36 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
-    name: TOOL_NAMES.BROWSER.DOWNLOAD_LIST,
+    name: TOOL_NAMES.BROWSER.DOWNLOAD,
     description:
-      'Enumerate downloads via chrome.downloads.search to find in-progress ids, check state, or list completed saved paths. Includes downloads started outside the agent session. Example: {state:"in_progress", limit:10} → {count, items:[{id, url, filename, state, ...}]}',
+      'List or cancel downloads via chrome.downloads. Replaces chrome_download_list and chrome_download_cancel. For wait-for-next-download semantics, use chrome_handle_download (separate). Example: {action:"list", state:"in_progress"} → {count, items:[...]}; {action:"cancel", downloadId:42} → {cancelled:true, postState}.',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'cancel'],
+          description: 'list=enumerate, cancel=stop an in-progress download.',
+        },
         state: {
           type: 'string',
           enum: ['in_progress', 'complete', 'interrupted', 'all'],
-          description: 'Filter by download state. `all` skips the state filter. Default: `all`.',
+          description: 'For action=list: filter by state (default all).',
         },
         filenameContains: {
           type: 'string',
-          description:
-            'Case-insensitive substring filter on the saved filename (post-`/`-split basename). Empty string matches all.',
+          description: 'For action=list: case-insensitive substring on basename.',
         },
         limit: {
           type: 'number',
-          description:
-            'Cap on returned items. Clamped to [1, 100]. Default 25. The full result set is fetched from Chrome and truncated client-side; Chrome itself returns up to ~1000 entries.',
+          description: 'For action=list: cap (1..100, default 25).',
         },
-      },
-      required: [],
-    },
-  },
-  {
-    name: TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL,
-    description:
-      'Cancel an in-progress download by id via chrome.downloads.cancel. Completed/already-cancelled downloads are silent no-ops. Example: {downloadId:42} → {cancelled:true, downloadId:42, postState:"interrupted"}',
-    inputSchema: {
-      type: 'object',
-      properties: {
         downloadId: {
           type: 'number',
-          description:
-            'The download id from `chrome_download_list` or `chrome.downloads.onCreated`.',
+          description: 'For action=cancel: download id from list or chrome.downloads.onCreated.',
         },
       },
-      required: ['downloadId'],
+      required: ['action'],
     },
   },
   {
@@ -3565,8 +3555,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.PROXY]: 'Network',
   [TOOL_NAMES.BROWSER.IDENTITY]: 'System',
   [TOOL_NAMES.BROWSER.DRAG_DROP]: 'Interaction',
-  [TOOL_NAMES.BROWSER.DOWNLOAD_LIST]: 'Files',
-  [TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL]: 'Files',
+  [TOOL_NAMES.BROWSER.DOWNLOAD]: 'Files',
   [TOOL_NAMES.BROWSER.REMOVE_INJECTED_SCRIPT]: 'Scripting',
   [TOOL_NAMES.BROWSER.CLAIM_TAB]: 'Browser management',
   [TOOL_NAMES.BROWSER.CLOSE_MY_TABS]: 'Browser management',

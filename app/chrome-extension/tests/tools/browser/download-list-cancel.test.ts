@@ -10,10 +10,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  downloadListTool,
-  downloadCancelTool,
-} from '@/entrypoints/background/tools/browser/download';
+import { downloadTool } from '@/entrypoints/background/tools/browser/download';
+
+// Slice 7: chrome_download_list/cancel folded into chrome_download with action.
+const downloadListTool = {
+  execute: (args: any) => downloadTool.execute({ ...args, action: 'list' }),
+};
+const downloadCancelTool = {
+  execute: (args: any) => downloadTool.execute({ ...args, action: 'cancel' }),
+};
 
 let searchMock: ReturnType<typeof vi.fn>;
 let cancelMock: ReturnType<typeof vi.fn>;

@@ -879,23 +879,17 @@ Record a tab as an animated GIF. action=start uses fixed-FPS sampling; action=au
 | `selector` | string |  | Export action only (when download=false): CSS selector for drag&drop target element. |
 | `enhancedRendering` | object |  | Auto-capture mode only: Configure visual overlays for recorded actions (click indicators, drag paths, labels). Pass `true` to enable all defaults. |
 
-### `chrome_download_list`
+### `chrome_download`
 
-Enumerate downloads via chrome.downloads.search to find in-progress ids, check state, or list completed saved paths. Includes downloads started outside the agent session. Example: {state:"in_progress", limit:10} → {count, items:[{id, url, filename, state, ...}]}
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `state` | `in_progress` \| `complete` \| `interrupted` \| `all` |  | Filter by download state. `all` skips the state filter. Default: `all`. |
-| `filenameContains` | string |  | Case-insensitive substring filter on the saved filename (post-`/`-split basename). Empty string matches all. |
-| `limit` | number |  | Cap on returned items. Clamped to [1, 100]. Default 25. The full result set is fetched from Chrome and truncated client-side; Chrome itself returns up to ~1000 entries. |
-
-### `chrome_download_cancel`
-
-Cancel an in-progress download by id via chrome.downloads.cancel. Completed/already-cancelled downloads are silent no-ops. Example: {downloadId:42} → {cancelled:true, downloadId:42, postState:"interrupted"}
+List or cancel downloads via chrome.downloads. Replaces chrome_download_list and chrome_download_cancel. For wait-for-next-download semantics, use chrome_handle_download (separate). Example: {action:"list", state:"in_progress"} → {count, items:[...]}; {action:"cancel", downloadId:42} → {cancelled:true, postState}.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `downloadId` | number | ✓ | The download id from `chrome_download_list` or `chrome.downloads.onCreated`. |
+| `action` | `list` \| `cancel` | ✓ | list=enumerate, cancel=stop an in-progress download. |
+| `state` | `in_progress` \| `complete` \| `interrupted` \| `all` |  | For action=list: filter by state (default all). |
+| `filenameContains` | string |  | For action=list: case-insensitive substring on basename. |
+| `limit` | number |  | For action=list: cap (1..100, default 25). |
+| `downloadId` | number |  | For action=cancel: download id from list or chrome.downloads.onCreated. |
 
 ## State
 

@@ -164,8 +164,8 @@ export interface DownloadListParams {
   limit?: number;
 }
 
-class DownloadListTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.DOWNLOAD_LIST;
+class DownloadListInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_download__list_internal';
 
   async execute(args: DownloadListParams = {}): Promise<ToolResult> {
     if (!chrome.downloads?.search) {
@@ -212,8 +212,8 @@ export interface DownloadCancelParams {
   downloadId?: number;
 }
 
-class DownloadCancelTool extends BaseBrowserToolExecutor {
-  name = TOOL_NAMES.BROWSER.DOWNLOAD_CANCEL;
+class DownloadCancelInternal extends BaseBrowserToolExecutor {
+  name = 'chrome_download__cancel_internal';
   static readonly mutates = true;
 
   async execute(args: DownloadCancelParams = {}): Promise<ToolResult> {
@@ -251,5 +251,43 @@ function basename(path: string | undefined): string {
   return (path ?? '').split(/[/\\]/).pop() ?? '';
 }
 
-export const downloadListTool = new DownloadListTool();
-export const downloadCancelTool = new DownloadCancelTool();
+const downloadListInternal = new DownloadListInternal();
+const downloadCancelInternal = new DownloadCancelInternal();
+
+/**
+ * Unified chrome_download tool (Slice 7 of IMP-0188 catalog consolidation).
+ * Routes by `action` to list/cancel. `chrome_handle_download` stays separate
+ * (different semantic — waits for next download to start).
+ */
+type DownloadAction = 'list' | 'cancel';
+const DOWNLOAD_ACTIONS: readonly DownloadAction[] = ['list', 'cancel'] as const;
+
+interface DownloadToolParams extends DownloadListParams, DownloadCancelParams {
+  action: DownloadAction;
+}
+
+class DownloadTool extends BaseBrowserToolExecutor {
+  name = TOOL_NAMES.BROWSER.DOWNLOAD;
+  static readonly mutates = true;
+
+  async execute(args: DownloadToolParams): Promise<ToolResult> {
+    if (!args || typeof args.action !== 'string') {
+      return createErrorResponse(
+        `\`action\` is required (one of: ${DOWNLOAD_ACTIONS.join(', ')})`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (!DOWNLOAD_ACTIONS.includes(args.action)) {
+      return createErrorResponse(
+        `Invalid action "${args.action}": expected one of ${DOWNLOAD_ACTIONS.join(', ')}`,
+        ToolErrorCode.INVALID_ARGS,
+        { arg: 'action' },
+      );
+    }
+    if (args.action === 'list') return downloadListInternal.execute(args);
+    return downloadCancelInternal.execute(args);
+  }
+}
+
+export const downloadTool = new DownloadTool();
