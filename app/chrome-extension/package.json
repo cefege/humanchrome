@@ -44,19 +44,19 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.111",
-    "@tailwindcss/vite": "^4.3.0",
+    "@iconify-json/lucide": "^1.2.113",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/chrome": "^0.0.318",
     "@wxt-dev/module-vue": "^1.0.3",
     "dotenv": "^17.4.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^4.3.1",
     "unplugin-icons": "^23.0.1",
     "unplugin-vue-components": "^0.28.0",
     "vite-plugin-static-copy": "^4.1.1",
-    "vitest": "^4.1.8",
-    "vue-tsc": "^3.3.4",
+    "vitest": "^4.1.9",
+    "vue-tsc": "^3.3.5",
     "wxt": "^0.20.26"
   }
 }
