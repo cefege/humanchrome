@@ -1844,7 +1844,7 @@
     return recorderInstance;
   }
 
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (!request || !request.action) return false;
       if (request.action === 'rr_timeline_update') {

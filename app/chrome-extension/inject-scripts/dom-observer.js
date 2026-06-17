@@ -1,4 +1,3 @@
-/* eslint-disable */
 // dom-observer.js - observe DOM for triggers and notify background
 (function () {
   if (window.__RR_DOM_OBSERVER__) return;
@@ -67,7 +66,7 @@
     });
   } catch (e) {}
 
-  chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((req, _sender, sendResponse) => {
     try {
       if (req && req.action === 'dom_observer_ping') {
         sendResponse({ status: 'pong' });

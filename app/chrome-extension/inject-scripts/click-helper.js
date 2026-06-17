@@ -494,7 +494,7 @@ if (window.__CLICK_HELPER_INITIALIZED__) {
   }
 
   // Listen for messages from the extension
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     if (request.action === 'clickElement') {
       clickElement(
         request.selector,

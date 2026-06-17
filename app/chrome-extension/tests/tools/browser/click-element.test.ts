@@ -32,18 +32,14 @@ import { resolve } from 'node:path';
 const sendCommandMock = vi.fn(
   async (_tabId: number, _method: string, _params?: Record<string, unknown>) => undefined,
 );
-const withSessionMock = vi.fn(
-  async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
+const withSessionMock = vi.fn(async (_tabId: number, _owner: string, fn: () => Promise<unknown>) =>
+  fn(),
 );
 vi.mock('@/utils/cdp-session-manager', () => ({
   cdpSessionManager: {
     sendCommand: (...args: unknown[]) => sendCommandMock(...(args as [any, any, any])),
     withSession: (...args: unknown[]) =>
-      withSessionMock(
-        args[0] as number,
-        args[1] as string,
-        args[2] as () => Promise<unknown>,
-      ),
+      withSessionMock(args[0] as number, args[1] as string, args[2] as () => Promise<unknown>),
   },
 }));
 
@@ -214,9 +210,7 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     expect(clickMsg?.cdpDispatch).toBe(true);
 
     // CDP move + press + release at the helper-resolved coords.
-    const cdpCalls = sendCommandMock.mock.calls.filter(
-      (c) => c[1] === 'Input.dispatchMouseEvent',
-    );
+    const cdpCalls = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchMouseEvent');
     expect(cdpCalls).toHaveLength(3);
     expect(cdpCalls[0][2]).toMatchObject({
       type: 'mouseMoved',
@@ -258,17 +252,15 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
     const res = await clickTool.execute({ ref: 'r1', double: true, tabId: 5 });
     expect(res.isError).toBe(false);
 
-    const cdpCalls = sendCommandMock.mock.calls.filter(
-      (c) => c[1] === 'Input.dispatchMouseEvent',
-    );
+    const cdpCalls = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchMouseEvent');
     // move + (press + release) + (press + release) = 5
     expect(cdpCalls).toHaveLength(5);
     // mouseMoved doesn't carry clickCount; the 4 press/release events do.
-    const pressRelease = cdpCalls.filter(
-      (c) => (c[2] as { type?: string }).type !== 'mouseMoved',
-    );
+    const pressRelease = cdpCalls.filter((c) => (c[2] as { type?: string }).type !== 'mouseMoved');
     expect(pressRelease).toHaveLength(4);
-    expect(pressRelease.every((c) => (c[2] as { clickCount?: number }).clickCount === 2)).toBe(true);
+    expect(pressRelease.every((c) => (c[2] as { clickCount?: number }).clickCount === 2)).toBe(
+      true,
+    );
   });
 
   it('Bug-002: right-click sends button:right with buttons:2', async () => {
@@ -278,9 +270,7 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
       button: 'right',
       tabId: 5,
     });
-    const cdpCalls = sendCommandMock.mock.calls.filter(
-      (c) => c[1] === 'Input.dispatchMouseEvent',
-    );
+    const cdpCalls = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchMouseEvent');
     // move + press + release = 3
     expect(cdpCalls).toHaveLength(3);
     // First call is mouseMoved (button:'none'), second is mousePressed (button:'right').
@@ -294,9 +284,7 @@ describe('chrome_click coordinate mode — IMP-0092 boundary', () => {
       modifiers: { shiftKey: true, ctrlKey: true },
       tabId: 5,
     });
-    const cdpCalls = sendCommandMock.mock.calls.filter(
-      (c) => c[1] === 'Input.dispatchMouseEvent',
-    );
+    const cdpCalls = sendCommandMock.mock.calls.filter((c) => c[1] === 'Input.dispatchMouseEvent');
     // Modifier bitmask passes through every event in the chain.
     expect(cdpCalls.every((c) => (c[2] as { modifiers?: number }).modifiers === (8 | 2))).toBe(
       true,
@@ -406,7 +394,7 @@ describe('click-helper.js — coord-mode error shape (IMP-0092)', () => {
     // Inject the capture line at the end of the else block.
     const captured: Partial<HelperApi> = {};
     const injected = helperSource.replace(
-      /(\n\s*chrome\.runtime\.onMessage\.addListener\b)/,
+      /(\n\s*chrome\.runtime\??\.onMessage\??\.addListener\b)/,
       '\n  __captured.clickElement = clickElement;\n$1',
     );
     if (injected === helperSource) {

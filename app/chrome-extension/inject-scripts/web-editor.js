@@ -815,7 +815,7 @@
   };
 
   // Message handler (background -> tab)
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (!IS_MAIN) return false;
       if (request && request.action === 'web_editor_ping') {

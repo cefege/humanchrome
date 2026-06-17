@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Element Picker Inject Script
  *
@@ -649,7 +648,7 @@
   // Message Listener (for direct communication)
   // ============================================================
 
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (request && request.action === 'chrome_request_element_selection_ping') {
         sendResponse({ status: 'pong' });

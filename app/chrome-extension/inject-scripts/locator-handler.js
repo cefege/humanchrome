@@ -250,7 +250,7 @@
     };
   }
 
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (!request || typeof request !== 'object') return false;
 

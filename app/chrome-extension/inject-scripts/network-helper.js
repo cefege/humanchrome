@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Network Capture Helper
  *
@@ -76,7 +75,7 @@ if (window.__NETWORK_CAPTURE_HELPER_INITIALIZED__) {
             clearTimeout(timeoutId);
             chrome.runtime.onMessage.removeListener(onMessage);
           }
-          chrome.runtime.onMessage.addListener(onMessage);
+          chrome.runtime?.onMessage?.addListener(onMessage);
           chrome.runtime
             .sendMessage({
               type: 'forward_to_native',
@@ -238,7 +237,7 @@ if (window.__NETWORK_CAPTURE_HELPER_INITIALIZED__) {
   }
 
   // Listen for messages from the extension
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     // Respond to ping message
     if (request.action === 'chrome_network_request_ping') {
       sendResponse({ status: 'pong' });

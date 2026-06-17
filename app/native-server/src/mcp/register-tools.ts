@@ -9,6 +9,7 @@ import {
   isKnownToolName,
   resolveToolName,
   suggestToolName,
+  findReplacementForSunsetTool,
   ToolErrorCode,
   serializeToolError,
   buildInvalidArgsDetails,
@@ -100,6 +101,32 @@ export const setupTools = (server: Server, clientId?: string) => {
         if (aliased) {
           resolvedName = aliased;
         } else if (!dynamicNames.includes(innerName)) {
+          // Sunset tools (action-enum consolidations) — surface the exact
+          // replacement before falling back to the generic did-you-mean.
+          // Old names linger inside the consolidated tools' descriptions
+          // (e.g. "Replaces chrome_get_cookies/..."), so `chrome_help`'s
+          // substring search keeps surfacing them and the LLM keeps trying
+          // to dispatch by the old name. The replacement hint short-circuits
+          // that loop with the precise `{tool, action}` to call instead.
+          const replacement = findReplacementForSunsetTool(innerName);
+          if (replacement) {
+            const argsHint = replacement.action ? `{action:"${replacement.action}", ...}` : '{...}';
+            const recoveryHint = `Call ${replacement.name}(${argsHint}) instead.`;
+            return invalidArgsResult(
+              `Tool "${innerName}" was consolidated into ${replacement.name}. ${recoveryHint}`,
+              buildInvalidArgsDetails({
+                arg: 'name',
+                received: innerName,
+                expected: {
+                  kind: 'tool_name',
+                  catalogSize: TOOL_SCHEMAS.length + dynamicNames.length,
+                  recovery: recoveryHint,
+                  replacement,
+                },
+                hint: `Use ${replacement.name}${replacement.action ? ` with action:"${replacement.action}"` : ''}.`,
+              }),
+            );
+          }
           const guess = suggestToolName(innerName, dynamicNames);
           // Strip chrome_/browser_ prefix when seeding the search query so
           // `chrome_click` → search "click" (which ranks chrome_click_element

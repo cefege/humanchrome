@@ -42,9 +42,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/utils/cdp-session-manager', () => ({
   cdpSessionManager: {
     sendCommand: vi.fn(async () => undefined),
-    withSession: vi.fn(
-      async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn(),
-    ),
+    withSession: vi.fn(async (_tabId: number, _owner: string, fn: () => Promise<unknown>) => fn()),
   },
 }));
 
@@ -161,7 +159,7 @@ function loadClickHelper(target: Element): ClickHelper {
 
   const captured: Partial<ClickHelper> = {};
   const injected = CLICK_HELPER_SRC.replace(
-    /(\n\s*chrome\.runtime\.onMessage\.addListener\b)/,
+    /(\n\s*chrome\.runtime\??\.onMessage\??\.addListener\b)/,
     '\n  __captured.clickElement = clickElement;\n$1',
   );
   if (injected === CLICK_HELPER_SRC) {
@@ -208,7 +206,7 @@ function loadFillHelper(target: Element): FillHelper {
 
   const captured: Partial<FillHelper> = {};
   const injected = FILL_HELPER_SRC.replace(
-    /(\n\s*chrome\.runtime\.onMessage\.addListener\b)/,
+    /(\n\s*chrome\.runtime\??\.onMessage\??\.addListener\b)/,
     '\n  __captured.fillElement = fillElement;\n$1',
   );
   if (injected === FILL_HELPER_SRC) {

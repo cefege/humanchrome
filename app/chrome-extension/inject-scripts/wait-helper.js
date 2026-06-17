@@ -489,7 +489,7 @@
     });
   }
 
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (request && request.action === 'wait_helper_ping') {
         sendResponse({ status: 'pong' });

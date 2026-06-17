@@ -1,4 +1,3 @@
-/* eslint-disable */
 // keyboard-helper.js
 // This script is injected into the page to handle keyboard event simulation
 
@@ -123,8 +122,12 @@ if (window.__KEYBOARD_HELPER_INITIALIZED__) {
       };
     }
 
-    console.error(`Unknown key: ${mainKeyPart} in string "${keyString}"`);
-    return null; // Or handle as an error
+    // Note: the caller surfaces this as a per-combination error in
+    // operationResults. Don't `console.error` here — chrome://extensions
+    // surfaces every console.error as a "ToolError", which conflates a
+    // legitimate caller-side parse miss ("abc" passed as a single key
+    // instead of the sequence "a, b, c") with real extension faults.
+    return null;
   }
 
   /**
@@ -182,6 +185,22 @@ if (window.__KEYBOARD_HELPER_INITIALIZED__) {
    */
   async function simulateKeyboard(keysSequenceString, targetElement = null, delay = 0) {
     try {
+      // Defensive coercion — the background-side keyboard tool validates
+      // this now, but we may still be reached from older callers / direct
+      // injection. Array → comma-joined; non-string falls through to a
+      // clean error rather than a raw `split is not a function`.
+      if (Array.isArray(keysSequenceString)) {
+        keysSequenceString = keysSequenceString
+          .filter((k) => typeof k === 'string' && k.length > 0)
+          .join(', ');
+      }
+      if (typeof keysSequenceString !== 'string' || keysSequenceString.length === 0) {
+        return {
+          success: false,
+          error: `simulateKeyboard: \`keys\` must be a non-empty string (got ${typeof keysSequenceString})`,
+          results: [],
+        };
+      }
       const element = targetElement || document.activeElement || document.body;
 
       if (element !== document.activeElement && typeof element.focus === 'function') {
@@ -254,7 +273,7 @@ if (window.__KEYBOARD_HELPER_INITIALIZED__) {
   }
 
   // Listener for messages from the extension
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     if (request.action === 'simulateKeyboard') {
       let targetEl = null;
       if (request.selector) {

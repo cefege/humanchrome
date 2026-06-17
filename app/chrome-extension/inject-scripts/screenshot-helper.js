@@ -1,4 +1,3 @@
-/* eslint-disable */
 /**
  * Screenshot helper content script
  * Handles page preparation, scrolling, element positioning, etc.
@@ -62,7 +61,7 @@ if (window.__SCREENSHOT_HELPER_INITIALIZED__) {
   }
 
   // Listen for messages from the extension
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     // Respond to ping message
     if (request.action === 'chrome_screenshot_ping') {
       sendResponse({ status: 'pong' });

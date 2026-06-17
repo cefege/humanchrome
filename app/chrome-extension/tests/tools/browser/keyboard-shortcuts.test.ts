@@ -130,4 +130,27 @@ describe('chrome_keyboard shortcut → keys forwarding', () => {
     expect(lastForwardedKeys()).toBe('Enter');
     expect(getPlatformInfo).not.toHaveBeenCalled();
   });
+
+  it('coerces an array-of-strings `keys` into a comma-joined sequence', async () => {
+    await exec({ keys: ['a', 'b', 'c'] as any, tabId: 7 });
+    expect(lastForwardedKeys()).toBe('a, b, c');
+  });
+
+  it('rejects non-string non-array `keys` with INVALID_ARGS instead of crashing the inject-script', async () => {
+    const res = await exec({ keys: 123 as any, tabId: 7 });
+    expect(res.isError).toBe(true);
+    const text = (res.content[0] as any).text as string;
+    expect(text).toContain('INVALID_ARGS');
+    expect(text).toContain('keys');
+    // Critical: the inject-script's `keysSequenceString.split` would have
+    // thrown otherwise — confirm we short-circuited before reaching it.
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty array `keys` with INVALID_ARGS (no usable strings)', async () => {
+    const res = await exec({ keys: [] as any, tabId: 7 });
+    expect(res.isError).toBe(true);
+    const text = (res.content[0] as any).text as string;
+    expect(text).toContain('INVALID_ARGS');
+  });
 });

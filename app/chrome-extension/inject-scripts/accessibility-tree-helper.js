@@ -1342,7 +1342,7 @@
   }
 
   // Chrome message bridge for ping and tree generation
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     try {
       if (request && request.action === 'chrome_read_page_ping') {
         sendResponse({ status: 'pong' });

@@ -1,5 +1,3 @@
-/* eslint-disable */
-
 (() => {
   // Prevent duplicate injection of the bridge itself.
   if (window.__INJECT_SCRIPT_TOOL_UNIVERSAL_BRIDGE_LOADED__) return;
@@ -40,7 +38,7 @@
     // This listener won't process them unless it's the only script in ISOLATED world.
   };
 
-  chrome.runtime.onMessage.addListener(messageHandler);
+  chrome.runtime?.onMessage?.addListener(messageHandler);
 
   // Listen for responses coming back from the MAIN world.
   const responseHandler = (event) => {

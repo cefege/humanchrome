@@ -1,4 +1,3 @@
-/* eslint-disable */
 // interactive-elements-helper.js
 // This script is injected into the page to find interactive elements.
 // Final version by Calvin, featuring a multi-layered fallback strategy
@@ -358,7 +357,7 @@
   }
 
   // --- Chrome Message Listener ---
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     if (request.action === 'getInteractiveElements') {
       try {
         let elements;

@@ -2778,7 +2778,7 @@
   // Message Handlers
   // ============================================================================
 
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     if (request?.action === 'element_marker_start') {
       start();
       sendResponse({ ok: true });

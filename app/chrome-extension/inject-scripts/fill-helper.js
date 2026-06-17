@@ -430,7 +430,7 @@ if (window.__FILL_HELPER_INITIALIZED__) {
   }
 
   // Listen for messages from the extension
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
     if (request.action === 'fillElement') {
       fillElement(request.selector, request.value, request.ref, {
         force: request.force === true,

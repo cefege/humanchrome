@@ -526,7 +526,7 @@ if (window.__ACTIONABILITY_INITIALIZED__) {
   // dispatching their action — same convention as click-helper /
   // fill-helper / wait-helper.
   if (chrome && chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+    chrome.runtime?.onMessage?.addListener((request, _sender, sendResponse) => {
       if (request && request.action === 'actionability_ping') {
         sendResponse({ status: 'pong' });
         return false;

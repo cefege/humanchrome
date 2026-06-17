@@ -24,7 +24,7 @@ export type KeyboardShortcut =
   | 'close_tab';
 
 export interface KeyboardToolParams {
-  keys?: string;
+  keys?: string | string[];
   shortcut?: KeyboardShortcut;
   selector?: string;
   selectorType?: 'css' | 'xpath';
@@ -119,10 +119,36 @@ class KeyboardTool extends BaseBrowserToolExecutor {
     // Resolve the final `keys` string. `shortcut` wins when both are present
     // — callers reaching for a named shortcut don't want a stale `keys` arg
     // silently overriding it.
-    let keys: string | undefined = args.keys;
+    let keys: string | undefined;
     if (shortcut) {
       const isMac = await isMacPlatform();
       keys = resolveShortcutKeys(shortcut, isMac);
+    } else if (Array.isArray(args.keys)) {
+      // Tolerate LLM-side over-structuring: `keys: ["a", "b"]` →
+      // canonical comma-joined sequence. Filter non-strings so a stray
+      // number doesn't get coerced via toString() and break the
+      // single-key parser.
+      const segments = (args.keys as unknown[]).filter(
+        (k): k is string => typeof k === 'string' && k.length > 0,
+      );
+      keys = segments.length > 0 ? segments.join(', ') : undefined;
+    } else if (typeof args.keys === 'string') {
+      keys = args.keys;
+    } else if (args.keys !== undefined && args.keys !== null) {
+      // Caller passed something we can't coerce — e.g. `{keys: 123}`,
+      // `{keys: {key: "a"}}`, `{keys: true}`. The injected helper's
+      // `keysSequenceString.split` blows up on these with an opaque
+      // `split is not a function`. Reject up front with a precise hint.
+      return createErrorResponse(
+        ERROR_MESSAGES.INVALID_PARAMETERS + ': `keys` must be a string or array of strings',
+        ToolErrorCode.INVALID_ARGS,
+        buildInvalidArgsDetails({
+          arg: 'keys',
+          received: args.keys,
+          expected: { type: ['string', 'string[]'] },
+          hint: 'Use `keys:"Enter"` for one key, `keys:"Control+a"` for a chord, or `keys:"a, b, c"` / `keys:["a","b","c"]` for a sequence.',
+        }),
+      );
     }
 
     if (!keys) {

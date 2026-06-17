@@ -8,6 +8,7 @@ import {
   isKnownToolName,
   resolveToolName,
   suggestToolName,
+  findReplacementForSunsetTool,
 } from './tool-index';
 import { TOOL_SCHEMAS } from './tools';
 
@@ -251,6 +252,45 @@ describe('tool-index — dispatcher catalog', () => {
 
   it('suggestToolName includes extra dynamic names in the search', () => {
     expect(suggestToolName('flo.checkout', ['flow.checkout'])).toBe('flow.checkout');
+  });
+
+  it('findReplacementForSunsetTool maps each sunset entry to a real catalog tool', () => {
+    const cookies = findReplacementForSunsetTool('chrome_get_cookies');
+    expect(cookies).toEqual({ name: 'chrome_cookies', action: 'get' });
+    const diag = findReplacementForSunsetTool('chrome_dev_reload');
+    expect(diag).toEqual({ name: 'chrome_diagnostics', action: 'dev_reload' });
+    expect(findReplacementForSunsetTool('chrome_get_windows_and_tabs')).toBeNull();
+    expect(findReplacementForSunsetTool('totally_made_up_name')).toBeNull();
+  });
+
+  it('every sunset replacement targets a real catalog tool', () => {
+    const sunsetNames = [
+      'chrome_get_cookies',
+      'chrome_set_cookie',
+      'chrome_remove_cookie',
+      'chrome_debug_dump',
+      'chrome_queue_inspect',
+      'chrome_runtime_info',
+      'chrome_dev_reload',
+      'chrome_performance_start_trace',
+      'chrome_performance_stop_trace',
+      'chrome_performance_analyze_insight',
+      'chrome_close_tab',
+      'chrome_close_tabs_matching',
+      'browser_close_my_tabs',
+      'chrome_bookmark_search',
+      'chrome_bookmark_add',
+      'chrome_bookmark_update',
+      'chrome_bookmark_delete',
+      'chrome_download_list',
+      'chrome_download_cancel',
+    ];
+    const catalog = new Set(knownToolNames());
+    for (const name of sunsetNames) {
+      const r = findReplacementForSunsetTool(name);
+      expect(r, `${name} → replacement`).not.toBeNull();
+      expect(catalog.has(r!.name), `replacement ${r!.name} in catalog`).toBe(true);
+    }
   });
 
   it('every catalog line is a clean "- <name>" with no trailing colon or blank tail', () => {

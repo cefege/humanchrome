@@ -213,6 +213,31 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     expect(env.error.details.hint).toBe('Did you mean "chrome_navigate"?');
   });
 
+  test('sunset tool name returns INVALID_ARGS with consolidated-tool replacement hint', async () => {
+    setMode('lazy');
+    const { handlers, server } = makeFakeServer();
+    setupTools(server as any, 'client_test');
+    const call = handlers.get(CallToolRequestSchema)!;
+    const res = await call({
+      params: {
+        name: DISPATCHER_TOOL_NAME,
+        arguments: { name: 'chrome_get_cookies', args: { domain: '.example.com' } },
+      },
+    });
+    expect(res.isError).toBe(true);
+    const env = JSON.parse(res.content[0].text);
+    expect(env.error.code).toBe('INVALID_ARGS');
+    expect(env.error.details.arg).toBe('name');
+    expect(env.error.details.received).toBe('chrome_get_cookies');
+    expect(env.error.details.expected.replacement).toEqual({
+      name: 'chrome_cookies',
+      action: 'get',
+    });
+    expect(env.error.details.hint).toBe('Use chrome_cookies with action:"get".');
+    expect(env.error.message).toContain('chrome_cookies');
+    expect(env.error.message).toContain('action:"get"');
+  });
+
   test('unknown tool with no close match returns INVALID_ARGS with no hint', async () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
