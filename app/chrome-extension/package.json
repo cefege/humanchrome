@@ -39,8 +39,8 @@
     "gifenc": "^1.0.3",
     "hnswlib-wasm-static": "0.8.5",
     "humanchrome-shared": "workspace:*",
-    "markstream-vue": "1.0.0",
-    "vue": "^3.5.35",
+    "markstream-vue": "1.0.3",
+    "vue": "^3.5.38",
     "zod": "^4.4.3"
   },
   "devDependencies": {
