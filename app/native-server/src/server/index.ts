@@ -437,6 +437,14 @@ export class Server {
         // tool-call handler can stamp every native-messaging request with this
         // client's identity.
         await createMcpServer(newSessionId).connect(transport);
+      } else if (sessionId) {
+        // Session-id present but unknown: the daemon restarted, or another
+        // client reclaimed the lane. MCP Streamable-HTTP spec says respond 404
+        // so the client drops the dead session and re-initializes. Returning
+        // 400 here wedged clients on a stale session-id forever — the "stops
+        // working in parallel when another app uses it" bug.
+        reply.code(HTTP_STATUS.NOT_FOUND).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
+        return;
       } else {
         reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
         return;
@@ -455,7 +463,11 @@ export class Server {
         : undefined;
 
       if (!transport) {
-        reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_SSE_SESSION });
+        // Unknown session-id → 404 so the client re-initializes (MCP spec);
+        // a missing id is a malformed request → 400.
+        reply
+          .code(sessionId ? HTTP_STATUS.NOT_FOUND : HTTP_STATUS.BAD_REQUEST)
+          .send({ error: ERROR_MESSAGES.INVALID_SSE_SESSION });
         return;
       }
 
@@ -474,7 +486,11 @@ export class Server {
         : undefined;
 
       if (!transport) {
-        reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_SESSION_ID });
+        // Unknown session-id → 404 so the client re-initializes (MCP spec);
+        // a missing id is a malformed request → 400.
+        reply
+          .code(sessionId ? HTTP_STATUS.NOT_FOUND : HTTP_STATUS.BAD_REQUEST)
+          .send({ error: ERROR_MESSAGES.INVALID_SESSION_ID });
         return;
       }
 
