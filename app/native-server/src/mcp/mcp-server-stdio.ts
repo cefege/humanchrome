@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as process from 'process';
 import { withContext } from '../util/logger';
 import { normalizeSessionName } from './session-name';
+import { listInstances } from '../util/instance-registry';
 
 const log = withContext({ component: 'mcp-stdio' });
 
@@ -85,6 +86,47 @@ const resolveSessionName = (): string | null => {
   }
 };
 
+/**
+ * Resolve the bridge URL to dial. Historically the stdio proxy used the
+ * hardcoded port in stdio-config.json (12306), which breaks the moment a
+ * second Chrome's bridge port-walks off the default (12307+). Resolution
+ * order, first hit wins:
+ *   1. HUMANCHROME_URL — verbatim escape hatch.
+ *   2. HUMANCHROME_PORT — swap the port on the config host/path.
+ *   3. On-disk instance registry — if the config port isn't live but exactly
+ *      one bridge is, dial it. Ambiguous (>1 live) falls back to the config
+ *      default; set HUMANCHROME_PORT to disambiguate.
+ *   4. config.url default.
+ */
+export const resolveBridgeUrl = (defaultUrl: string): string => {
+  if (process.env.HUMANCHROME_URL) return process.env.HUMANCHROME_URL;
+  const base = new URL(defaultUrl);
+  if (process.env.HUMANCHROME_PORT) {
+    base.port = process.env.HUMANCHROME_PORT;
+    return base.toString();
+  }
+  let live: { port: number }[] = [];
+  try {
+    live = listInstances();
+  } catch {
+    return defaultUrl;
+  }
+  const defaultPort = Number(base.port);
+  if (live.some((i) => i.port === defaultPort)) return defaultUrl;
+  if (live.length === 1) {
+    base.port = String(live[0].port);
+    log.info({ port: live[0].port }, 'stdio proxy resolved bridge port from registry');
+    return base.toString();
+  }
+  if (live.length > 1) {
+    log.warn(
+      { ports: live.map((i) => i.port), defaultPort },
+      'multiple live bridges; set HUMANCHROME_PORT to pick one, defaulting to config port',
+    );
+  }
+  return defaultUrl;
+};
+
 export const ensureMcpClient = async () => {
   try {
     if (mcpClient) {
@@ -103,7 +145,10 @@ export const ensureMcpClient = async () => {
       ? { headers: { 'X-Humanchrome-Session': sessionName } }
       : undefined;
     const transportOpts = requestInit ? { requestInit } : {};
-    const transport = new StreamableHTTPClientTransport(new URL(config.url), transportOpts);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(resolveBridgeUrl(config.url)),
+      transportOpts,
+    );
     await mcpClient.connect(transport);
     if (sessionName) {
       log.info({ sessionName }, 'stdio proxy connected with sessionName');
