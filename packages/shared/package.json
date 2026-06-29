@@ -46,10 +46,10 @@
     "node": ">=24.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
-    "@typescript-eslint/parser": "^8.60.1",
+    "@types/node": "^25.9.4",
+    "@typescript-eslint/parser": "^8.62.0",
     "tsup": "^8.5.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
