@@ -2,18 +2,10 @@
  * IMP-0180 — contract test for tool description style.
  *
  * Enforces the fixed skeleton documented in `tool-schemas/style.md`:
- *   - ≤160 estimated tokens per description (chars/4 heuristic)
+ *   - ≤80 estimated tokens per description (chars/4 heuristic)
  *   - contains the literal substring `Example:`
  *   - no markdown headers (`# `, `## `, etc.)
  *   - no trailing newlines
- *
- * Token budget: the original IMP-0180 cap was 80 tokens, chosen when the
- * full catalog shipped in the dispatcher description on every turn. Under
- * the lazy dispatcher (IMP-0185, default) only tool NAMES ship in the
- * cache-hot path; full descriptions load on demand via `chrome_help`,
- * where the richer `Example:` + `Cross-ref:` content is a feature (it
- * powers Playwright-vocabulary discovery ranking in `searchTools`). The
- * cap is now a pathological-bloat guard, not a tight budget.
  *
  * This is "the only authority" — when this test passes, the rewrite is
  * accepted. Banned-patterns and byte-stability are covered by
@@ -23,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_SCHEMAS } from './tools';
 
-const TOKEN_TARGET = 160;
+const TOKEN_TARGET = 80;
 const CHARS_PER_TOKEN = 4;
 const estTokens = (s: string) => Math.ceil(s.length / CHARS_PER_TOKEN);
 
@@ -33,13 +25,13 @@ describe('IMP-0180 tool description style', () => {
     expect(missing.map((t) => t.name)).toEqual([]);
   });
 
-  it('no description exceeds 160 tokens', () => {
+  it('no description exceeds 80 tokens', () => {
     const over = TOOL_SCHEMAS.filter((t) => estTokens(t.description ?? '') > TOKEN_TARGET).map(
       (t) => ({ name: t.name, tokens: estTokens(t.description ?? '') }),
     );
     if (over.length > 0) {
       throw new Error(
-        'Tools with descriptions over the 160-token IMP-0180 bloat guard:\n' +
+        'Tools with descriptions over the 80-token IMP-0180 budget:\n' +
           over.map((o) => `  ${o.name}: ${o.tokens} tokens`).join('\n'),
       );
     }

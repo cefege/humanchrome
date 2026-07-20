@@ -8,7 +8,7 @@
  */
 import { TOOL_SCHEMAS } from 'humanchrome-shared';
 
-const TOKEN_TARGET = 160;
+const TOKEN_TARGET = 80;
 const CHARS_PER_TOKEN = 4;
 const estTokens = (s) => Math.ceil((s ?? '').length / CHARS_PER_TOKEN);
 

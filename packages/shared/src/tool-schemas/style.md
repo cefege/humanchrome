@@ -7,12 +7,7 @@ invariants — if it passes, the description is accepted.
 
 ## Hard rules (enforced)
 
-- **≤160 estimated tokens** (`chars/4` heuristic) — a pathological-bloat
-  guard, not a tight budget. The original 80-token cap assumed the full
-  catalog shipped in the dispatcher description every turn; under the lazy
-  dispatcher (IMP-0185, default) only tool names ship in the cache-hot
-  path and full descriptions load on demand via `chrome_help`, where the
-  `Example:` + `Cross-ref:` content powers Playwright-vocabulary discovery.
+- **≤80 estimated tokens** (`chars/4` heuristic).
 - **Contains the literal substring `Example:`** — one short call →
   outcome example. This is the model's best signal for getting args
   right on the first call.
@@ -47,9 +42,8 @@ The dispatcher's `description` field is the only signal the LLM has for
 picking and shaping a call (per [IMP-0177](../tool-index.ts) — no
 per-tool JSONSchema is sent to the client). A tight description means:
 
-- Under the lazy dispatcher (IMP-0185) only tool names ship in the
-  cache-hot path; full descriptions load on demand via `chrome_help`, so
-  the token budget is a bloat guard rather than a per-turn cache cost.
+- The full catalog fits the prompt-cache (every byte counts past the
+  cache TTL).
 - The model sees the **same structure** for every tool — verb, constraint,
   example — and learns the pattern.
 - The `Example:` line teaches arg shape better than 200 tokens of prose.
