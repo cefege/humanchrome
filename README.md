@@ -1,23 +1,37 @@
+<div align="center">
+
+<img src="app/chrome-extension/public/icon/128.png" width="72" alt="HumanChrome logo">
+
 # HumanChrome
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node](https://img.shields.io/badge/Node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
-[![Chrome Extension](https://img.shields.io/badge/Chrome-MV3-blue.svg)](https://developer.chrome.com/docs/extensions/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8%2B-blue.svg)](https://www.typescriptlang.org/)
+**Built for AI engineers. Give your agents the real, signed-in Chrome you already use — cookies, sessions, history and all — so they work on the platforms that flag everything else.**
 
-AI controls the Chrome browser you already use, with your real cookies and sessions. Built for the platforms other browser-automation tools choke on: LinkedIn, WhatsApp, Tinder, Facebook, Instagram. Drive it from any MCP client, or skip MCP and call the local HTTP API directly.
+HumanChrome is browser control for AI engineers. It runs as an extension inside the Chrome you already have open, so when an agent clicks, types, scrolls, reads the DOM, or taps the network, it does it in your real session with your real cookies. Drive it from any MCP client — Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio — or skip MCP entirely and call a local HTTP API. It generalizes to anything Chrome can do, but the design pressure came from the platforms that punish automation hardest: LinkedIn, WhatsApp, Tinder, Facebook, Instagram.
+
+_Built by Mihai Mateias, an AI engineer. The tool I point my own agents at when the target site fights back — real infrastructure, not a demo._
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)
+![Chrome](https://img.shields.io/badge/chrome-MV3-blue.svg?logo=googlechrome&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-6%2B-blue.svg?logo=typescript&logoColor=white)
+
+</div>
+
+## What it is
+
+HumanChrome lets an AI drive the Chrome you already use, in your real logged-in session. It runs as an extension inside your open browser and exposes every browser action — click, fill, navigate, screenshot, run JS, capture network, handle dialogs, upload files, read console, history, and bookmarks — to your AI client. You reach it two ways: over MCP from any MCP-aware client, or over a plain local HTTP API from a script, an SDK, or a curl pipeline.
 
 ```text
 your AI client  →  MCP or plain HTTP  →  local bridge  →  Chrome extension  →  your real Chrome
 ```
 
-## Why this exists
+It generalizes to anything Chrome can do on any site, but it was built under pressure from the platforms other automation tools choke on: the social and messaging apps with serious anti-bot defenses.
 
-This was built because every other MCP and browser-automation tool fell over on the platforms that matter most: the social and messaging apps with serious anti-bot defenses. LinkedIn flags clean Playwright instances within a session or two. WhatsApp Web wants you to scan a QR code on every fresh launch. Tinder profiles the browser environment hard. Facebook and Instagram send you to checkpoint flows the moment a fingerprint looks off.
+## The problem
 
-The cause is the same in every case. Most "AI browser automation" tools spin up a clean Chromium via Playwright or Puppeteer. That's fine for testing, but on adversarial sites the instance has no usage history and no real cookies. It looks like what it is, a fresh headless-ish browser, and the anti-bot layer flags it.
+Most "AI browser automation" spins up a clean Chromium via Playwright or Puppeteer. That's fine for testing, but on adversarial sites the instance has no usage history and no real cookies. It looks like exactly what it is — a fresh, headless-ish browser — and the anti-bot layer flags it. LinkedIn flags clean Playwright within a session or two. WhatsApp Web wants a QR scan on every fresh launch. Tinder profiles the browser environment hard. Facebook and Instagram push you into checkpoint flows the moment a fingerprint looks off.
 
-HumanChrome runs as an extension inside the Chrome you already have open. The AI clicks around in your real session with your real cookies. Nothing about the browser is fresh, so the anti-bot layer has nothing to flag at the environment level. It generalizes to anything Chrome can do, but the design pressure came from those specific sticky platforms.
+HumanChrome runs inside the Chrome you already have open. The AI clicks around in your real session with your real cookies. Nothing about the browser is fresh, so the anti-bot layer has nothing to flag at the environment level.
 
 ## Does this fix your problem?
 
@@ -39,24 +53,47 @@ If you searched for any of these, yes:
 - "Run AI agents on my actual Chrome profile, not a clean one"
 - "Local HTTP API for browser automation, no MCP required"
 
-## Built for the hard platforms
+## What you get
 
-The patches that shipped in this codebase came from breaking against real automations on the sites that punish bots hardest. Most of the engineering pressure came from this list:
+**Your real browser, not a fresh one.** The agent acts inside the Chrome you already have open, with your cookies, your login state, and your browsing history. There's nothing fresh for an anti-bot layer to flag at the environment level, because nothing about the environment is fresh.
 
-- **LinkedIn** — message threads, connection-request flows, profile scraping, URN handling through the Voyager API.
-- **WhatsApp Web** — message dispatch, contact lookup, multi-thread orchestration without re-pairing every session.
-- **Tinder** — profile interactions and messaging on the real account, without tripping device-trust heuristics.
-- **Facebook** — feed and profile interactions that survive the checkpoint flow.
-- **Instagram** — DM and profile actions on the real account, without account locks.
+**Tuned for the platforms that punish bots.** The patches in this codebase came from breaking against real automations on the sites that punish automation hardest — LinkedIn message threads, connection-request flows, and Voyager-API URN handling; WhatsApp Web dispatch and contact lookup without re-pairing every session; Tinder, Facebook, and Instagram profile and messaging actions that survive device-trust and checkpoint heuristics. Everything else Chrome can do works too; those platforms are just where the broken edges lived.
 
-That bias shaped the fixes: a redaction toggle that preserves base64 URNs and JWTs, a React-compatible form-fill, response interception for fetch/XHR, multi-client MCP sessions, per-tab JS locks, and a way to reset stuck transports without restarting Chrome.
+**MCP or plain HTTP, your choice.** The same tool catalog is exposed both ways. Point any MCP-aware client at it, or POST to a local REST surface with a generated OpenAPI spec when you're calling from a custom script, the Anthropic or OpenAI SDK, or a curl pipeline that doesn't speak MCP.
 
-It works for anything else Chrome can do (any site, any tool in the catalog: click, fill, navigate, screenshot, network capture, JS execution, dialog handling, file upload, console capture, history, bookmarks). The platforms above are just where the broken edges lived.
+**Multiple clients, no tab fights.** Several clients can connect at once. Each MCP session keeps its own preferred-tab state, and per-tab JS locks keep concurrent calls from stepping on each other, so two AI clients don't fight over which tab is "current".
 
-## Quickstart
+**Data that survives the round-trip.** By default the extension redacts cookies, JWTs, base64 IDs, and URNs so you don't leak session tokens into a chat transcript. One toggle passes them through verbatim for the workflows that genuinely need raw values, like LinkedIn URN handling.
+
+**Automation that behaves like a real page.** A React-compatible form-fill that actually fires the `onChange` events frameworks listen for, fetch/XHR response interception from inside the page, screenshots, arbitrary JS execution, dialog handling, file upload, and console + network capture.
+
+**Unstick without a restart.** If a session jams mid-init, reset the transport with a single call — no Chrome relaunch, no re-pairing.
+
+**Local by construction.** The bridge listens on `127.0.0.1` and talks to the extension over Chrome's native-messaging IPC. HumanChrome itself sends nothing to any external service.
+
+## How it works
+
+```text
+AI client (MCP or HTTP)
+        │
+        ▼
+Local bridge on :12306 (Fastify, Node)
+        │   native messaging
+        ▼
+Chrome extension (background, popup, sidepanel)
+        │
+        ▼
+Active tab (your real Chrome session)
+```
+
+The bridge is a native-messaging host that exposes the browser tool catalog over both an MCP endpoint and a plain HTTP REST surface. Chrome's extension does the actual work in your live session. For the full tour, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Install
+
+HumanChrome needs Node 24+ and pnpm, plus Google Chrome or Chromium. Quickstart:
 
 ```bash
-# 1. Clone and build the bridge (Node 20+, pnpm)
+# 1. Clone and build the bridge (Node 24+, pnpm)
 git clone https://github.com/cefege/humanchrome.git
 cd humanchrome
 pnpm install
@@ -94,7 +131,49 @@ curl http://127.0.0.1:12306/ping
 # {"status":"ok","message":"pong"}
 ```
 
-## Use it without MCP (plain HTTP)
+### Connect an MCP client
+
+For Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio, or any other MCP-aware client.
+
+**Streamable HTTP (recommended)**
+
+```json
+{
+  "mcpServers": {
+    "humanchrome": {
+      "type": "streamableHttp",
+      "url": "http://127.0.0.1:12306/mcp"
+    }
+  }
+}
+```
+
+**Stdio**
+
+```json
+{
+  "mcpServers": {
+    "humanchrome": {
+      "command": "humanchrome-stdio"
+    }
+  }
+}
+```
+
+Drop one of the JSON blocks above into your client's MCP config file:
+
+| Client                | Config path                                                                                                                          | Format |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| **Claude Code** (CLI) | `claude mcp add humanchrome --transport http http://127.0.0.1:12306/mcp` (or edit `~/.claude.json` directly)                         | JSON   |
+| **Claude Desktop**    | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json` <br> Windows: `%APPDATA%\Claude\claude_desktop_config.json` | JSON   |
+| **Cursor**            | Project-scoped: `.cursor/mcp.json` <br> Global: `~/.cursor/mcp.json`                                                                 | JSON   |
+| **Codex CLI**         | `~/.codex/config.toml` (use the TOML equivalent — `[mcp_servers.humanchrome]` table)                                                 | TOML   |
+| **Continue**          | `~/.continue/config.yaml` (use the YAML `mcpServers:` mapping)                                                                       | YAML   |
+| **Cherry Studio**     | Settings → MCP Servers → Add (paste the JSON block)                                                                                  | UI     |
+
+After saving, restart the client. You should see `humanchrome` and its tools in the client's MCP tool list. Multiple clients can connect at once, and each keeps its own preferred-tab state.
+
+### Or use it without MCP (plain HTTP)
 
 The bridge exposes the same browser tools over a plain HTTP REST surface. No MCP session, no protocol overhead. Useful when you're calling from a custom script, the Anthropic SDK, the OpenAI SDK, a curl pipeline, or anything that doesn't speak MCP.
 
@@ -117,73 +196,6 @@ curl -X POST http://127.0.0.1:12306/api/tools/chrome_javascript \
 ```
 
 The response shape matches MCP's `CallToolResult`: `content` is an array of items, `isError` is `true` on tool-level failure. Pass an `X-Client-Id` header if you want preferred-tab continuity across calls.
-
-## Use it with MCP
-
-For Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio, or any other MCP-aware client.
-
-### Streamable HTTP (recommended)
-
-```json
-{
-  "mcpServers": {
-    "humanchrome": {
-      "type": "streamableHttp",
-      "url": "http://127.0.0.1:12306/mcp"
-    }
-  }
-}
-```
-
-### Stdio
-
-```json
-{
-  "mcpServers": {
-    "humanchrome": {
-      "command": "humanchrome-stdio"
-    }
-  }
-}
-```
-
-### Where to put the config
-
-Drop one of the JSON blocks above into your client's MCP config file:
-
-| Client                | Config path                                                                                                                          | Format |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| **Claude Code** (CLI) | `claude mcp add humanchrome --transport http http://127.0.0.1:12306/mcp` (or edit `~/.claude.json` directly)                         | JSON   |
-| **Claude Desktop**    | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json` <br> Windows: `%APPDATA%\Claude\claude_desktop_config.json` | JSON   |
-| **Cursor**            | Project-scoped: `.cursor/mcp.json` <br> Global: `~/.cursor/mcp.json`                                                                 | JSON   |
-| **Codex CLI**         | `~/.codex/config.toml` (use the TOML equivalent — `[mcp_servers.humanchrome]` table)                                                 | TOML   |
-| **Continue**          | `~/.continue/config.yaml` (use the YAML `mcpServers:` mapping)                                                                       | YAML   |
-| **Cherry Studio**     | Settings → MCP Servers → Add (paste the JSON block)                                                                                  | UI     |
-
-After saving, restart the client. You should see `humanchrome` and its tools in the client's MCP tool list.
-
-Multiple clients can connect at once. Each gets its own MCP session, and each session keeps its own preferred-tab state, so two AI clients don't fight over which tab is "current".
-
-## Tools
-
-Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`. For the multi-tab "open many, drain serially" pattern, see [Multi-tab fan-out workflow](docs/TOOLS.md#multi-tab-fan-out-workflow).
-
-## Architecture
-
-```text
-AI client (MCP or HTTP)
-        │
-        ▼
-Local bridge on :12306 (Fastify, Node)
-        │   native messaging
-        ▼
-Chrome extension (background, popup, sidepanel)
-        │
-        ▼
-Active tab (your real Chrome session)
-```
-
-Details in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Configuration
 
@@ -216,6 +228,25 @@ curl -X POST http://127.0.0.1:12306/admin/reset
 # {"ok":true,"cleared":N}
 ```
 
+## Tools
+
+Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`. For the multi-tab "open many, drain serially" pattern, see [Multi-tab fan-out workflow](docs/TOOLS.md#multi-tab-fan-out-workflow).
+
+## HumanChrome vs. clean-browser automation
+
+Playwright, Puppeteer, and browser-use spin up a fresh browser you script against. That's the right tool for testing and for sites that don't care who's driving. On adversarial platforms it's the wrong shape: a clean instance with no history and no real cookies is exactly what the anti-bot layer is built to catch. HumanChrome inverts that — it drives the browser you already live in.
+
+|                      | Playwright / Puppeteer / browser-use                                | HumanChrome                                             |
+| -------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Browser instance** | Fresh Chromium you spawn                                            | The Chrome you already have open                        |
+| **Cookies & login**  | None; you script login on every run                                 | Your real, already-signed-in sessions                   |
+| **Anti-bot posture** | Flagged as fresh / headless-ish on LinkedIn, WhatsApp, Tinder, etc. | Nothing fresh at the environment level to flag          |
+| **WhatsApp Web**     | QR scan on every fresh launch                                       | Your already-paired session                             |
+| **Interface**        | A library you write code against                                    | MCP tool catalog or plain HTTP, driven by any AI client |
+| **Where it runs**    | A browser you spawn and own                                         | Your everyday Chrome profile                            |
+
+HumanChrome isn't a replacement for headless testing frameworks; it's the piece they can't be, which is native automation of the real, trusted browser you already use.
+
 ## FAQ
 
 **Q: Will I get banned from LinkedIn / WhatsApp / Tinder / Facebook / Instagram for using this?**
@@ -225,7 +256,7 @@ Automation runs inside the browser session you already use. The fingerprint, log
 Yes. Any MCP-aware client. Use the Streamable HTTP config block above.
 
 **Q: Does this work without MCP?**
-Yes. POST to `http://127.0.0.1:12306/api/tools/<name>`. See "Use it without MCP" above. The OpenAPI spec at `/api/openapi.json` is generated from the same tool catalog.
+Yes. POST to `http://127.0.0.1:12306/api/tools/<name>`. See "Or use it without MCP" above. The OpenAPI spec at `/api/openapi.json` is generated from the same tool catalog.
 
 **Q: Does this work in Firefox?**
 No, and not planned. The native messaging host registers Chrome/Chromium hosts only. Adding Firefox would need MV3 + a separate `~/.mozilla/native-messaging-hosts/` registration path. Open an issue if you want to discuss it.
@@ -238,17 +269,39 @@ The bridge is local. It listens on `127.0.0.1:12306` and talks to the extension 
 
 More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
+## Status
+
+Honest about what's solid. HumanChrome is what I drive my own agents with daily, so the paths I hit are real.
+
+- **Chrome / Chromium only.** The native-messaging host registers Chrome/Chromium hosts; Firefox isn't supported and isn't planned.
+- **Cross-platform bridge, macOS-detailed install.** The bridge runs and logs on macOS, Windows, and Linux; the install walkthrough above (and its TCC caveat) is written for macOS.
+- **Forked and reoriented.** Descended from `mcp-chrome`, rebranded, switched to English, and pointed at hard-to-automate platforms.
+
+## Built with
+
+- **Extension:** WXT + Vue 3 + Tailwind CSS 4, Manifest V3, TypeScript, Zod schemas, on-device embeddings (`@huggingface/transformers`, `hnswlib-wasm`) for tool selection
+- **Bridge:** Node 24, Fastify 5, `@modelcontextprotocol/sdk` (MCP over Streamable HTTP + stdio), a plain HTTP/OpenAPI surface, `better-sqlite3` + Drizzle ORM, `pino` logging, `commander` CLI
+- **Transport:** Chrome native messaging (bridge ↔ extension), MCP or plain HTTP (AI client ↔ bridge)
+
+## Built by
+
+HumanChrome is designed, built, and operated by one AI engineer, [Mihai Mateias](https://github.com/cefege). It isn't a portfolio piece assembled to look good in a repo. It's the tool I point my own coding agents at when a site fights back, which is why the hard parts are real and load-bearing: an extension that drives your actual signed-in session instead of a clean Chromium, a redaction layer that knows the difference between a leaked token and a LinkedIn URN you actually need, a React-aware form-fill that fires the events the framework listens for, fetch/XHR response interception from inside the page, multi-client MCP sessions that don't fight over the active tab, and a transport you can reset mid-jam without restarting Chrome.
+
+If you hire AI engineers who ship production systems end to end rather than prototypes, this repository is the resume. Read the code, then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedin.com/in/mihai-mateias).
+
 ## Contributing
 
 PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, build commands, and the commit style. Bugs and feature requests go in [GitHub Issues](https://github.com/cefege/humanchrome/issues). Questions and broader discussion in [GitHub Discussions](https://github.com/cefege/humanchrome/discussions).
 
-## License
-
-MIT. See [`LICENSE`](LICENSE).
-
 ## Security
 
 Found a vulnerability? Open a private security advisory: <https://github.com/cefege/humanchrome/security/advisories/new>. Do not file a public issue. Details in [`SECURITY.md`](SECURITY.md).
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
 
 ---
 
