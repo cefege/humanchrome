@@ -1,17 +1,28 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode, buildInvalidArgsDetails } from 'humanchrome-shared';
-import {
-  parseISO,
-  subDays,
-  subWeeks,
-  subMonths,
-  subYears,
-  startOfToday,
-  startOfYesterday,
-  isValid,
-  format,
-} from 'date-fns';
+// Native Date helpers (V8/Chrome SW only — ISO 8601 parsing is reliable here,
+// so date-fns is unnecessary).
+const DAY_MS = 86_400_000;
+const isValid = (d: Date) => !Number.isNaN(d.getTime());
+const startOfDay = (d: Date) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+// ponytail: setMonth/setFullYear month-length clamping matches date-fns for a
+// history lower-bound; swap back to date-fns only if exact calendar arithmetic
+// ever matters here.
+const subMonthsLocal = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() - n);
+  return x;
+};
+const subYearsLocal = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setFullYear(x.getFullYear() - n);
+  return x;
+};
 
 interface HistoryToolParams {
   text?: string;
@@ -67,8 +78,8 @@ function parseDateString(dateStr: string | undefined | null): number | null {
   const lowerDateStr = dateStr.toLowerCase().trim();
 
   if (lowerDateStr === 'now') return now.getTime();
-  if (lowerDateStr === 'today') return startOfToday().getTime();
-  if (lowerDateStr === 'yesterday') return startOfYesterday().getTime();
+  if (lowerDateStr === 'today') return startOfDay(now).getTime();
+  if (lowerDateStr === 'yesterday') return startOfDay(now).getTime() - DAY_MS;
 
   const relativeMatch = lowerDateStr.match(
     /^(\d+)\s+(day|days|week|weeks|month|months|year|years)\s+ago$/,
@@ -77,25 +88,17 @@ function parseDateString(dateStr: string | undefined | null): number | null {
     const amount = parseInt(relativeMatch[1], 10);
     const unit = relativeMatch[2];
     let resultDate: Date;
-    if (unit.startsWith('day')) resultDate = subDays(now, amount);
-    else if (unit.startsWith('week')) resultDate = subWeeks(now, amount);
-    else if (unit.startsWith('month')) resultDate = subMonths(now, amount);
-    else if (unit.startsWith('year')) resultDate = subYears(now, amount);
+    if (unit.startsWith('day')) resultDate = new Date(now.getTime() - amount * DAY_MS);
+    else if (unit.startsWith('week')) resultDate = new Date(now.getTime() - amount * 7 * DAY_MS);
+    else if (unit.startsWith('month')) resultDate = subMonthsLocal(now, amount);
+    else if (unit.startsWith('year')) resultDate = subYearsLocal(now, amount);
     else return null;
     return resultDate.getTime();
   }
 
-  // Try parsing as ISO or other common date string formats.
-  // Native Date constructor can be unreliable for non-standard formats.
-  // date-fns' parseISO is good for ISO 8601.
-  let parsedDate = parseISO(dateStr);
+  // ISO 8601 and other Date-parseable strings (V8 parses these reliably).
+  const parsedDate = new Date(dateStr);
   if (isValid(parsedDate)) {
-    return parsedDate.getTime();
-  }
-
-  // Fallback to new Date() for other potential formats, but with caution
-  parsedDate = new Date(dateStr);
-  if (isValid(parsedDate) && dateStr.includes(parsedDate.getFullYear().toString())) {
     return parsedDate.getTime();
   }
 
@@ -104,7 +107,10 @@ function parseDateString(dateStr: string | undefined | null): number | null {
 }
 
 function formatDate(timestamp: number): string {
-  return format(timestamp, 'yyyy-MM-dd HH:mm:ss');
+  const d = new Date(timestamp);
+  const p = (n: number) => String(n).padStart(2, '0');
+  // Local time, matching date-fns' default `format` behavior.
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 class HistorySearchInternal extends BaseBrowserToolExecutor {

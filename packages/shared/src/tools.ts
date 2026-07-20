@@ -109,6 +109,7 @@ export const TOOL_NAMES = {
     BASIC_AUTH: 'chrome_basic_auth',
     SET_CHECKED: 'chrome_set_checked',
     COMBOBOX_SELECT: 'chrome_combobox_select',
+    FILL_LWC: 'chrome_fill_lwc',
     TYPEAHEAD_PROBE: 'chrome_typeahead_probe',
     HELP: 'chrome_help',
   },
@@ -635,7 +636,12 @@ export const TOOL_SCHEMAS: Tool[] = [
         newTab: {
           type: 'boolean',
           description:
-            'Force a fresh tab even when a same-host tab is already open. Without this flag the navigate tool activates the existing tab instead. Ignored when tabId is also set. Defaults to false.',
+            'Force a fresh tab even when a same-host tab is already open. Without this flag the navigate tool activates the existing tab instead — including when only the hash fragment differs, which is a no-op on the existing DOM. If you want a fresh DOM in the SAME tab use reload:true. Ignored when tabId is also set. Defaults to false.',
+        },
+        reload: {
+          type: 'boolean',
+          description:
+            'When the target URL matches an already-open tab, force a real reload of that tab instead of just activating it. Use this whenever your task requires a fresh DOM (form state cleared, scripts re-run, counters reset) — without it, navigating to the same URL (or only a different hash fragment) silently returns the previous page state. Defaults to false.',
         },
         ...TAB_TARGETING,
         width: {
@@ -3133,6 +3139,40 @@ export const TOOL_SCHEMAS: Tool[] = [
     },
   },
   {
+    name: TOOL_NAMES.BROWSER.FILL_LWC,
+    description:
+      "Fill a Salesforce Lightning Web Component (LWC) control where chrome_fill_or_select / chrome_type_into don't persist. Sets the component's own @api value plus a native change event — the only path Salesforce Save honors. Deep shadow-DOM selector resolution. mode 'auto' picks by tag: lightning-input-rich-text→richtext (value = HTML string), lightning-combobox→combobox (value = option value e.g. 'C2'), else native input/textarea. Example: {selector:'lightning-combobox',index:0,value:'C2'} → {mode,valueAfter}",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector for the target, resolved with a shadow-piercing deep query (NOT plain document.querySelector). Omit to default to any lightning-input-rich-text/lightning-combobox/input/textarea.',
+        },
+        index: {
+          type: 'number',
+          description: 'Which match to fill when the selector matches several. Default 0.',
+        },
+        value: {
+          type: 'string',
+          description:
+            'Value to commit: an HTML string for richtext, the option value for combobox, or plain text for input/textarea.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['richtext', 'combobox', 'input', 'auto'],
+          description:
+            "Force a fill strategy. 'auto' (default) picks by the resolved element's tagName.",
+        },
+        tabId: { type: 'number' },
+        windowId: { type: 'number' },
+        frameId: { type: 'number' },
+      },
+      required: ['value'],
+    },
+  },
+  {
     name: TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE,
     description:
       "Diagnostic: types a sample char into a typeahead, reports every event (with isTrusted), every fetch, and final listbox state in one envelope. Use when typeahead/autocomplete isn't firing — check summary.{keydownFired,inputFired,lookupFetchFired}. Example: {selector:'input',sample:'S'} → {events,fetches,listboxFound}",
@@ -3320,6 +3360,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.BASIC_AUTH]: 'Network',
   [TOOL_NAMES.BROWSER.SET_CHECKED]: 'Interaction',
   [TOOL_NAMES.BROWSER.COMBOBOX_SELECT]: 'Interaction',
+  [TOOL_NAMES.BROWSER.FILL_LWC]: 'Interaction',
   [TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE]: 'Interaction',
   [TOOL_NAMES.BROWSER.HELP]: 'Diagnostics',
 

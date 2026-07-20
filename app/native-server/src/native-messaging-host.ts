@@ -1,6 +1,6 @@
 import { stdin as processStdin, stdout as processStdout } from 'process';
 import { Server } from './server';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { buildCallToolEnvelope, NativeMessageSchema, NativeMessageType } from 'humanchrome-shared';
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
@@ -361,7 +361,7 @@ export class NativeMessagingHost {
     clientId?: string,
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const id = requestId || uuidv4();
+      const id = requestId || randomUUID();
 
       // IMP-0120: fail fast when no NM source is connected (SW reloaded,
       // relay hasn't reconnected yet). Better than waiting the full 120s
@@ -444,7 +444,7 @@ export class NativeMessagingHost {
    * want to log the id before the request.
    */
   public newRequestId(): string {
-    return uuidv4();
+    return randomUUID();
   }
 
   /**

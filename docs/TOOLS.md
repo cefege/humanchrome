@@ -54,7 +54,8 @@ Navigate to a URL, refresh, or go back/forward in history. Optionally open in a 
 |-------|------|----------|-------------|
 | `url` | string |  | URL to navigate to. Special values: "back" or "forward" to navigate browser history in the target tab. |
 | `newWindow` | boolean |  | Create a new window to navigate to the URL or not. Defaults to false |
-| `newTab` | boolean |  | Force a fresh tab even when a same-host tab is already open. Without this flag the navigate tool activates the existing tab instead. Ignored when tabId is also set. Defaults to false. |
+| `newTab` | boolean |  | Force a fresh tab even when a same-host tab is already open. Without this flag the navigate tool activates the existing tab instead — including when only the hash fragment differs, which is a no-op on the existing DOM. If you want a fresh DOM in the SAME tab use reload:true. Ignored when tabId is also set. Defaults to false. |
+| `reload` | boolean |  | When the target URL matches an already-open tab, force a real reload of that tab instead of just activating it. Use this whenever your task requires a fresh DOM (form state cleared, scripts re-run, counters reset) — without it, navigating to the same URL (or only a different hash fragment) silently returns the previous page state. Defaults to false. |
 | `tabId` | number |  | Target tab ID. If omitted, the bridge uses this MCP client's preferred tab (last successfully acted on) before falling back to the active tab. Pass an explicit tabId when running parallel work across tabs. |
 | `windowId` | number |  | Target window ID to pick the active tab when tabId is omitted. |
 | `background` | boolean |  | Do not activate tab/focus window during the operation (default: true). Pass false to bring the tab forward. |
@@ -561,6 +562,20 @@ Trusted keyboard commit for React/Ember/Headless UI combobox: focus, type query,
 | `perKeyDelayMs` | number |  | Base delay between keystrokes. Default 60. |
 | `jitterMs` | number |  | ± random jitter on perKeyDelayMs. Default 30. |
 | `force` | boolean |  | Skip the combobox visibility/disabled/readonly check. |
+| `tabId` | number |  |  |
+| `windowId` | number |  |  |
+| `frameId` | number |  |  |
+
+### `chrome_fill_lwc`
+
+Fill a Salesforce Lightning Web Component (LWC) control where chrome_fill_or_select / chrome_type_into don't persist. Sets the component's own @api value plus a native change event — the only path Salesforce Save honors. Deep shadow-DOM selector resolution. mode 'auto' picks by tag: lightning-input-rich-text→richtext (value = HTML string), lightning-combobox→combobox (value = option value e.g. 'C2'), else native input/textarea. Example: {selector:'lightning-combobox',index:0,value:'C2'} → {mode,valueAfter}
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `selector` | string |  | CSS selector for the target, resolved with a shadow-piercing deep query (NOT plain document.querySelector). Omit to default to any lightning-input-rich-text/lightning-combobox/input/textarea. |
+| `index` | number |  | Which match to fill when the selector matches several. Default 0. |
+| `value` | string | ✓ | Value to commit: an HTML string for richtext, the option value for combobox, or plain text for input/textarea. |
+| `mode` | `richtext` \| `combobox` \| `input` \| `auto` |  | Force a fill strategy. 'auto' (default) picks by the resolved element's tagName. |
 | `tabId` | number |  |  |
 | `windowId` | number |  |  |
 | `frameId` | number |  |  |

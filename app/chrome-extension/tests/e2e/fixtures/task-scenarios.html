@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>humanchrome task scenarios</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 780px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      section {
+        border: 1px solid #ccc;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .deep {
+        margin-left: 2rem;
+      }
+      .deep .deep .deep {
+        background: #f5f5f5;
+        padding: 0.5rem;
+      }
+      .lazy {
+        display: none;
+      }
+      [hidden] {
+        display: none;
+      }
+      output {
+        font-weight: bold;
+        color: #060;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Task scenarios fixture</h1>
+
+    <!-- SEARCH: finding text/elements in deep DOM -->
+    <section id="s-search" data-class="search">
+      <h2>Search</h2>
+      <p>A real LLM should be able to extract specific values from this section.</p>
+      <div class="deep">
+        <div class="deep">
+          <div class="deep">
+            <p
+              >The
+              <span id="needle" data-marker="search-target">launch code is 4815162342</span> for
+              this scenario.</p
+            >
+            <ul>
+              <li>Plan tier: <strong data-tier="basic">$9 / month</strong></li>
+              <li>Plan tier: <strong data-tier="pro">$29 / month</strong></li>
+              <li>Plan tier: <strong data-tier="enterprise">Contact sales</strong></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="lazy" id="lazy-content">
+        <p data-marker="lazy-target">Lazy-rendered email: hidden@example.com</p>
+      </div>
+      <button id="reveal-lazy" type="button">Reveal lazy content</button>
+      <script>
+        document.getElementById('reveal-lazy').addEventListener('click', () => {
+          document.getElementById('lazy-content').style.display = 'block';
+        });
+      </script>
+    </section>
+
+    <!-- INTERACTION: clicks, typing, form submit -->
+    <section id="s-interaction" data-class="interaction">
+      <h2>Interaction</h2>
+      <form
+        id="signup"
+        onsubmit="
+          event.preventDefault();
+          document.getElementById('signup-result').textContent =
+            'submitted:' + this.email.value + ':' + this.plan.value;
+        "
+      >
+        <label> Email: <input name="email" id="signup-email" type="email" required /> </label>
+        <label>
+          Plan:
+          <select name="plan" id="signup-plan">
+            <option value="">— pick one —</option>
+            <option value="basic">Basic</option>
+            <option value="pro">Pro</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
+        </label>
+        <button type="submit" id="signup-submit">Sign up</button>
+      </form>
+      <output id="signup-result"></output>
+
+      <hr />
+
+      <p>Click counter (tests that click delivers a real event):</p>
+      <button
+        id="counter-btn"
+        type="button"
+        onclick="
+          const n = parseInt(this.dataset.count || '0', 10) + 1;
+          this.dataset.count = String(n);
+          document.getElementById('counter-out').textContent = 'clicks=' + n;
+        "
+        >Increment</button
+      >
+      <output id="counter-out">clicks=0</output>
+    </section>
+
+    <!-- NAVIGATION: timing, in-page nav, redirect-style -->
+    <section id="s-navigation" data-class="navigation">
+      <h2>Navigation</h2>
+      <p>
+        Click <a id="hop-link" href="#hop-target">this anchor</a> — the page does NOT reload but a
+        hash-routed view should appear.
+      </p>
+      <div id="hop-target" hidden data-marker="hop-arrived">
+        <p>You arrived at the hop target. Token: <code id="hop-token">HOP-OK-7321</code></p>
+      </div>
+      <script>
+        const updateHop = () => {
+          const el = document.getElementById('hop-target');
+          if (location.hash === '#hop-target') {
+            el.hidden = false;
+          } else {
+            el.hidden = true;
+          }
+        };
+        window.addEventListener('hashchange', updateHop);
+        updateHop();
+      </script>
+
+      <hr />
+
+      <p>Slow content — appears 600ms after page load (tests await_element + wait_for):</p>
+      <div id="slow-box" hidden data-marker="slow-arrived">Slow content rendered.</div>
+      <script>
+        setTimeout(() => {
+          const el = document.getElementById('slow-box');
+          if (el) el.hidden = false;
+        }, 600);
+      </script>
+    </section>
+
+    <!-- SHADOW DOM: content behind a closed-by-convention shadow root -->
+    <section id="s-shadow" data-class="shadow-dom">
+      <h2>Shadow DOM</h2>
+      <p
+        >The widget below renders its content inside a shadow root. Light-DOM selectors won't reach
+        it.</p
+      >
+      <div id="shadow-host"></div>
+      <script>
+        const host = document.getElementById('shadow-host');
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+          <style>p { color: #036; }</style>
+          <p data-marker="shadow-target">Shadow secret: SHA-9981-OK</p>
+          <button id="shadow-btn" type="button">Reveal more</button>
+          <p id="shadow-extra" hidden>Extra payload: ZX-2025</p>
+        `;
+        root.getElementById('shadow-btn').addEventListener('click', () => {
+          root.getElementById('shadow-extra').hidden = false;
+        });
+      </script>
+    </section>
+
+    <!-- IFRAME: content inside a same-origin iframe -->
+    <section id="s-iframe" data-class="iframe">
+      <h2>Iframe</h2>
+      <p>An inline same-origin iframe contains its own content the agent must reach into.</p>
+      <iframe
+        id="inner-frame"
+        title="inner"
+        style="width: 100%; height: 160px; border: 1px solid #999"
+        srcdoc="<!doctype html><html><body><h3 id='inner-h3'>Inner heading</h3><p data-marker='iframe-target'>Iframe token: IFR-77-OK</p><button id='inner-btn' type='button' onclick='document.getElementById(`inner-out`).textContent=`inner-clicked`'>Inner button</button><output id='inner-out'></output></body></html>"
+      ></iframe>
+    </section>
+
+    <!-- DIALOG: native alert/confirm/prompt -->
+    <section id="s-dialog" data-class="dialog">
+      <h2>Dialog</h2>
+      <p
+        >Click the button to trigger a <em>native</em> confirm dialog. The dialog handler should
+        accept or dismiss without freezing the tab.</p
+      >
+      <button id="dialog-btn" type="button">Trigger confirm</button>
+      <output id="dialog-out">no-dialog-yet</output>
+      <script>
+        document.getElementById('dialog-btn').addEventListener('click', () => {
+          const out = document.getElementById('dialog-out');
+          // eslint-disable-next-line no-alert
+          const ok = window.confirm('Proceed with the operation?');
+          out.textContent = ok ? 'confirmed' : 'cancelled';
+        });
+      </script>
+    </section>
+
+    <!-- KEYBOARD: shortcut handling, focus + typing -->
+    <section id="s-keyboard" data-class="keyboard">
+      <h2>Keyboard</h2>
+      <p>Focus the box and type the phrase exactly. Then press <kbd>Enter</kbd> to commit.</p>
+      <input id="kb-input" type="text" placeholder="type here" />
+      <output id="kb-out">pending</output>
+      <script>
+        const kb = document.getElementById('kb-input');
+        kb.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            document.getElementById('kb-out').textContent = `commit:${kb.value}`;
+          }
+        });
+      </script>
+    </section>
+
+    <!-- TABLE: structured row extraction -->
+    <section id="s-table" data-class="search">
+      <h2>Table extraction</h2>
+      <table id="orders">
+        <thead
+          ><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th></tr></thead
+        >
+        <tbody>
+          <tr><td>1001</td><td>Alice</td><td>$120</td><td>shipped</td></tr>
+          <tr><td>1002</td><td>Bob</td><td>$45</td><td>pending</td></tr>
+          <tr><td>1003</td><td>Carol</td><td>$310</td><td>shipped</td></tr>
+          <tr><td>1004</td><td>Dan</td><td>$72</td><td>cancelled</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- MULTI-STEP: a small flow with branching -->
+    <section id="s-multistep" data-class="multi-step">
+      <h2>Multi-step flow</h2>
+      <p>Step 1: Click "Start." Step 2: Wait for the code. Step 3: Submit the code via the form.</p>
+      <button id="ms-start" type="button">Start</button>
+      <div id="ms-code-wrap" hidden>
+        <p>Your code is <code id="ms-code"></code>. Enter it below.</p>
+        <input id="ms-code-input" />
+        <button id="ms-submit" type="button">Submit code</button>
+      </div>
+      <output id="ms-out">idle</output>
+      <script>
+        const out = document.getElementById('ms-out');
+        const codeWrap = document.getElementById('ms-code-wrap');
+        let code = '';
+        document.getElementById('ms-start').addEventListener('click', () => {
+          code = 'MS-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+          document.getElementById('ms-code').textContent = code;
+          codeWrap.hidden = false;
+          out.textContent = 'awaiting-code';
+        });
+        document.getElementById('ms-submit').addEventListener('click', () => {
+          const v = document.getElementById('ms-code-input').value;
+          out.textContent = v === code ? 'flow-complete' : 'wrong-code';
+        });
+      </script>
+    </section>
+
+    <!-- STORAGE: cookies + localStorage round-trip target -->
+    <section id="s-storage" data-class="storage">
+      <h2>Storage</h2>
+      <p>The page sets a cookie and a localStorage entry on load — the agent should read them.</p>
+      <output id="storage-out"></output>
+      <script>
+        document.cookie = 'hc_test=cookie-OK-9133; path=/';
+        localStorage.setItem('hc_test', 'ls-OK-4422');
+        document.getElementById('storage-out').textContent = 'storage-ready';
+      </script>
+    </section>
+
+    <!-- TOOL-CHOICE: scenarios where multiple tools could "work" but only some give the right answer -->
+    <section id="s-tool-choice" data-class="tool-choice">
+      <h2>Tool choice</h2>
+      <p>
+        Find the support contact. The <em>visible</em> contact is
+        <span id="visible-contact" data-marker="contact-visible">support@example.com</span>. A
+        hidden honeypot contact
+        <span hidden id="honeypot-contact" data-marker="contact-honeypot"
+          >honeypot@example.com</span
+        >
+        also exists in the DOM but should NOT be returned by a well-behaved agent.
+      </p>
+      <p>
+        Pricing table is below — an agent asked to "screenshot the pricing table" should use the
+        SCREENSHOT tool with a selector, not get_page_text.
+      </p>
+      <table id="pricing">
+        <thead
+          ><tr><th>Plan</th><th>Price</th></tr></thead
+        >
+        <tbody>
+          <tr><td>Starter</td><td>$0</td></tr>
+          <tr><td>Team</td><td>$49</td></tr>
+          <tr><td>Enterprise</td><td>Contact</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </body>
+</html>

@@ -101,6 +101,7 @@ import { mockResponseTool } from './browser/mock-response';
 import { basicAuthTool } from './browser/basic-auth';
 import { setCheckedTool } from './browser/set-checked';
 import { comboboxSelectTool } from './browser/combobox-select';
+import { fillLwcTool } from './browser/fill-lwc';
 import { typeaheadProbeTool } from './browser/typeahead-probe';
 import { flowRunTool, listPublishedFlowsTool, flowDeleteTool } from './record-replay';
 // Eager imports for tools that USED to be lazy but landed in their own
@@ -125,6 +126,13 @@ import { elementPickerTool } from './browser/element-picker';
 // the offscreen document, so static import is safe (no SW dynamic-import()
 // ban risk).
 import { vectorSearchTabsContentTool } from './browser/vector-search';
+// IMP-0188: screenshot + intercept-response + computer landed in their own
+// Rolldown chunks in a recent build, so the lazy dynamic-import() path
+// started failing in MV3 SW (W3C ban). Same root cause as bug #216 — eager
+// static imports put their chunks into the SW's initial module graph.
+import { screenshotTool } from './browser/screenshot';
+import { interceptResponseTool } from './browser/intercept-response';
+import { computerTool } from './browser/computer';
 
 interface ToolInstance {
   name: string;
@@ -199,6 +207,7 @@ const eagerTools: ToolInstance[] = [
   basicAuthTool,
   setCheckedTool,
   comboboxSelectTool,
+  fillLwcTool,
   typeaheadProbeTool,
   flowRunTool as unknown as ToolInstance,
   listPublishedFlowsTool as unknown as ToolInstance,
@@ -210,6 +219,10 @@ const eagerTools: ToolInstance[] = [
   performanceTraceTool,
   elementPickerTool,
   vectorSearchTabsContentTool,
+  // Promoted from lazyLoaders — IMP-0188 (same root cause).
+  screenshotTool,
+  interceptResponseTool,
+  computerTool,
 ];
 
 const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.name, t]));
@@ -227,16 +240,10 @@ const eagerToolsByName = new Map<string, ToolInstance>(eagerTools.map((t) => [t.
 type LazyLoader = () => Promise<ToolInstance>;
 
 const lazyLoaders: Record<string, LazyLoader> = {
-  // These tools' chunks happened to land back in background.js in current
-  // builds (so the dynamic import resolves to a cached module and works).
-  // Listed here for forward-compat: if Rolldown ever splits them out, they
-  // become unreachable for the same reason as bug #216, and we should
-  // promote them to `eagerTools` (see the eager-import block above).
-  [TOOL_NAMES.BROWSER.SCREENSHOT]: async () =>
-    (await import('./browser/screenshot')).screenshotTool,
-  [TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE]: async () =>
-    (await import('./browser/intercept-response')).interceptResponseTool,
-  [TOOL_NAMES.BROWSER.COMPUTER]: async () => (await import('./browser/computer')).computerTool,
+  // Only gif-recorder remains lazy — its chunk doesn't fold into background.js,
+  // and the captureVisibleTab loop carries enough state that promoting it
+  // wastes SW boot time when GIF recording isn't used. If we hit the same
+  // dynamic-import() failure here (IMP-0188 / bug #216), promote to eager.
   [TOOL_NAMES.BROWSER.GIF_RECORDER]: async () =>
     (await import('./browser/gif-recorder')).gifRecorderTool,
 };

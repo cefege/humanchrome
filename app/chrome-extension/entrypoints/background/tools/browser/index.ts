@@ -89,4 +89,5 @@ export { mockResponseTool } from './mock-response';
 export { basicAuthTool } from './basic-auth';
 export { setCheckedTool } from './set-checked';
 export { comboboxSelectTool } from './combobox-select';
+export { fillLwcTool } from './fill-lwc';
 export { typeaheadProbeTool } from './typeahead-probe';

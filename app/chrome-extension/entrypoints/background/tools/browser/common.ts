@@ -14,6 +14,9 @@ interface NavigateToolParams {
   width?: number;
   height?: number;
   refresh?: boolean;
+  reload?: boolean; // when true and URL matches an open tab, force a real
+  // reload instead of just activating — necessary when the only difference
+  // is a hash fragment, which otherwise no-ops without resetting DOM state.
   tabId?: number;
   windowId?: number;
   background?: boolean; // when true, do not activate tab or focus window
@@ -48,6 +51,7 @@ class NavigateTool extends BaseBrowserToolExecutor {
       height,
       url,
       refresh = false,
+      reload = false,
       tabId,
       background = true, // default true to avoid stealing focus; pass false to foreground
       windowId,
@@ -299,13 +303,22 @@ class NavigateTool extends BaseBrowserToolExecutor {
         if (explicitTab && typeof explicitTab.id === 'number') {
           await chrome.tabs.update(explicitTab.id, { url });
         }
+        // reload:true — force a fresh DOM. Without this, hash-only changes
+        // (and same-URL re-navigates) leave the page state intact and the
+        // caller silently gets the previous page's DOM, form values, etc.
+        if (reload && typeof existingTab.id === 'number') {
+          if (existingTab.url !== url) {
+            await chrome.tabs.update(existingTab.id, { url });
+          }
+          await chrome.tabs.reload(existingTab.id);
+        }
         // Optionally bring to foreground based on background flag
         await this.ensureFocus(existingTab, {
           activate: background !== true,
           focusWindow: background !== true,
         });
 
-        console.log(`Activated existing Tab ID: ${existingTab.id}`);
+        console.log(`Activated existing Tab ID: ${existingTab.id}${reload ? ' (reloaded)' : ''}`);
         // Get updated tab information and return it
         const updatedTab = await chrome.tabs.get(existingTab.id);
 
@@ -318,10 +331,11 @@ class NavigateTool extends BaseBrowserToolExecutor {
               type: 'text',
               text: JSON.stringify({
                 success: true,
-                message: 'Activated existing tab',
+                message: reload ? 'Reloaded existing tab' : 'Activated existing tab',
                 tabId: updatedTab.id,
                 windowId: updatedTab.windowId,
                 url: updatedTab.url,
+                reloaded: reload,
               }),
             },
           ],

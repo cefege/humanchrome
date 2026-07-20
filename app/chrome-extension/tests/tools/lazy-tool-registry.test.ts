@@ -88,12 +88,7 @@ describe('lazy tools — chunks that still land back in background.js', () => {
   // separate file under .output/chrome-mv3/chunks/), promote it to the
   // eager block in tools/index.ts the same way #216 did for
   // javascript/read-page/userscript/performance/element-picker.
-  const STILL_LAZY = [
-    TOOL_NAMES.BROWSER.SCREENSHOT,
-    TOOL_NAMES.BROWSER.INTERCEPT_RESPONSE,
-    TOOL_NAMES.BROWSER.COMPUTER,
-    TOOL_NAMES.BROWSER.GIF_RECORDER,
-  ];
+  const STILL_LAZY = [TOOL_NAMES.BROWSER.GIF_RECORDER];
 
   it('source: each still-lazy tool is wired through a lazyLoaders entry', async () => {
     const fs = await import('node:fs');
@@ -138,6 +133,10 @@ describe('lazy tools — chunks that still land back in background.js', () => {
       './browser/performance',
       './browser/element-picker',
       './browser/vector-search',
+      // IMP-0188 promotions.
+      './browser/screenshot',
+      './browser/intercept-response',
+      './browser/computer',
     ];
 
     for (const promoted of PROMOTED_PATHS) {
@@ -161,22 +160,22 @@ describe('lazy tools — chunks that still land back in background.js', () => {
 
 describe('lazy tool resolution at runtime', () => {
   it('handleCallTool routes a heavy tool through the dynamic loader and memoizes', async () => {
-    // Spy on the screenshot module's exported singleton's execute. We
-    // import the module first, set the spy, then invoke handleCallTool
-    // — the dynamic loader should yield the same singleton, so the spy
-    // fires.
+    // Spy on the gif-recorder module's exported singleton's execute. (Screenshot
+    // / intercept-response / computer were promoted to eager in IMP-0188 because
+    // their Rolldown chunks no longer fold back into background.js; gif-recorder
+    // is the one tool still routed through lazyLoaders.)
     _resetLazyToolCacheForTest();
     vi.resetModules();
 
-    const screenshotModule = await import('@/entrypoints/background/tools/browser/screenshot');
-    const executeSpy = vi.spyOn(screenshotModule.screenshotTool, 'execute').mockResolvedValue({
+    const gifModule = await import('@/entrypoints/background/tools/browser/gif-recorder');
+    const executeSpy = vi.spyOn(gifModule.gifRecorderTool, 'execute').mockResolvedValue({
       content: [{ type: 'text', text: '{"ok":true}' }],
       isError: false,
     } as any);
 
     const dispatcher = await import('@/entrypoints/background/tools');
     const result = await dispatcher.handleCallTool({
-      name: 'chrome_screenshot',
+      name: 'chrome_gif_recorder',
       args: {},
     });
 
@@ -184,7 +183,7 @@ describe('lazy tool resolution at runtime', () => {
     expect(result).toBeDefined();
 
     // Second call: should hit the memo, not re-import.
-    await dispatcher.handleCallTool({ name: 'chrome_screenshot', args: {} });
+    await dispatcher.handleCallTool({ name: 'chrome_gif_recorder', args: {} });
     expect(executeSpy).toHaveBeenCalledTimes(2);
 
     executeSpy.mockRestore();
