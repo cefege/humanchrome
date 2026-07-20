@@ -8,7 +8,7 @@
 
 HumanChrome is browser control for AI engineers. It runs as an extension inside the Chrome you already have open, so when an agent clicks, types, scrolls, reads the DOM, or taps the network, it does it in your real session with your real cookies. Drive it from any MCP client — Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio — or skip MCP entirely and call a local HTTP API. It generalizes to anything Chrome can do, but the design pressure came from the platforms that punish automation hardest: LinkedIn, WhatsApp, Tinder, Facebook, Instagram.
 
-_Built by Mihai Mateias, an AI engineer. The tool I point my own agents at when the target site fights back — real infrastructure, not a demo._
+_Built by Mihai Mateias. I use it daily to drive my own coding agents._
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D24-brightgreen.svg)
@@ -285,9 +285,9 @@ Honest about what's solid. HumanChrome is what I drive my own agents with daily,
 
 ## Built by
 
-HumanChrome is designed, built, and operated by one AI engineer, [Mihai Mateias](https://github.com/cefege). It isn't a portfolio piece assembled to look good in a repo. It's the tool I point my own coding agents at when a site fights back, which is why the hard parts are real and load-bearing: an extension that drives your actual signed-in session instead of a clean Chromium, a redaction layer that knows the difference between a leaked token and a LinkedIn URN you actually need, a React-aware form-fill that fires the events the framework listens for, fetch/XHR response interception from inside the page, multi-client MCP sessions that don't fight over the active tab, and a transport you can reset mid-jam without restarting Chrome.
+Built and maintained by [Mihai Mateias](https://github.com/cefege). I use HumanChrome daily to drive my own coding agents, so the effort went where day-to-day use needs it: it drives your real signed-in Chrome instead of a clean Chromium, the redaction layer tells a leaked token from a LinkedIn URN you actually need, form-fill fires the events frameworks like React listen for, it intercepts fetch/XHR from inside the page, multiple MCP clients share tabs without fighting over the active one, and a jammed transport resets without restarting Chrome.
 
-If you hire AI engineers who ship production systems end to end rather than prototypes, this repository is the resume. Read the code, then read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Architecture is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedin.com/in/mihai-mateias).
 
