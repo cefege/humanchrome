@@ -387,7 +387,7 @@ export const TOOL_SCHEMAS: Tool[] = [
   {
     name: TOOL_NAMES.BROWSER.COMPUTER,
     description:
-      'Mouse/keyboard/screenshot omnibus by raw coordinates (Anthropic computer-use API contract). Niche: when you only have screen coordinates, not a selector or ref. For selector-driven actions prefer chrome_click_element / chrome_fill_or_select / chrome_screenshot which have richer error envelopes. Example: {action:"screenshot"} → {image, width, height}',
+      'Mouse/keyboard/screenshot omnibus by raw coordinates (Anthropic computer-use API contract). Niche: when you only have screen coordinates, not a selector or ref. For selector-driven actions prefer chrome_click_element / chrome_fill_or_select which have richer error envelopes. Example: {action:"screenshot"} → {image, width, height} Cross-ref: browser_take_screenshot (MCP @playwright/mcp); page.screenshot, locator.screenshot (Playwright API).',
     inputSchema: {
       type: 'object',
       properties: {

@@ -128,8 +128,9 @@ describe('tool-index — dispatcher catalog', () => {
   });
 
   it('resolveToolName expands browser_-prefix legacy short names', () => {
+    // Only browser_claim_tab and browser_alias_tab remain browser_-prefixed;
+    // browser_close_my_tabs was consolidated into chrome_close_tabs.
     expect(resolveToolName('claim_tab')).toBe('browser_claim_tab');
-    expect(resolveToolName('close_my_tabs')).toBe('browser_close_my_tabs');
     expect(resolveToolName('alias_tab')).toBe('browser_alias_tab');
   });
 
@@ -183,10 +184,13 @@ describe('tool-index — dispatcher catalog', () => {
       ['page.click', 'chrome_click_element'],
       ['page.goto', 'chrome_navigate'],
       ['browser_navigate', 'chrome_navigate'],
-      ['browser_snapshot', 'chrome_aria_snapshot'],
+      // chrome_aria_snapshot was consolidated into chrome_read_page (format:"aria").
+      ['browser_snapshot', 'chrome_read_page'],
       ['browser_press_key', 'chrome_keyboard'],
       ['locator.fill', 'chrome_fill_or_select'],
-      ['browser_take_screenshot', 'chrome_screenshot'],
+      // chrome_screenshot is not in the shared catalog; chrome_computer is the
+      // catalog's screenshot tool (action:"screenshot").
+      ['browser_take_screenshot', 'chrome_computer'],
       ['browser_console_messages', 'chrome_console'],
       ['page.hover', 'chrome_hover'],
       ['page.pdf', 'chrome_print_to_pdf'],

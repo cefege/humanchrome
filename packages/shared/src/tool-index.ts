@@ -283,8 +283,8 @@ export function isKnownToolName(name: string, tools: readonly Tool[] = TOOL_SCHE
  *
  * Downstream workflow files still reference legacy short names like
  * `get_windows_and_tabs`. The catalog uses `chrome_*` (most tools) or
- * `browser_*` (`browser_claim_tab`, `browser_close_my_tabs`,
- * `browser_alias_tab`). This tries the input verbatim first, then
+ * `browser_*` (`browser_claim_tab`, `browser_alias_tab`).
+ * This tries the input verbatim first, then
  * `chrome_<name>`, then `browser_<name>`, against the catalog ∪ extras.
  *
  * Returns the canonical name or `null` when nothing matches.
