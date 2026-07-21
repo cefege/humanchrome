@@ -16,6 +16,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The extension's canonical ID (hbdgbg…) is pinned by the Chrome Web Store
+# item, not by a repo-held key, so CI builds the extension keyless. The
+# wxt.config.ts guard fails keyless production builds by default; opt CI out
+# explicitly. To ship a keyed zip instead, set the CHROME_EXTENSION_KEY repo
+# secret, pass it into the build steps, and drop this flag.
+env:
+  HC_ALLOW_KEYLESS_BUILD: '1'
+
 jobs:
   build:
     name: Build, typecheck, smoke

@@ -14,6 +14,24 @@ const CHROME_EXTENSION_KEY = process.env.CHROME_EXTENSION_KEY;
 // Detect dev mode early for manifest-level switches
 const IS_DEV = process.env.NODE_ENV !== 'production' && process.env.MODE !== 'production';
 
+// Guard: a production build with no signing key silently ships a manifest
+// without `key`, so Chrome assigns a path-derived extension ID instead of the
+// canonical whitelisted one — the native-messaging host then refuses
+// connectNative ("Access to the specified native messaging host is
+// forbidden"), i.e. the extension loads but can never reach the bridge.
+// This is a silent, hard-to-diagnose failure, so fail the build loudly.
+// Intentional keyless builds (CI patches allowed_origins with the derived id)
+// must opt out explicitly via HC_ALLOW_KEYLESS_BUILD=1.
+if (!IS_DEV && !CHROME_EXTENSION_KEY && process.env.HC_ALLOW_KEYLESS_BUILD !== '1') {
+  throw new Error(
+    'CHROME_EXTENSION_KEY is not set for a production build. Without it the built ' +
+      'manifest has no `key`, so Chrome assigns a path-derived extension ID that is ' +
+      "NOT in the native host's allowed_origins — connectNative will be rejected and " +
+      'the bridge will never start. Set CHROME_EXTENSION_KEY (see app/chrome-extension/.env), ' +
+      'or pass HC_ALLOW_KEYLESS_BUILD=1 for an intentional keyless build.',
+  );
+}
+
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
