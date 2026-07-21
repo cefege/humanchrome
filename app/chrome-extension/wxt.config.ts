@@ -50,8 +50,9 @@ export default defineConfig({
     // ],
   },
   manifest: {
-    // Use environment variable for the key, fallback to undefined if not set
-    key: CHROME_EXTENSION_KEY,
+    // Use the env key, or omit the field entirely when unset/empty (an empty
+    // string is an invalid manifest key that Chrome rejects outright).
+    key: CHROME_EXTENSION_KEY || undefined,
     default_locale: 'en',
     name: '__MSG_extensionName__',
     description: '__MSG_extensionDescription__',
