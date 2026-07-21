@@ -12,11 +12,12 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# See ci.yml: the extension's canonical ID is pinned by the Web Store item,
-# not a repo-held key, so the release zip is built keyless. Opt the
-# wxt.config.ts keyless-build guard out here. To publish a keyed zip, set the
-# CHROME_EXTENSION_KEY repo secret, pass it into the build step, drop this flag.
+# See ci.yml: the canonical ID is pinned by the Web Store item, not a
+# repo-held key. If the CHROME_EXTENSION_KEY repo secret is set the released
+# zip is keyed automatically; until then HC_ALLOW_KEYLESS_BUILD=1 opts the
+# wxt.config.ts guard out so the keyless release build doesn't fail.
 env:
+  CHROME_EXTENSION_KEY: ${{ secrets.CHROME_EXTENSION_KEY }}
   HC_ALLOW_KEYLESS_BUILD: '1'
 
 jobs:
