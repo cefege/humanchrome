@@ -333,7 +333,7 @@ const MATRIX = [
     // most-recently-touched tab pointing elsewhere when the read-only
     // resolver picks a tab from the owned set.
     run: async () => {
-      const navRes = await callTool('chrome_navigate', { url: FIXTURE_URL });
+      const navRes = await callTool('chrome_navigate', { url: FIXTURE_URL, newTab: true });
       const navTabId = navRes?.parsed?.tabId;
       const wait = await callTool('chrome_wait_for', {
         kind: 'element',
