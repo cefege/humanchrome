@@ -112,14 +112,12 @@ async function main() {
       { cwd: REPO_ROOT, maxBuffer: 4 * 1024 * 1024 },
     );
     await fs.rm(path.join(installRoot, 'node_modules'), { recursive: true, force: true });
-    await fs.cp(path.join(deployRoot, 'node_modules'), path.join(installRoot, 'node_modules'), {
-      recursive: true,
-      force: true,
-    });
-    await fs.copyFile(
-      path.join(deployRoot, 'package.json'),
-      path.join(installRoot, 'package.json'),
-    );
+    await execFileAsync('rsync', [
+      '-a',
+      `${deployRoot}/node_modules/`,
+      `${installRoot}/node_modules/`,
+    ]);
+    await fs.copyFile(path.join(deployRoot, 'package.json'), path.join(installRoot, 'package.json'));
     console.log(`[sync-installed] runtime dependencies → ${installRoot}`);
   } catch (err) {
     console.warn(`[sync-installed] runtime dependency deploy failed: ${err.message}`);
