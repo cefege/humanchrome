@@ -2,9 +2,7 @@
 /**
  * Standalone bridge HTTP smoke test.
  *
- * Verifies the two patches that don't require a live Chrome extension:
- *   T7  — multi-client: two simultaneous /mcp initializes both succeed.
- *   T11 — admin/reset: clears stuck transports and a follow-up init works.
+ * Verifies the stateless multi-client behavior that does not require a live Chrome extension.
  *
  * Runs against the compiled dist, on an alternate port, so it does not
  * disturb the user's running daily-driver bridge on 12306.
@@ -26,15 +24,11 @@ const Server = require('./dist/server/index.js').default;
 // last `data:` rather than the first, which the inline parser used to drop).
 const { parseMcpResponseBody } = await import('./test-helpers/parse-mcp-response.mjs');
 
-const initBody = {
+const listBody = {
   jsonrpc: '2.0',
   id: 1,
-  method: 'initialize',
-  params: {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'humanchrome-smoke', version: '0.0.0' },
-  },
+  method: 'tools/list',
+  params: {},
 };
 
 const acceptHeaders = {
@@ -52,9 +46,8 @@ const log = (label, ok, extra) => {
 
 async function rpc(url, init = {}) {
   const resp = await fetch(url, init);
-  const sessionId = resp.headers.get('mcp-session-id') || undefined;
   const text = await resp.text();
-  return { status: resp.status, body: parseMcpResponseBody(text) ?? text, sessionId };
+  return { status: resp.status, body: parseMcpResponseBody(text) ?? text };
 }
 
 async function main() {
@@ -69,45 +62,21 @@ async function main() {
   }
 
   // T7 multi-client
-  let s1, s2;
   {
     const [a, b] = await Promise.all([
       rpc(`${baseUrl}/mcp`, {
         method: 'POST',
         headers: acceptHeaders,
-        body: JSON.stringify(initBody),
+        body: JSON.stringify(listBody),
       }),
       rpc(`${baseUrl}/mcp`, {
         method: 'POST',
         headers: acceptHeaders,
-        body: JSON.stringify(initBody),
+        body: JSON.stringify(listBody),
       }),
     ]);
-    s1 = a.sessionId;
-    s2 = b.sessionId;
-    const ok = a.status === 200 && b.status === 200 && !!s1 && !!s2 && s1 !== s2;
-    log('T7 multi-client init: two simultaneous sessions accepted', ok, `s1=${s1} s2=${s2}`);
-  }
-
-  // T11 admin/reset
-  {
-    const { status, body } = await rpc(`${baseUrl}/admin/reset`, { method: 'POST' });
-    const cleared = body?.cleared ?? -1;
-    log('T11 /admin/reset: ok=true, cleared >= 2', status === 200 && body?.ok === true && cleared >= 2, JSON.stringify(body));
-  }
-
-  // After reset, fresh init still works.
-  {
-    const { status, sessionId } = await rpc(`${baseUrl}/mcp`, {
-      method: 'POST',
-      headers: acceptHeaders,
-      body: JSON.stringify(initBody),
-    });
-    log(
-      'T11 follow-up: fresh init succeeds with new session',
-      status === 200 && !!sessionId && sessionId !== s1 && sessionId !== s2,
-      sessionId,
-    );
+    const ok = a.status === 200 && b.status === 200;
+    log('T7 multi-client: two simultaneous stateless requests accepted', ok);
   }
 
   // REST surface — catalog + OpenAPI must be reachable even with no extension

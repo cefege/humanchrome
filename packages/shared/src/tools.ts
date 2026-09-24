@@ -18,7 +18,8 @@
  * IMP-0021 plans to slice this file by category — keep additions in the
  * conventional category block until then.
  */
-import { type Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/server';
+
 // IMP-0021 slice 1: shared fragments now live in tool-schemas/fragments.ts so
 // per-category schema files (extracted in subsequent slices) can spread them
 // without depending on tools.ts.
@@ -120,7 +121,7 @@ export const TOOL_NAMES = {
   },
 };
 
-export const TOOL_SCHEMAS: Tool[] = [
+export const TOOL_SCHEMAS = [
   {
     name: TOOL_NAMES.BROWSER.GET_WINDOWS_AND_TABS,
     description:
@@ -3243,7 +3244,7 @@ export const TOOL_SCHEMAS: Tool[] = [
       },
     },
   },
-];
+] as unknown as Tool[];
 
 /**
  * Order in which categories appear in the generated docs. Acts as the

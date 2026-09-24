@@ -1,28 +1,27 @@
-import { describe, expect, test, afterAll, beforeAll } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, jest, test } from '@jest/globals';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import supertest from 'supertest';
+
+jest.mock('../mcp/dispatch', () => ({
+  dispatchTool: jest.fn(),
+  listDynamicFlowTools: jest.fn(async () => []),
+}));
+
 import Server from './index';
 
-const initBody = {
+const listBody = {
   jsonrpc: '2.0',
   id: 1,
-  method: 'initialize',
-  params: {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'humanchrome-test', version: '0.0.0' },
-  },
+  method: 'tools/list',
+  params: {},
 };
 
-const sseAcceptHeaders = {
+const mcpHeaders = {
   'Content-Type': 'application/json',
   Accept: 'application/json, text/event-stream',
 };
 
 describe('Bridge HTTP smoke', () => {
-  // ts-jest's first compile of the Server module pulls in the agent engines,
-  // drizzle/sqlite, the MCP transport, etc — that can take a few seconds on a
-  // cold jest cache. Bump the hook timeouts so CI / local first runs don't
-  // flake on the default 5 s budget.
   beforeAll(async () => {
     await Server.getInstance().ready();
   }, 30_000);
@@ -39,44 +38,34 @@ describe('Bridge HTTP smoke', () => {
     expect(response.body).toEqual({ status: 'ok', message: 'pong' });
   });
 
-  // T7 — multi-client. Two concurrent /mcp initialize calls must both succeed,
-  // each with its own session ID. The pre-fork singleton McpServer rejected
-  // the second with "Already connected to a transport".
-  test('T7 multi-client: two simultaneous initializes both succeed', async () => {
-    const agent = supertest(Server.getInstance().server);
-    const [a, b] = await Promise.all([
-      agent.post('/mcp').set(sseAcceptHeaders).send(initBody),
-      agent.post('/mcp').set(sseAcceptHeaders).send(initBody),
-    ]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
-    const sa = a.headers['mcp-session-id'];
-    const sb = b.headers['mcp-session-id'];
-    expect(sa).toBeTruthy();
-    expect(sb).toBeTruthy();
-    expect(sa).not.toBe(sb);
+  test('T7 multi-client: two simultaneous stateless lists both succeed', async () => {
+    const app = Server.getInstance();
+    const responses = (await Promise.all([
+      app.inject({ method: 'POST', url: '/mcp', headers: mcpHeaders, payload: listBody }),
+      app.inject({ method: 'POST', url: '/mcp', headers: mcpHeaders, payload: listBody }),
+    ])) as unknown as Array<{ statusCode: number; headers: Record<string, string> }>;
+    const [a, b] = responses;
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(200);
+    expect(a.headers['mcp-session-id']).toBeUndefined();
+    expect(b.headers['mcp-session-id']).toBeUndefined();
   });
 
-  // T11 — admin/reset clears all live transports. After reset, fresh init still works.
-  test('T11 POST /admin/reset clears transports and a follow-up init succeeds', async () => {
-    const agent = supertest(Server.getInstance().server);
-    // Open two sessions.
-    const a = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
-    const b = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
-
-    // Reset.
-    const reset = await agent.post('/admin/reset').expect(200);
-    expect(reset.body.ok).toBe(true);
-    expect(typeof reset.body.cleared).toBe('number');
-    expect(reset.body.cleared).toBeGreaterThanOrEqual(2);
-
-    // Fresh init still works.
-    const c = await agent.post('/mcp').set(sseAcceptHeaders).send(initBody);
-    expect(c.status).toBe(200);
-    const sc = c.headers['mcp-session-id'];
-    expect(sc).toBeTruthy();
-    expect(sc).not.toBe(a.headers['mcp-session-id']);
+  test('serves a pinned 2026-07-28 client', async () => {
+    const address = await Server.getInstance().listen({ port: 0, host: '127.0.0.1' });
+    const client = new Client(
+      { name: 'modern-test', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', address));
+    await client.connect(transport);
+    try {
+      expect(client.getProtocolEra()).toBe('modern');
+      const result = await client.listTools();
+      expect(result.tools.map((tool) => tool.name)).toContain('humanchrome');
+    } finally {
+      client.close();
+      await Server.getInstance().close();
+    }
   });
 });

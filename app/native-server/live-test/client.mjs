@@ -18,7 +18,6 @@ export class McpClient {
   constructor(baseUrl, label = 'A') {
     this.baseUrl = baseUrl;
     this.label = label;
-    this.sessionId = null;
   }
 
   async initialize() {
@@ -37,13 +36,10 @@ export class McpClient {
       headers: ACCEPT_HEADERS,
       body: JSON.stringify(body),
     });
-    this.sessionId = resp.headers.get('mcp-session-id');
     const text = await resp.text();
     const parsed = parseBody(text);
-    if (resp.status !== 200 || !this.sessionId) {
-      throw new Error(
-        `initialize failed: status=${resp.status} sessionId=${this.sessionId} body=${text}`,
-      );
+    if (resp.status !== 200) {
+      throw new Error(`initialize failed: status=${resp.status} body=${text}`);
     }
     return parsed;
   }
@@ -98,10 +94,9 @@ export class McpClient {
   }
 
   async _post(body) {
-    if (!this.sessionId) throw new Error('client not initialized');
     const resp = await fetch(`${this.baseUrl}/mcp`, {
       method: 'POST',
-      headers: { ...ACCEPT_HEADERS, 'mcp-session-id': this.sessionId },
+      headers: ACCEPT_HEADERS,
       body: JSON.stringify(body),
     });
     const text = await resp.text();

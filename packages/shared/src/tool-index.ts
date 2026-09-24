@@ -18,8 +18,7 @@
  * dispatcher tool with a ~10 KB description blob. Audit via
  * `app/native-server/scripts/report-tool-index-size.mjs`.
  */
-
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/server';
 import { TOOL_SCHEMAS } from './tools';
 import { didYouMean } from './invalid-args';
 

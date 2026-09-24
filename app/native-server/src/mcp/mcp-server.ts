@@ -1,4 +1,4 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { Server } from '@modelcontextprotocol/server';
 import { setupTools } from './register-tools';
 
 /**
@@ -20,6 +20,9 @@ import { setupTools } from './register-tools';
  *   call routed through this server will carry the id into the native-messaging
  *   envelope so the extension can keep per-client state (preferred tab, etc.).
  *   Omit only for backward-compatible call sites.
+ *
+ * This intentionally uses the low-level Server: tools carry raw JSON Schema and custom errors,
+ * so McpServer.registerTool's Standard Schema validation would reject the existing surface.
  */
 export const createMcpServer = (clientId?: string): Server => {
   const server = new Server(
@@ -37,7 +40,3 @@ export const createMcpServer = (clientId?: string): Server => {
   setupTools(server, clientId);
   return server;
 };
-
-// Back-compat re-export. Old callers that imported `getMcpServer` keep working
-// but every call returns a fresh per-session server instead of a singleton.
-export const getMcpServer = createMcpServer;

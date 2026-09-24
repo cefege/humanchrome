@@ -23,8 +23,7 @@
  * see the same failure shape, otherwise the LLM might guess that retrying
  * with the same idemKey is safe (it isn't; that's the contract).
  */
-
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 
 interface CachedEntry {
   result: CallToolResult;
@@ -117,7 +116,9 @@ function withIdempotentHit(result: CallToolResult): CallToolResult {
 }
 
 /** Test-only: tune TTL / max entries. */
-export function _setIdemCacheConfigForTest(opts: { ttlMs?: number; maxEntries?: number } = {}): void {
+export function _setIdemCacheConfigForTest(
+  opts: { ttlMs?: number; maxEntries?: number } = {},
+): void {
   if (typeof opts.ttlMs === 'number') ttlMs = opts.ttlMs;
   if (typeof opts.maxEntries === 'number') maxEntries = opts.maxEntries;
 }

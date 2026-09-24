@@ -1,5 +1,4 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Server, type CallToolResult } from '@modelcontextprotocol/server';
 import {
   TOOL_SCHEMAS,
   TOOL_NAMES,
@@ -30,7 +29,7 @@ function resolveToolMode(): 'legacy' | 'lazy' {
   return v === 'legacy' ? 'legacy' : 'lazy';
 }
 
-function invalidArgsResult(message: string, details: Record<string, unknown>) {
+function invalidArgsResult(message: string, details: Record<string, unknown>): CallToolResult {
   return {
     content: [
       {
@@ -45,7 +44,7 @@ function invalidArgsResult(message: string, details: Record<string, unknown>) {
 export const setupTools = (server: Server, clientId?: string) => {
   const mode = resolveToolMode();
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.setRequestHandler('tools/list', async () => {
     const dynamicTools = await listDynamicFlowTools();
     if (mode === 'lazy') {
       return { tools: [buildDispatcherTool(), ...dynamicTools] };
@@ -53,7 +52,7 @@ export const setupTools = (server: Server, clientId?: string) => {
     return { tools: [...TOOL_SCHEMAS, ...dynamicTools] };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler('tools/call', async (request) => {
     const { name, arguments: args } = request.params;
 
     if (mode === 'lazy' && name === DISPATCHER_TOOL_NAME) {

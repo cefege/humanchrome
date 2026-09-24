@@ -1,6 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import { NATIVE_SERVER_PORT } from '../constant';
 
 export interface CliToolInvocation {
@@ -39,25 +38,26 @@ export class AgentToolBridge {
     const url =
       options.mcpUrl || `http://127.0.0.1:${process.env.MCP_HTTP_PORT || NATIVE_SERVER_PORT}/mcp`;
 
-    this.transport = new StreamableHTTPClientTransport(new URL(url));
+    this.transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { 'X-Humanchrome-Session': 'humanchrome-agent' } },
+    });
     this.client = new Client(
       {
         name: 'humanchrome-agent-bridge',
         version: '1.0.0',
       },
-      {},
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
     );
   }
 
+  private connected = false;
   /**
    * Connects the MCP client over Streamable HTTP if not already connected.
    */
   async ensureConnected(): Promise<void> {
-    // Client.connect is idempotent; repeated calls reuse the same transport session.
-    if ((this.transport as any)._sessionId) {
-      return;
-    }
+    if (this.connected) return;
     await this.client.connect(this.transport);
+    this.connected = true;
   }
 
   /**

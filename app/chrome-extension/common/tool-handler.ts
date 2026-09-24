@@ -1,4 +1,4 @@
-import type { CallToolResult, TextContent, ImageContent } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, TextContent, ImageContent } from '@modelcontextprotocol/server';
 import { ToolErrorCode, isToolError, serializeToolError } from 'humanchrome-shared';
 
 export interface ToolResult extends CallToolResult {

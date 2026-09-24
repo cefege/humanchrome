@@ -18,22 +18,33 @@ import {
   ERROR_MESSAGES,
 } from '../constant';
 import { NativeMessagingHost } from '../native-messaging-host';
-import nativeMessagingHostInstance from '../native-messaging-host';
 import { writeInstance, removeInstance } from '../util/instance-registry';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { randomUUID } from 'node:crypto';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { buildClientDisconnectedEnvelope, NativeMessageType } from 'humanchrome-shared';
+import { createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server';
+import { toNodeHandler, type NodeMcpRequestHandler } from '@modelcontextprotocol/node';
 import { createMcpServer } from '../mcp/mcp-server';
 import { normalizeSessionName } from '../mcp/session-name';
-import { withContext } from '../util/logger';
 import { AgentStreamManager } from '../agent/stream-manager';
 import { AgentChatService } from '../agent/chat-service';
 import { CodexEngine } from '../agent/engines/codex';
 import { ClaudeEngine } from '../agent/engines/claude';
 import { closeDb } from '../agent/db';
 import { registerAgentRoutes, registerApiRoutes } from './routes';
+
+export function clientIdFromHeaders(headers: Headers | undefined, url: string | undefined): string {
+  const header = headers?.get('x-humanchrome-session');
+  if (header) {
+    const normalized = normalizeSessionName(header);
+    if (normalized) return normalized;
+  }
+  if (url) {
+    const session = new URL(url, 'http://localhost').searchParams.get('session');
+    if (session) {
+      const normalized = normalizeSessionName(session);
+      if (normalized) return normalized;
+    }
+  }
+  return 'default';
+}
 
 // ============================================================
 // Types
@@ -114,13 +125,17 @@ export class Server {
   private fastify: FastifyInstance;
   public isRunning = false;
   private nativeHost: NativeMessagingHost | null = null;
-  private transportsMap: Map<string, StreamableHTTPServerTransport | SSEServerTransport> =
-    new Map();
+  private mcpHandler: McpHttpHandler;
+  private mcpNode: NodeMcpRequestHandler;
   private agentStreamManager: AgentStreamManager;
   private agentChatService: AgentChatService;
 
   constructor() {
     this.fastify = Fastify({ logger: SERVER_CONFIG.LOGGER_ENABLED });
+    this.mcpHandler = createMcpHandler(({ requestInfo }) =>
+      createMcpServer(clientIdFromHeaders(requestInfo?.headers, requestInfo?.url)),
+    );
+    this.mcpNode = toNodeHandler(this.mcpHandler);
     this.agentStreamManager = new AgentStreamManager();
     this.agentChatService = new AgentChatService({
       engines: [new CodexEngine(), new ClaudeEngine()],
@@ -202,28 +217,6 @@ export class Server {
         message: 'pong',
       });
     });
-
-    // Force-clear all MCP transports. Use when a transport gets stuck after a
-    // partial init and the only previous remedy was clicking the extension's
-    // Disconnect/Connect ritual. Pairs with the per-session factory in
-    // mcp/mcp-server.ts: there is no shared mutable server state to also reset.
-    this.fastify.post('/admin/reset', async (_request: FastifyRequest, reply: FastifyReply) => {
-      const cleared = this.transportsMap.size;
-      const errors: string[] = [];
-      for (const [sid, t] of this.transportsMap) {
-        try {
-          await t.close();
-        } catch (err) {
-          errors.push(`${sid}: ${(err as Error).message}`);
-        }
-      }
-      this.transportsMap.clear();
-      reply.status(HTTP_STATUS.OK).send({
-        ok: true,
-        cleared,
-        errors: errors.length ? errors : undefined,
-      });
-    });
   }
 
   // ============================================================
@@ -274,64 +267,6 @@ export class Server {
   // ============================================================
 
   /**
-   * Read the caller-supplied sessionName from request headers or the
-   * `?session=` query param, normalize it, and return the canonical name
-   * (or `null` if unsalvageable). Used to override the default UUID
-   * session id so reconnects with the same name reclaim their owned tabs.
-   */
-  private readSessionName(request: FastifyRequest): string | null {
-    const header = request.headers['x-humanchrome-session'];
-    const raw = Array.isArray(header) ? header[0] : typeof header === 'string' ? header : undefined;
-    if (raw) {
-      const norm = normalizeSessionName(raw);
-      if (norm) return norm;
-    }
-    const q = (request.query as { session?: unknown } | undefined)?.session;
-    if (typeof q === 'string') {
-      const norm = normalizeSessionName(q);
-      if (norm) return norm;
-    }
-    return null;
-  }
-
-  /**
-   * Same name twice → second connection wins. Close the old transport so
-   * the new one can take over the lane. The extension's `releaseClient`
-   * runs on `onclose` of the old transport (via the `notifyClientDisconnected`
-   * hook below), then a fresh `client_disconnected` from the new transport
-   * later (if it too closes) will land correctly.
-   */
-  private async closeExistingTransport(sessionId: string): Promise<void> {
-    const existing = this.transportsMap.get(sessionId);
-    if (!existing) return;
-    try {
-      await existing.close();
-    } catch (err) {
-      withContext({ component: 'mcp' }).warn(
-        { err: err instanceof Error ? err.message : String(err), sessionId },
-        'failed to close existing transport on session-name collision',
-      );
-    }
-    this.transportsMap.delete(sessionId);
-  }
-
-  /**
-   * Tell the extension that a client's transport closed so it can release
-   * that client's owned tabs back to the unowned pool. Tabs themselves stay
-   * open — the user keeps the browser session.
-   */
-  private notifyClientDisconnected(clientId: string): void {
-    try {
-      nativeMessagingHostInstance.sendMessage(buildClientDisconnectedEnvelope({ clientId }));
-    } catch (err) {
-      withContext({ component: 'mcp' }).warn(
-        { err: err instanceof Error ? err.message : String(err), clientId },
-        'failed to notify extension of client disconnect',
-      );
-    }
-  }
-
-  /**
    * IMP-0121: every MCP HTTP route hands `reply.raw` to the SDK transport,
    * which writes the response via `@hono/node-server`. Without hijacking,
    * fastify also tries to auto-respond after the handler resolves — the
@@ -350,151 +285,11 @@ export class Server {
   }
 
   private setupMcpRoutes(): void {
-    // SSE endpoint
-    this.fastify.get('/sse', async (request, reply) => {
-      await this.runHijacked(reply, async () => {
-        reply.raw.writeHead(HTTP_STATUS.OK, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-
-        // Honor caller-supplied sessionName. The SSE transport mints its
-        // own sessionId; we can't override it as cleanly as Streamable HTTP,
-        // so we keep that as the wire id (still a UUID) but use the
-        // normalized name for the extension's clientId when present.
-        const sessionName = this.readSessionName(request);
-        const transport = new SSEServerTransport('/messages', reply.raw);
-        const clientId = sessionName ?? transport.sessionId;
-        if (sessionName) {
-          // Same-name collision: kick the previous owner.
-          await this.closeExistingTransport(sessionName);
-        }
-        this.transportsMap.set(transport.sessionId, transport);
-
-        reply.raw.on('close', () => {
-          this.transportsMap.delete(transport.sessionId);
-          this.notifyClientDisconnected(clientId);
-        });
-
-        // Bind the per-session McpServer to this client's session id so every
-        // tool call from this transport carries `clientId` into the extension
-        // and hits its own ownership lane.
-        const server = createMcpServer(clientId);
-        await server.connect(transport);
-
-        reply.raw.write(':\n\n');
-      });
-    });
-
-    // SSE messages endpoint
-    this.fastify.post('/messages', async (req, reply) => {
-      const { sessionId } = req.query as { sessionId?: string };
-      const transport = this.transportsMap.get(sessionId || '') as SSEServerTransport | undefined;
-      if (!sessionId || !transport) {
-        reply.code(HTTP_STATUS.BAD_REQUEST).send('No transport found for sessionId');
-        return;
-      }
-      await this.runHijacked(reply, () =>
-        transport.handlePostMessage(req.raw, reply.raw, req.body),
-      );
-    });
-
-    // MCP POST endpoint
-    this.fastify.post('/mcp', async (request, reply) => {
-      const sessionId = request.headers['mcp-session-id'] as string | undefined;
-      let transport: StreamableHTTPServerTransport | undefined = this.transportsMap.get(
-        sessionId || '',
-      ) as StreamableHTTPServerTransport;
-
-      if (transport) {
-        // Transport found, proceed
-      } else if (!sessionId && isInitializeRequest(request.body)) {
-        // Prefer the caller-supplied session name when present (so reconnects
-        // with the same name reclaim their owned-tab lane). Otherwise mint a
-        // UUID. Same-name collision → close the previous transport first.
-        const sessionName = this.readSessionName(request);
-        const newSessionId = sessionName ?? randomUUID();
-        if (sessionName) {
-          await this.closeExistingTransport(sessionName);
-        }
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => newSessionId,
-          onsessioninitialized: (initializedSessionId) => {
-            if (transport && initializedSessionId === newSessionId) {
-              this.transportsMap.set(initializedSessionId, transport);
-            }
-          },
-        });
-
-        transport.onclose = () => {
-          if (transport?.sessionId && this.transportsMap.get(transport.sessionId)) {
-            this.transportsMap.delete(transport.sessionId);
-          }
-          this.notifyClientDisconnected(newSessionId);
-        };
-        // Pass the just-minted (or caller-supplied) session id so the McpServer's
-        // tool-call handler can stamp every native-messaging request with this
-        // client's identity.
-        await createMcpServer(newSessionId).connect(transport);
-      } else if (sessionId) {
-        // Session-id present but unknown: the daemon restarted, or another
-        // client reclaimed the lane. MCP Streamable-HTTP spec says respond 404
-        // so the client drops the dead session and re-initializes. Returning
-        // 400 here wedged clients on a stale session-id forever — the "stops
-        // working in parallel when another app uses it" bug.
-        reply.code(HTTP_STATUS.NOT_FOUND).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
-        return;
-      } else {
-        reply.code(HTTP_STATUS.BAD_REQUEST).send({ error: ERROR_MESSAGES.INVALID_MCP_REQUEST });
-        return;
-      }
-
-      await this.runHijacked(reply, () =>
-        transport!.handleRequest(request.raw, reply.raw, request.body),
-      );
-    });
-
-    // MCP GET endpoint (SSE stream)
-    this.fastify.get('/mcp', async (request, reply) => {
-      const sessionId = request.headers['mcp-session-id'] as string | undefined;
-      const transport = sessionId
-        ? (this.transportsMap.get(sessionId) as StreamableHTTPServerTransport)
-        : undefined;
-
-      if (!transport) {
-        // Unknown session-id → 404 so the client re-initializes (MCP spec);
-        // a missing id is a malformed request → 400.
-        reply
-          .code(sessionId ? HTTP_STATUS.NOT_FOUND : HTTP_STATUS.BAD_REQUEST)
-          .send({ error: ERROR_MESSAGES.INVALID_SSE_SESSION });
-        return;
-      }
-
-      await this.runHijacked(reply, () => transport.handleRequest(request.raw, reply.raw));
-
-      request.socket.on('close', () => {
-        request.log.info(`SSE client disconnected for session: ${sessionId}`);
-      });
-    });
-
-    // MCP DELETE endpoint
-    this.fastify.delete('/mcp', async (request, reply) => {
-      const sessionId = request.headers['mcp-session-id'] as string | undefined;
-      const transport = sessionId
-        ? (this.transportsMap.get(sessionId) as StreamableHTTPServerTransport)
-        : undefined;
-
-      if (!transport) {
-        // Unknown session-id → 404 so the client re-initializes (MCP spec);
-        // a missing id is a malformed request → 400.
-        reply
-          .code(sessionId ? HTTP_STATUS.NOT_FOUND : HTTP_STATUS.BAD_REQUEST)
-          .send({ error: ERROR_MESSAGES.INVALID_SESSION_ID });
-        return;
-      }
-
-      await this.runHijacked(reply, () => transport.handleRequest(request.raw, reply.raw));
+    this.fastify.route({
+      method: ['GET', 'POST', 'DELETE'],
+      url: '/mcp',
+      handler: (request, reply) =>
+        this.runHijacked(reply, () => this.mcpNode(request.raw, reply.raw, request.body)),
     });
   }
 
@@ -565,6 +360,7 @@ export class Server {
     }
 
     try {
+      await this.mcpHandler.close();
       await this.fastify.close();
       closeDb();
       this.isRunning = false;

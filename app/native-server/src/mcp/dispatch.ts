@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, Tool } from '@modelcontextprotocol/server';
 import nativeMessagingHostInstance from '../native-messaging-host';
 import {
   NativeMessageType,
@@ -243,8 +243,7 @@ async function sinkJavascriptResultToDisk(
   } else {
     payload = data;
   }
-  const body =
-    typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  const body = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
   try {
     await fs.mkdir(path.dirname(writeTarget), { recursive: true });
     await fs.writeFile(writeTarget, body, 'utf8');
@@ -256,11 +255,10 @@ async function sinkJavascriptResultToDisk(
         content: [
           {
             type: 'text',
-            text: serializeToolError(
-              ToolErrorCode.UNKNOWN,
-              `writeResultTo failed: ${message}`,
-              { code: 'WRITE_FAILED', writtenTo: writeTarget },
-            ),
+            text: serializeToolError(ToolErrorCode.UNKNOWN, `writeResultTo failed: ${message}`, {
+              code: 'WRITE_FAILED',
+              writtenTo: writeTarget,
+            }),
           },
         ],
         isError: true,

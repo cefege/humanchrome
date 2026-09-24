@@ -13,8 +13,11 @@
  * behaviour.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/server';
 import { ToolCallBodySchema, TOOL_SCHEMAS } from 'humanchrome-shared';
+import { buildClientDisconnectedEnvelope } from 'humanchrome-shared';
+import nativeMessagingHostInstance from '../../native-messaging-host';
+import { normalizeSessionName } from '../../mcp/session-name';
 import { HTTP_STATUS } from '../../constant';
 import { dispatchTool, listDynamicFlowTools } from '../../mcp/dispatch';
 
@@ -101,6 +104,20 @@ export function registerApiRoutes(fastify: FastifyInstance): void {
     const spec = buildOpenApi([...TOOL_SCHEMAS, ...dynamicTools]);
     reply.status(HTTP_STATUS.OK).send(spec);
   });
+
+  fastify.post(
+    '/api/clients/:clientId/release',
+    async (request: FastifyRequest<{ Params: { clientId: string } }>, reply) => {
+      const clientId = normalizeSessionName(request.params.clientId);
+      if (!clientId) {
+        reply.status(HTTP_STATUS.BAD_REQUEST).send({ error: 'invalid_client_id' });
+        return;
+      }
+
+      nativeMessagingHostInstance.sendMessage(buildClientDisconnectedEnvelope({ clientId }));
+      reply.status(HTTP_STATUS.OK).send({ released: clientId });
+    },
+  );
 
   fastify.post(
     '/api/tools/:name',

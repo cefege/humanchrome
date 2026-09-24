@@ -23,7 +23,6 @@
  * Stubs `nativeMessagingHostInstance` so dispatchTool resolves locally.
  */
 import { beforeEach, describe, test, expect, jest } from '@jest/globals';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { TOOL_SCHEMAS, buildDispatcherTool, DISPATCHER_TOOL_NAME } from 'humanchrome-shared';
 import { _resetIdemCacheForTest } from './idem-cache';
 
@@ -78,7 +77,7 @@ describe('IMP-0177 dispatcher — legacy mode (opt-in)', () => {
     setMode('legacy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const list = handlers.get(ListToolsRequestSchema)!;
+    const list = handlers.get('tools/list')!;
     const res = await list({});
     const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
     expect(staticTools).toHaveLength(TOOL_SCHEMAS.length);
@@ -91,7 +90,7 @@ describe('IMP-0177 dispatcher — legacy mode (opt-in)', () => {
     setMode('legacy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({ params: { name: 'chrome_navigate', arguments: { url: 'https://x' } } });
     expect(sendRequestMock).toHaveBeenCalledTimes(1);
     const [payload] = sendRequestMock.mock.calls[0] as any[];
@@ -105,7 +104,7 @@ describe('IMP-0185 lazy mode is the default', () => {
     setMode(undefined);
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const list = handlers.get(ListToolsRequestSchema)!;
+    const list = handlers.get('tools/list')!;
     const res = await list({});
     const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
     expect(staticTools).toHaveLength(1);
@@ -116,7 +115,7 @@ describe('IMP-0185 lazy mode is the default', () => {
     setMode('garbage' as any);
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const list = handlers.get(ListToolsRequestSchema)!;
+    const list = handlers.get('tools/list')!;
     const res = await list({});
     const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
     expect(staticTools).toHaveLength(1);
@@ -129,7 +128,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const list = handlers.get(ListToolsRequestSchema)!;
+    const list = handlers.get('tools/list')!;
     const res = await list({});
     const staticTools = res.tools.filter((t: any) => !t.name.startsWith('flow.'));
     expect(staticTools).toHaveLength(1);
@@ -140,7 +139,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const list = handlers.get(ListToolsRequestSchema)!;
+    const list = handlers.get('tools/list')!;
     const res = await list({});
     const tool = res.tools.find((t: any) => t.name === DISPATCHER_TOOL_NAME);
     expect(tool).toBeDefined();
@@ -155,7 +154,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -172,7 +171,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -187,7 +186,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const res = await call({
       params: { name: DISPATCHER_TOOL_NAME, arguments: { args: {} } },
     });
@@ -201,7 +200,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const res = await call({
       params: { name: DISPATCHER_TOOL_NAME, arguments: { name: 'chrome_navigat' } },
     });
@@ -217,7 +216,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const res = await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -242,7 +241,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const res = await call({
       params: { name: DISPATCHER_TOOL_NAME, arguments: { name: 'xyz_completely_off' } },
     });
@@ -257,7 +256,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const res: any = await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -273,7 +272,7 @@ describe('IMP-0177 dispatcher — lazy mode', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -290,7 +289,7 @@ describe('IMP-0183 dispatcher — idempotency keys', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     const params = {
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -308,7 +307,7 @@ describe('IMP-0183 dispatcher — idempotency keys', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: {
         name: DISPATCHER_TOOL_NAME,
@@ -328,7 +327,7 @@ describe('IMP-0183 dispatcher — idempotency keys', () => {
     setMode('lazy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: { name: DISPATCHER_TOOL_NAME, arguments: { name: 'chrome_navigate', args: {} } },
     });
@@ -342,7 +341,7 @@ describe('IMP-0183 dispatcher — idempotency keys', () => {
     setMode('legacy');
     const { handlers, server } = makeFakeServer();
     setupTools(server as any, 'client_test');
-    const call = handlers.get(CallToolRequestSchema)!;
+    const call = handlers.get('tools/call')!;
     await call({
       params: { name: 'chrome_navigate', arguments: { url: 'https://x' } },
     });

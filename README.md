@@ -219,15 +219,6 @@ Default `12306`. Override with `MCP_HTTP_PORT=12345` before launching the bridge
 
 If the bridge can't find Node on your system, set `HUMANCHROME_NODE_PATH=/path/to/node` before Chrome launches the native host, or run `humanchrome-bridge doctor --fix`.
 
-### Stuck-transport reset
-
-If a session gets jammed mid-init:
-
-```bash
-curl -X POST http://127.0.0.1:12306/admin/reset
-# {"ok":true,"cleared":N}
-```
-
 ## Tools
 
 Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`. For the multi-tab "open many, drain serially" pattern, see [Multi-tab fan-out workflow](docs/TOOLS.md#multi-tab-fan-out-workflow).

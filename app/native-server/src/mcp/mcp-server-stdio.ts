@@ -1,17 +1,8 @@
 #!/usr/bin/env node
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import {
-  CallToolRequestSchema,
-  CallToolResult,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ListPromptsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { TOOL_SCHEMAS } from 'humanchrome-shared';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Server, type CallToolResult } from '@modelcontextprotocol/server';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as process from 'process';
@@ -21,7 +12,6 @@ import { listInstances } from '../util/instance-registry';
 
 const log = withContext({ component: 'mcp-stdio' });
 
-let stdioMcpServer: Server | null = null;
 let mcpClient: Client | null = null;
 
 // Read configuration from stdio-config.json
@@ -39,28 +29,6 @@ const loadConfig = () => {
       cause: error,
     });
   }
-};
-
-export const getStdioMcpServer = () => {
-  if (stdioMcpServer) {
-    return stdioMcpServer;
-  }
-  stdioMcpServer = new Server(
-    {
-      name: 'StdioHumanChromeServer',
-      version: '1.0.0',
-    },
-    {
-      capabilities: {
-        tools: {},
-        resources: {},
-        prompts: {},
-      },
-    },
-  );
-
-  setupTools(stdioMcpServer);
-  return stdioMcpServer;
 };
 
 /**
@@ -127,57 +95,60 @@ export const resolveBridgeUrl = (defaultUrl: string): string => {
   return defaultUrl;
 };
 
-export const ensureMcpClient = async () => {
-  try {
-    if (mcpClient) {
-      const pingResult = await mcpClient.ping();
-      if (pingResult) {
-        return mcpClient;
-      }
-    }
+export const ensureMcpClient = async (): Promise<Client | undefined> => {
+  if (mcpClient) return mcpClient;
 
+  try {
     const config = loadConfig();
-    mcpClient = new Client({ name: 'Mcp Chrome Proxy', version: '1.0.0' }, { capabilities: {} });
+    const client = new Client(
+      { name: 'humanchrome-stdio', version: '1.0.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
     const sessionName = resolveSessionName();
-    // Send the canonical name on the initial connect handshake so the bridge
-    // can persist ownership across this stdio process's restarts.
     const requestInit: RequestInit | undefined = sessionName
       ? { headers: { 'X-Humanchrome-Session': sessionName } }
       : undefined;
-    const transportOpts = requestInit ? { requestInit } : {};
     const transport = new StreamableHTTPClientTransport(
       new URL(resolveBridgeUrl(config.url)),
-      transportOpts,
+      requestInit ? { requestInit } : {},
     );
-    await mcpClient.connect(transport);
+    transport.onerror = (error: Error) => {
+      log.error({ err: error.message }, 'stdio MCP transport error');
+      client.close();
+      if (mcpClient === client) mcpClient = null;
+    };
+    await client.connect(transport);
+    mcpClient = client;
     if (sessionName) {
       log.info({ sessionName }, 'stdio proxy connected with sessionName');
     }
-    return mcpClient;
+    return client;
   } catch (error) {
-    mcpClient?.close();
     mcpClient = null;
     log.error(
       { err: error instanceof Error ? error.message : String(error) },
       'failed to connect to MCP server',
     );
+    return undefined;
   }
 };
 
-export const setupTools = (server: Server) => {
-  // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_SCHEMAS }));
-
-  // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) =>
-    handleToolCall(request.params.name, request.params.arguments || {}),
+export const buildStdioServer = (): Server => {
+  const server = new Server(
+    { name: 'StdioHumanChromeServer', version: '1.0.0' },
+    { capabilities: { tools: {} } },
   );
 
-  // List resources handler - REQUIRED BY MCP PROTOCOL
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+  server.setRequestHandler('tools/list', async () => {
+    const client = await ensureMcpClient();
+    if (!client) throw new Error('Failed to connect to MCP server');
+    return client.listTools();
+  });
 
-  // List prompts handler - REQUIRED BY MCP PROTOCOL
-  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
+  server.setRequestHandler('tools/call', async (request) =>
+    handleToolCall(request.params.name, request.params.arguments || {}),
+  );
+  return server;
 };
 
 const handleToolCall = async (name: string, args: any): Promise<CallToolResult> => {
@@ -188,9 +159,12 @@ const handleToolCall = async (name: string, args: any): Promise<CallToolResult> 
     }
     // Use a sane default of 2 minutes; the previous value mistakenly used 2*6*1000 (12s)
     const DEFAULT_CALL_TIMEOUT_MS = 2 * 60 * 1000;
-    const result = await client.callTool({ name, arguments: args }, undefined, {
-      timeout: DEFAULT_CALL_TIMEOUT_MS,
-    });
+    const result = await client.callTool(
+      { name, arguments: args },
+      {
+        timeout: DEFAULT_CALL_TIMEOUT_MS,
+      },
+    );
     return result as CallToolResult;
   } catch (error: any) {
     return {
@@ -205,15 +179,21 @@ const handleToolCall = async (name: string, args: any): Promise<CallToolResult> 
   }
 };
 
-async function main() {
-  const transport = new StdioServerTransport();
-  await getStdioMcpServer().connect(transport);
+function main() {
+  serveStdio(buildStdioServer, {
+    onerror: (error) => log.error({ err: error.message }, 'stdio MCP error'),
+  });
 }
 
-main().catch((error) => {
+try {
+  main();
+} catch (error) {
   log.fatal(
-    { err: error instanceof Error ? error.message : String(error), stack: error?.stack },
+    {
+      err: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    },
     'fatal error in HumanChrome stdio main()',
   );
   process.exit(1);
-});
+}
