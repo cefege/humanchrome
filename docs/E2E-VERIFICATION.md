@@ -14,7 +14,7 @@ pnpm e2e:matrix    # skip the rebuild, just run the matrix against the running S
 returning structured pass/fail per IMP.
 
 Exit codes: `0` clean, `1` matrix failure, `2` SW pre-bootstrap (run a
-one-time manual reload at `chrome://extensions/?id=hbdgbgagpkpjffpklnamcljpakneikee`
+one-time manual reload at `chrome://extensions/?id=dhabpgnpajocncnoigibmocmfjnhlmhe`
 to load `chrome_runtime_info` + `chrome_dev_reload`; every run after that
 is unattended), `3` SW reload didn't take effect, `4` fixture navigation
 failed.
@@ -209,7 +209,7 @@ vitest coverage:
   with `perKeyDelayMs:0, jitterMs:0`; asserts `finalValue === 'hello'`.
 - **Bug-007** `chrome_combobox_select` — calls
   `{comboboxSelector:'#combobox-input', query:'LangGraph',
-  perKeyDelayMs:0, jitterMs:0}` against the keyboard-commit combobox
+perKeyDelayMs:0, jitterMs:0}` against the keyboard-commit combobox
   fixture and asserts `#combobox-selected.innerText === 'LangGraph'`.
   The fixture's option `click` handler is intentionally a no-op (matches
   LinkedIn Downshift behaviour), so a regression that routes through

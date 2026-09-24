@@ -17,7 +17,7 @@
 
 ## Provisioning
 
-Phase 0 result on this Mac: CDP `Extensions.loadUnpacked` installed the active keyless extension (`dekkpcefpenbgcegejbolgkhkkcidaoj`) but the extension did not reconnect after a normal restart. The fleet therefore uses the **template** path.
+Phase 0 result on this Mac: CDP `Extensions.loadUnpacked` installed a path-derived extension but did not reconnect after a normal restart, so the fleet uses the **template** path. A new stable fleet key now lives in the ignored `app/chrome-extension/.env.local`; its extension ID is `dhabpgnpajocncnoigibmocmfjnhlmhe`. The native-host manifest also keeps the legacy daily IDs `hbdgbgagpkpjffpklnamcljpakneikee` and `dekkpcefpenbgcegejbolgkhkkcidaoj` allowed.
 
 Create the template once:
 
