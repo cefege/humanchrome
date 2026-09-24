@@ -335,6 +335,13 @@ const MATRIX = [
     run: async () => {
       const navRes = await callTool('chrome_navigate', { url: FIXTURE_URL });
       const navTabId = navRes?.parsed?.tabId;
+      const wait = await callTool('chrome_wait_for', {
+        kind: 'element',
+        selector: '#submit-btn',
+        state: 'present',
+        ...(typeof navTabId === 'number' ? { tabId: navTabId } : {}),
+      });
+      if (wait.isError) throw new Error(`fixture did not load: ${JSON.stringify(wait)}`);
       return callTool('chrome_aria_snapshot', {
         interactiveOnly: true,
         ...(typeof navTabId === 'number' ? { tabId: navTabId } : {}),
