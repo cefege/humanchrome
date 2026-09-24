@@ -14,6 +14,7 @@ import { BrowserType, parseBrowserType, detectInstalledBrowsers } from './script
 import { runDoctor } from './scripts/doctor';
 import { runReport } from './scripts/report';
 
+import { registerFleetCommands } from './fleet/cli';
 program
   .version(require('../package.json').version)
   .description('Mcp Chrome Bridge - Local service for communicating with Chrome extension');
@@ -226,6 +227,7 @@ program
     }
   });
 
+registerFleetCommands(program);
 program.parse(process.argv);
 
 // If no command provided, show help

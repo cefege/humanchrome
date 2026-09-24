@@ -49,6 +49,24 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0189 · MCP 2026-07-28 via SDK v2 (feat) · score: 6
+
+- **Proposed by**: humanchrome-operator · 2026-09-23
+- **Status**: in-progress
+- **Why**: Upgrade the bridge to the stateless 2026-07-28 MCP protocol while preserving compatibility with 2025-era clients and the byte-stable lazy dispatcher surface.
+- **Cost**: L
+- **Value**: L
+- **Notes**: SDK v2 low-level Server handlers now use method-string lookup; HTTP routing is served through `createMcpHandler()` and `toNodeHandler()`. Ownership release is explicit through `/api/clients/:clientId/release`.
+
+### IMP-0190 · Multi-profile Chrome fleet + LAN gateway (feat) · score: 6
+
+- **Proposed by**: humanchrome-operator · 2026-09-23
+- **Status**: in-progress
+- **Why**: Run isolated, visible branded-Chrome profiles on one Mac and assign them to remote MCP agents through an authenticated LAN gateway.
+- **Cost**: L
+- **Value**: L
+- **Notes**: Fleet supervisor isolates bridge ports, registry directories, daemon sockets, and bearer tokens per profile. Gateway leases are sticky per `(agent, label)` and release extension ownership on expiry.
+
 ### IMP-0188 · chrome_screenshot fails with `import() is disallowed on ServiceWorkerGlobalScope` (bug) · score: 8
 
 - **Proposed by**: claude · 2026-06-16 (surfaced by new tier-2 task-scenarios runner)

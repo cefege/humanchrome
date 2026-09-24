@@ -17,6 +17,8 @@ import {
   TOOL_NAMES,
   ToolErrorCode,
   buildInvalidArgsDetails,
+  findReplacementForSunsetTool,
+  resolveToolName,
   serializeToolError,
 } from 'humanchrome-shared';
 import { withContext } from '../util/logger';
@@ -333,6 +335,13 @@ export async function dispatchTool(
   args: any,
   clientId?: string,
 ): Promise<CallToolResult> {
+  const resolvedName = resolveToolName(name);
+  if (resolvedName) name = resolvedName;
+  const replacement = findReplacementForSunsetTool(name);
+  if (replacement) {
+    name = replacement.name;
+    args = { ...args, action: replacement.action };
+  }
   const requestId = nativeMessagingHostInstance.newRequestId();
   const log = withContext({ requestId, tool: name, clientId });
   const startedAt = Date.now();

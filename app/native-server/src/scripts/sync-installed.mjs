@@ -14,6 +14,8 @@
  * installed copy → fixes don't take effect after extension reload.
  */
 import { promises as fs } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +23,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_DIST = path.resolve(HERE, '..', '..', 'dist');
 const SHARED_DIST = path.resolve(HERE, '..', '..', '..', '..', 'packages', 'shared', 'dist');
+const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
+const execFileAsync = promisify(execFile);
 
 const MANIFEST_NAME = 'com.humanchrome.nativehost.json';
 
@@ -33,9 +37,21 @@ function manifestCandidates() {
   const home = os.homedir();
   if (process.platform === 'darwin') {
     return [
-      path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts', MANIFEST_NAME),
-      path.join(home, 'Library/Application Support/Google/Chrome Beta/NativeMessagingHosts', MANIFEST_NAME),
-      path.join(home, 'Library/Application Support/Google/Chrome Canary/NativeMessagingHosts', MANIFEST_NAME),
+      path.join(
+        home,
+        'Library/Application Support/Google/Chrome/NativeMessagingHosts',
+        MANIFEST_NAME,
+      ),
+      path.join(
+        home,
+        'Library/Application Support/Google/Chrome Beta/NativeMessagingHosts',
+        MANIFEST_NAME,
+      ),
+      path.join(
+        home,
+        'Library/Application Support/Google/Chrome Canary/NativeMessagingHosts',
+        MANIFEST_NAME,
+      ),
     ];
   }
   if (process.platform === 'linux') {
@@ -82,14 +98,43 @@ async function main() {
   } catch (err) {
     console.warn(`[sync-installed] copy failed: ${err.message}`);
   }
+  const installRoot = path.dirname(installedDist);
+
+  // Refresh the deployed runtime dependency tree as well as dist. Copying only
+  // dist leaves a previously deployed bridge with stale SDK packages after a
+  // dependency upgrade, so Chrome launches a host that cannot resolve them.
+  const deployRoot = path.join(os.tmpdir(), `humanchrome-bridge-deploy-${process.pid}`);
+  try {
+    await fs.rm(deployRoot, { recursive: true, force: true });
+    await execFileAsync(
+      'pnpm',
+      ['deploy', '--filter', 'humanchrome-bridge', '--prod', '--legacy', deployRoot],
+      { cwd: REPO_ROOT, maxBuffer: 4 * 1024 * 1024 },
+    );
+    await fs.rm(path.join(installRoot, 'node_modules'), { recursive: true, force: true });
+    await fs.cp(path.join(deployRoot, 'node_modules'), path.join(installRoot, 'node_modules'), {
+      recursive: true,
+      force: true,
+    });
+    await fs.copyFile(
+      path.join(deployRoot, 'package.json'),
+      path.join(installRoot, 'package.json'),
+    );
+    console.log(`[sync-installed] runtime dependencies → ${installRoot}`);
+  } catch (err) {
+    console.warn(`[sync-installed] runtime dependency deploy failed: ${err.message}`);
+  } finally {
+    await fs.rm(deployRoot, { recursive: true, force: true });
+  }
 
   // Also refresh the bundled workspace deps so a `pnpm build` of e.g.
   // humanchrome-shared actually reaches the running bridge. Without this,
   // pnpm-deploy's snapshot of these packages stays frozen at deploy time
   // and the bridge keeps booting with old TOOL_SCHEMAS / error codes.
-  const installRoot = path.dirname(installedDist);
   for (const dep of WORKSPACE_DEPS) {
     const target = path.join(installRoot, 'node_modules', dep.name, 'dist');
+    await fs.rm(path.join(installRoot, 'node_modules', dep.name), { recursive: true, force: true });
+    await fs.mkdir(path.dirname(target), { recursive: true });
     try {
       await fs.access(dep.distSrc);
     } catch {

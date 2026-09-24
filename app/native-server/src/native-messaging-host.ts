@@ -265,7 +265,14 @@ export class NativeMessagingHost {
           if (typeof message.payload?.instanceId === 'string') {
             this.remoteInstanceId = message.payload.instanceId;
           }
-          await this.startServer(message.payload?.port || 12306);
+          {
+            const pinned = Number(process.env.HC_BRIDGE_PORT);
+            if (Number.isInteger(pinned) && pinned > 0) {
+              await this.startServer(pinned, 0);
+            } else {
+              await this.startServer(message.payload?.port || 12306, 100);
+            }
+          }
           break;
         case NativeMessageType.STOP:
           await this.stopServer();
@@ -450,7 +457,7 @@ export class NativeMessagingHost {
   /**
    * Start Fastify server (now accepts Server instance)
    */
-  private async startServer(port: number): Promise<void> {
+  private async startServer(port: number, maxWalk: number): Promise<void> {
     if (!this.associatedServer) {
       log.error('startServer called before server was associated');
       this.sendError('Internal error: server instance not set');
@@ -470,7 +477,7 @@ export class NativeMessagingHost {
       // port — may differ from `port` when another bridge owns it. Tell the
       // extension which one we bound so it can persist + use that for future
       // connections (IMP-0114).
-      const actualPort = await this.associatedServer.start(port, this);
+      const actualPort = await this.associatedServer.start(port, this, maxWalk);
       log.info({ requestedPort: port, actualPort }, 'fastify server started');
 
       this.sendMessage({
