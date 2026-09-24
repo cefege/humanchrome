@@ -15,6 +15,7 @@ import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { listMarkersForUrl } from '@/entrypoints/background/element-marker/element-marker-storage';
 import { modeFromRaw, truncateArray } from '@/utils/truncate';
+import { ariaSnapshotTool } from './aria-snapshot';
 
 const FALLBACK_ELEMENT_LIMIT = 150;
 
@@ -50,7 +51,6 @@ class ReadPageTool extends BaseBrowserToolExecutor {
     // Slice 12 fold: format:"aria" → delegate to chrome_aria_snapshot's
     // Playwright-style tree (4-6x smaller, ref-roundtripping).
     if (args?.format === 'aria') {
-      const { ariaSnapshotTool } = await import('./aria-snapshot');
       return ariaSnapshotTool.execute(args as Parameters<typeof ariaSnapshotTool.execute>[0]);
     }
     const { filter, depth, refId } = args || {};

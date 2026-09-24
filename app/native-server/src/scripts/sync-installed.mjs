@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_DIST = path.resolve(HERE, '..', '..', 'dist');
 const SHARED_DIST = path.resolve(HERE, '..', '..', '..', '..', 'packages', 'shared', 'dist');
+const SHARED_PACKAGE = path.resolve(HERE, '..', '..', '..', '..', 'packages', 'shared', 'package.json');
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
 const execFileAsync = promisify(execFile);
 
@@ -143,6 +144,10 @@ async function main() {
       console.log(`[sync-installed] ${dep.distSrc} → ${target}`);
     } catch (err) {
       console.warn(`[sync-installed] dep ${dep.name} copy failed: ${err.message}`);
+    }
+    await fs.copyFile(SHARED_PACKAGE, path.join(path.dirname(target), 'package.json'));
+    if (dep.name === 'humanchrome-shared') {
+      await execFileAsync('rsync', ['-aL', `${REPO_ROOT}/packages/shared/node_modules/zod/`, `${installRoot}/node_modules/zod/`]);
     }
   }
 }

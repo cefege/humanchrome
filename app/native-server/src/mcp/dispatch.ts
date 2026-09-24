@@ -22,6 +22,10 @@ import {
   serializeToolError,
 } from 'humanchrome-shared';
 import { withContext } from '../util/logger';
+const LEGACY_TOOL_ALIASES: Record<string, { tool: string; args?: Record<string, unknown> }> = {
+  chrome_await_element: { tool: 'chrome_wait_for', args: { kind: 'element' } },
+  chrome_aria_snapshot: { tool: 'chrome_read_page', args: { format: 'aria' } },
+};
 
 const FLOW_PREFIX = 'flow.';
 const TOOL_CALL_TIMEOUT_MS = 120_000;
@@ -341,6 +345,11 @@ export async function dispatchTool(
   if (replacement) {
     name = replacement.name;
     args = { ...args, action: replacement.action };
+  }
+  const legacy = LEGACY_TOOL_ALIASES[name];
+  if (legacy) {
+    name = legacy.tool;
+    args = { ...legacy.args, ...args };
   }
   const requestId = nativeMessagingHostInstance.newRequestId();
   const log = withContext({ requestId, tool: name, clientId });
