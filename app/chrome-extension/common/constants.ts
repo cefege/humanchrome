@@ -172,6 +172,10 @@ export const NETWORK_FILTERS = {
     '.ppt',
     '.pptx',
   ],
+  // Image extensions, so a capture that was asked for image bodies can let
+  // exactly those through the static-resource filters above. Deliberately a
+  // subset: `.svg` is markup, not a photograph, and `.ico` is a favicon.
+  IMAGE_RESOURCE_EXTENSIONS: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif'],
   // MIME types treated as static/binary (filtered when includeStatic=false)
   STATIC_MIME_TYPES_TO_FILTER: [
     'image/',

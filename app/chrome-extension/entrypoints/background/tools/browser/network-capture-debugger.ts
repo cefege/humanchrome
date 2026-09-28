@@ -6,6 +6,7 @@ import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
 import { NETWORK_FILTERS } from '@/common/constants';
 import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
+import { compilePattern } from './intercept-response';
 import {
   NetworkCaptureBase,
   type BaseCaptureInfo,
@@ -16,10 +17,27 @@ import {
 } from './network-capture-base';
 
 interface NetworkDebuggerStartToolParams {
+  /** Capture this tab. Wins over `url` and over the caller's owned tab. */
+  tabId?: number;
   url?: string; // URL to navigate to or focus. If not provided, uses active tab.
   maxCaptureTime?: number;
   inactivityTimeout?: number; // Inactivity timeout (milliseconds)
   includeStatic?: boolean; // if include static resources
+  /**
+   * Capture the bytes of every image the page loads, not just its API calls.
+   * Off by default: a body is up to 1 MiB per response, and a page showing
+   * twenty photographs would carry twenty of them across the bridge. CDP
+   * answers for a response the renderer already holds, cache included, so this
+   * reads what the page is displaying instead of fetching it again.
+   */
+  includeImageBodies?: boolean;
+  /**
+   * Narrow `includeImageBodies` to URLs matching this pattern (substring, or
+   * /regex/flags). A page showing twenty photographs loads every one of them,
+   * and twenty bodies are megabytes the caller cannot use; a caller that
+   * wants one rendition asks for that rendition by name.
+   */
+  imageUrlPattern?: string;
   /**
    * When true (default), do not activate the tab or focus its window when
    * matching an existing URL or creating a new tab. CDP debugger attach
@@ -56,9 +74,12 @@ interface NetworkRequestInfo extends BaseNetworkRequestInfo {
 }
 
 // Debugger-backend per-tab capture buffer. Status (`limitReached`,
-// `lastFlushAt`) live on the shared base; the debugger backend has no
-// extra fields beyond the base, but we name the type for self-doc.
-type DebuggerCaptureInfo = BaseCaptureInfo<NetworkRequestInfo>;
+// `lastFlushAt`) live on the shared base; the debugger backend adds the
+// compiled form of `imageUrlPattern`, so the event handlers can ask a
+// question per request instead of recompiling the pattern each time.
+type DebuggerCaptureInfo = BaseCaptureInfo<NetworkRequestInfo> & {
+  imageUrlMatches: ((url: string) => boolean) | null;
+};
 
 // Re-export under the file-local name so the existing call sites keep working.
 const MAX_RESPONSE_BODY_SIZE_BYTES = MAX_RESPONSE_BODY_BYTES;
@@ -99,9 +120,17 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
       maxCaptureTime: number;
       inactivityTimeout: number;
       includeStatic: boolean;
+      includeImageBodies: boolean;
+      imageUrlPattern: string | null;
     },
   ): Promise<void> {
-    const { maxCaptureTime, inactivityTimeout, includeStatic } = options;
+    const {
+      maxCaptureTime,
+      inactivityTimeout,
+      includeStatic,
+      includeImageBodies,
+      imageUrlPattern,
+    } = options;
 
     // If already capturing, stop first
     if (this.captureData.has(tabId)) {
@@ -136,6 +165,9 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
         maxCaptureTime,
         inactivityTimeout,
         includeStatic,
+        includeImageBodies,
+        imageUrlPattern,
+        imageUrlMatches: imageUrlPattern ? compilePattern(imageUrlPattern) : null,
         requests: {},
         limitReached: false,
         lastFlushAt: null,
@@ -225,23 +257,54 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
     return NETWORK_FILTERS.EXCLUDED_DOMAINS.some((pattern) => normalizedUrl.includes(pattern));
   }
 
-  private shouldFilterRequestByExtension(url: string, includeStatic: boolean): boolean {
+  /**
+   * An image body cannot be fetched by the caller afterwards — the origins
+   * that serve many of them answer a direct GET with 403 — so a capture that
+   * was asked for image bodies has to keep the image requests that the static
+   * filters would otherwise drop, and only those.
+   */
+  private shouldFilterRequestByExtension(
+    url: string,
+    includeStatic: boolean,
+    includeImageBodies: boolean,
+    imageUrlMatches: ((url: string) => boolean) | null,
+  ): boolean {
     if (includeStatic) return false;
 
     try {
-      const urlObj = new URL(url);
-      const path = urlObj.pathname.toLowerCase();
+      const path = new URL(url).pathname.toLowerCase();
+      if (
+        includeImageBodies &&
+        NETWORK_FILTERS.IMAGE_RESOURCE_EXTENSIONS.some((ext) => path.endsWith(ext)) &&
+        (!imageUrlMatches || imageUrlMatches(url))
+      ) {
+        return false;
+      }
       return NETWORK_FILTERS.STATIC_RESOURCE_EXTENSIONS.some((ext) => path.endsWith(ext));
     } catch {
       return false;
     }
   }
 
-  private shouldFilterByMimeType(mimeType: string, includeStatic: boolean): boolean {
+  private shouldFilterByMimeType(
+    mimeType: string,
+    includeStatic: boolean,
+    includeImageBodies: boolean,
+    imageUrlMatches: ((url: string) => boolean) | null,
+    url: string,
+  ): boolean {
     if (!mimeType) return false;
 
     // Never filter API MIME types
     if (NETWORK_FILTERS.API_MIME_TYPES.some((apiMime) => mimeType.startsWith(apiMime))) {
+      return false;
+    }
+
+    if (
+      includeImageBodies &&
+      mimeType.startsWith('image/') &&
+      (!imageUrlMatches || imageUrlMatches(url))
+    ) {
       return false;
     }
 
@@ -264,7 +327,12 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
     // Initial filtering by URL (ads, analytics) and extension (if !includeStatic)
     if (
       this.shouldFilterRequestByUrl(request.url) ||
-      this.shouldFilterRequestByExtension(request.url, captureInfo.includeStatic)
+      this.shouldFilterRequestByExtension(
+        request.url,
+        captureInfo.includeStatic,
+        captureInfo.includeImageBodies,
+        captureInfo.imageUrlMatches,
+      )
     ) {
       return;
     }
@@ -322,7 +390,15 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
     }
 
     // Secondary filtering based on MIME type, now that we have it
-    if (this.shouldFilterByMimeType(response.mimeType, captureInfo.includeStatic)) {
+    if (
+      this.shouldFilterByMimeType(
+        response.mimeType,
+        captureInfo.includeStatic,
+        captureInfo.includeImageBodies,
+        captureInfo.imageUrlMatches,
+        requestInfo.url,
+      )
+    ) {
       // console.log(`NetworkDebuggerStartTool: Filtering request by MIME type (${response.mimeType}): ${requestInfo.url}`);
       delete captureInfo.requests[requestId]; // Remove from captured data
       // Note: We don't decrement requestCounter here as it's meant to track how many *potential* requests were processed up to MAX_REQUESTS.
@@ -364,7 +440,13 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
     // requestInfo.responseTime is usually set by responseReceived, but this timestamp is later.
     // timestamp here is when the resource finished loading. Could be useful for duration calculation.
 
-    if (this.shouldCaptureResponseBody(requestInfo)) {
+    if (
+      this.shouldCaptureResponseBody(
+        requestInfo,
+        captureInfo.includeImageBodies,
+        captureInfo.imageUrlMatches,
+      )
+    ) {
       try {
         // console.log(`NetworkDebuggerStartTool: Attempting to get response body for ${requestId} (${requestInfo.url})`);
         const responseBodyData = await this.getResponseBody(tabId, requestId);
@@ -391,8 +473,22 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
     }
   }
 
-  private shouldCaptureResponseBody(requestInfo: NetworkRequestInfo): boolean {
+  private shouldCaptureResponseBody(
+    requestInfo: NetworkRequestInfo,
+    includeImageBodies: boolean,
+    imageUrlMatches: ((url: string) => boolean) | null,
+  ): boolean {
     const mimeType = requestInfo.mimeType || '';
+
+    // The bytes of an image are the whole point of an image capture, and the
+    // only way to have them: the origin usually refuses to serve them twice.
+    if (
+      includeImageBodies &&
+      mimeType.startsWith('image/') &&
+      (!imageUrlMatches || imageUrlMatches(requestInfo.url))
+    ) {
+      return true;
+    }
 
     // Prioritize API MIME types for body capture
     if (NETWORK_FILTERS.API_MIME_TYPES.some((type) => mimeType.startsWith(type))) {
@@ -754,17 +850,24 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
       maxCaptureTime = DEFAULT_MAX_CAPTURE_TIME_MS,
       inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT_MS,
       includeStatic = false,
+      includeImageBodies = false,
+      imageUrlPattern = null,
       background = true,
     } = args;
 
     console.log(
-      `NetworkDebuggerStartTool: Executing with args: url=${targetUrl}, maxTime=${maxCaptureTime}, inactivityTime=${inactivityTimeout}, includeStatic=${includeStatic}`,
+      `NetworkDebuggerStartTool: Executing with args: url=${targetUrl}, maxTime=${maxCaptureTime}, inactivityTime=${inactivityTimeout}, includeStatic=${includeStatic}, includeImageBodies=${includeImageBodies}`,
     );
 
     let tabToOperateOn: chrome.tabs.Tab | undefined;
 
     try {
-      if (targetUrl) {
+      if (typeof args.tabId === 'number') {
+        // The only form that cannot silently capture the wrong tab, and the
+        // only one that cannot spawn a tab nobody asked for: the `url` branch
+        // below creates a matching tab when none exists.
+        tabToOperateOn = await chrome.tabs.get(args.tabId);
+      } else if (targetUrl) {
         const existingTabs = await chrome.tabs.query({
           url: targetUrl.startsWith('http') ? targetUrl : `*://*/*${targetUrl}*`,
         }); // More specific query
@@ -808,6 +911,8 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
           maxCaptureTime,
           inactivityTimeout,
           includeStatic,
+          includeImageBodies,
+          imageUrlPattern,
         });
       } catch (error: any) {
         const message = error?.message || String(error);
@@ -831,6 +936,7 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
               maxCaptureTime,
               inactivityTimeout,
               includeStatic,
+              includeImageBodies,
               maxRequests: NetworkDebuggerStartTool.MAX_REQUESTS_PER_CAPTURE,
             }),
           },
@@ -871,7 +977,7 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
     NetworkDebuggerStopTool.instance = this;
   }
 
-  async execute(): Promise<ToolResult> {
+  async execute(args: { tabId?: number; urlPattern?: string } = {}): Promise<ToolResult> {
     console.log(`NetworkDebuggerStopTool: Executing command.`);
 
     const startTool = NetworkDebuggerStartTool.instance;
@@ -891,7 +997,12 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
       return createErrorResponse('No active network captures found in any tab.');
     }
 
-    // Per-client owned tab (IMP-0157).
+    // An explicit tab is the only form that cannot stop somebody else's
+    // capture when more than one is running.
+    if (typeof args.tabId === 'number' && startTool['captureData'].has(args.tabId)) {
+      return this.performStop(startTool, args.tabId, args.urlPattern);
+    }
+
     const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
     const activeTabId = ownedActive?.id;
 
@@ -919,7 +1030,7 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
     }
 
     // Stop capture for the primary tab
-    const result = await this.performStop(startTool, primaryTabId);
+    const result = await this.performStop(startTool, primaryTabId, args.urlPattern);
 
     // If multiple tabs are capturing, stop other tabs
     if (ongoingCaptures.length > 1) {
@@ -943,6 +1054,7 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
   private async performStop(
     startTool: NetworkDebuggerStartTool,
     tabId: number,
+    urlPattern?: string,
   ): Promise<ToolResult> {
     console.log(`NetworkDebuggerStopTool: Attempting to stop capture for tab ${tabId}.`);
     const stopResult = await startTool.stopCapture(tabId);
@@ -967,6 +1079,17 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
       );
     }
 
+    // A caller that named a pattern wants those requests and nothing else.
+    // The buffer holds the whole capture either way, but a page's API bodies
+    // run to megabytes and no caller can take them back across a tool result.
+    if (urlPattern) {
+      const matches = compilePattern(urlPattern);
+      const all = Array.isArray(resultData.requests) ? resultData.requests : [];
+      resultData.requests = all.filter(
+        (request: NetworkRequestInfo) => typeof request?.url === 'string' && matches(request.url),
+      );
+    }
+
     return {
       content: [
         {
@@ -977,7 +1100,9 @@ class NetworkDebuggerStopTool extends BaseBrowserToolExecutor {
             tabId: tabId,
             tabUrl: resultData.tabUrl || 'N/A',
             tabTitle: resultData.tabTitle || 'Unknown Tab',
-            requestCount: resultData.requestCount || 0,
+            requestCount: Array.isArray(resultData.requests)
+              ? resultData.requests.length
+              : resultData.requestCount || 0,
             commonRequestHeaders: resultData.commonRequestHeaders || {},
             commonResponseHeaders: resultData.commonResponseHeaders || {},
             requests: resultData.requests || [],

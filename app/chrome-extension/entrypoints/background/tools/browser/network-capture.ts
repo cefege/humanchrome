@@ -25,6 +25,7 @@ import { TOOL_NAMES, ToolErrorCode, invalidArgsEnumDetails } from 'humanchrome-s
 import { networkCaptureStartTool, networkCaptureStopTool } from './network-capture-web-request';
 import { networkDebuggerStartTool, networkDebuggerStopTool } from './network-capture-debugger';
 import { withSuggestedNext } from './_common';
+import { compilePattern } from './intercept-response';
 
 const NETWORK_CAPTURE_ACTIONS = ['start', 'stop', 'flush', 'status'] as const;
 
@@ -42,8 +43,21 @@ interface NetworkCaptureToolParams {
   needResponseBody?: boolean;
   url?: string;
   maxCaptureTime?: number;
+  /** The tab to capture. Without it the tool resolves the caller's owned tab. */
+  tabId?: number;
   inactivityTimeout?: number;
   includeStatic?: boolean;
+  /**
+   * Keep the bytes of every image the page loads. Forwarded to the debugger
+   * backend only — the webRequest backend has no bodies to keep, so asking
+   * for it without `needResponseBody` selects that backend and this is moot.
+   */
+  includeImageBodies?: boolean;
+  /** Narrows `includeImageBodies` to URLs matching this pattern. */
+  imageUrlPattern?: string;
+  /** Return only the requests matching this pattern. A whole page's API
+   * bodies are megabytes; a caller that named a pattern wants its own. */
+  returnUrlPattern?: string;
   /** Forwarded to the debugger backend; ignored by the webRequest backend (which never activates). */
   background?: boolean;
 }
@@ -202,9 +216,10 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
     // IMP-0182: an active capture invites flush/stop + har export; an inactive
     // one invites start. Use bare tool names — the LLM picks the action from
     // the inputSchema enum (the status payload above tells it which to use).
-    const next = backend !== null
-      ? ['chrome_network_capture', 'chrome_har_export']
-      : ['chrome_network_capture'];
+    const next =
+      backend !== null
+        ? ['chrome_network_capture', 'chrome_har_export']
+        : ['chrome_network_capture'];
     return withSuggestedNext(
       {
         content: [
@@ -244,9 +259,12 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
     const result = await delegate.execute({
       url: args.url,
+      tabId: args.tabId,
       maxCaptureTime: args.maxCaptureTime,
       inactivityTimeout: args.inactivityTimeout,
       includeStatic: args.includeStatic,
+      includeImageBodies: args.includeImageBodies === true,
+      imageUrlPattern: args.imageUrlPattern,
       ...(typeof args.background === 'boolean' ? { background: args.background } : {}),
     });
 
@@ -297,7 +315,11 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
     const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
     const activeTabId = ownedActive?.id;
     const primaryTabId =
-      typeof activeTabId === 'number' && ongoing.includes(activeTabId) ? activeTabId : ongoing[0];
+      typeof args.tabId === 'number' && ongoing.includes(args.tabId)
+        ? args.tabId
+        : typeof activeTabId === 'number' && ongoing.includes(activeTabId)
+          ? activeTabId
+          : ongoing[0];
 
     const primaryResult = await (
       startTool as unknown as { flushCapture: (id: number) => Promise<any> }
@@ -306,6 +328,15 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
     if (!primaryResult || !primaryResult.success) {
       return createErrorResponse(
         primaryResult?.message || `Failed to flush network capture for tab ${primaryTabId}`,
+      );
+    }
+
+    // Same contract as stop: a caller that named a pattern gets those requests
+    // and nothing else. A whole page's API bodies do not fit in a tool result.
+    if (args.returnUrlPattern && Array.isArray(primaryResult.data?.requests)) {
+      const matches = compilePattern(args.returnUrlPattern);
+      primaryResult.data.requests = primaryResult.data.requests.filter(
+        (request: { url?: string }) => typeof request?.url === 'string' && matches(request.url),
       );
     }
 
@@ -379,8 +410,10 @@ class NetworkCaptureTool extends BaseBrowserToolExecutor {
 
     const delegateStop =
       backendToStop === 'debugger' ? networkDebuggerStopTool : networkCaptureStopTool;
-    const result = await delegateStop.execute();
-
+    const result = await delegateStop.execute({
+      tabId: args.tabId,
+      urlPattern: args.returnUrlPattern,
+    });
     return decorateJsonResult(result, {
       backend: backendToStop,
       needResponseBody: backendToStop === 'debugger',

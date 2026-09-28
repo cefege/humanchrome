@@ -54,6 +54,8 @@ const STATIC_RESOURCE_EXTENSIONS = [
 const AD_ANALYTICS_DOMAINS = NETWORK_FILTERS.EXCLUDED_DOMAINS;
 
 interface NetworkCaptureStartToolParams {
+  /** Capture this tab. Wins over `url` and over the caller's owned tab. */
+  tabId?: number;
   url?: string; // URL to navigate to or focus. If not provided, uses active tab.
   maxCaptureTime?: number; // Maximum capture time (milliseconds)
   inactivityTimeout?: number; // Inactivity timeout (milliseconds)
@@ -455,6 +457,8 @@ class NetworkCaptureStartTool extends NetworkCaptureBase<NetworkRequestInfo, Cap
         maxCaptureTime,
         inactivityTimeout,
         includeStatic,
+        includeImageBodies: false, // chrome.webRequest never sees a body
+        imageUrlPattern: null,
         limitReached: false,
         lastFlushAt: null,
       });
@@ -740,7 +744,9 @@ class NetworkCaptureStartTool extends NetworkCaptureBase<NetworkRequestInfo, Cap
       // Get current tab or create new tab
       let tabToOperateOn: chrome.tabs.Tab;
 
-      if (targetUrl) {
+      if (typeof args.tabId === 'number') {
+        tabToOperateOn = await chrome.tabs.get(args.tabId);
+      } else if (targetUrl) {
         // Find tabs matching the URL
         const matchingTabs = await chrome.tabs.query({ url: targetUrl });
 
@@ -824,7 +830,7 @@ class NetworkCaptureStopTool extends BaseBrowserToolExecutor {
     NetworkCaptureStopTool.instance = this;
   }
 
-  async execute(): Promise<ToolResult> {
+  async execute(args: { tabId?: number } = {}): Promise<ToolResult> {
     console.log(`NetworkCaptureStopTool: Executing`);
 
     try {
@@ -844,6 +850,11 @@ class NetworkCaptureStopTool extends BaseBrowserToolExecutor {
         return createErrorResponse('No active network captures found in any tab.');
       }
 
+      // An explicit tab is the only form that cannot stop somebody else's
+      // capture when more than one is running.
+      const namedTabId =
+        typeof args.tabId === 'number' && startTool.captureData.has(args.tabId) ? args.tabId : null;
+
       // Per-client owned tab (IMP-0157).
       const ownedActive = await this.getOwnedTab({ isRead: true, required: false });
       const activeTabId = ownedActive?.id;
@@ -851,7 +862,9 @@ class NetworkCaptureStopTool extends BaseBrowserToolExecutor {
       // Determine the primary tab to stop
       let primaryTabId: number;
 
-      if (activeTabId && startTool.captureData.has(activeTabId)) {
+      if (namedTabId !== null) {
+        primaryTabId = namedTabId;
+      } else if (activeTabId && startTool.captureData.has(activeTabId)) {
         // If current active tab is capturing, prioritize stopping it
         primaryTabId = activeTabId;
         console.log(
