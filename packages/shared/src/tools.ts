@@ -893,6 +893,26 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'Include static resources like images/scripts/styles (default: false)',
         },
+        tabId: {
+          type: 'number',
+          description:
+            'The tab to capture, for action:"start" and action:"stop". Without it the tool resolves the calling client\'s owned tab, and for "start" a url matching nothing opens a new tab — naming the tab avoids both.',
+        },
+        includeImageBodies: {
+          type: 'boolean',
+          description:
+            'Also keep the bytes of every image the page loads (default: false). Read with needResponseBody:true — the origin often refuses to serve an image twice, so this is how a picture already on screen is recovered. Narrow it with imageUrlPattern, or a photo-heavy page returns megabytes.',
+        },
+        imageUrlPattern: {
+          type: 'string',
+          description:
+            "Narrows includeImageBodies to URLs matching this pattern (substring, or /regex/flags). Only matching images enter the buffer at all, so the rest of the page's pictures are never held.",
+        },
+        returnUrlPattern: {
+          type: 'string',
+          description:
+            'For action:"stop" and action:"flush", return only the requests matching this pattern (substring, or /regex/flags). One page\'s API bodies are megabytes; a caller that named a pattern wants its own back and no one else\'s.',
+        },
         background: {
           type: 'boolean',
           description:

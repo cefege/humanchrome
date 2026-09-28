@@ -73,6 +73,8 @@ function seedWebCapture(tabId: number, requests: RawRequest[]) {
     maxCaptureTime: 60000,
     inactivityTimeout: 30000,
     includeStatic: false,
+    includeImageBodies: false,
+    imageUrlPattern: null,
     limitReached: false,
     lastFlushAt: null,
   });
@@ -398,9 +400,7 @@ describe('unified chrome_network_capture — action: flush', () => {
     // IMP-0157: the unified tool now resolves the active tab via
     // getOwnedTab(). Stamp tab 12 as the test client's owned tab and
     // call inside that client's request context.
-    (globalThis.chrome as any).tabs.get = vi
-      .fn()
-      .mockResolvedValue({ id: 12, windowId: 1 });
+    (globalThis.chrome as any).tabs.get = vi.fn().mockResolvedValue({ id: 12, windowId: 1 });
     _resetClientStateForTests();
     claimTabForClient(TEST_CLIENT, 12, 1);
     seedWebCapture(11, [{ requestId: 'a1', url: 'https://a', method: 'GET' }]);

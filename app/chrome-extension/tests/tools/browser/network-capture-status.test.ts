@@ -53,6 +53,8 @@ function seedWebCapture(tabId: number, requestCount: number, startTime: number) 
     requests,
     maxCaptureTime: 60000,
     inactivityTimeout: 30000,
+    includeImageBodies: false,
+    imageUrlPattern: null,
     includeStatic: false,
     limitReached: false,
     lastFlushAt: null,

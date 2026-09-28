@@ -51,6 +51,13 @@ export interface BaseCaptureInfo<TRequest extends BaseNetworkRequestInfo> {
   maxCaptureTime: number;
   inactivityTimeout: number;
   includeStatic: boolean;
+  /**
+   * Whether image responses keep their bytes. The webRequest backend has no
+   * bodies at all, so it always carries `false` here.
+   */
+  includeImageBodies: boolean;
+  /** `imageUrlPattern` as given. The debugger backend compiles it per capture. */
+  imageUrlPattern: string | null;
   limitReached?: boolean;
   /**
    * Timestamp of the last flush that drained the buffer. Echoed back as
@@ -147,6 +154,8 @@ export abstract class NetworkCaptureBase<
         maxCaptureTime: openerCaptureInfo.maxCaptureTime,
         inactivityTimeout: openerCaptureInfo.inactivityTimeout,
         includeStatic: openerCaptureInfo.includeStatic,
+        includeImageBodies: openerCaptureInfo.includeImageBodies,
+        imageUrlPattern: openerCaptureInfo.imageUrlPattern,
       });
 
       console.log(`${this.logLabel()}: Successfully extended capture to new tab ${newTabId}`);
@@ -205,7 +214,11 @@ export abstract class NetworkCaptureBase<
    * and bump the activity timestamp so the inactivity watchdog doesn't
    * fire as a side-effect of the buffer-drain pause).
    */
-  protected resetBufferAfterFlush(captureInfo: TCaptureInfo, tabId: number, flushedAt: number): void {
+  protected resetBufferAfterFlush(
+    captureInfo: TCaptureInfo,
+    tabId: number,
+    flushedAt: number,
+  ): void {
     captureInfo.requests = {} as TCaptureInfo['requests'];
     captureInfo.limitReached = false;
     captureInfo.lastFlushAt = flushedAt;
@@ -241,6 +254,8 @@ export abstract class NetworkCaptureBase<
       maxCaptureTime: number;
       inactivityTimeout: number;
       includeStatic: boolean;
+      includeImageBodies: boolean;
+      imageUrlPattern: string | null;
     },
   ): Promise<void>;
 
