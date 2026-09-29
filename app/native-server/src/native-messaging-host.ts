@@ -69,6 +69,10 @@ export class NativeMessagingHost {
     return this.remoteInstanceId;
   }
 
+  public isSourceActive(): boolean {
+    return this.sourceActive;
+  }
+
   /**
    * Install a callback fired when the active NM source ends or errors.
    * The orchestrator uses this to decide whether to exit (standalone /

@@ -105,6 +105,32 @@ CREATE INDEX IF NOT EXISTS messages_session_id_idx ON messages(session_id);
 CREATE INDEX IF NOT EXISTS messages_created_at_idx ON messages(created_at);
 CREATE INDEX IF NOT EXISTS messages_request_id_idx ON messages(request_id);
 
+-- Tasks table (durable background queue)
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  client_id TEXT,
+  lane TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  args TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'queued',
+  attempt INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 1,
+  not_before TEXT,
+  idem_key TEXT,
+  result TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
+CREATE INDEX IF NOT EXISTS tasks_lane_idx ON tasks(lane);
+CREATE INDEX IF NOT EXISTS tasks_ready_idx ON tasks(status, priority, created_at);
+CREATE INDEX IF NOT EXISTS tasks_client_idem_idx ON tasks(client_id, idem_key);
+
 -- Enable foreign key enforcement
 PRAGMA foreign_keys = ON;
 `;

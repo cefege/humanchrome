@@ -7,7 +7,7 @@
  * - Proper indexes for common query patterns
  * - Foreign key constraints with cascade delete
  */
-import { sqliteTable, text, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
 // ============================================================
 // Projects Table
@@ -135,6 +135,39 @@ export const messages = sqliteTable(
 );
 
 // ============================================================
+// Tasks Table (durable background queue)
+// ============================================================
+
+export const tasks = sqliteTable(
+  'tasks',
+  {
+    id: text().primaryKey(),
+    clientId: text('client_id'),
+    lane: text().notNull(),
+    tool: text().notNull(),
+    args: text().notNull(), // JSON
+    priority: integer('priority', { mode: 'number' }).notNull().default(0),
+    status: text().notNull().default('queued'), // queued|running|done|failed|cancelled
+    attempt: integer().notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(1),
+    notBefore: text('not_before'), // ISO; null = ready now
+    idemKey: text('idem_key'),
+    result: text(), // JSON CallToolResult
+    error: text(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+  },
+  (table) => ({
+    statusIdx: index('tasks_status_idx').on(table.status),
+    laneIdx: index('tasks_lane_idx').on(table.lane),
+    readyIdx: index('tasks_ready_idx').on(table.status, table.priority, table.createdAt),
+    clientIdemIdx: index('tasks_client_idem_idx').on(table.clientId, table.idemKey),
+  }),
+);
+
+// ============================================================
 // Type Inference Helpers
 // ============================================================
 
@@ -144,3 +177,5 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type SessionInsert = typeof sessions.$inferInsert;
 export type MessageRow = typeof messages.$inferSelect;
 export type MessageInsert = typeof messages.$inferInsert;
+export type TaskRow = typeof tasks.$inferSelect;
+export type TaskInsert = typeof tasks.$inferInsert;

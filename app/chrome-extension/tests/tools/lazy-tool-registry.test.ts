@@ -39,7 +39,12 @@ import {
  * summaries — pure metadata lookup that already lives in the native
  * server's process; no need to round-trip through Chrome.
  */
-const DISPATCHER_HANDLED: ReadonlySet<string> = new Set<string>([TOOL_NAMES.BROWSER.HELP]);
+const DISPATCHER_HANDLED: ReadonlySet<string> = new Set<string>([
+  TOOL_NAMES.BROWSER.HELP,
+  // `chrome_tasks` is the durable queue's front door, and `dispatchTool`
+  // answers it from the bridge's own database before any native round-trip.
+  TOOL_NAMES.BROWSER.TASKS,
+]);
 
 describe('lazy tool registry (IMP-0056)', () => {
   it('registers a handler for every TOOL_NAMES.BROWSER entry', () => {

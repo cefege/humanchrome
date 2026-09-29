@@ -19,7 +19,12 @@ import {
 } from '../constant';
 import { NativeMessagingHost } from '../native-messaging-host';
 import nativeMessagingHostInstance from '../native-messaging-host';
-import { writeInstance, removeInstance } from '../util/instance-registry';
+import {
+  writeInstance,
+  removeInstance,
+  heartbeatIntervalMs,
+  type InstanceRecord,
+} from '../util/instance-registry';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
@@ -118,6 +123,8 @@ export class Server {
     new Map();
   private agentStreamManager: AgentStreamManager;
   private agentChatService: AgentChatService;
+  private instanceRecord: InstanceRecord | null = null;
+  private instanceHeartbeat: NodeJS.Timeout | null = null;
 
   constructor() {
     this.fastify = Fastify({ logger: SERVER_CONFIG.LOGGER_ENABLED });
@@ -533,16 +540,22 @@ export class Server {
         this.isRunning = true;
         // IMP-0115: announce this instance to disk so the matrix runner
         // (and any other HTTP client) can discover which port belongs to
-        // which Chrome instance.
+        // which Chrome instance. The record is refreshed on a heartbeat for
+        // as long as the server runs — listInstances() treats an entry
+        // whose mtime is older than its staleness window as an orphan and
+        // unlinks it, so a single write at bind time makes a long-lived
+        // bridge invisible to every HTTP client.
         try {
-          writeInstance({
+          this.instanceRecord = {
             pid: process.pid,
             port: candidate,
             extensionId: nativeHost.getRemoteExtensionId?.() ?? 'unknown',
             instanceId: nativeHost.getRemoteInstanceId?.() ?? undefined,
             chromeBinary: process.env.HC_CHROME_BINARY ?? undefined,
             startedAt: new Date().toISOString(),
-          });
+          };
+          writeInstance(this.instanceRecord);
+          this.startInstanceHeartbeat();
         } catch (err) {
           // Best-effort — registry write failure doesn't kill the bridge.
           // Logged and life goes on.
@@ -559,6 +572,41 @@ export class Server {
     throw lastErr ?? new Error(`No free port found in [${port}, ${port + maxWalk}]`);
   }
 
+  /**
+   * Rewrite this process's registry record on an interval so its mtime
+   * stays inside the staleness window for as long as the bridge is serving.
+   * Without it, a bridge that outlives the window is treated as an orphan
+   * and unlinked while still healthy.
+   */
+  private startInstanceHeartbeat(): void {
+    if (this.instanceHeartbeat) {
+      clearInterval(this.instanceHeartbeat);
+    }
+    this.instanceHeartbeat = setInterval(() => {
+      if (!this.instanceRecord) {
+        return;
+      }
+      try {
+        writeInstance(this.instanceRecord);
+      } catch (err) {
+        console.error('[instance-registry] heartbeat failed:', err);
+      }
+    }, heartbeatIntervalMs());
+    this.instanceHeartbeat.unref();
+  }
+
+  /** Stop the heartbeat and drop this process's registry entry. */
+  private releaseInstance(): void {
+    if (this.instanceHeartbeat) {
+      clearInterval(this.instanceHeartbeat);
+      this.instanceHeartbeat = null;
+    }
+    if (this.instanceRecord) {
+      removeInstance(this.instanceRecord.pid);
+      this.instanceRecord = null;
+    }
+  }
+
   public async stop(): Promise<void> {
     if (!this.isRunning) {
       return;
@@ -568,9 +616,11 @@ export class Server {
       await this.fastify.close();
       closeDb();
       this.isRunning = false;
+      this.releaseInstance();
     } catch (err) {
       this.isRunning = false;
       closeDb();
+      this.releaseInstance();
       throw err;
     }
   }

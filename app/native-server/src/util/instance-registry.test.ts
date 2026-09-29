@@ -1,5 +1,10 @@
 /**
- * IMP-0115 — instance registry round-trip + stale GC.
+ * IMP-0115 — instance registry round-trip + stale GC, plus the heartbeat
+ * regression: a running bridge must keep its own record fresh.
+ * listInstances() unlinks any record older than the staleness window, so a
+ * bridge that wrote its record once at bind time was erased from the
+ * registry while still serving — every HTTP client then reported
+ * "No live humanchrome bridge found" against a healthy process.
  */
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';

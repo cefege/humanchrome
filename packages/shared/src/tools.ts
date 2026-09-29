@@ -112,6 +112,7 @@ export const TOOL_NAMES = {
     FILL_LWC: 'chrome_fill_lwc',
     TYPEAHEAD_PROBE: 'chrome_typeahead_probe',
     HELP: 'chrome_help',
+    TASKS: 'chrome_tasks',
   },
   RECORD_REPLAY: {
     FLOW_RUN: 'record_replay_flow_run',
@@ -893,11 +894,6 @@ export const TOOL_SCHEMAS: Tool[] = [
           type: 'boolean',
           description: 'Include static resources like images/scripts/styles (default: false)',
         },
-        tabId: {
-          type: 'number',
-          description:
-            'The tab to capture, for action:"start" and action:"stop". Without it the tool resolves the calling client\'s owned tab, and for "start" a url matching nothing opens a new tab — naming the tab avoids both.',
-        },
         includeImageBodies: {
           type: 'boolean',
           description:
@@ -911,7 +907,7 @@ export const TOOL_SCHEMAS: Tool[] = [
         returnUrlPattern: {
           type: 'string',
           description:
-            'For action:"stop" and action:"flush", return only the requests matching this pattern (substring, or /regex/flags). One page\'s API bodies are megabytes; a caller that named a pattern wants its own back and no one else\'s.',
+            'For action:"stop", return only the requests matching this pattern (substring, or /regex/flags). One page\'s API bodies are megabytes; a caller that named a pattern wants its own back and no one else\'s.',
         },
         background: {
           type: 'boolean',
@@ -3263,6 +3259,79 @@ export const TOOL_SCHEMAS: Tool[] = [
       },
     },
   },
+  {
+    name: TOOL_NAMES.BROWSER.TASKS,
+    description:
+      'Durable background task queue: submit browser tool calls to run later while Chrome is idle, drained in priority+FIFO order with per-lane serialization (same lane runs one at a time; lane defaults to your client id). Decouples bursts from execution. submit returns a discriminated {status,...}: {status:"completed",result} when the task finishes within the optional waitMs budget, else {status:"queued",taskId} to poll. Example: {action:"submit", tool:"chrome_navigate", args:{url:"https://x.com"}} → {status:"queued", taskId}; {action:"submit", tool:"chrome_read_page", args:{}, waitMs:8000} → {status:"completed", result}; {action:"status", taskId} → {status, result}; {action:"list", status:"queued"} → {tasks}; {action:"cancel", taskId} → {cancelled}.',
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['submit', 'status', 'list', 'cancel'],
+          description:
+            'submit a task (or batch), get status of one, list many, or cancel a queued one.',
+        },
+        tool: {
+          type: 'string',
+          description:
+            'submit (single): the browser tool to run later, e.g. "chrome_navigate". Cannot be chrome_tasks.',
+        },
+        args: {
+          type: 'object',
+          description: 'submit (single): arguments passed to `tool` when it runs.',
+        },
+        tasks: {
+          type: 'array',
+          items: { type: 'object' },
+          description:
+            'submit (batch): array of {tool, args, lane?, priority?, ...} items; queued together, waitMs ignored.',
+        },
+        lane: {
+          type: 'string',
+          description:
+            'Serialization lane: tasks in the same lane run one at a time. Defaults to your client id, so one client\'s burst is serial; use distinct lanes (e.g. "acctA") to fan out across independent accounts.',
+        },
+        priority: {
+          type: 'number',
+          description: 'Higher runs first within ready tasks (default 0). Ties break FIFO.',
+        },
+        notBefore: {
+          type: 'string',
+          description: 'ISO 8601 timestamp; the task stays queued until this time.',
+        },
+        maxAttempts: {
+          type: 'number',
+          description:
+            'Max run attempts before failing (default 1). Retries use exponential backoff.',
+        },
+        idemKey: {
+          type: 'string',
+          description:
+            'Idempotency key scoped to your client id; a duplicate while the first is queued/running returns the same taskId.',
+        },
+        waitMs: {
+          type: 'number',
+          description:
+            'submit only: block up to this many ms for inline completion (returns the real result). 0/omit = fire-and-forget ack.',
+        },
+        taskId: {
+          type: 'string',
+          description: 'status/cancel: the task id returned by submit.',
+        },
+        status: {
+          type: 'string',
+          enum: ['queued', 'running', 'done', 'failed', 'cancelled'],
+          description: 'list: filter by status.',
+        },
+        limit: {
+          type: 'number',
+          description: 'list: max rows to return (default 100).',
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -3284,6 +3353,7 @@ export const TOOL_CATEGORY_ORDER = [
   'Diagnostics',
   'Pacing',
   'Workflows',
+  'Tasks',
 ] as const;
 
 export type ToolCategory = (typeof TOOL_CATEGORY_ORDER)[number];
@@ -3383,6 +3453,7 @@ export const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   [TOOL_NAMES.BROWSER.FILL_LWC]: 'Interaction',
   [TOOL_NAMES.BROWSER.TYPEAHEAD_PROBE]: 'Interaction',
   [TOOL_NAMES.BROWSER.HELP]: 'Diagnostics',
+  [TOOL_NAMES.BROWSER.TASKS]: 'Tasks',
 
   [TOOL_NAMES.RECORD_REPLAY.LIST_PUBLISHED]: 'Workflows',
   [TOOL_NAMES.RECORD_REPLAY.FLOW_RUN]: 'Workflows',

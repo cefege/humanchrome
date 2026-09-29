@@ -648,10 +648,9 @@ Capture network traffic on a tab. action=start begins; stop returns the buffer; 
 | `maxCaptureTime` | number |  | Maximum capture time in milliseconds (default: 180000) |
 | `inactivityTimeout` | number |  | Stop after inactivity in milliseconds (default: 60000). Set 0 to disable. |
 | `includeStatic` | boolean |  | Include static resources like images/scripts/styles (default: false) |
-| `tabId` | number |  | The tab to capture, for action:"start" and action:"stop". Without it the tool resolves the calling client's owned tab, and for "start" a url matching nothing opens a new tab — naming the tab avoids both. |
 | `includeImageBodies` | boolean |  | Also keep the bytes of every image the page loads (default: false). Read with needResponseBody:true — the origin often refuses to serve an image twice, so this is how a picture already on screen is recovered. Narrow it with imageUrlPattern, or a photo-heavy page returns megabytes. |
 | `imageUrlPattern` | string |  | Narrows includeImageBodies to URLs matching this pattern (substring, or /regex/flags). Only matching images enter the buffer at all, so the rest of the page's pictures are never held. |
-| `returnUrlPattern` | string |  | For action:"stop" and action:"flush", return only the requests matching this pattern (substring, or /regex/flags). One page's API bodies are megabytes; a caller that named a pattern wants its own back and no one else's. |
+| `returnUrlPattern` | string |  | For action:"stop", return only the requests matching this pattern (substring, or /regex/flags). One page's API bodies are megabytes; a caller that named a pattern wants its own back and no one else's. |
 | `background` | boolean |  | Do not activate tab/focus window when starting capture (default: true). Only honored by the debugger backend (needResponseBody:true); the webRequest backend never activates. Pass false to bring the tab forward. |
 
 ### `chrome_intercept_response`
@@ -1128,6 +1127,28 @@ Delete a recorded flow by ID; always unpublishes first so the dynamic flow.<slug
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `flowId` | string | ✓ | ID of the flow to delete (from `record_replay_list_published`). |
+
+## Tasks
+
+### `chrome_tasks`
+
+Durable background task queue: submit browser tool calls to run later while Chrome is idle, drained in priority+FIFO order with per-lane serialization (same lane runs one at a time; lane defaults to your client id). Decouples bursts from execution. submit returns a discriminated {status,...}: {status:"completed",result} when the task finishes within the optional waitMs budget, else {status:"queued",taskId} to poll. Example: {action:"submit", tool:"chrome_navigate", args:{url:"https://x.com"}} → {status:"queued", taskId}; {action:"submit", tool:"chrome_read_page", args:{}, waitMs:8000} → {status:"completed", result}; {action:"status", taskId} → {status, result}; {action:"list", status:"queued"} → {tasks}; {action:"cancel", taskId} → {cancelled}.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | `submit` \| `status` \| `list` \| `cancel` | ✓ | submit a task (or batch), get status of one, list many, or cancel a queued one. |
+| `tool` | string |  | submit (single): the browser tool to run later, e.g. "chrome_navigate". Cannot be chrome_tasks. |
+| `args` | object |  | submit (single): arguments passed to `tool` when it runs. |
+| `tasks` | array<object> |  | submit (batch): array of {tool, args, lane?, priority?, ...} items; queued together, waitMs ignored. |
+| `lane` | string |  | Serialization lane: tasks in the same lane run one at a time. Defaults to your client id, so one client's burst is serial; use distinct lanes (e.g. "acctA") to fan out across independent accounts. |
+| `priority` | number |  | Higher runs first within ready tasks (default 0). Ties break FIFO. |
+| `notBefore` | string |  | ISO 8601 timestamp; the task stays queued until this time. |
+| `maxAttempts` | number |  | Max run attempts before failing (default 1). Retries use exponential backoff. |
+| `idemKey` | string |  | Idempotency key scoped to your client id; a duplicate while the first is queued/running returns the same taskId. |
+| `waitMs` | number |  | submit only: block up to this many ms for inline completion (returns the real result). 0/omit = fire-and-forget ack. |
+| `taskId` | string |  | status/cancel: the task id returned by submit. |
+| `status` | `queued` \| `running` \| `done` \| `failed` \| `cancelled` |  | list: filter by status. |
+| `limit` | number |  | list: max rows to return (default 100). |
 
 
 <!-- AUTO-GEN END -->

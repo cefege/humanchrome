@@ -20,6 +20,7 @@ import {
   serializeToolError,
 } from 'humanchrome-shared';
 import { withContext } from '../util/logger';
+import { handleTasksTool } from '../queue/tasks-tool';
 
 const FLOW_PREFIX = 'flow.';
 const TOOL_CALL_TIMEOUT_MS = 120_000;
@@ -243,8 +244,7 @@ async function sinkJavascriptResultToDisk(
   } else {
     payload = data;
   }
-  const body =
-    typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  const body = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
   try {
     await fs.mkdir(path.dirname(writeTarget), { recursive: true });
     await fs.writeFile(writeTarget, body, 'utf8');
@@ -256,11 +256,10 @@ async function sinkJavascriptResultToDisk(
         content: [
           {
             type: 'text',
-            text: serializeToolError(
-              ToolErrorCode.UNKNOWN,
-              `writeResultTo failed: ${message}`,
-              { code: 'WRITE_FAILED', writtenTo: writeTarget },
-            ),
+            text: serializeToolError(ToolErrorCode.UNKNOWN, `writeResultTo failed: ${message}`, {
+              code: 'WRITE_FAILED',
+              writtenTo: writeTarget,
+            }),
           },
         ],
         isError: true,
@@ -341,6 +340,10 @@ export async function dispatchTool(
   log.info('tool call start');
 
   try {
+    if (name === TOOL_NAMES.BROWSER.TASKS) {
+      return handleTasksTool(args, clientId);
+    }
+
     if (name && name.startsWith(FLOW_PREFIX)) {
       // Reuse the cached items the tools/list path populated. On a cold
       // cache `getFlowToolsCache` does the round-trip; on a warm cache

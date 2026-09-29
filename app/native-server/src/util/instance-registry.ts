@@ -35,6 +35,27 @@ export interface InstanceRecord {
 
 const MAX_STALE_MS = 5 * 60 * 1000;
 
+/**
+ * Default cadence for a running bridge refreshing its own registry record.
+ *
+ * The record's mtime is the liveness signal `listInstances` uses to drop
+ * orphans, so a bridge that writes the record once at bind time is
+ * garbage-collected MAX_STALE_MS later while it is still serving — every
+ * HTTP client then reports "no live bridge" against a healthy process.
+ * Keep this comfortably below MAX_STALE_MS.
+ */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 60_000;
+
+/**
+ * Heartbeat cadence, overridable so the timer can be exercised in tests
+ * without waiting a real minute. Same env-override shape as
+ * HC_DAEMON_IDLE_TIMEOUT_MS in the bridge orchestrator.
+ */
+export function heartbeatIntervalMs(): number {
+  const raw = Number(process.env.HC_HEARTBEAT_INTERVAL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_HEARTBEAT_INTERVAL_MS;
+}
+
 export function registryDir(): string {
   if (process.env.HC_INSTANCE_REGISTRY_DIR) {
     return process.env.HC_INSTANCE_REGISTRY_DIR;

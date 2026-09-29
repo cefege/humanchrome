@@ -24,6 +24,7 @@ import fileHandler from './file-handler';
 import { logger } from './util/logger';
 import { listInstances, removeInstance } from './util/instance-registry';
 import { startBridge } from './bridge-orchestrator';
+import { getTaskQueue } from './queue/task-queue';
 
 // IMP-0163: top-level safety net. If anything throws before our normal
 // error handlers attach (e.g. an import side-effect crashes), the
@@ -61,6 +62,11 @@ process.on('uncaughtException', (err) => {
     // the temp dir grows monotonically across sessions.
     fileHandler.cleanupOldFiles();
     setInterval(() => fileHandler.cleanupOldFiles(), 30 * 60 * 1000).unref();
+
+    // Drain queued background tasks while Chrome is idle. Only the
+    // HTTP-owning process reaches here (relays park in runAsRelay), and the
+    // daemon is a UDS singleton, so exactly one drainer exists.
+    if (process.env.HUMANCHROME_QUEUE_DISABLED !== '1') getTaskQueue().start();
     logger.info('humanchrome bridge entry started');
   } catch (error: any) {
     logger.fatal({ err: error?.message || String(error) }, 'fatal during bridge startup');
