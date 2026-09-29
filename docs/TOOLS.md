@@ -645,6 +645,7 @@ Capture network traffic on a tab. action=start begins; stop returns the buffer; 
 | `action` | `start` \| `stop` \| `flush` \| `status` | ✓ | Action to perform: "start" begins capture, "stop" ends and returns results, "flush" returns the buffered results so far and clears them without ending the capture, "status" returns a side-effect-free snapshot of the current capture state. |
 | `needResponseBody` | boolean |  | When true, captures response body using Debugger API (default: false). Only use when you need to inspect response content. |
 | `url` | string |  | URL to capture network requests from. For action="start". If not provided, uses the current active tab. |
+| `tabId` | number |  | The tab to capture, for action:"start" and action:"stop". Without it the tool resolves the calling client's owned tab, and for "start" a url matching nothing opens a new tab — naming the tab avoids both. |
 | `maxCaptureTime` | number |  | Maximum capture time in milliseconds (default: 180000) |
 | `inactivityTimeout` | number |  | Stop after inactivity in milliseconds (default: 60000). Set 0 to disable. |
 | `includeStatic` | boolean |  | Include static resources like images/scripts/styles (default: false) |

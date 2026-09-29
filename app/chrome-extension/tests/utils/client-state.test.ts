@@ -56,6 +56,36 @@ afterEach(() => {
   _resetClientStateForTests();
 });
 
+describe('a client that went away', () => {
+  it('frees its tabs once it has been silent past the window', () => {
+    // The failure this covers is silent: every other client is refused with
+    // TAB_NOT_OWNED and the refusal reads as an outage.
+    claimTabForClient('gone', 11);
+    expect(findTabOwner(11)).toBe('gone');
+
+    vi.setSystemTime(Date.now() + 3 * 60 * 1000);
+    try {
+      expect(findTabOwner(11)).toBeNull();
+      // `null` here is the previous owner: there was none, which is the point.
+      expect(claimTabForClient('other', 11)).toBeNull();
+      expect(findTabOwner(11)).toBe('other');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves a tab alone while its owner is still working', () => {
+    claimTabForClient('busy', 12);
+    // A long cold-surface read is minutes of work, not minutes of silence.
+    vi.setSystemTime(Date.now() + 60 * 1000);
+    try {
+      expect(findTabOwner(12)).toBe('busy');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('client-state ownership', () => {
   it('claimTabForClient adds the tab to the owned set and makes it active', () => {
     claimTabForClient('alice', 42, 7);

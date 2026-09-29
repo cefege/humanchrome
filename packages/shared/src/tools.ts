@@ -882,6 +882,11 @@ export const TOOL_SCHEMAS: Tool[] = [
           description:
             'URL to capture network requests from. For action="start". If not provided, uses the current active tab.',
         },
+        tabId: {
+          type: 'number',
+          description:
+            'The tab to capture, for action:"start" and action:"stop". Without it the tool resolves the calling client\'s owned tab, and for "start" a url matching nothing opens a new tab — naming the tab avoids both.',
+        },
         maxCaptureTime: {
           type: 'number',
           description: 'Maximum capture time in milliseconds (default: 180000)',

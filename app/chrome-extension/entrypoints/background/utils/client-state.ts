@@ -89,7 +89,15 @@ const STATE = new Map<string, ClientState>();
  * don't pin tab ids forever. This is a safety net for the case where a
  * bridge disconnect signal is dropped (native-host crash, etc.).
  */
-const STALE_AFTER_MS = 30 * 60 * 1000; // 30 min
+/**
+ * How long a client may be silent before it is treated as gone.
+ *
+ * The longest single thing a client does here is a cold surface read, so two
+ * minutes of complete silence is not a client that is busy — it is a client
+ * that is not coming back, and until it is reaped every other client is
+ * refused on the tabs it held.
+ */
+const STALE_AFTER_MS = 2 * 60 * 1000;
 
 /** Key for the persisted ownership snapshot in chrome.storage.session. */
 const STORAGE_KEY = 'humanchrome:ownership';
@@ -97,9 +105,23 @@ const STORAGE_KEY = 'humanchrome:ownership';
 /** Debounce window for storage.session writes. */
 const PERSIST_DEBOUNCE_MS = 50;
 
+/**
+ * Drop clients that have gone away, releasing whatever they held.
+ *
+ * A client that disconnects is released by `releaseClient`, but a client that
+ * merely stops — a crashed MCP session, a closed laptop, a bridge that went
+ * away without saying so — never sends anything again and its tabs would
+ * otherwise stay owned until the browser closed. That is not a small problem:
+ * every other client is refused with `TAB_NOT_OWNED` for as long as it lasts,
+ * and the refusal looks like an outage to whoever is watching.
+ */
 function gc(now: number): void {
   for (const [id, s] of STATE) {
-    if (now - s.lastSeenAt > STALE_AFTER_MS) STATE.delete(id);
+    if (now - s.lastSeenAt <= STALE_AFTER_MS) continue;
+    // The same teardown a disconnect does, so tabs and per-client registries
+    // outside this module go with it.
+    releaseClient(id);
+    STATE.delete(id);
   }
 }
 
@@ -332,6 +354,9 @@ export function releaseTabFromClient(clientId: string | undefined, tabId: number
  * should be at most one.
  */
 export function findTabOwner(tabId: number): string | null {
+  // Reaping here as well as on claim: this is the read every dispatch makes, and
+  // a tab whose owner has gone quiet is free whether or not anyone is claiming.
+  gc(Date.now());
   for (const [clientId, state] of STATE) {
     if (state.ownedTabs.has(tabId)) return clientId;
   }
