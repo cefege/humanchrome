@@ -209,20 +209,52 @@ export abstract class NetworkCaptureBase<
   }
 
   /**
+   * Whether a buffered row survives a flush instead of being drained away.
+   *
+   * Default: nothing survives, which is what every backend did before. The
+   * debugger backend overrides it to keep rows still in flight, because its
+   * CDP handlers resolve a row by `requests[requestId]` and return on a miss —
+   * so draining a row before its response arrives loses that body for good,
+   * with no later flush able to recover it.
+   */
+  protected shouldRetainAfterFlush(_request: TRequest): boolean {
+    return false;
+  }
+
+  /**
    * Reset the buffered state after a flush (shared across backends —
-   * both clear requests + counter + limitReached, stamp lastFlushAt,
-   * and bump the activity timestamp so the inactivity watchdog doesn't
-   * fire as a side-effect of the buffer-drain pause).
+   * rows the backend chose to retain survive, the rest are dropped; both
+   * clear limitReached, stamp lastFlushAt, reset the counter to what is
+   * actually still buffered, and bump the activity timestamp so the
+   * inactivity watchdog doesn't fire as a side-effect of the buffer-drain
+   * pause).
    */
   protected resetBufferAfterFlush(
     captureInfo: TCaptureInfo,
     tabId: number,
     flushedAt: number,
   ): void {
-    captureInfo.requests = {} as TCaptureInfo['requests'];
+    const retained: Record<string, TRequest> = {};
+    let retainedCount = 0;
+    for (const [requestId, request] of Object.entries(captureInfo.requests) as [
+      string,
+      TRequest,
+    ][]) {
+      if (this.shouldRetainAfterFlush(request)) {
+        retained[requestId] = request;
+        retainedCount += 1;
+      }
+    }
+    // The one cast: the buffer field is a generic indexed type, so it can be
+    // read from but not written through. The map above holds exactly the
+    // retained rows keyed by their own request id.
+    captureInfo.requests = retained as TCaptureInfo['requests'];
     captureInfo.limitReached = false;
     captureInfo.lastFlushAt = flushedAt;
-    this.requestCounters.set(tabId, 0);
+    // The counter, not zero: the debugger backend gates new rows on it and
+    // recomputes it from the stored row count, so resetting it to 0 while
+    // rows are still buffered would let the buffer exceed its own cap.
+    this.requestCounters.set(tabId, retainedCount);
     this.updateLastActivityTime(tabId);
   }
 
