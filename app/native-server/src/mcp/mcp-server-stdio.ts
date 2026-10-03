@@ -106,7 +106,9 @@ export const ensureMcpClient = async (): Promise<Client | undefined> => {
     );
     const sessionName = resolveSessionName();
     const requestInit: RequestInit | undefined = sessionName
-      ? { headers: { 'X-Humanchrome-Session': sessionName } }
+      ? // The fleet gateway leases a browser to an agent and refuses a request
+        // without X-Humanchrome-Agent; a bare bridge ignores it.
+        { headers: { 'X-Humanchrome-Session': sessionName, 'X-Humanchrome-Agent': sessionName } }
       : undefined;
     const transport = new StreamableHTTPClientTransport(
       new URL(resolveBridgeUrl(config.url)),
