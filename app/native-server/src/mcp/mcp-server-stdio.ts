@@ -142,7 +142,9 @@ export const ensureMcpClient = async () => {
     // Send the canonical name on the initial connect handshake so the bridge
     // can persist ownership across this stdio process's restarts.
     const requestInit: RequestInit | undefined = sessionName
-      ? { headers: { 'X-Humanchrome-Session': sessionName } }
+      ? // The fleet gateway leases a browser to an agent and refuses a request
+        // without X-Humanchrome-Agent; a bare bridge ignores it.
+        { headers: { 'X-Humanchrome-Session': sessionName, 'X-Humanchrome-Agent': sessionName } }
       : undefined;
     const transportOpts = requestInit ? { requestInit } : {};
     const transport = new StreamableHTTPClientTransport(
