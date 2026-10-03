@@ -63,6 +63,34 @@ Connect with Screen Sharing. Open each profile window, navigate to the required 
 
 The gateway binds to `0.0.0.0:12300` by default. Keep the bearer token private. For an untrusted network, put the gateway behind Tailscale or another private overlay and set `gateway.host` to its interface address.
 
+## Updating the extension
+
+Every profile runs the unpacked build in `extensionDir`, and updates on the
+fly: no restart, no logins touched, nothing to click.
+
+```bash
+cd app/chrome-extension && pnpm build
+```
+
+The build bakes one identity into the bundle (`__HC_BUILD_HASH__`,
+`__HC_BUILT_AT__`) and writes the same one beside it as `build-info.json`; its
+postbuild step copies both into `extensionDir`. Each profile's self-update
+watcher compares the two every 30 seconds and calls `chrome.runtime.reload()`
+when they differ, so every running browser is on the new build within about
+half a minute.
+
+To see what a profile is running, call `chrome_diagnostics` with
+`{"action": "runtime_info"}`: its `builtAt` must equal the one in
+`extensionDir/build-info.json`.
+
+- A browser restart on its own does not update the extension. Chrome can start
+  a stored copy of the previous service worker; the watcher compares against the
+  identity baked into the code it is running, so it catches that on start.
+- The build needs `CHROME_EXTENSION_KEY` (in `app/chrome-extension/.env.local`)
+  or the extension id changes and the native host refuses it.
+- A profile whose extension no longer answers cannot reload itself:
+  `humanchrome-bridge fleet restart <profile>`.
+
 ## Troubleshooting
 
 - `pinned port busy`: another process owns the profile port. Stop that process or change the profile port in `fleet.json`, then `humanchrome-bridge fleet restart <name>`.

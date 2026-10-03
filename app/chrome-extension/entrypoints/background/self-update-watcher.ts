@@ -1,34 +1,28 @@
-// IMP-0119: dev-mode self-update watcher.
+// IMP-0119: the self-update watcher.
 //
-// The single biggest source of dev friction is "rebuild the extension →
-// forget to click reload in chrome://extensions → debug the wrong-code-is-
-// running symptom for an hour". This watcher closes the loop by polling a
-// tiny build-info.json file inside the extension's own bundle and calling
-// chrome.runtime.reload() when its builtAt timestamp changes between
-// polls.
+// Every build writes build-info.json beside the bundle with the same identity
+// it baked into the bundle as __HC_BUILT_AT__ (wxt.config.ts). Every 30s, and
+// once on start, this compares the two. A mismatch means the files on disk are
+// not the code that is running, and chrome.runtime.reload() fixes that.
 //
-// How it works
-//   1. The extension's postbuild step (scripts/sync-installed.mjs) writes
-//      build-info.json into .output/chrome-mv3/ and mirrors it to the
-//      install dir, with a fresh ISO timestamp on every build.
-//   2. chrome.alarms.create({ periodInMinutes: 0.5 }) fires every 30s,
-//      surviving SW idle shutdowns (regular setInterval does NOT).
-//   3. On first poll after an extension reload, the SW reads
-//      build-info.json's builtAt and stashes it in chrome.storage.session.
-//      Subsequent polls compare the current builtAt to the stashed one.
-//      Mismatch → call chrome.runtime.reload(), which respawns the SW
-//      against the new bundle on disk.
+// Two ways to get there, both handled the same way:
+//   - a new build was copied over the install dir while the SW was running;
+//   - Chrome started a stored copy of an older SW after a browser restart.
+//     Measured on the fleet: a restarted profile kept running the previous
+//     build for good, because the old watcher took whatever it found on disk
+//     as its baseline and so could never see that it was stale.
 //
-// One-time bootstrap: a manual chrome://extensions reload is needed
-// exactly once to deploy this code into the running SW. After that,
-// `pnpm build:extension` triggers an auto-reload within ~30s. No clicks.
+// One reload per on-disk build. If a reload does not take, reloading again
+// every 30s would only cut every in-flight tool call short, so the build it
+// was tried for is remembered in chrome.storage.local, which -- unlike
+// storage.session -- survives the reload it is guarding.
 //
-// Safe in prod: builtAt only changes when the bundle actually rebuilt,
-// so this is a no-op outside a dev loop.
+// Safe in prod: the two identities match unless the bundle was rebuilt.
+declare const __HC_BUILT_AT__: string;
 
 const ALARM_NAME = 'hc-self-update-check';
 const POLL_INTERVAL_MIN = 0.5;
-const STORAGE_KEY = 'hc-self-update-last-built-at';
+const RELOADED_FOR_KEY = 'hc-self-update-reloaded-for';
 
 interface BuildInfo {
   buildHash?: string;
@@ -46,36 +40,27 @@ async function fetchOnDiskInfo(): Promise<BuildInfo | null> {
   }
 }
 
-async function readStoredBuiltAt(): Promise<string | null> {
+async function readReloadedFor(): Promise<string | null> {
   try {
-    const result = await chrome.storage.session.get(STORAGE_KEY);
-    const val = result[STORAGE_KEY];
-    return typeof val === 'string' ? val : null;
+    const value = (await chrome.storage.local.get(RELOADED_FOR_KEY))[RELOADED_FOR_KEY];
+    return typeof value === 'string' ? value : null;
   } catch {
     return null;
   }
 }
 
-async function writeStoredBuiltAt(value: string): Promise<void> {
-  try {
-    await chrome.storage.session.set({ [STORAGE_KEY]: value });
-  } catch {
-    /* session storage transient — fine */
-  }
-}
-
-async function checkAndReload(): Promise<void> {
+export async function checkAndReload(): Promise<void> {
   const info = await fetchOnDiskInfo();
-  if (!info?.builtAt) return;
-  const lastSeen = await readStoredBuiltAt();
-  if (lastSeen === null) {
-    // First poll after this SW spawned — adopt current builtAt as baseline.
-    await writeStoredBuiltAt(info.builtAt);
+  if (!info?.builtAt || info.builtAt === __HC_BUILT_AT__) return;
+  if ((await readReloadedFor()) === info.builtAt) return;
+  try {
+    await chrome.storage.local.set({ [RELOADED_FOR_KEY]: info.builtAt });
+  } catch {
+    // Without the guard a failed reload could repeat every 30s; skip it.
     return;
   }
-  if (info.builtAt === lastSeen) return;
   console.log(
-    `[hc-self-update] disk builtAt=${info.builtAt} differs from baseline ${lastSeen} — reloading`,
+    `[hc-self-update] disk build ${info.builtAt} is not the running ${__HC_BUILT_AT__} — reloading`,
   );
   // setTimeout(0) lets the current event loop unwind so any in-flight
   // message responses flush before the SW dies.
