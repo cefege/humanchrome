@@ -199,3 +199,46 @@ describe('chrome_network_capture includeImageBodies', () => {
     expect(buffered()).toEqual({});
   });
 });
+
+describe('chrome_network_capture includeImageBodies — service worker', () => {
+  // tinder.com serves every match thumbnail from its service worker's cache,
+  // and a response the worker answers never reaches the capture. The bypass is
+  // what makes the bodies visible, and it must not outlive the capture.
+  const internals = networkDebuggerStartTool as unknown as {
+    startCaptureForTab(tabId: number, options: object): Promise<void>;
+    stopCapture(tabId: number): Promise<unknown>;
+  };
+  const options = (includeImageBodies: boolean) => ({
+    maxCaptureTime: 60_000,
+    inactivityTimeout: 0,
+    includeStatic: false,
+    includeImageBodies,
+    imageUrlPattern: null,
+  });
+  const bypassCalls = () =>
+    cdpSend.mock.calls
+      .filter(([, method]) => method === 'Network.setBypassServiceWorker')
+      .map(([, , params]) => params);
+
+  beforeEach(() => {
+    const chromeMock = globalThis.chrome as unknown as { tabs: { get: unknown } };
+    chromeMock.tabs.get = vi
+      .fn()
+      .mockResolvedValue({ id: TAB_ID, url: 'https://tinder.com/app/matches', title: 'Matches' });
+    cdpSend.mockResolvedValue({});
+  });
+
+  it('bypasses the worker while image bodies are captured and hands it back on stop', async () => {
+    await internals.startCaptureForTab(TAB_ID, options(true));
+    expect(bypassCalls()).toEqual([{ bypass: true }]);
+
+    await internals.stopCapture(TAB_ID);
+    expect(bypassCalls()).toEqual([{ bypass: true }, { bypass: false }]);
+  });
+
+  it('leaves the worker alone for a capture that asked for no image bodies', async () => {
+    await internals.startCaptureForTab(TAB_ID, options(false));
+    await internals.stopCapture(TAB_ID);
+    expect(bypassCalls()).toEqual([]);
+  });
+});

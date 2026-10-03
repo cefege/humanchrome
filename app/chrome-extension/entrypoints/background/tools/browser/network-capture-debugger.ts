@@ -156,6 +156,25 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
           .catch((e) => console.warn('Error detaching after failed enable:', e));
         throw error;
       }
+      // A service worker that answers from its own Cache Storage never puts the
+      // request on the page's wire, so the image bodies the caller asked for
+      // are invisible: measured on tinder.com, every match thumbnail came from
+      // the worker's cache and a capture saw none of them. Bypassing the
+      // worker for the length of the capture sends those requests to the
+      // network, where their bodies can be kept. Best-effort: a capture
+      // without it still records everything else.
+      if (includeImageBodies) {
+        try {
+          await cdpSessionManager.sendCommand(tabId, 'Network.setBypassServiceWorker', {
+            bypass: true,
+          });
+        } catch (e) {
+          console.warn(
+            `NetworkDebuggerStartTool: service worker bypass failed for tab ${tabId}:`,
+            e,
+          );
+        }
+      }
 
       // Initialize capture data
       this.captureData.set(tabId, {
@@ -669,6 +688,20 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
 
     try {
       // Attempt to disable network and detach via manager; it will no-op if others own the session
+      // The session is shared, so detaching may not end it: hand the worker
+      // back explicitly rather than leave the page uncached after the capture.
+      if (captureInfo.includeImageBodies) {
+        try {
+          await cdpSessionManager.sendCommand(tabId, 'Network.setBypassServiceWorker', {
+            bypass: false,
+          });
+        } catch (e) {
+          console.warn(
+            `NetworkDebuggerStartTool: service worker restore failed for tab ${tabId}:`,
+            e,
+          );
+        }
+      }
       try {
         await cdpSessionManager.sendCommand(tabId, 'Network.disable');
       } catch (e) {
