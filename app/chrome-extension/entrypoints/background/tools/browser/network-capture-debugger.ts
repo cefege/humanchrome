@@ -719,15 +719,31 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
   }
 
   /**
+   * Keep rows that are still in flight when a flush drains the buffer.
+   *
+   * A row is created once, in `handleRequestWillBeSent`, and every later CDP
+   * event resolves it by `requests[requestId]` and returns on a miss. So a
+   * request flushed as `pending` used to lose not just its body but the row
+   * itself: the response, the body fetch and the completion all landed on an
+   * unknown id, and no later flush could recover them. Retaining the row
+   * costs a slot against the capture's request cap and nothing else — it is
+   * still returned by the flush that observed it, and returned again by the
+   * next one, complete.
+   */
+  protected override shouldRetainAfterFlush(request: NetworkRequestInfo): boolean {
+    return request.status === 'pending';
+  }
+
+  /**
    * Drain the buffered debugger-mode requests for `tabId` and return
    * them, leaving the CDP session attached and Network.enable in place.
    * Counterpart to stopCapture's snapshot-and-detach: we snapshot
-   * identically, then reset only the in-memory buffer + counter +
-   * limitReached so the long-running capture can keep filling. Pending
-   * `getResponseBody` promises are left to resolve naturally — they
-   * write to the (now empty) request map, which means a flush right at
-   * the moment a body finishes loading may miss that single body. Bump
-   * `lastActivityTime` so the inactivity watchdog doesn't fire as a
+   * identically, then drop the drained rows except those still in flight
+   * (see `shouldRetainAfterFlush`) so the long-running capture can keep
+   * filling without losing a body that had not landed yet. A retained row
+   * is part of this flush's result too, so a caller sees the request at the
+   * drain nearest its start and again at the next one, once complete.
+   * Bump `lastActivityTime` so the inactivity watchdog doesn't fire as a
    * side-effect of the buffer-drain pause.
    */
   public async flushCapture(tabId: number): Promise<any> {

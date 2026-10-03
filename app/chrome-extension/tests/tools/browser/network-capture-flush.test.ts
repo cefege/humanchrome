@@ -311,6 +311,59 @@ describe('debugger backend — flushCapture', () => {
     ).flushCapture(99);
     expect(result.success).toBe(false);
   });
+
+  it('keeps a row that is still in flight so its body can still be captured', async () => {
+    // A row is created once, in handleRequestWillBeSent, and every later CDP
+    // event resolves it by requestId and returns on a miss. So a `pending` row
+    // used to lose not just its body but the row: nothing could complete it,
+    // and no later flush could recover it. Both rows are still returned by the
+    // flush that observed them; only the in-flight one survives in the buffer.
+    seedDebuggerCapture(7, [
+      { requestId: 'd1', url: 'https://api/x', method: 'GET', status: 'complete' },
+      { requestId: 'd2', url: 'https://api/y', method: 'GET', status: 'pending' },
+    ]);
+
+    const result = await (
+      networkDebuggerStartTool as unknown as { flushCapture: (id: number) => Promise<any> }
+    ).flushCapture(7);
+
+    expect(result.data.requestCount).toBe(2);
+    expect(readDebuggerBuffer(7)).toBe(1);
+    const buffered = (
+      networkDebuggerStartTool as unknown as { captureData: Map<number, any> }
+    ).captureData.get(7);
+    expect(Object.keys(buffered.requests)).toEqual(['d2']);
+    // New rows are gated on this counter and it is recomputed from the stored
+    // row count, so it has to count what is still buffered, not assume the
+    // buffer is empty.
+    expect(
+      (
+        networkDebuggerStartTool as unknown as { requestCounters: Map<number, number> }
+      ).requestCounters.get(7),
+    ).toBe(1);
+  });
+
+  it('returns an in-flight row again on a later flush instead of losing it', async () => {
+    // A long capture drains repeatedly while requests are still outstanding.
+    // If retention only worked once, the second drain would return nothing
+    // and the body would be gone with no third chance to catch it.
+    seedDebuggerCapture(7, [
+      { requestId: 'd1', url: 'https://api/x', method: 'GET', status: 'pending' },
+      { requestId: 'd2', url: 'https://api/y', method: 'GET', status: 'pending' },
+    ]);
+    const flush = (
+      networkDebuggerStartTool as unknown as {
+        flushCapture: (id: number) => Promise<any>;
+      }
+    ).flushCapture.bind(networkDebuggerStartTool);
+
+    const first = await flush(7);
+    const second = await flush(7);
+
+    expect(first.data.requestCount).toBe(2);
+    expect(second.data.requestCount).toBe(2);
+    expect(readDebuggerBuffer(7)).toBe(2);
+  });
 });
 
 describe('unified chrome_network_capture — action: flush', () => {
