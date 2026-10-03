@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { writeFileSync } from 'fs';
 import Icons from 'unplugin-icons/vite';
 import Components from 'unplugin-vue-components/vite';
 import IconsResolver from 'unplugin-icons/resolver';
@@ -13,6 +14,16 @@ config({ path: resolve(process.cwd(), '.env.local') });
 const CHROME_EXTENSION_KEY = process.env.CHROME_EXTENSION_KEY;
 // Detect dev mode early for manifest-level switches
 const IS_DEV = process.env.NODE_ENV !== 'production' && process.env.MODE !== 'production';
+// One identity per build, computed once: baked into the bundle as
+// __HC_BUILD_HASH__/__HC_BUILT_AT__ and written beside it as build-info.json,
+// so the running service worker can tell whether the files on disk are the
+// ones it was built from.
+const BUILD_INFO = {
+  buildHash:
+    process.env.HC_BUILD_HASH ||
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  builtAt: new Date().toISOString(),
+};
 
 // Guard: a production build with no signing key silently ships a manifest
 // without `key`, so Chrome assigns a path-derived extension ID instead of the
@@ -162,6 +173,16 @@ export default defineConfig({
           },
         }),
   },
+  hooks: {
+    // The self-update watcher compares this file with the identity baked into
+    // the running bundle, so it is written by the build that baked it.
+    'build:done': (wxt) => {
+      writeFileSync(
+        resolve(wxt.config.outDir, 'build-info.json'),
+        JSON.stringify(BUILD_INFO, null, 2),
+      );
+    },
+  },
   vite: (env) => ({
     plugins: [
       // Guard Vite's __vitePreload helper so it no-ops in non-DOM contexts.
@@ -267,11 +288,8 @@ export default defineConfig({
     // Build identity surfaced via chrome_runtime_info so E2E runners can
     // detect a SW that didn't pick up the latest bundle.
     define: {
-      __HC_BUILD_HASH__: JSON.stringify(
-        process.env.HC_BUILD_HASH ||
-          `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      ),
-      __HC_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+      __HC_BUILD_HASH__: JSON.stringify(BUILD_INFO.buildHash),
+      __HC_BUILT_AT__: JSON.stringify(BUILD_INFO.builtAt),
     },
   }),
 });
