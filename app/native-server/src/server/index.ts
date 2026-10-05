@@ -25,6 +25,7 @@ import { createMcpServer } from '../mcp/mcp-server';
 import { normalizeSessionName } from '../mcp/session-name';
 import { AgentStreamManager } from '../agent/stream-manager';
 import { AgentChatService } from '../agent/chat-service';
+import { runHijacked } from './hijack';
 import { CodexEngine } from '../agent/engines/codex';
 import { ClaudeEngine } from '../agent/engines/claude';
 import { closeDb } from '../agent/db';
@@ -266,30 +267,12 @@ export class Server {
   // MCP Routes
   // ============================================================
 
-  /**
-   * IMP-0121: every MCP HTTP route hands `reply.raw` to the SDK transport,
-   * which writes the response via `@hono/node-server`. Without hijacking,
-   * fastify also tries to auto-respond after the handler resolves — the
-   * second writeHead blows up with `ERR_HTTP_HEADERS_SENT` (observed at
-   * ~10/sec, 175k errors in 3h of normal use). This helper hijacks before
-   * the handoff and provides a uniform raw-mode error tail.
-   */
-  private async runHijacked(reply: FastifyReply, fn: () => Promise<void>): Promise<void> {
-    reply.hijack();
-    try {
-      await fn();
-    } catch {
-      if (!reply.raw.headersSent) reply.raw.writeHead(HTTP_STATUS.INTERNAL_SERVER_ERROR);
-      if (!reply.raw.writableEnded) reply.raw.end();
-    }
-  }
-
   private setupMcpRoutes(): void {
     this.fastify.route({
       method: ['GET', 'POST', 'DELETE'],
       url: '/mcp',
       handler: (request, reply) =>
-        this.runHijacked(reply, () => this.mcpNode(request.raw, reply.raw, request.body)),
+        runHijacked(reply, () => this.mcpNode(request.raw, reply.raw, request.body)),
     });
   }
 

@@ -12,16 +12,24 @@ export class FleetLeases {
     private readonly now: () => number = () => Date.now(),
   ) {}
 
-  acquire(agent: string, profile: string): { ok: true } | { ok: false; heldBy: string } {
+  /**
+   * `displaced` names the agent whose expired lease was taken over, so the
+   * caller can also free the evicted agent's browser-side client lane.
+   */
+  acquire(
+    agent: string,
+    profile: string,
+  ): { ok: true; displaced: string | null } | { ok: false; heldBy: string } {
     const existing = this.leases.get(profile);
     if (existing && existing.agent !== agent && this.isLive(existing)) {
       return { ok: false, heldBy: existing.agent };
     }
+    const displaced = existing && existing.agent !== agent ? existing.agent : null;
     this.leases.set(profile, { agent, profile, lastSeen: this.now() });
-    return { ok: true };
+    return { ok: true, displaced };
   }
 
-  acquireFromPool(agent: string, label: string, candidates: string[]): string | null {
+  acquireFromPool(agent: string, candidates: string[]): string | null {
     const ordered = [...candidates].sort();
     for (const profile of ordered) {
       const existing = this.leases.get(profile);

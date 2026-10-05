@@ -49,6 +49,23 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0191 · chrome_combobox_select does not commit a keyboard-highlighted option (bug) · score: 6
+
+- **Proposed by**: omp · 2026-09-29 (surfaced by the E2E matrix during the fleet automation work)
+- **Status**: open
+- **Why**: The `Bug-007` row of the tier-1 matrix (`tests/e2e/scenarios/playwright-parity.html`) fails: after `ArrowDown` on a Downshift-style combobox, the tool reports `selectedText:"LangGraph"` but the page's own selected state stays `"(none)"` (`arrowDownCount=1`, `selectErr=none`). The tool claims a selection the DOM never made, so any workflow that reads the committed value back from the page (form submit, subsequent read) sees nothing selected. Confirmed pre-existing: the identical failure reproduces on a clean `main` extension build (verified by stashing the working tree and re-running `pnpm e2e:isolated` — 25 PASS / 1 FAIL both before and after).
+- **Cost**: S — the tool appears to dispatch the option's activation without the combobox committing it (missing blur/Enter or missing `pointerdown` default-prevention path for the highlighted item). Compare against the MAIN-world shim used by `drag-drop.ts` and the key dispatch in `keyboard.ts`.
+- **Value**: M — keyboard-driven form filling is a common agent workflow, and a silently uncommitted selection is worse than an error because the tool returns success.
+
+- **Repro**:
+
+  ```bash
+  pnpm build:extension && pnpm e2e:isolated
+  # Bug-007 chrome_combobox_select keyboard-commits a Downshift-style option FAIL
+  # expected selectedText:"LangGraph" + page state "LangGraph",
+  # got selectedText:"LangGraph" arrowDownCount=1 pageSelected="(none)" selectErr=none
+  ```
+
 ### IMP-0189 · MCP 2026-07-28 via SDK v2 (feat) · score: 6
 
 - **Proposed by**: humanchrome-operator · 2026-09-23
@@ -65,7 +82,7 @@ The order of items inside ## Active is sorted by score descending.
 - **Why**: Run isolated, visible branded-Chrome profiles on one Mac and assign them to remote MCP agents through an authenticated LAN gateway.
 - **Cost**: L
 - **Value**: L
-- **Notes**: Fleet supervisor isolates bridge ports, registry directories, daemon sockets, and bearer tokens per profile. Gateway leases are sticky per `(agent, label)` and release extension ownership on expiry.
+- **Notes**: Fleet supervisor isolates bridge ports, registry directories, daemon sockets, and bridge credentials per profile. Gateway leases are sticky per `(agent, label)` and release extension ownership on expiry. Client auth on the gateway is optional (off on a trusted LAN, on via `fleet init --token`); the per-profile bridge credential is always required. Fleet control is served as MCP at `/v1/fleet/mcp`. Operations, routes, error codes and troubleshooting live in [`docs/FLEET.md`](FLEET.md) rather than here.
 
 ### IMP-0188 · chrome_screenshot fails with `import() is disallowed on ServiceWorkerGlobalScope` (bug) · score: 8
 

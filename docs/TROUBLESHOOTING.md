@@ -93,3 +93,18 @@ Wrapper logs are now stored in user-writable locations:
 - **macOS**: `~/Library/Logs/humanchrome-bridge/`
 - **Windows**: `%LOCALAPPDATA%\humanchrome-bridge\logs\`
 - **Linux**: `~/.local/state/humanchrome-bridge/logs/`
+
+## Chrome fleet (`humanchrome-bridge fleet`)
+
+The fleet keeps its own log and its own error vocabulary, documented in
+[`FLEET.md`](FLEET.md).
+
+- Supervisor diagnostics: `~/Library/Application Support/humanchrome-fleet/logs/serve.log`.
+  Every line starts with `fleet: `.
+- `humanchrome-bridge fleet status` — states (`stopped`/`starting`/`running`/`healthy`/`backoff`/`unreachable`),
+  lease holders and `lastError`. Says `serve: up` or `serve: down`; an offline
+  run reports `unknown` for purpose states rather than inventing `stopped`.
+- Gateway errors: `401 unauthorized`, `403 origin_not_allowed`,
+  `403 agent_mismatch`, `400 missing_agent|invalid_agent`,
+  `404 unknown_profile|not_found`, `409 profile_busy`, `503 no_free_profile`,
+  `503 profile_unavailable`.

@@ -5,6 +5,7 @@ import { buildCallToolEnvelope, NativeMessageSchema, NativeMessageType } from 'h
 import { TIMEOUTS } from './constant';
 import fileHandler from './file-handler';
 import { withContext } from './util/logger';
+import { currentProfileProtection, evaluatePurposeGuard } from './fleet/purpose-guard';
 
 const log = withContext({ component: 'native-messaging-host' });
 
@@ -412,36 +413,46 @@ export class NativeMessagingHost {
 
       this.pendingRequests.set(id, { resolve, reject, timeoutId, clientId });
 
-      try {
-        let envelope: Record<string, unknown>;
-        if (messageType === NativeMessageType.CALL_TOOL) {
-          if (!clientId) {
-            throw new Error('CALL_TOOL envelopes require a clientId');
+      // The guard reads the fleet config, so the envelope is built off the
+      // synchronous path; a throw here still lands in `reject` below.
+      void (async () => {
+        try {
+          let envelope: Record<string, unknown>;
+          if (messageType === NativeMessageType.CALL_TOOL) {
+            if (!clientId) {
+              throw new Error('CALL_TOOL envelopes require a clientId');
+            }
+            const payloadShape = (messagePayload ?? {}) as { name?: unknown; args?: unknown };
+            if (typeof payloadShape.name !== 'string' || payloadShape.name.length === 0) {
+              throw new Error('CALL_TOOL envelopes require payload.name (non-empty string)');
+            }
+            const verdict = evaluatePurposeGuard(
+              payloadShape.name,
+              payloadShape.args,
+              await currentProfileProtection(),
+            );
+            if (!verdict.allowed) throw new Error(verdict.message);
+            envelope = buildCallToolEnvelope({
+              name: payloadShape.name,
+              args: verdict.args,
+              requestId: id,
+              clientId,
+            }) as unknown as Record<string, unknown>;
+          } else {
+            envelope = {
+              type: messageType,
+              payload: messagePayload,
+              requestId: id,
+            };
+            if (clientId) envelope.clientId = clientId;
           }
-          const payloadShape = (messagePayload ?? {}) as { name?: unknown; args?: unknown };
-          if (typeof payloadShape.name !== 'string' || payloadShape.name.length === 0) {
-            throw new Error('CALL_TOOL envelopes require payload.name (non-empty string)');
-          }
-          envelope = buildCallToolEnvelope({
-            name: payloadShape.name,
-            args: payloadShape.args,
-            requestId: id,
-            clientId,
-          }) as unknown as Record<string, unknown>;
-        } else {
-          envelope = {
-            type: messageType,
-            payload: messagePayload,
-            requestId: id,
-          };
-          if (clientId) envelope.clientId = clientId;
+          this.sendMessage(envelope);
+        } catch (err) {
+          clearTimeout(timeoutId);
+          this.pendingRequests.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
-        this.sendMessage(envelope);
-      } catch (err) {
-        clearTimeout(timeoutId);
-        this.pendingRequests.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+      })();
     });
   }
 
