@@ -7,8 +7,9 @@
  * apply/apply-batch, highlight/revert, status query, cancel, open-source,
  * toggle, early-injection registration.
  *
- * Storage-key constants and the DEFAULT_NATIVE_SERVER_PORT live with the
- * router because the index module no longer references them.
+ * Storage-key constants live with the router because the index module no
+ * longer references them. Bridge addressing is delegated to
+ * `../bridge-endpoint` so fleet profiles reach their own bridge.
  */
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import {
@@ -21,6 +22,7 @@ import {
   type WebEditorCancelExecutionResponse,
 } from '@/common/web-editor-types';
 import { openAgentChatSidepanel } from '../utils/sidepanel';
+import { resolveBridgeBaseUrl } from '../bridge-endpoint';
 import {
   cancelSseConnectionForRequest,
   getExecutionStatus,
@@ -31,8 +33,6 @@ import { normalizeApplyBatchPayload, normalizeApplyPayload, normalizeString } fr
 import { buildAgentPrompt, buildAgentPromptBatch } from './prompt-builder';
 import { registerPropsAgentEarlyInjection } from './early-injection';
 import { getActiveTabId, toggleEditorInTab } from './editor-lifecycle';
-
-const DEFAULT_NATIVE_SERVER_PORT = 12306;
 
 const WEB_EDITOR_TX_CHANGED_SESSION_KEY_PREFIX = 'web-editor-v2-tx-changed-';
 const WEB_EDITOR_SELECTION_SESSION_KEY_PREFIX = 'web-editor-v2-selection-';
@@ -97,14 +97,8 @@ export function registerWebEditorMessageRouter(): void {
               return sendResponse({ success: false, error: 'debugSource.file is required' });
             }
 
-            const stored = await chrome.storage.local.get([
-              'nativeServerPort',
-              'agent-selected-project-id',
-            ]);
-            const portRaw = stored.nativeServerPort;
-            const port = Number.isFinite(Number(portRaw))
-              ? Number(portRaw)
-              : DEFAULT_NATIVE_SERVER_PORT;
+            const baseUrl = await resolveBridgeBaseUrl();
+            const stored = await chrome.storage.local.get(['agent-selected-project-id']);
             const projectId = stored['agent-selected-project-id'];
 
             if (!projectId || typeof projectId !== 'string') {
@@ -120,7 +114,7 @@ export function registerWebEditorMessageRouter(): void {
             const column = Number.isFinite(columnRaw) && columnRaw > 0 ? columnRaw : undefined;
 
             const openResp = await fetch(
-              `http://127.0.0.1:${port}/agent/projects/${encodeURIComponent(projectId)}/open-file`,
+              `${baseUrl}/agent/projects/${encodeURIComponent(projectId)}/open-file`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -281,15 +275,9 @@ export function registerWebEditorMessageRouter(): void {
           const senderTabId = (_sender as chrome.runtime.MessageSender)?.tab?.id;
           const senderWindowId = (_sender as chrome.runtime.MessageSender)?.tab?.windowId;
 
-          const stored = await chrome.storage.local.get([
-            'nativeServerPort',
-            STORAGE_KEY_SELECTED_SESSION,
-          ]);
+          const stored = await chrome.storage.local.get([STORAGE_KEY_SELECTED_SESSION]);
 
-          const portRaw = stored?.nativeServerPort;
-          const port = Number.isFinite(Number(portRaw))
-            ? Number(portRaw)
-            : DEFAULT_NATIVE_SERVER_PORT;
+          const baseUrl = await resolveBridgeBaseUrl();
 
           const sessionId = normalizeString(stored?.[STORAGE_KEY_SELECTED_SESSION]).trim();
 
@@ -344,7 +332,7 @@ export function registerWebEditorMessageRouter(): void {
             'unknown';
 
           const instruction = buildAgentPromptBatch(elements, pageUrl);
-          const url = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/act`;
+          const url = `${baseUrl}/agent/chat/${encodeURIComponent(sessionId)}/act`;
 
           const elementLabels = elements.slice(0, 5).map((e) => e.label);
 
@@ -374,7 +362,7 @@ export function registerWebEditorMessageRouter(): void {
           const requestId = json?.requestId;
 
           if (requestId) {
-            subscribeToSessionStatus(sessionId, requestId, port).catch(() => {});
+            subscribeToSessionStatus(sessionId, requestId, baseUrl).catch(() => {});
           }
 
           sendResponse({ success: true, requestId, sessionId });
@@ -508,14 +496,8 @@ export function registerWebEditorMessageRouter(): void {
           const sessionId =
             typeof senderTabId === 'number' ? `web-editor-${senderTabId}` : 'web-editor';
 
-          const stored = await chrome.storage.local.get([
-            'nativeServerPort',
-            'agent-selected-project-id',
-          ]);
-          const portRaw = stored?.nativeServerPort;
-          const port = Number.isFinite(Number(portRaw))
-            ? Number(portRaw)
-            : DEFAULT_NATIVE_SERVER_PORT;
+          const baseUrl = await resolveBridgeBaseUrl();
+          const stored = await chrome.storage.local.get(['agent-selected-project-id']);
 
           const projectId = normalizeString(stored?.['agent-selected-project-id']).trim() || '';
 
@@ -528,7 +510,7 @@ export function registerWebEditorMessageRouter(): void {
           }
 
           const instruction = buildAgentPrompt(payload);
-          const url = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/act`;
+          const url = `${baseUrl}/agent/chat/${encodeURIComponent(sessionId)}/act`;
 
           const resp = await fetch(url, {
             method: 'POST',
@@ -548,7 +530,7 @@ export function registerWebEditorMessageRouter(): void {
           const requestId = json?.requestId;
 
           if (requestId) {
-            subscribeToSessionStatus(sessionId, requestId, port).catch(() => {});
+            subscribeToSessionStatus(sessionId, requestId, baseUrl).catch(() => {});
           }
 
           return sendResponse({ success: true, requestId, sessionId });
@@ -603,11 +585,10 @@ export function registerWebEditorMessageRouter(): void {
             return;
           }
 
-          const stored = await chrome.storage.local.get(['nativeServerPort']);
-          const port = stored.nativeServerPort || DEFAULT_NATIVE_SERVER_PORT;
+          const baseUrl = await resolveBridgeBaseUrl();
 
           try {
-            const cancelUrl = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/cancel/${encodeURIComponent(requestId)}`;
+            const cancelUrl = `${baseUrl}/agent/chat/${encodeURIComponent(sessionId)}/cancel/${encodeURIComponent(requestId)}`;
             const response = await fetch(cancelUrl, { method: 'DELETE' });
 
             if (!response.ok) {

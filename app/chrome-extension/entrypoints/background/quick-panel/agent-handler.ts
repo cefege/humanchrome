@@ -16,7 +16,6 @@
 import type { AgentActRequest, RealtimeEvent } from 'humanchrome-shared';
 import { NativeMessageType } from 'humanchrome-shared';
 
-import { NATIVE_HOST, STORAGE_KEYS } from '@/common/constants';
 import {
   BACKGROUND_MESSAGE_TYPES,
   TOOL_MESSAGE_TYPES,
@@ -28,6 +27,7 @@ import {
 } from '@/common/message-types';
 import { acquireKeepalive } from '../keepalive-manager';
 import { openAgentChatSidepanel } from '../utils/sidepanel';
+import { resolveBridgeBaseUrl } from '../bridge-endpoint';
 
 // ============================================================
 // Constants
@@ -70,7 +70,7 @@ interface ActiveRequest {
   readonly tabId: number;
   readonly windowId?: number;
   readonly frameId?: number;
-  readonly port: number;
+  readonly baseUrl: string;
   readonly createdAt: number;
   readonly abortController: AbortController;
   readonly releaseKeepalive: () => void;
@@ -93,18 +93,6 @@ let initialized = false;
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value : '';
-}
-
-function normalizePort(value: unknown): number | null {
-  const num =
-    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-
-  if (!Number.isFinite(num)) return null;
-
-  const port = Math.floor(num);
-  if (port <= 0 || port > 65535) return null;
-
-  return port;
 }
 
 function createRequestId(): string {
@@ -238,8 +226,8 @@ function cleanupRequest(requestId: string, reason: string): void {
  * Validate that the selected session exists on the native server.
  * Returns false if the session is invalid or server is unreachable.
  */
-async function validateSession(port: number, sessionId: string): Promise<boolean> {
-  const url = `http://127.0.0.1:${port}/agent/sessions/${encodeURIComponent(sessionId)}`;
+async function validateSession(baseUrl: string, sessionId: string): Promise<boolean> {
+  const url = `${baseUrl}/agent/sessions/${encodeURIComponent(sessionId)}`;
   try {
     const response = await fetch(url);
     return response.ok;
@@ -321,7 +309,7 @@ function createSseSubscription(request: ActiveRequest): SseSubscription {
   };
 
   const done = (async () => {
-    const sseUrl = `http://127.0.0.1:${request.port}/agent/chat/${encodeURIComponent(request.sessionId)}/stream`;
+    const sseUrl = `${request.baseUrl}/agent/chat/${encodeURIComponent(request.sessionId)}/stream`;
 
     try {
       const response = await fetch(sseUrl, {
@@ -420,7 +408,7 @@ async function postActRequest(request: ActiveRequest): Promise<void> {
     throw new Error('Request was cancelled');
   }
 
-  const url = `http://127.0.0.1:${request.port}/agent/chat/${encodeURIComponent(request.sessionId)}/act`;
+  const url = `${request.baseUrl}/agent/chat/${encodeURIComponent(request.sessionId)}/act`;
 
   const payload: AgentActRequest = {
     instruction: request.instruction,
@@ -447,11 +435,11 @@ async function postActRequest(request: ActiveRequest): Promise<void> {
  * Cancel an active request on the native-server.
  */
 async function cancelRequestOnServer(
-  port: number,
+  baseUrl: string,
   sessionId: string,
   requestId: string,
 ): Promise<void> {
-  const url = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/cancel/${encodeURIComponent(requestId)}`;
+  const url = `${baseUrl}/agent/chat/${encodeURIComponent(sessionId)}/cancel/${encodeURIComponent(requestId)}`;
   try {
     await fetch(url, { method: 'DELETE' });
   } catch {
@@ -494,7 +482,7 @@ async function startRequest(request: ActiveRequest): Promise<void> {
     if (!isRequestStillActive(request)) return;
 
     // Validate session still exists
-    const sessionValid = await validateSession(request.port, request.sessionId);
+    const sessionValid = await validateSession(request.baseUrl, request.sessionId);
 
     // Guard: check if cancelled during validation
     if (!isRequestStillActive(request)) return;
@@ -591,13 +579,11 @@ async function handleSendToAI(
     return { success: false, error: 'instruction is required' };
   }
 
-  // Read server port and selected session from storage
-  const stored = await chrome.storage.local.get([
-    STORAGE_KEYS.NATIVE_SERVER_PORT,
-    STORAGE_KEY_SELECTED_SESSION,
-  ]);
+  // Read the selected session from storage; the bridge origin is resolved
+  // centrally so fleet profiles hit their own bridge, not :12306.
+  const stored = await chrome.storage.local.get([STORAGE_KEY_SELECTED_SESSION]);
 
-  const port = normalizePort(stored?.[STORAGE_KEYS.NATIVE_SERVER_PORT]) ?? NATIVE_HOST.DEFAULT_PORT;
+  const baseUrl = await resolveBridgeBaseUrl();
   const sessionId = normalizeString(stored?.[STORAGE_KEY_SELECTED_SESSION]).trim();
 
   if (!sessionId) {
@@ -638,7 +624,7 @@ async function handleSendToAI(
     tabId,
     windowId: typeof windowId === 'number' ? windowId : undefined,
     frameId,
-    port,
+    baseUrl,
     createdAt: Date.now(),
     abortController,
     releaseKeepalive,
@@ -694,15 +680,11 @@ async function handleCancelAI(
     }
   }
 
-  // Determine port
-  let port = activeRequest?.port;
-  if (!port) {
-    const stored = await chrome.storage.local.get([STORAGE_KEYS.NATIVE_SERVER_PORT]);
-    port = normalizePort(stored?.[STORAGE_KEYS.NATIVE_SERVER_PORT]) ?? NATIVE_HOST.DEFAULT_PORT;
-  }
+  // Reuse the active request's bridge origin when known, otherwise resolve it.
+  const baseUrl = activeRequest?.baseUrl ?? (await resolveBridgeBaseUrl());
 
   // Cancel on server (async, don't await)
-  void cancelRequestOnServer(port, sessionId, requestId);
+  void cancelRequestOnServer(baseUrl, sessionId, requestId);
 
   // Send synthetic cancelled status to UI
   const cancelledEvent = createCancelledStatusEvent(sessionId, requestId);

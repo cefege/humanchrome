@@ -13,7 +13,7 @@
  * the message-router can read back via `getExecutionStatus(requestId)`.
  *
  * Lifecycle:
- *   - `subscribeToSessionStatus(sessionId, requestId, port)` opens an
+ *   - `subscribeToSessionStatus(sessionId, requestId, baseUrl)` opens an
  *     SSE connection (closing any prior one for the same session) and
  *     keeps it open until the response stream ends or
  *     `cancelSseConnection(sessionId)` is called.
@@ -111,7 +111,7 @@ export function cancelSseConnectionForRequest(sessionId: string, requestId: stri
 export async function subscribeToSessionStatus(
   sessionId: string,
   requestId: string,
-  port: number,
+  baseUrl: string,
 ): Promise<void> {
   // Close existing connection for this session if any
   cancelSseConnection(sessionId);
@@ -122,7 +122,7 @@ export async function subscribeToSessionStatus(
   // Set initial status
   setExecutionStatus(requestId, 'starting', 'Connecting to Agent...');
 
-  const sseUrl = `http://127.0.0.1:${port}/agent/chat/${encodeURIComponent(sessionId)}/stream`;
+  const sseUrl = `${baseUrl}/agent/chat/${encodeURIComponent(sessionId)}/stream`;
 
   try {
     const response = await fetch(sseUrl, {

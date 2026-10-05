@@ -6,6 +6,7 @@ import { ref, computed, onUnmounted } from 'vue';
 import { NativeMessageType } from 'humanchrome-shared';
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import type { AgentEngineInfo, RealtimeEvent } from 'humanchrome-shared';
+import { resolveBridgeBaseUrl } from '@/entrypoints/background/bridge-endpoint';
 
 interface ServerStatus {
   isRunning: boolean;
@@ -40,6 +41,12 @@ export function useAgentServer(options: UseAgentServerOptions = {}) {
   // Track which sessionId the current SSE connection is subscribed to
   let currentStreamSessionId: string | null = null;
 
+  /**
+   * Bridge origin for this profile (fleet profiles each own a bridge).
+   * Refreshed by getServerStatus(); kept in sync so the synchronous
+   * EventSource constructor can be handed a resolved URL.
+   */
+  let bridgeBaseUrl: string | null = null;
   // Computed
   const isServerReady = computed(() => {
     return nativeConnected.value && serverStatus.value?.isRunning && serverPort.value !== null;
@@ -98,6 +105,8 @@ export function useAgentServer(options: UseAgentServerOptions = {}) {
         if (typeof response.connected === 'boolean') {
           nativeConnected.value = response.connected;
         }
+        // Resolve the bridge origin centrally (fleet ports vary per profile).
+        bridgeBaseUrl = await resolveBridgeBaseUrl();
         return response.serverStatus;
       }
       return null;
@@ -148,9 +157,9 @@ export function useAgentServer(options: UseAgentServerOptions = {}) {
 
   // Fetch available engines
   async function fetchEngines(): Promise<void> {
-    if (!serverPort.value) return;
+    if (!serverPort.value || !bridgeBaseUrl) return;
     try {
-      const url = `http://127.0.0.1:${serverPort.value}/agent/engines`;
+      const url = `${bridgeBaseUrl}/agent/engines`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
@@ -169,7 +178,7 @@ export function useAgentServer(options: UseAgentServerOptions = {}) {
   // Open SSE connection (skip if already connected to same session)
   function openEventSource(): void {
     const targetSessionId = options.getSessionId?.()?.trim() ?? '';
-    if (!serverPort.value || !targetSessionId) return;
+    if (!serverPort.value || !bridgeBaseUrl || !targetSessionId) return;
 
     // Skip if already connected to the same session
     if (isEventSourceConnected() && currentStreamSessionId === targetSessionId) {
@@ -181,7 +190,7 @@ export function useAgentServer(options: UseAgentServerOptions = {}) {
     closeEventSource();
 
     currentStreamSessionId = targetSessionId;
-    const url = `http://127.0.0.1:${serverPort.value}/agent/chat/${encodeURIComponent(targetSessionId)}/stream`;
+    const url = `${bridgeBaseUrl}/agent/chat/${encodeURIComponent(targetSessionId)}/stream`;
     const es = new EventSource(url);
 
     es.onopen = () => {
