@@ -6,6 +6,23 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- **Fleet: a fleet browser can sign in to Google**: `--remote-debugging-pipe`
+  alone made every page report `navigator.webdriver === true`, and Google
+  refused sign-in with "This browser or app may not be secure"
+  (`/v3/signin/rejected`). Fleet Chrome now launches with
+  `--disable-blink-features=AutomationControlled`; on the same copied profile
+  sign-in then proceeds to the password/passkey challenge. Browsers started
+  before this keep the old flag until relaunched.
+- **Fleet: `profile add` refuses a copy whose Google login is not live**: a
+  copy of a daily Chrome that Google had already signed out kept every
+  google.com cookie and passed the cookie gate, then landed on "Verify it's
+  you". The add now asks Google (`ListAccounts` through the new profile's
+  bridge) and, when the copy carried a Google login, discards the profile
+  unless the answer is a live `session`, naming the state (`remembered` or
+  `none`) and the source's own sign-in-pending time when that is the cause.
+  New `fleet profile verify <name>` asks the same of a running profile and
+  exits 1 unless it is signed in. See docs/FLEET.md.
+
 - **Fleet: a seeded profile no longer comes up with its cookies wiped**:
   `fleet profile add` run over SSH launched the new Chrome in the SSH security
   session, where the login Keychain is locked, so Chrome could not read the

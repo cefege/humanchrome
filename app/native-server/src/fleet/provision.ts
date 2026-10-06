@@ -14,6 +14,13 @@ import {
   readExtensionManifest,
   terminateChrome,
 } from './cdp';
+import {
+  CHROME_EPOCH_OFFSET_US,
+  GoogleSession,
+  googleSessionLoss,
+  probeProfileGoogleSession,
+  signinPendingSince,
+} from './google-session';
 
 const TIMERS = {
   killDeadlineMs: 5_000,
@@ -157,9 +164,6 @@ export interface CookieCount {
  */
 export const COOKIE_KEEP_RATIO = 0.9;
 
-/** Microseconds between 1601-01-01, Chrome's cookie epoch, and the Unix epoch. */
-const CHROME_EPOCH_OFFSET_US = 11_644_473_600_000_000n;
-
 const isGoogle = (host: string): boolean => {
   const bare = host.replace(/^\./, '');
   return bare === 'google.com' || bare.endsWith('.google.com');
@@ -184,6 +188,30 @@ export function countCopiedCookies(userDataDir: string, now = Date.now()): Cooki
     let google = 0;
     for (const host of hosts) if (typeof host === 'string' && isGoogle(host)) google += 1;
     return { persistent: hosts.length, google };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Whether a copy carries a Google login at all: the `SID` / `__Secure-1PSID`
+ * pair Google sets at sign-in, unexpired. Only such a copy is expected to come
+ * up with a live session; NID-style google.com cookies exist signed out too.
+ */
+export function copiedGoogleLogin(userDataDir: string, now = Date.now()): boolean {
+  const file = path.join(userDataDir, 'Default', 'Cookies');
+  if (!existsSync(file)) return false;
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const row: unknown = db
+      .prepare(
+        `SELECT 1 FROM cookies
+          WHERE host_key = '.google.com' AND name IN ('SID', '__Secure-1PSID') AND expires_utc > ?
+          LIMIT 1`,
+      )
+      .pluck()
+      .get(BigInt(now) * 1000n + CHROME_EPOCH_OFFSET_US);
+    return row !== undefined;
   } finally {
     db.close();
   }
@@ -233,12 +261,15 @@ export interface AddedProfile {
   port: number;
   copied: CookieCount;
   kept: CookieCount;
+  /** Google's answer for the new browser; null when unreadable and no session was expected. */
+  google: GoogleSession | null;
 }
 
 /**
- * Registers a profile only once its browser is up, its extension answers, and
- * it kept the cookies it was seeded with. Any failure on the way discards the
- * directory and the browser, so a refused add leaves nothing behind.
+ * Registers a profile only once its browser is up, its extension answers, it
+ * kept the cookies it was seeded with, and, when the copy carried a Google
+ * login, Google confirms that login is a live session. Any failure on the way
+ * discards the directory and the browser, so a refused add leaves nothing behind.
  */
 export async function addProfile(
   name: string,
@@ -275,9 +306,11 @@ export async function addProfile(
   let launched: LaunchedProfile | null = null;
   let copied: CookieCount;
   let kept: CookieCount;
+  let google: GoogleSession | null = null;
   try {
     await writeNativeHostManifest(dir);
     copied = countCopiedCookies(dir);
+    const expectsGoogle = provenance !== null && copiedGoogleLogin(dir);
     launched = await launchProfileWithExtension(config, name, dir, port);
     if (launched.child.pid) await fs.writeFile(pidFile, String(launched.child.pid));
     if (!(await waitForBridge(port, TIMERS.bridgeTimeoutMs))) {
@@ -286,6 +319,23 @@ export async function addProfile(
     kept = await countLiveCookies(launched.cdp);
     const loss = cookieLoss(copied, kept);
     if (loss) throw new Error(`${name} lost its seeded cookies: ${loss}; profile discarded`);
+    try {
+      google = await probeProfileGoogleSession(port, config.bridgeToken);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      // Only a copy that carried a Google login is gated on it; any other add
+      // reports the state when it can and goes on when it cannot.
+      if (expectsGoogle) {
+        throw new Error(
+          `${name}: could not read its Google session (${reason}); profile discarded`,
+        );
+      }
+      console.error(`fleet: Google session of ${name} unknown: ${reason}`);
+    }
+    const lostGoogle =
+      google &&
+      googleSessionLoss(expectsGoogle, google, seedDir ? signinPendingSince(seedDir) : null);
+    if (lostGoogle) throw new Error(`${name}: ${lostGoogle}; profile discarded`);
   } catch (error) {
     launched?.cdp.dispose();
     // The pid file outlived the browser it named, so a later `profile rm` would
@@ -312,7 +362,7 @@ export async function addProfile(
   // it from the pid file above; leaving the pipe attached is what kept this
   // process alive after provisioning, so the operator had to Ctrl-C it.
   launched.cdp.dispose();
-  return { name, port, copied, kept };
+  return { name, port, copied, kept, google };
 }
 
 export async function removeProfile(name: string, deleteData: boolean): Promise<void> {

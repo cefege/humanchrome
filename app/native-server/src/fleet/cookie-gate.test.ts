@@ -25,6 +25,45 @@ import type { CdpPipe } from './cdp';
 let liveCookies: unknown[] = [];
 let keychainLocked = false;
 const launches: string[] = [];
+/** What Google's ListAccounts answers inside the new browser; null fails the probe. */
+let listAccounts: string | null = '["gaia.l.a.r",[]]';
+
+/** A tool result as the bridge's REST surface returns it. */
+const toolResult = (payload: unknown, isError = false): Response =>
+  new Response(
+    JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(payload) }], isError }),
+  );
+
+/** The new profile's bridge: `/ping`, then the four tools the Google probe calls. */
+async function bridge(input: unknown): Promise<Response> {
+  const url = input instanceof Request ? input.url : String(input);
+  const tool = /\/api\/tools\/([a-z_]+)$/.exec(url)?.[1];
+  if (tool === 'chrome_navigate_batch') return toolResult({ tabs: [{ tabId: 7 }] });
+  if (tool === 'chrome_javascript') {
+    if (listAccounts === null) return toolResult('javascript failed', true);
+    return toolResult({
+      success: true,
+      result: JSON.stringify({ status: 200, body: listAccounts }),
+    });
+  }
+  if (tool) return toolResult({ success: true });
+  return new Response(JSON.stringify({ status: 'ok' }));
+}
+
+/** A ListAccounts account entry; index 9 says whether its session is live. */
+const gaiaAccount = (valid: number): unknown[] => [
+  'gaia.l.a',
+  1,
+  'Name',
+  'user@example.com',
+  'photo',
+  1,
+  1,
+  0,
+  null,
+  valid,
+  '1234',
+];
 
 const hostScript = path.join(home, 'run_host.sh');
 writeFileSync(hostScript, '#!/bin/sh\n');
@@ -67,6 +106,7 @@ const chromeTime = (unixSeconds: number): bigint =>
 
 interface Row {
   host: string;
+  name?: string;
   persistent?: boolean;
   expiresS?: number;
   partition?: string;
@@ -86,7 +126,7 @@ async function seedWithCookies(rows: Row[]): Promise<string> {
   rows.forEach((row, index) =>
     insert.run(
       row.host,
-      `c${index}`,
+      row.name ?? `c${index}`,
       row.persistent === false ? 0 : 1,
       chromeTime(row.expiresS ?? nowS() + HOUR_S),
       row.partition ?? '',
@@ -116,15 +156,14 @@ beforeAll(async () => {
   await fs.mkdir(path.dirname(manifest), { recursive: true });
   await fs.writeFile(manifest, '{}');
   await saveConfig(createDefaultConfig());
-  jest
-    .spyOn(globalThis, 'fetch')
-    .mockImplementation(async () => new Response(JSON.stringify({ status: 'ok' })));
+  jest.spyOn(globalThis, 'fetch').mockImplementation(bridge);
 });
 
 beforeEach(() => {
   liveCookies = [];
   keychainLocked = false;
   launches.length = 0;
+  listAccounts = '["gaia.l.a.r",[]]';
 });
 
 describe('countCopiedCookies', () => {
@@ -232,5 +271,83 @@ describe('addProfile cookie gate', () => {
     );
     expect(launches).toEqual([]);
     await expect(fs.access(path.join(FLEET_ROOT, 'profiles', 'locked'))).rejects.toThrow();
+  });
+});
+
+describe('addProfile Google session gate', () => {
+  /** A copy that carries a Google login: the sign-in pair plus ordinary cookies. */
+  const signedInRows: Row[] = [
+    ...manyRows(18, '.linkedin.com'),
+    { host: '.google.com', name: 'SID' },
+    { host: '.google.com', name: '__Secure-1PSID' },
+  ];
+  const keptAll = (): unknown[] => [
+    ...Array.from({ length: 18 }, () => live('.linkedin.com')),
+    ...Array.from({ length: 2 }, () => live('.google.com')),
+  ];
+
+  test('a copy whose Google login is only remembered is discarded, naming the state', async () => {
+    const seed = await seedWithCookies(signedInRows);
+    liveCookies = keptAll();
+    listAccounts = JSON.stringify(['gaia.l.a.r', [gaiaAccount(0), gaiaAccount(0)]]);
+    await expect(addProfile('remembered', [], seed)).rejects.toThrow(
+      'remembered: its copied Google login is not live (remembered: Google remembers 2 account(s) ' +
+        'but none has a live session); profile discarded',
+    );
+    await expect(fs.access(path.join(FLEET_ROOT, 'profiles', 'remembered'))).rejects.toThrow();
+    await expect(fs.access(path.join(FLEET_ROOT, 'run', 'remembered.pid'))).rejects.toThrow();
+    expect((await loadConfig()).profiles.map((profile) => profile.name)).not.toContain(
+      'remembered',
+    );
+  });
+
+  test('a signed-out source is named as the reason its copy has no session', async () => {
+    const seed = await seedWithCookies(signedInRows);
+    await fs.writeFile(
+      path.join(seed, 'Default', 'Preferences'),
+      JSON.stringify({ signin: { signin_pending_start_time: '13435797833015876' } }),
+    );
+    liveCookies = keptAll();
+    listAccounts = JSON.stringify(['gaia.l.a.r', [gaiaAccount(0)]]);
+    await expect(addProfile('pending', [], seed)).rejects.toThrow(
+      'the seed Chrome itself has shown Google sign-in pending since 2026-10-06T22:03:53.015Z',
+    );
+  });
+
+  test('a copy Google confirms signed in is registered with its state', async () => {
+    const seed = await seedWithCookies(signedInRows);
+    liveCookies = keptAll();
+    listAccounts = JSON.stringify(['gaia.l.a.r', [gaiaAccount(1)]]);
+    const added = await addProfile('signedin', [], seed);
+    expect(added.google).toEqual({ state: 'session', accounts: 1, signedIn: 1 });
+    expect((await loadConfig()).profiles.map((profile) => profile.name)).toContain('signedin');
+  });
+
+  test('an unreadable Google answer fails closed when a login was copied', async () => {
+    const seed = await seedWithCookies(signedInRows);
+    liveCookies = keptAll();
+    listAccounts = null;
+    await expect(addProfile('unread', [], seed)).rejects.toThrow(
+      'unread: could not read its Google session',
+    );
+    await expect(fs.access(path.join(FLEET_ROOT, 'profiles', 'unread'))).rejects.toThrow();
+  });
+
+  test('a profile given no Google login is reported, not gated', async () => {
+    const seed = await seedWithCookies(manyRows(4, '.linkedin.com'));
+    liveCookies = Array.from({ length: 4 }, () => live('.linkedin.com'));
+    listAccounts = JSON.stringify(['gaia.l.a.r', [gaiaAccount(0)]]);
+    const added = await addProfile('nologin', [], seed);
+    expect(added.google).toEqual({ state: 'remembered', accounts: 1, signedIn: 0 });
+  });
+
+  test('an expired Google login is not expected to be live', async () => {
+    const seed = await seedWithCookies([
+      ...manyRows(4, '.linkedin.com'),
+      { host: '.google.com', name: 'SID', expiresS: nowS() - HOUR_S, persistent: true },
+    ]);
+    liveCookies = Array.from({ length: 4 }, () => live('.linkedin.com'));
+    listAccounts = '["gaia.l.a.r",[]]';
+    expect((await addProfile('expired', [], seed)).google?.state).toBe('none');
   });
 });

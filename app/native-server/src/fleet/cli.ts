@@ -18,6 +18,7 @@ import {
   validatePurposeName,
 } from './config';
 import { addProfile, initTemplate, removeProfile, signalServe } from './provision';
+import { probeProfileGoogleSession } from './google-session';
 import { fetchLocalProfiles, fetchNodeProfiles } from './remote';
 import { ProfileSupervisor } from './supervisor';
 import type { ProfileState } from './supervisor';
@@ -140,9 +141,9 @@ export function registerFleetCommands(program: Command): void {
         .split(',')
         .map((label) => label.trim())
         .filter(Boolean);
-      // Default to seeding: an empty profile cannot be signed in to Google,
-      // because Google refuses the login from a browser it flags as automated.
-      // Inheriting the session is both the working path and the honest one.
+      // Default to seeding: inheriting the daily Chrome's logins is the only way
+      // a new profile starts signed in. The add then checks with Google that the
+      // inherited login is a live session and refuses the profile when it is not.
       const useDaily = options.seed === undefined ? true : String(options.seed) === 'daily';
       const noSeed = Boolean(options.noSeed);
       let seedDir: string | null = null;
@@ -190,6 +191,28 @@ export function registerFleetCommands(program: Command): void {
     .description('List every profile in fleet.json as JSON')
     .action(async () => {
       console.log(JSON.stringify((await loadConfig()).profiles, null, 2));
+    });
+  profile
+    .command('verify <name>')
+    .description(
+      'Ask Google whether a running profile is signed in. Prints its state ' +
+        '(session, remembered or none) and exits 1 unless it holds a live session.',
+    )
+    .action(async (name: string) => {
+      const config = await loadConfig();
+      const entry = config.profiles.find((item) => item.name === name);
+      if (!entry) throw new Error(`unknown profile: ${name}`);
+      // Straight to the profile's own bridge on loopback: reading a session needs
+      // no Keychain, so this works over SSH and on a browser serve only adopted.
+      const google = await probeProfileGoogleSession(entry.port, config.bridgeToken);
+      console.log(JSON.stringify({ name, google }));
+      if (google.state !== 'session') {
+        console.error(
+          `${name} is not signed in to Google (${google.state}): ` +
+            'sign in once in its window; the session then persists in the profile',
+        );
+        process.exitCode = 1;
+      }
     });
 
   /**

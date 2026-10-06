@@ -92,6 +92,11 @@ describe('chromeArgs', () => {
     expect(args).toContain('--remote-debugging-pipe');
     expect(args.some((arg) => arg.startsWith('--remote-debugging-port'))).toBe(false);
   });
+
+  test('hides the debug pipe from pages, or Google refuses to sign the browser in', () => {
+    // The pipe sets navigator.webdriver; Google's sign-in rejects such a browser.
+    expect(chromeArgs('/profiles/p01')).toContain('--disable-blink-features=AutomationControlled');
+  });
 });
 
 describe('readExtensionManifest', () => {

@@ -563,6 +563,7 @@ describe('FleetGateway profile add', () => {
     port: 12509,
     copied: { persistent: 254, google: 53 },
     kept: { persistent: 254, google: 53 },
+    google: { state: 'session', accounts: 1, signedIn: 1 },
   });
 
   async function addGateway(

@@ -163,6 +163,16 @@ export type ChromeChild = Omit<ChildProcess, 'stdio'> & {
   stdio: [null, null, null, Writable, Readable];
 };
 
+/**
+ * `--remote-debugging-pipe` alone turns on Blink's `AutomationControlled`
+ * feature, so every page sees `navigator.webdriver === true`, and Google's
+ * sign-in refuses such a browser outright ("Couldn't sign you in. This browser
+ * or app may not be secure", `/v3/signin/rejected`). Turning that one feature
+ * off keeps the pipe and the extension it loads, and the same copied profile
+ * then proceeds to the password challenge (both observed on Chrome 154, m1-us,
+ * 2026-10-06). A fleet profile has to be able to sign in to Google once, or
+ * its session can never be renewed after Google ends it.
+ */
 export function chromeArgs(userDataDir: string): string[] {
   return [
     `--user-data-dir=${userDataDir}`,
@@ -170,6 +180,7 @@ export function chromeArgs(userDataDir: string): string[] {
     '--no-default-browser-check',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
+    '--disable-blink-features=AutomationControlled',
     EXTENSION_DIR_FLAG,
   ];
 }

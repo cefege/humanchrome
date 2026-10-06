@@ -122,37 +122,67 @@ nothing is registered when the browser kept **fewer than 90%** of them, or
 **none of its google.com cookies** while the copy had some. Decryption loss is
 all-or-nothing, while the churn between copy and check (a cookie expiring in
 that minute) is a handful; google.com is checked on its own so a ratio cannot
-hide losing the session seeding exists for. A successful add prints both counts:
+hide losing the session seeding exists for.
+
+### The Google session gate
+
+Cookies on disk cannot say whether Google still accepts them. A copy of a daily
+Chrome that Google had already signed out carries every google.com cookie and
+lands on "Verify it's you" (`accounts.google.com/v3/signin/confirmidentifier`).
+So once the cookie gate passes, `profile add` asks Google: it opens a background
+tab on `accounts.google.com`, runs `ListAccounts` there (the call Chrome's own
+account reconcilor makes) through the new profile's bridge, and closes the tab.
+The answer is one of:
+
+| State        | Meaning                                                             |
+| ------------ | ------------------------------------------------------------------- |
+| `session`    | At least one account has a live session.                            |
+| `remembered` | Google lists the account(s) but none has a session: sign-in needed. |
+| `none`       | No account at all.                                                  |
+
+When the copy carried a Google login (an unexpired `SID` or `__Secure-1PSID` on
+`.google.com`), anything but `session` fails the add and discards the profile,
+as does an answer that cannot be read. When the seed Chrome is itself in Google
+"sign-in pending" (`signin.signin_pending_start_time` in its `Preferences`), the
+error says so: a copy cannot carry a session its source no longer has, and the
+fix is to sign in to Google in the source first. A profile given no Google login
+is reported, not gated. A successful add prints all three:
 
 ```text
-added {"name":"p03","port":12509,"copied":{"persistent":254,"google":53},"kept":{"persistent":254,"google":53}}
+added {"name":"p03","port":12509,"copied":{"persistent":254,"google":53},"kept":{"persistent":254,"google":53},"google":{"state":"session","accounts":1,"signedIn":1}}
 ```
+
+`profile verify <name>` asks the same question of a running profile at any
+time. It talks to the profile's bridge on loopback, so it works over SSH and on
+a browser `serve` adopted, prints `{"name":…,"google":{…}}` and exits 1 unless
+the state is `session`.
 
 ## Commands
 
 All commands live under `humanchrome-bridge fleet …`.
 
-| Command                                                   | What it does                                                                                                                                                                                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init [--gateway-port N] [--base-port N]`                 | Create `fleet.json` and its directories. Client auth starts **off**; the loopback bridge credential is always minted.                                                                                                                 |
-| `init --token <hex>`                                      | Require that bearer token from LAN clients. `--token none` leaves the fleet open.                                                                                                                                                     |
-| `init --print-token`                                      | Echo the token already in `fleet.json` (the only way to read it back).                                                                                                                                                                |
-| `init --force-new-token`                                  | Rotate both tokens and turn client auth on, preserving profiles.                                                                                                                                                                      |
-| `template init`                                           | Create the one-time `_template` profile on `basePort - 1`.                                                                                                                                                                            |
-| `serve`                                                   | Run the supervisor, the gateway and the MCP endpoint.                                                                                                                                                                                 |
-| `profile add <name> [--labels a,b] [--seed daily\|<dir>]` | Provision a profile, cloning the template or a seed directory. Runs inside a live `serve`; registers the profile only if its browser kept the cookies it was given ([cookie gate](#where-a-profile-is-launched-and-the-cookie-gate)). |
-| `profile rm <name> [--delete-data]`                       | Remove the profile from the fleet. Data is kept unless `--delete-data`; either way the browser is terminated first.                                                                                                                   |
-| `profile ls`                                              | Print every profile in `fleet.json` as JSON.                                                                                                                                                                                          |
-| `profile enable <name>` / `profile disable <name>`        | Let the supervisor run a profile again, or stop it and keep it stopped. Data is untouched.                                                                                                                                            |
-| `start <name>` / `stop <name>` / `restart <name>`         | One browser. Routed through the running `serve` when there is one, applied locally otherwise.                                                                                                                                         |
-| `down` / `up`                                             | Park (stop everything and keep it stopped) / unpark the fleet.                                                                                                                                                                        |
-| `status`                                                  | Profiles, states and leases. Says `serve: up` or `serve: down`.                                                                                                                                                                       |
-| `node add <id> <host> [--port N] [--token <hex>]`         | Register a peer gateway. `--token` may be omitted on a trusted LAN.                                                                                                                                                                   |
-| `node ls` / `node rm <id>`                                | List or remove peers.                                                                                                                                                                                                                 |
-| `purpose add <tag> <profile>`                             | Bind a purpose tag to exactly one browser, fleet-wide.                                                                                                                                                                                |
-| `purpose rm <tag>`                                        | Release a tag. The browser and its logins are untouched.                                                                                                                                                                              |
-| `purpose ls [--json]`                                     | Every purpose tag, the browser serving it, and its live state.                                                                                                                                                                        |
-| `install-agent` / `uninstall-agent`                       | Install or remove the launchd supervisor (`com.humanchrome.fleet`).                                                                                                                                                                   |
+| Command                                                   | What it does                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init [--gateway-port N] [--base-port N]`                 | Create `fleet.json` and its directories. Client auth starts **off**; the loopback bridge credential is always minted.                                                                                                                                                                                                                                         |
+| `init --token <hex>`                                      | Require that bearer token from LAN clients. `--token none` leaves the fleet open.                                                                                                                                                                                                                                                                             |
+| `init --print-token`                                      | Echo the token already in `fleet.json` (the only way to read it back).                                                                                                                                                                                                                                                                                        |
+| `init --force-new-token`                                  | Rotate both tokens and turn client auth on, preserving profiles.                                                                                                                                                                                                                                                                                              |
+| `template init`                                           | Create the one-time `_template` profile on `basePort - 1`.                                                                                                                                                                                                                                                                                                    |
+| `serve`                                                   | Run the supervisor, the gateway and the MCP endpoint.                                                                                                                                                                                                                                                                                                         |
+| `profile add <name> [--labels a,b] [--seed daily\|<dir>]` | Provision a profile, cloning the template or a seed directory. Runs inside a live `serve`; registers the profile only if its browser kept the cookies it was given ([cookie gate](#where-a-profile-is-launched-and-the-cookie-gate)) and, when it was given a Google login, Google confirms a live session ([Google session gate](#the-google-session-gate)). |
+| `profile verify <name>`                                   | Ask Google whether a running profile is signed in; prints `session`, `remembered` or `none` and exits 1 unless `session`.                                                                                                                                                                                                                                     |
+| `profile rm <name> [--delete-data]`                       | Remove the profile from the fleet. Data is kept unless `--delete-data`; either way the browser is terminated first.                                                                                                                                                                                                                                           |
+| `profile ls`                                              | Print every profile in `fleet.json` as JSON.                                                                                                                                                                                                                                                                                                                  |
+| `profile enable <name>` / `profile disable <name>`        | Let the supervisor run a profile again, or stop it and keep it stopped. Data is untouched.                                                                                                                                                                                                                                                                    |
+| `start <name>` / `stop <name>` / `restart <name>`         | One browser. Routed through the running `serve` when there is one, applied locally otherwise.                                                                                                                                                                                                                                                                 |
+| `down` / `up`                                             | Park (stop everything and keep it stopped) / unpark the fleet.                                                                                                                                                                                                                                                                                                |
+| `status`                                                  | Profiles, states and leases. Says `serve: up` or `serve: down`.                                                                                                                                                                                                                                                                                               |
+| `node add <id> <host> [--port N] [--token <hex>]`         | Register a peer gateway. `--token` may be omitted on a trusted LAN.                                                                                                                                                                                                                                                                                           |
+| `node ls` / `node rm <id>`                                | List or remove peers.                                                                                                                                                                                                                                                                                                                                         |
+| `purpose add <tag> <profile>`                             | Bind a purpose tag to exactly one browser, fleet-wide.                                                                                                                                                                                                                                                                                                        |
+| `purpose rm <tag>`                                        | Release a tag. The browser and its logins are untouched.                                                                                                                                                                                                                                                                                                      |
+| `purpose ls [--json]`                                     | Every purpose tag, the browser serving it, and its live state.                                                                                                                                                                                                                                                                                                |
+| `install-agent` / `uninstall-agent`                       | Install or remove the launchd supervisor (`com.humanchrome.fleet`).                                                                                                                                                                                                                                                                                           |
 
 Every fleet diagnostic is written to `serve.log` and starts with `fleet: `.
 Component lines add their component: `fleet: gateway: node worker did not
@@ -354,9 +384,19 @@ On a purpose-bound or seeded profile, `chrome_clear_browsing_data` without
 
 ## Google sign-in
 
-Connect with Screen Sharing. Open each profile window, navigate to the required
-Google service, and sign in once per profile. Cookies and profile state persist
-in `profiles/<name>`. Do not automate phone verification or account creation.
+`--remote-debugging-pipe` on its own turns on Blink's `AutomationControlled`
+feature: every page sees `navigator.webdriver === true`, and Google's sign-in
+refuses the browser with "Couldn't sign you in. This browser or app may not be
+secure" (`/v3/signin/rejected`). Fleet browsers therefore launch with
+`--disable-blink-features=AutomationControlled`, which keeps the pipe and the
+extension and lets sign-in proceed to the password or passkey challenge. A
+browser started before that flag existed keeps the old behaviour until it is
+relaunched (`fleet restart <name>`).
+
+Connect with Screen Sharing. Open the profile window, sign in to Google once,
+then run `fleet profile verify <name>`. The session lives in the profile's own
+cookie store and survives restarts. Do not automate phone verification or
+account creation.
 
 ## Agent config
 
