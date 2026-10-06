@@ -246,3 +246,49 @@ describe('cdp-session-manager: sendCommand timeout', () => {
     await expect(sendPromise).rejects.not.toThrow(/^DevTools appears to be attached/);
   });
 });
+
+describe('cdp-session-manager: ordinary errors and release', () => {
+  it('an ordinary CDP error keeps the session, so the next command reuses it and the owner detach releases Chrome', async () => {
+    const mgr = await loadManager();
+    await mgr.attach(41, 'network-capture');
+    chromeMock.debugger.sendCommand.mockRejectedValueOnce(
+      new Error('No resource with given identifier found'),
+    );
+    await expect(
+      mgr.sendCommand(41, 'Network.getResponseBody', { requestId: '1' }),
+    ).rejects.toThrow();
+
+    chromeMock.debugger.attach.mockClear();
+    await mgr.sendCommand(41, 'Network.getResponseBody', { requestId: '2' });
+    expect(chromeMock.debugger.attach).not.toHaveBeenCalled();
+
+    chromeMock.debugger.detach.mockClear();
+    await mgr.detach(41, 'network-capture');
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 41 });
+  });
+
+  it('release detaches Chrome after a timeout made the manager forget the session', async () => {
+    vi.useFakeTimers();
+    const mgr = await loadManager();
+    await mgr.attach(43, 'network-capture');
+    chromeMock.debugger.sendCommand.mockImplementation(() => new Promise(() => {}));
+
+    const sendPromise = mgr.sendCommand(43, 'Network.enable', {}, 100);
+    sendPromise.catch(() => {});
+    await vi.advanceTimersByTimeAsync(150);
+    await expect(sendPromise).rejects.toThrow();
+
+    chromeMock.debugger.detach.mockClear();
+    await mgr.release(43, 'network-capture');
+    expect(chromeMock.debugger.detach).toHaveBeenCalledWith({ tabId: 43 });
+  });
+
+  it('release with a live session is an owner detach and leaves other owners attached', async () => {
+    const mgr = await loadManager();
+    await mgr.attach(45, 'a');
+    await mgr.attach(45, 'b');
+    chromeMock.debugger.detach.mockClear();
+    await mgr.release(45, 'a');
+    expect(chromeMock.debugger.detach).not.toHaveBeenCalled();
+  });
+});
