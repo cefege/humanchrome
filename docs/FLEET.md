@@ -94,31 +94,65 @@ humanchrome-bridge fleet profile add p04 --seed /path/to/user-data-dir
 unscoped `chrome_clear_browsing_data` on them (see
 [Purposes](#purposes)).
 
+### Where a profile is launched, and the cookie gate
+
+Chrome on macOS encrypts every cookie with the `Chrome Safe Storage` key in the
+login Keychain. An SSH login is its own security session, and in it the login
+Keychain is locked: a Chrome started there cannot decrypt the cookies it finds
+on disk and **deletes them** on first load. A copy of the daily profile's 420
+cookies came up with 0 that way, while the same copy launched from the GUI
+session kept all 420.
+
+So the fleet launches Chrome only where the Keychain is readable:
+
+- `profile add` is handed to the running `serve` (`provisioning through serve
+(pid N)`), whose launchd agent lives in the Mac's GUI session. That is what
+  makes `profile add` over SSH safe.
+- Every launch, by `serve` or by the CLI, first checks `security
+show-keychain-info`. Where it fails, the launch is refused with `this session
+cannot read the login Keychain (…)` instead of starting a browser that wipes
+  its own logins. Without a running `serve`, run `profile add` from the Mac's
+  GUI session (Terminal, or over Screen Sharing).
+
+After the first launch, `profile add` compares the copy against what the
+browser kept: persistent, unexpired, unpartitioned cookies read from the copied
+cookie store before launch, against `Storage.getCookies` once the extension
+answers. The add fails, the browser is killed, the directory is deleted and
+nothing is registered when the browser kept **fewer than 90%** of them, or
+**none of its google.com cookies** while the copy had some. Decryption loss is
+all-or-nothing, while the churn between copy and check (a cookie expiring in
+that minute) is a handful; google.com is checked on its own so a ratio cannot
+hide losing the session seeding exists for. A successful add prints both counts:
+
+```text
+added {"name":"p03","port":12509,"copied":{"persistent":254,"google":53},"kept":{"persistent":254,"google":53}}
+```
+
 ## Commands
 
 All commands live under `humanchrome-bridge fleet …`.
 
-| Command                                                   | What it does                                                                                                          |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `init [--gateway-port N] [--base-port N]`                 | Create `fleet.json` and its directories. Client auth starts **off**; the loopback bridge credential is always minted. |
-| `init --token <hex>`                                      | Require that bearer token from LAN clients. `--token none` leaves the fleet open.                                     |
-| `init --print-token`                                      | Echo the token already in `fleet.json` (the only way to read it back).                                                |
-| `init --force-new-token`                                  | Rotate both tokens and turn client auth on, preserving profiles.                                                      |
-| `template init`                                           | Create the one-time `_template` profile on `basePort - 1`.                                                            |
-| `serve`                                                   | Run the supervisor, the gateway and the MCP endpoint.                                                                 |
-| `profile add <name> [--labels a,b] [--seed daily\|<dir>]` | Provision a profile, cloning the template or a seed directory.                                                        |
-| `profile rm <name> [--delete-data]`                       | Remove the profile from the fleet. Data is kept unless `--delete-data`; either way the browser is terminated first.   |
-| `profile ls`                                              | Print every profile in `fleet.json` as JSON.                                                                          |
-| `profile enable <name>` / `profile disable <name>`        | Let the supervisor run a profile again, or stop it and keep it stopped. Data is untouched.                            |
-| `start <name>` / `stop <name>` / `restart <name>`         | One browser. Routed through the running `serve` when there is one, applied locally otherwise.                         |
-| `down` / `up`                                             | Park (stop everything and keep it stopped) / unpark the fleet.                                                        |
-| `status`                                                  | Profiles, states and leases. Says `serve: up` or `serve: down`.                                                       |
-| `node add <id> <host> [--port N] [--token <hex>]`         | Register a peer gateway. `--token` may be omitted on a trusted LAN.                                                   |
-| `node ls` / `node rm <id>`                                | List or remove peers.                                                                                                 |
-| `purpose add <tag> <profile>`                             | Bind a purpose tag to exactly one browser, fleet-wide.                                                                |
-| `purpose rm <tag>`                                        | Release a tag. The browser and its logins are untouched.                                                              |
-| `purpose ls [--json]`                                     | Every purpose tag, the browser serving it, and its live state.                                                        |
-| `install-agent` / `uninstall-agent`                       | Install or remove the launchd supervisor (`com.humanchrome.fleet`).                                                   |
+| Command                                                   | What it does                                                                                                                                                                                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init [--gateway-port N] [--base-port N]`                 | Create `fleet.json` and its directories. Client auth starts **off**; the loopback bridge credential is always minted.                                                                                                                 |
+| `init --token <hex>`                                      | Require that bearer token from LAN clients. `--token none` leaves the fleet open.                                                                                                                                                     |
+| `init --print-token`                                      | Echo the token already in `fleet.json` (the only way to read it back).                                                                                                                                                                |
+| `init --force-new-token`                                  | Rotate both tokens and turn client auth on, preserving profiles.                                                                                                                                                                      |
+| `template init`                                           | Create the one-time `_template` profile on `basePort - 1`.                                                                                                                                                                            |
+| `serve`                                                   | Run the supervisor, the gateway and the MCP endpoint.                                                                                                                                                                                 |
+| `profile add <name> [--labels a,b] [--seed daily\|<dir>]` | Provision a profile, cloning the template or a seed directory. Runs inside a live `serve`; registers the profile only if its browser kept the cookies it was given ([cookie gate](#where-a-profile-is-launched-and-the-cookie-gate)). |
+| `profile rm <name> [--delete-data]`                       | Remove the profile from the fleet. Data is kept unless `--delete-data`; either way the browser is terminated first.                                                                                                                   |
+| `profile ls`                                              | Print every profile in `fleet.json` as JSON.                                                                                                                                                                                          |
+| `profile enable <name>` / `profile disable <name>`        | Let the supervisor run a profile again, or stop it and keep it stopped. Data is untouched.                                                                                                                                            |
+| `start <name>` / `stop <name>` / `restart <name>`         | One browser. Routed through the running `serve` when there is one, applied locally otherwise.                                                                                                                                         |
+| `down` / `up`                                             | Park (stop everything and keep it stopped) / unpark the fleet.                                                                                                                                                                        |
+| `status`                                                  | Profiles, states and leases. Says `serve: up` or `serve: down`.                                                                                                                                                                       |
+| `node add <id> <host> [--port N] [--token <hex>]`         | Register a peer gateway. `--token` may be omitted on a trusted LAN.                                                                                                                                                                   |
+| `node ls` / `node rm <id>`                                | List or remove peers.                                                                                                                                                                                                                 |
+| `purpose add <tag> <profile>`                             | Bind a purpose tag to exactly one browser, fleet-wide.                                                                                                                                                                                |
+| `purpose rm <tag>`                                        | Release a tag. The browser and its logins are untouched.                                                                                                                                                                              |
+| `purpose ls [--json]`                                     | Every purpose tag, the browser serving it, and its live state.                                                                                                                                                                        |
+| `install-agent` / `uninstall-agent`                       | Install or remove the launchd supervisor (`com.humanchrome.fleet`).                                                                                                                                                                   |
 
 Every fleet diagnostic is written to `serve.log` and starts with `fleet: `.
 Component lines add their component: `fleet: gateway: node worker did not
@@ -130,18 +164,19 @@ answer: …`, `fleet: session restore skipped for p01 (setCookies): …`.
 default). Every request carrying an `Origin` header is refused with
 `403 origin_not_allowed` — a browser must never be able to drive the fleet.
 
-| Route                             | Behaviour                                                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/profiles`                | Local snapshots plus one row per peer profile, keyed `nodeId:profile`.                                                                                                                |
-| `POST /v1/profiles/:name/start`   | 202 `{starting: name}`; 404 `unknown_profile`; 409 `profile_busy` when another agent holds it.                                                                                        |
-| `POST /v1/profiles/:name/stop`    | 202 `{stopping: name}`; same error shape.                                                                                                                                             |
-| `POST /v1/profiles/:name/restart` | 202 `{restarting: name}`; same error shape.                                                                                                                                           |
-| `GET /v1/leases`                  | Every live lease: agent, profile, last seen.                                                                                                                                          |
-| `DELETE /v1/leases/:agent`        | Releases that agent's leases and frees its client lane inside each browser. The `x-humanchrome-agent` header must name the same agent as the path segment, else `403 agent_mismatch`. |
-| `POST\|GET\|DELETE /v1/fleet/mcp` | [Fleet MCP tools](#fleet-mcp-tools).                                                                                                                                                  |
-| `ALL /v1/profiles/:name/*`        | Proxy to one browser's bridge.                                                                                                                                                        |
-| `ALL /v1/pool/:label/*`           | Lease a browser matching a label (or a purpose tag) and proxy to it.                                                                                                                  |
-| `ALL /v1/node/:name/*`            | Federation entry point, resolved by a peer gateway against **local** profiles only.                                                                                                   |
+| Route                             | Behaviour                                                                                                                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/profiles`                | Local snapshots plus one row per peer profile, keyed `nodeId:profile`.                                                                                                                  |
+| `POST /v1/profiles`               | Body `{name, labels, seed}` (`seed`: absolute user-data-dir or `null`). Runs `profile add` inside `serve`, one at a time; 201 with the cookie counts, 422 `add_failed` with the reason. |
+| `POST /v1/profiles/:name/start`   | 202 `{starting: name}`; 404 `unknown_profile`; 409 `profile_busy` when another agent holds it.                                                                                          |
+| `POST /v1/profiles/:name/stop`    | 202 `{stopping: name}`; same error shape.                                                                                                                                               |
+| `POST /v1/profiles/:name/restart` | 202 `{restarting: name}`; same error shape.                                                                                                                                             |
+| `GET /v1/leases`                  | Every live lease: agent, profile, last seen.                                                                                                                                            |
+| `DELETE /v1/leases/:agent`        | Releases that agent's leases and frees its client lane inside each browser. The `x-humanchrome-agent` header must name the same agent as the path segment, else `403 agent_mismatch`.   |
+| `POST\|GET\|DELETE /v1/fleet/mcp` | [Fleet MCP tools](#fleet-mcp-tools).                                                                                                                                                    |
+| `ALL /v1/profiles/:name/*`        | Proxy to one browser's bridge.                                                                                                                                                          |
+| `ALL /v1/pool/:label/*`           | Lease a browser matching a label (or a purpose tag) and proxy to it.                                                                                                                    |
+| `ALL /v1/node/:name/*`            | Federation entry point, resolved by a peer gateway against **local** profiles only.                                                                                                     |
 
 Proxying to a browser only reaches that browser's `/api/*`, `/mcp` and `/ping`.
 Anything else — the agent chat surface, the extension's raw bridge — is `404
@@ -416,6 +451,8 @@ To see what a profile is running, call `chrome_diagnostics` with
 - `invalid fleet.json: <field> is missing`: a required key was trimmed out of the file. Restore it; the message names the field.
 - `Specified native messaging host not found` in the browser console: the profile's `NativeMessagingHosts/com.humanchrome.nativehost.json` is gone. Re-create the profile (or restore that one file) — Chrome accepts the manifest silently and only fails at `connectNative()`.
 - `fleet serve` is not running: `humanchrome-bridge fleet status`; restart with `humanchrome-bridge fleet serve` or reinstall the launchd agent. Mutating commands signal the running serve with `SIGHUP`; a serve that ignores `SIGHUP` (for example one started under `nohup`) will not pick up the change until it restarts.
+- `this session cannot read the login Keychain`: the command ran over SSH (or another non-GUI session) with no `serve` to hand the launch to. Start the launchd agent (`fleet install-agent`) and retry, or run the command in the Mac's GUI session. Never work around it by launching Chrome anyway: that browser deletes every cookie in its profile.
+- `<name> lost its seeded cookies: …`: the first launch did not keep the cookies it was given, so the profile was discarded and not registered. Check the Keychain line above, then re-run `profile add`.
 - A `start`/`stop`/`restart` that printed `sent to serve (pid N)` was applied by the running supervisor. That is the correct path — a second supervisor in the CLI process would fight the running one over the same pid file and Chrome.
 - `403 agent_mismatch` on a lease release: send `x-humanchrome-agent` naming the same agent as the path segment.
 - `404 not_found` through a profile URL: the path is outside the bridge allowlist (`/api/*`, `/mcp`, `/ping`).

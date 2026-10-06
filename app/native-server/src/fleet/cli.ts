@@ -155,7 +155,30 @@ export function registerFleetCommands(program: Command): void {
       } else if (noSeed) {
         console.log(`starting ${name} with an empty profile (--no-seed)`);
       }
-      await addProfile(name, labels, seedDir);
+      // Handed to a live `serve` like start/stop/restart: it runs in the Mac's
+      // GUI session, where Chrome can read its cookie key. Without serve the add
+      // runs here, and the launch refuses a session that cannot read it.
+      const servePid = await liveServePid();
+      if (servePid === null) {
+        console.log(`added ${JSON.stringify(await addProfile(name, labels, seedDir))}`);
+        return;
+      }
+      console.log(`provisioning through serve (pid ${servePid})`);
+      const config = await loadConfig();
+      const response = await fetch(`${gatewayUrl(config)}/v1/profiles`, {
+        method: 'POST',
+        headers: { ...gatewayHeaders(config), 'content-type': 'application/json' },
+        body: JSON.stringify({ name, labels, seed: seedDir }),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const reason =
+          body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+            ? body.message
+            : `${response.status} ${JSON.stringify(body)}`;
+        throw new Error(`serve refused add ${name}: ${reason}`);
+      }
+      console.log(`added ${JSON.stringify(body)}`);
     });
   profile
     .command('rm <name>')

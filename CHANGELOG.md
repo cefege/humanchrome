@@ -6,6 +6,16 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- **Fleet: a seeded profile no longer comes up with its cookies wiped**:
+  `fleet profile add` run over SSH launched the new Chrome in the SSH security
+  session, where the login Keychain is locked, so Chrome could not read the
+  `Chrome Safe Storage` key and deleted every copied cookie (420 → 0). The add
+  is now handed to the running `fleet serve` (`POST /v1/profiles`), which
+  lives in the GUI session; every fleet Chrome launch refuses a session that
+  cannot read the Keychain; and `profile add` discards the profile instead of
+  registering it when the browser kept under 90% of the copied persistent
+  cookies, or none of its google.com ones. See docs/FLEET.md.
+
 - **macOS Tahoe TCC compatibility — doctor surfaces existing bad installs**:
   `humanchrome-bridge doctor` now flags an existing manifest whose `path`
   field points into a TCC-protected directory, so users who registered the

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { FleetConfig, FLEET_ROOT } from './config';
 import {
+  assertKeychainReadable,
   chromeArgs,
   killChromeGroup,
   readExtensionManifest,
@@ -48,6 +49,9 @@ export async function launchProfileWithExtension(
   if (!manifest.key) {
     throw new Error('extension build is keyless; rebuild with CHROME_EXTENSION_KEY set');
   }
+  // Every launch, not only a seeding one: a profile started where the Keychain
+  // is locked deletes its own cookies, and nothing downstream can undo that.
+  await assertKeychainReadable();
   const child = spawnWithCdpPipe(config.chromePath, chromeArgs(userDataDir), {
     env: profileEnvironment(config, name, port),
   });

@@ -17,12 +17,16 @@ let sent: string[] = [];
 let manifestKey: string | undefined = 'a-key';
 let loadUnpackedFails = false;
 let disposeCount = 0;
+let keychainLocked = false;
 
 jest.mock('./cdp', () => {
   const actual = jest.requireActual<typeof cdpExports>('./cdp');
   return {
     ...actual,
     readExtensionManifest: async () => ({ key: manifestKey }),
+    assertKeychainReadable: async () => {
+      if (keychainLocked) throw new Error('this session cannot read the login Keychain');
+    },
     killChromeGroup: (pid: number, signal: NodeJS.Signals) => {
       killed.push([pid, signal]);
     },
@@ -90,6 +94,7 @@ beforeEach(() => {
   disposeCount = 0;
   manifestKey = 'a-key';
   loadUnpackedFails = false;
+  keychainLocked = false;
 });
 
 describe('launchProfileWithExtension', () => {
@@ -118,6 +123,15 @@ describe('launchProfileWithExtension', () => {
     manifestKey = undefined;
     await expect(launchProfileWithExtension(config, 'p01', scratchDir(), 12500)).rejects.toThrow(
       /keyless/,
+    );
+    expect(spawnArgs).toEqual([]);
+  });
+
+  test('refuses to spawn where the Keychain is locked', async () => {
+    // Chrome there cannot decrypt the profile's cookies and deletes them.
+    keychainLocked = true;
+    await expect(launchProfileWithExtension(config, 'p01', scratchDir(), 12500)).rejects.toThrow(
+      /login Keychain/,
     );
     expect(spawnArgs).toEqual([]);
   });

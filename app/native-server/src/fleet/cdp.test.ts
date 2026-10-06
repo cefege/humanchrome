@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, jest, test } from '@jest/globals';
 import {
+  assertKeychainReadable,
   CdpPipe,
   chromeArgs,
   findChromeForProfile,
@@ -185,6 +186,37 @@ describe('CdpPipe disposal', () => {
     const { cdp } = fixture();
     cdp.dispose();
     await expect(cdp.send('Target.getTargets')).rejects.toThrow(/cdp pipe closed/);
+  });
+});
+
+describe('assertKeychainReadable', () => {
+  test('passes where the login Keychain is readable', async () => {
+    const calls: Array<[string, string[]]> = [];
+    await assertKeychainReadable(async (file, args) => {
+      calls.push([file, args]);
+    }, 'darwin');
+    // Settings only: the check must never read an item, let alone a secret.
+    expect(calls).toEqual([['/usr/bin/security', ['show-keychain-info']]]);
+  });
+
+  test('refuses an SSH session, naming the Keychain error', async () => {
+    const locked = Object.assign(new Error('Command failed'), {
+      stderr: 'security: SecKeychainCopySettings <NULL>: User interaction is not allowed.\n',
+    });
+    await expect(
+      assertKeychainReadable(async () => {
+        throw locked;
+      }, 'darwin'),
+    ).rejects.toThrow(
+      'this session cannot read the login Keychain (security: SecKeychainCopySettings <NULL>: ' +
+        'User interaction is not allowed.)',
+    );
+  });
+
+  test('is a no-op off macOS, where Chrome keeps no Keychain key', async () => {
+    await assertKeychainReadable(async () => {
+      throw new Error('must not run');
+    }, 'linux');
   });
 });
 

@@ -7,6 +7,7 @@ import type { Socket } from 'node:net';
 import { FleetLeases } from './leases';
 import { FleetConfig, FleetNodeConfig } from './config';
 import { ProfileState, ProfileSnapshot, ProfileSupervisor } from './supervisor';
+import { addProfile, type AddedProfile } from './provision';
 import { fetchNodeProfiles, NODE_SEPARATOR } from './remote';
 import { createFleetMcpServer, type FleetMcpDeps } from './mcp';
 import { FLEET_UI_HTML } from './ui';
@@ -42,6 +43,8 @@ export interface FleetGatewayOptions {
   config: FleetConfig;
   supervisor: ProfileSupervisor;
   leases: FleetLeases;
+  /** Provisions one profile in this process; injectable for tests. */
+  addProfile?: (name: string, labels: string[], seedDir: string | null) => Promise<AddedProfile>;
 }
 
 export class FleetGateway {
@@ -53,6 +56,8 @@ export class FleetGateway {
   private readonly nodeCache = new Map<string, { at: number; profiles: ProfileRoute[] }>();
   private readonly fleetMcpHandler: McpHttpHandler;
   private readonly fleetMcpNode: NodeMcpRequestHandler;
+  /** One add at a time: each one picks the next free port from fleet.json. */
+  private adding: Promise<unknown> = Promise.resolve();
 
   constructor(options: FleetGatewayOptions) {
     this.options = options;
@@ -165,6 +170,38 @@ export class FleetGateway {
     profileVerb('start', 'starting', (name) => this.options.supervisor.startProfile(name));
     profileVerb('stop', 'stopping', (name) => this.options.supervisor.stopProfile(name));
     profileVerb('restart', 'restarting', (name) => this.options.supervisor.restartProfile(name));
+
+    /**
+     * `fleet profile add` lands here whenever `serve` is live. `serve` runs from
+     * its launchd agent in the Mac's GUI session, where the login Keychain is
+     * open; a CLI over SSH is not, and a browser it seeds cannot decrypt the
+     * cookies it was given. Answered only once the add finished or failed, so
+     * the caller sees the real outcome.
+     */
+    this.app.post('/v1/profiles', async (request, reply) => {
+      const body: unknown = request.body;
+      if (!body || typeof body !== 'object') return reply.code(400).send({ error: 'invalid_body' });
+      const name = 'name' in body ? body.name : undefined;
+      const labels = 'labels' in body ? body.labels : [];
+      const seed = 'seed' in body ? body.seed : null;
+      if (typeof name !== 'string') return reply.code(400).send({ error: 'invalid_name' });
+      if (!Array.isArray(labels) || !labels.every((label) => typeof label === 'string')) {
+        return reply.code(400).send({ error: 'invalid_labels' });
+      }
+      if (seed !== null && (typeof seed !== 'string' || !seed.startsWith('/'))) {
+        return reply.code(400).send({ error: 'invalid_seed' });
+      }
+      const add = this.options.addProfile ?? addProfile;
+      const run = this.adding.then(() => add(name, labels, seed));
+      this.adding = run.catch(() => undefined);
+      try {
+        return reply.code(201).send(await run);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`fleet: gateway: add of ${name} failed: ${message}`);
+        return reply.code(422).send({ error: 'add_failed', message });
+      }
+    });
 
     this.app.get('/v1/leases', async (_request, reply) => reply.send(this.options.leases.list()));
     this.app.delete('/v1/leases/:agent', async (request, reply) => {

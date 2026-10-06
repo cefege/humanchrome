@@ -4,6 +4,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { FleetGateway } from './gateway';
 import { FleetLeases } from './leases';
 import type { FleetConfig } from './config';
+import type { AddedProfile } from './provision';
 import type { ProfileSnapshot, ProfileSupervisor } from './supervisor';
 
 const config: FleetConfig = {
@@ -552,6 +553,95 @@ describe('FleetGateway profile control', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(errors).toHaveBeenCalledWith('fleet: gateway: restart of p01 failed: chrome is wedged');
     errors.mockRestore();
+  });
+});
+
+describe('FleetGateway profile add', () => {
+  const auth = { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' };
+  const added = (name: string): AddedProfile => ({
+    name,
+    port: 12509,
+    copied: { persistent: 254, google: 53 },
+    kept: { persistent: 254, google: 53 },
+  });
+
+  async function addGateway(
+    add: (name: string, labels: string[], seed: string | null) => Promise<AddedProfile>,
+  ): Promise<string> {
+    const gateway = new FleetGateway({
+      config,
+      supervisor: fakeSupervisor([]),
+      leases: new FleetLeases(900, () => 0),
+      addProfile: add,
+    });
+    gateways.push(gateway);
+    return gateway.listen();
+  }
+
+  test('provisions in serve and answers once the add has finished', async () => {
+    const calls: unknown[] = [];
+    const url = await addGateway(async (name, labels, seed) => {
+      calls.push([name, labels, seed]);
+      return added(name);
+    });
+    const response = await fetch(`${url}/v1/profiles`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ name: 'linkedin', labels: ['social'], seed: '/seed/Chrome' }),
+    });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual(added('linkedin'));
+    expect(calls).toEqual([['linkedin', ['social'], '/seed/Chrome']]);
+  });
+
+  test('a refused add is 422 with its reason, and serve stays up', async () => {
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const url = await addGateway(async () => {
+      throw new Error('wiped lost its seeded cookies: Chrome kept 0 of 254 copied cookies');
+    });
+    const response = await fetch(`${url}/v1/profiles`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ name: 'wiped', labels: [], seed: '/seed/Chrome' }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: 'add_failed',
+      message: 'wiped lost its seeded cookies: Chrome kept 0 of 254 copied cookies',
+    });
+    errors.mockRestore();
+  });
+
+  test('a malformed request never reaches provisioning', async () => {
+    const calls: string[] = [];
+    const url = await addGateway(async (name) => {
+      calls.push(name);
+      return added(name);
+    });
+    for (const [body, error] of [
+      [{ labels: [] }, 'invalid_name'],
+      [{ name: 'x', labels: 'a,b' }, 'invalid_labels'],
+      [{ name: 'x', seed: 'relative/dir' }, 'invalid_seed'],
+    ] as const) {
+      const response = await fetch(`${url}/v1/profiles`, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('the add endpoint inherits the gateway bearer check', async () => {
+    const url = await addGateway(async (name) => added(name));
+    const response = await fetch(`${url}/v1/profiles`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x', labels: [], seed: null }),
+    });
+    expect(response.status).toBe(401);
   });
 });
 

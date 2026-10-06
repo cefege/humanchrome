@@ -9,6 +9,40 @@ const execFileAsync = promisify(execFile);
 
 const EXTENSION_DIR_FLAG = '--remote-debugging-pipe';
 
+/**
+ * Chrome on macOS encrypts every cookie with the "Chrome Safe Storage" key in
+ * the login Keychain. An SSH login is its own security session, and in it the
+ * login Keychain is locked: a Chrome started there cannot read the key, cannot
+ * decrypt the cookies it finds on disk, and deletes them on first load. A seeded
+ * copy of 420 cookies came up with 0 that way, and an existing profile launched
+ * there would lose its logins the same way. Refusing the launch is the only safe
+ * answer, because the deletion is written into the profile's own cookie store.
+ *
+ * `show-keychain-info` reads the default keychain's settings, which needs that
+ * keychain unlocked in this session; it never touches an item or its secret.
+ */
+export async function assertKeychainReadable(
+  run: (file: string, args: string[]) => Promise<unknown> = execFileAsync,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  if (platform !== 'darwin') return;
+  try {
+    await run('/usr/bin/security', ['show-keychain-info']);
+  } catch (error) {
+    const stderr =
+      error && typeof error === 'object' && 'stderr' in error && typeof error.stderr === 'string'
+        ? error.stderr.trim()
+        : '';
+    const detail = stderr || (error instanceof Error ? error.message : String(error));
+    throw new Error(
+      `this session cannot read the login Keychain (${detail}), so Chrome would fail to ` +
+        'decrypt the profile’s cookies and delete them. Launch from the Mac’s GUI login ' +
+        'session; over SSH, keep `fleet serve` running (its launchd agent lives in the GUI ' +
+        'session) and the CLI hands the launch to it',
+    );
+  }
+}
+
 interface CdpMessage {
   id?: number;
   method?: string;
