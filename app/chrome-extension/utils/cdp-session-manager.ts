@@ -15,6 +15,8 @@ const DEBUGGER_PROTOCOL_VERSION = '1.3';
 // "DevTools is fighting us" symptom. 10s matches the per-tab JS lock
 // timeout — keeping them aligned avoids confusing dual-timeout reports.
 const CDP_SEND_TIMEOUT_MS = 10_000;
+// A detach is a browser-side call, so 2 s only guards a wedged tab.
+const CDP_RELEASE_TIMEOUT_MS = 2_000;
 
 // Chrome's onDetach reason strings for the cases we care about.
 // `target_closed` fires when the tab itself closes; `replaced_with_devtools`
@@ -226,6 +228,29 @@ class CDPSessionManager {
   }
 
   /**
+   * Releases this tab for `owner` even when a timeout has already made the
+   * manager forget the session: then Chrome is still attached and `detach`
+   * would do nothing. With cached state this is `detach`. Bounded, because it
+   * runs on a tab that has just stopped answering.
+   */
+  async release(tabId: number, owner: OwnerTag = 'unknown'): Promise<void> {
+    if (this.getState(tabId)) return this.detach(tabId, owner);
+    let handle: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        chrome.debugger.detach({ tabId }),
+        new Promise<void>((resolve) => {
+          handle = setTimeout(resolve, CDP_RELEASE_TIMEOUT_MS);
+        }),
+      ]);
+    } catch {
+      // Not attached, or not ours: `chrome.debugger.detach` only releases this extension's session.
+    } finally {
+      clearTimeout(handle);
+    }
+  }
+
+  /**
    * Convenience wrapper: ensures attach before fn, and balanced detach after.
    */
   async withSession<T>(tabId: number, owner: OwnerTag, fn: () => Promise<T>): Promise<T> {
@@ -262,8 +287,10 @@ class CDPSessionManager {
     };
 
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
+        timedOut = true;
         reject(this.timeoutErrorFor(tabId, method, timeoutMs));
       }, timeoutMs);
     });
@@ -271,12 +298,14 @@ class CDPSessionManager {
     try {
       return await Promise.race([send(), timeoutPromise]);
     } catch (e) {
-      // The timeout path almost always means DevTools is fighting us.
-      // Drop cached state so the next attempt sees a clean slate.
-      this.sessions.delete(tabId);
+      // Only a timeout makes the session suspect. An ordinary CDP error (e.g.
+      // `Network.getResponseBody` on a redirect) concerns the command; forgetting
+      // the session made the next command's `attach` detach Chrome's live
+      // session, which drops `Network.enable` mid-capture.
+      if (timedOut) this.sessions.delete(tabId);
       throw e;
     } finally {
-      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      clearTimeout(timeoutHandle);
     }
   }
 }

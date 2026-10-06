@@ -151,8 +151,10 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
       try {
         await cdpSessionManager.sendCommand(tabId, 'Network.enable');
       } catch (error: any) {
+        // A timed-out `Network.enable` has already made the manager forget the
+        // session, so `detach` would leave Chrome attached.
         await cdpSessionManager
-          .detach(tabId, 'network-capture')
+          .release(tabId, 'network-capture')
           .catch((e) => console.warn('Error detaching after failed enable:', e));
         throw error;
       }
