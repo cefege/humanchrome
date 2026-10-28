@@ -1,9 +1,18 @@
-# Chrome fleet operations
+# Native Chrome fleet operations
 
-A fleet is a set of real, logged-in Chrome profiles on one or more macOS
-machines, supervised by `fleet serve` and fronted by an HTTP gateway that
-speaks MCP. Agents reach browsers through the gateway; operators reach the fleet
-through the CLI.
+HumanChrome turns a Mac into a browser resource for local or remote agents:
+multiple full Chrome processes, independent persistent profiles, and parallel
+work over MCP or HTTP. The extension controls each browser; `fleet serve`
+supervises the processes and provides the gateway, leases, and read-only web
+dashboard. Peer gateways extend the pool across macOS machines.
+
+Profiles can be seeded from an existing signed-in Chrome on the same Mac.
+Cookie-retention and Google-session checks guard provisioning; copies then
+keep their own state rather than continuously syncing with the source.
+
+For the product overview and first remote connection, start with the
+[README fleet quickstart](../README.md#turn-a-mac-into-a-browser-fleet).
+This guide covers deployment and operating details.
 
 - [Mac setup](#mac-setup)
 - [Provisioning](#provisioning)
@@ -196,6 +205,7 @@ default). Every request carrying an `Origin` header is refused with
 
 | Route                             | Behaviour                                                                                                                                                                               |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /` or `GET /ui`              | Read-only web dashboard for profile health, leases, and errors.                                                                                                                         |
 | `GET /v1/profiles`                | Local snapshots plus one row per peer profile, keyed `nodeId:profile`.                                                                                                                  |
 | `POST /v1/profiles`               | Body `{name, labels, seed}` (`seed`: absolute user-data-dir or `null`). Runs `profile add` inside `serve`, one at a time; 201 with the cookie counts, 422 `add_failed` with the reason. |
 | `POST /v1/profiles/:name/start`   | 202 `{starting: name}`; 404 `unknown_profile`; 409 `profile_busy` when another agent holds it.                                                                                          |
@@ -340,10 +350,13 @@ and dispatches work to them; clients keep talking to a single gateway.
 humanchrome-bridge fleet serve
 
 # on the central machine
-humanchrome-bridge fleet node add workstation 100.x.y.z --port 12300 --token <worker gateway token>
+humanchrome-bridge fleet node add workstation 100.x.y.z --port 12300 --token "$WORKER_FLEET_TOKEN"
 humanchrome-bridge fleet node ls
 humanchrome-bridge fleet node rm workstation
 ```
+
+Set `WORKER_FLEET_TOKEN` privately to the worker gateway's token before adding
+it; omit `--token` only when that peer intentionally has client auth disabled.
 
 - Peer profiles appear in `fleet status` and `/v1/profiles` as `nodeId:profile`
   (for example `workstation:p01`). Local profile names cannot contain `:`, so a

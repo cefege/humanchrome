@@ -4,7 +4,7 @@
   "private": true,
   "author": "Mihai Mateias",
   "license": "MIT",
-  "description": "AI controls your real Chrome. Built for hard-to-automate platforms (LinkedIn, WhatsApp, Tinder, Facebook, Instagram). MCP and plain HTTP.",
+  "description": "A native Chrome fleet for AI agents. Persistent signed-in profiles, parallel browsers, and remote control over MCP or HTTP.",
   "homepage": "https://github.com/cefege/humanchrome",
   "repository": {
     "type": "git",

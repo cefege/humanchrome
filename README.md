@@ -4,9 +4,9 @@
 
 # HumanChrome
 
-**Built for AI engineers. Give your agents the real, signed-in Chrome you already use — cookies, sessions, history and all — so they work on the platforms that flag everything else.**
+**A native Chrome fleet for AI agents. Real browsers. Persistent logins. Parallel work.**
 
-HumanChrome is browser control for AI engineers. It runs as an extension inside the Chrome you already have open, so when an agent clicks, types, scrolls, reads the DOM, or taps the network, it does it in your real session with your real cookies. Drive it from any MCP client — Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio — or skip MCP entirely and call a local HTTP API. It generalizes to anything Chrome can do, but the design pressure came from the platforms that punish automation hardest: LinkedIn, WhatsApp, Tinder, Facebook, Instagram.
+Turn a Mac into a pool of signed-in Chrome browsers that agents can use from another computer over **MCP or HTTP**. Clone an existing profile, give agents separate browsers, and run workflows in parallel without sharing one active tab. Start with one Mac; federate more machines behind the same gateway when you need more capacity.
 
 _Built by Mihai Mateias. I use it daily to drive my own coding agents._
 
@@ -17,76 +17,53 @@ _Built by Mihai Mateias. I use it daily to drive my own coding agents._
 
 </div>
 
-## What it is
+## More than a Chrome extension
 
-HumanChrome lets an AI drive the Chrome you already use, in your real logged-in session. It runs as an extension inside your open browser and exposes every browser action — click, fill, navigate, screenshot, run JS, capture network, handle dialogs, upload files, read console, history, and bookmarks — to your AI client. You reach it two ways: over MCP from any MCP-aware client, or over a plain local HTTP API from a script, an SDK, or a curl pipeline.
+The extension is how HumanChrome acts inside a browser. The fleet is how you run many of them.
 
-```text
-your AI client  →  MCP or plain HTTP  →  local bridge  →  Chrome extension  →  your real Chrome
-```
+HumanChrome combines a **Chrome extension**, a **native bridge**, and a **fleet supervisor and gateway**. It runs full Chrome processes directly on macOS — no Docker or headless browser required — with persistent profiles, cookies, and website storage. Your agents can run elsewhere: a laptop, a server, or another machine on your private network.
 
-It generalizes to anything Chrome can do on any site, but it was built under pressure from the platforms other automation tools choke on: the social and messaging apps with serious anti-bot defenses.
+- **One browser or a fleet.** Control your everyday Chrome, or provision separate Chrome processes and profiles for parallel agents.
+- **Bring your signed-in session.** Seed fleet profiles from this Mac's daily Chrome or another user-data directory, or clone a reusable template. Each copy keeps its own state afterward; it is not a live cookie-sync service.
+- **Parallel work, not one shared active tab.** Separate browsers give agents independent tab sets. Fleet leases keep agents from taking the same browser; per-client tab ownership and per-tab locks coordinate work inside a browser.
+- **A remote browser resource.** Discover available profiles, provision them over HTTP, start/stop/restart browsers over HTTP or MCP, and route browser actions to a named profile or a labeled pool.
+- **Supervised, not disposable.** Health checks, crash recovery with backoff, and a launchd service keep the fleet available.
+- **One Mac now, more later.** Peer gateways expose browsers across machines through named routes and pooled access.
 
-## The problem
+[Fleet setup and operations →](docs/FLEET.md) · [Browser tool reference →](docs/TOOLS.md)
 
-Most "AI browser automation" spins up a clean Chromium via Playwright or Puppeteer. That's fine for testing, but on adversarial sites the instance has no usage history and no real cookies. It looks like exactly what it is — a fresh, headless-ish browser — and the anti-bot layer flags it. LinkedIn flags clean Playwright within a session or two. WhatsApp Web wants a QR scan on every fresh launch. Tinder profiles the browser environment hard. Facebook and Instagram push you into checkpoint flows the moment a fingerprint looks off.
+## What agents can do
 
-HumanChrome runs inside the Chrome you already have open. The AI clicks around in your real session with your real cookies. Nothing about the browser is fresh, so the anti-bot layer has nothing to flag at the environment level.
+Navigate, click, fill forms, scroll, read page content, take screenshots, run JavaScript, handle dialogs, upload files, inspect console output, capture network traffic, and intercept fetch/XHR responses. The same browser tool catalog is available through MCP and a plain HTTP API with a generated OpenAPI spec.
 
-## Does this fix your problem?
+Use it for parallel research, signed-in business apps, messaging workflows, and repetitive website tasks. One agent can work in one browser while another works in a different browser — without borrowing your mouse or making every workflow compete for one tab.
 
-If you searched for any of these, yes:
+MCP clients include Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, and Cherry Studio. Scripts and custom agent runtimes can use HTTP directly.
 
-- "Browser automation that doesn't get flagged as a bot"
-- "AI that controls my logged-in LinkedIn account"
-- "WhatsApp Web automation without QR scanning every time"
-- "Tinder automation that uses my real profile"
-- "Facebook automation that doesn't trigger checkpoint"
-- "Instagram automation without account locks"
-- "MCP server for hard-to-automate sites"
-- "MCP server for Chrome that handles multiple clients at once"
-- "Chrome extension that doesn't redact base64 IDs, URNs, or JWTs"
-- "React form fill that actually triggers `onChange`"
-- "Intercept fetch or XHR responses from a Chrome extension"
-- "Reset a stuck MCP transport without restarting Chrome"
-- "Browser automation alternative to Playwright, Puppeteer, browser-use"
-- "Run AI agents on my actual Chrome profile, not a clean one"
-- "Local HTTP API for browser automation, no MCP required"
+## Why native Chrome?
 
-## What you get
+A fresh browser often means starting from zero: no login, no website storage, no paired session. HumanChrome can work in your existing Chrome or copy its profile into dedicated fleet browsers on the same Mac. The browser runs on the host's normal OS and network stack rather than requiring a containerized browser environment.
 
-**Your real browser, not a fresh one.** The agent acts inside the Chrome you already have open, with your cookies, your login state, and your browsing history. There's nothing fresh for an anti-bot layer to flag at the environment level, because nothing about the environment is fresh.
-
-**Tuned for the platforms that punish bots.** The patches in this codebase came from breaking against real automations on the sites that punish automation hardest — LinkedIn message threads, connection-request flows, and Voyager-API URN handling; WhatsApp Web dispatch and contact lookup without re-pairing every session; Tinder, Facebook, and Instagram profile and messaging actions that survive device-trust and checkpoint heuristics. Everything else Chrome can do works too; those platforms are just where the broken edges lived.
-
-**MCP or plain HTTP, your choice.** The same tool catalog is exposed both ways. Point any MCP-aware client at it, or POST to a local REST surface with a generated OpenAPI spec when you're calling from a custom script, the Anthropic or OpenAI SDK, or a curl pipeline that doesn't speak MCP.
-
-**Multiple clients, no tab fights.** Several clients can connect at once. Each MCP session keeps its own preferred-tab state, and per-tab JS locks keep concurrent calls from stepping on each other, so two AI clients don't fight over which tab is "current".
-
-**Data that survives the round-trip.** By default the extension redacts cookies, JWTs, base64 IDs, and URNs so you don't leak session tokens into a chat transcript. One toggle passes them through verbatim for the workflows that genuinely need raw values, like LinkedIn URN handling.
-
-**Automation that behaves like a real page.** A React-compatible form-fill that actually fires the `onChange` events frameworks listen for, fetch/XHR response interception from inside the page, screenshots, arbitrary JS execution, dialog handling, file upload, and console + network capture.
-
-**Unstick without a restart.** If a session jams mid-init, reset the transport with a single call — no Chrome relaunch, no re-pairing.
-
-**Local by construction.** The bridge listens on `127.0.0.1` and talks to the extension over Chrome's native-messaging IPC. HumanChrome itself sends nothing to any external service.
+That is useful for signed-in workflows on sites such as LinkedIn, WhatsApp Web, Facebook, Instagram, and Tinder. It does **not** make automation undetectable: sites can still evaluate behavior, IP reputation, concurrent sessions, and other signals, challenge a login, or restrict an account. Use accounts you are authorized to control and respect each site's rules.
 
 ## How it works
 
-```text
-AI client (MCP or HTTP)
-        │
-        ▼
-Local bridge on :12306 (Fastify, Node)
-        │   native messaging
-        ▼
-Chrome extension (background, popup, sidepanel)
-        │
-        ▼
-Active tab (your real Chrome session)
+```mermaid
+flowchart TD
+    Agent["Agents and scripts · local or remote"] -->|HTTP / MCP| Gateway["Fleet gateway · :12300"]
+    Gateway --> Supervisor["Supervisor · health and lifecycle"]
+    Gateway -->|Leased profile or pool| BridgeA["Native bridge A"]
+    Gateway -->|Leased profile or pool| BridgeB["Native bridge B"]
+    BridgeA -->|Native messaging| ChromeA["Chrome A + extension · profile A"]
+    BridgeB -->|Native messaging| ChromeB["Chrome B + extension · profile B"]
+    Gateway -->|Federation| Peer["Peer Mac gateway"]
 ```
 
-The bridge is a native-messaging host that exposes the browser tool catalog over both an MCP endpoint and a plain HTTP REST surface. Chrome's extension does the actual work in your live session. For the full tour, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The fleet gateway handles routing and leases; each browser has its own bridge and extension. Browser actions run inside the selected profile. For single-browser use, connect directly to its local bridge on `127.0.0.1:12306` — no fleet required.
+
+There is also a **read-only web dashboard** at the gateway root (`/` or `/ui`) for profile health, leases, and launch errors. Browser lifecycle control is through the CLI, HTTP API, or fleet MCP tools, not dashboard buttons.
+
+See [architecture](docs/ARCHITECTURE.md) for the browser/bridge internals and [fleet operations](docs/FLEET.md) for deployment, security, and multi-machine routing.
 
 ## Install
 
@@ -98,6 +75,7 @@ git clone https://github.com/cefege/humanchrome.git
 cd humanchrome
 pnpm install
 pnpm --filter humanchrome-bridge build
+pnpm build:extension
 
 # 2. Deploy to a stable install dir outside the repo, then install globally
 SAFE_DIR="$HOME/Library/Application Support/humanchrome-bridge"
@@ -119,21 +97,96 @@ humanchrome-bridge register
 > manifest pointing into a TCC-protected dir, and `humanchrome-bridge doctor`
 > flags existing bad manifests from earlier installs.
 
-4. Load the extension in Chrome:
+4. For **single-browser mode**, load the extension in Chrome (fleet provisioning loads it automatically):
    - Go to `chrome://extensions/`, enable Developer mode.
    - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from your clone (or the released zip from the GitHub Releases tab).
    - Click the extension icon, then **Connect**.
 
-5. Confirm the bridge is up:
+5. For single-browser mode, confirm the bridge is up:
 
 ```bash
 curl http://127.0.0.1:12306/ping
 # {"status":"ok","message":"pong"}
 ```
 
-### Connect an MCP client
+### Turn a Mac into a browser fleet
 
-For Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio, or any other MCP-aware client.
+After building and registering the bridge above, follow the [Mac setup prerequisites](docs/FLEET.md#mac-setup): the fleet needs a logged-in GUI session with an accessible login Keychain. The extension build deploys to the fleet's default extension directory.
+
+```bash
+# Initialize the fleet and enable client authentication.
+# This rotates credentials on an existing fleet; run once during setup.
+humanchrome-bridge fleet init --force-new-token
+
+# Keep the supervisor in the Mac's GUI session, including for SSH callers.
+humanchrome-bridge fleet install-agent
+
+# Make independent browsers from this Mac's signed-in Chrome.
+humanchrome-bridge fleet profile add research-01 --seed daily --labels research
+humanchrome-bridge fleet profile add research-02 --seed daily --labels research
+
+humanchrome-bridge fleet status
+```
+
+Seeding copies sensitive session data. The fleet refuses launches that cannot access the login Keychain, checks that copied cookies survive first launch, and verifies a live Google session when the source supplied a Google login. A copy cannot revive an expired or revoked session. See [session checks](docs/FLEET.md#where-a-profile-is-launched-and-the-cookie-gate).
+
+From another computer, configure two MCP connections: one for browser work and one for fleet control. Replace `mac-host`, `YOUR_FLEET_TOKEN`, and `research-agent-1`; get the token privately with `humanchrome-bridge fleet init --print-token`.
+
+```json
+{
+  "mcpServers": {
+    "humanchrome": {
+      "type": "streamableHttp",
+      "url": "http://mac-host:12300/v1/pool/research/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_FLEET_TOKEN",
+        "X-Humanchrome-Agent": "research-agent-1"
+      }
+    },
+    "humanchromeFleet": {
+      "type": "streamableHttp",
+      "url": "http://mac-host:12300/v1/fleet/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_FLEET_TOKEN",
+        "X-Humanchrome-Agent": "research-agent-1"
+      }
+    }
+  }
+}
+```
+
+Give each independent agent a unique name. A pool request leases a matching browser; another agent can lease another free browser and work in parallel. Fleet MCP tools include `fleet_profiles`, `fleet_profile` (start/stop/restart), `fleet_leases`, `fleet_purposes`, and `fleet_park`.
+
+**Keep the gateway on a trusted private network**, such as Tailscale. It defaults to `0.0.0.0:12300`, and client authentication is **off unless enabled**; the setup above enables it. Bearer authentication does not encrypt HTTP traffic. Do not expose signed-in browsers to the public internet.
+
+HTTP clients can use the same gateway:
+
+```bash
+export HC_FLEET_URL="http://mac-host:12300"
+# Set HC_FLEET_TOKEN privately to the token printed during setup.
+
+# Discover browser capacity and state.
+curl "$HC_FLEET_URL/v1/profiles" \
+  -H "Authorization: Bearer $HC_FLEET_TOKEN"
+
+# Start a named browser (stop and restart use the same route shape).
+curl -X POST "$HC_FLEET_URL/v1/profiles/research-01/start" \
+  -H "Authorization: Bearer $HC_FLEET_TOKEN" \
+  -H "X-Humanchrome-Agent: research-agent-1"
+
+# Run a browser tool through a leased research browser.
+curl -X POST "$HC_FLEET_URL/v1/pool/research/api/tools/chrome_navigate" \
+  -H "Authorization: Bearer $HC_FLEET_TOKEN" \
+  -H "X-Humanchrome-Agent: research-agent-1" \
+  -H 'Content-Type: application/json' \
+  -d '{"args":{"url":"https://example.com"}}'
+```
+
+For HTTP profile provisioning, dedicated-profile routes, peer Macs, and lease release, see the [gateway reference](docs/FLEET.md#gateway). Fleet MCP controls existing profiles; new profiles are provisioned through the CLI or `POST /v1/profiles`.
+
+### Or connect to a single browser over MCP
+
+No fleet required. Use Claude Code, Claude Desktop, Cursor, Codex CLI, Continue, Cherry Studio, or another MCP-aware client.
 
 **Streamable HTTP (recommended)**
 
@@ -184,18 +237,20 @@ curl http://127.0.0.1:12306/api/tools
 # Get the OpenAPI spec
 curl http://127.0.0.1:12306/api/openapi.json
 
-# Take a screenshot of the active tab
-curl -X POST http://127.0.0.1:12306/api/tools/chrome_screenshot \
+# Open a page in a tab owned by this client.
+curl -X POST http://127.0.0.1:12306/api/tools/chrome_navigate \
   -H 'Content-Type: application/json' \
-  -d '{"args":{"fullPage":true}}'
+  -H 'X-Client-Id: research-script' \
+  -d '{"args":{"url":"https://example.com"}}'
 
-# Run JS in the active tab and read it back
+# Read its title using the same client identity.
 curl -X POST http://127.0.0.1:12306/api/tools/chrome_javascript \
   -H 'Content-Type: application/json' \
+  -H 'X-Client-Id: research-script' \
   -d '{"args":{"code":"document.title"}}'
 ```
 
-The response shape matches MCP's `CallToolResult`: `content` is an array of items, `isError` is `true` on tool-level failure. Pass an `X-Client-Id` header if you want preferred-tab continuity across calls.
+The response shape matches MCP's `CallToolResult`: `content` is an array of items, `isError` is `true` on tool-level failure. Keep the same `X-Client-Id` across calls for client/tab continuity; explicitly claim existing tabs before working in them. Clients do not silently inherit the globally active tab.
 
 ## Configuration
 
@@ -221,27 +276,24 @@ If the bridge can't find Node on your system, set `HUMANCHROME_NODE_PATH=/path/t
 
 ## Tools
 
-Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`. For the multi-tab "open many, drain serially" pattern, see [Multi-tab fan-out workflow](docs/TOOLS.md#multi-tab-fan-out-workflow).
+Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`.
 
-## HumanChrome vs. clean-browser automation
+## When to use HumanChrome
 
-Playwright, Puppeteer, and browser-use spin up a fresh browser you script against. That's the right tool for testing and for sites that don't care who's driving. On adversarial platforms it's the wrong shape: a clean instance with no history and no real cookies is exactly what the anti-bot layer is built to catch. HumanChrome inverts that — it drives the browser you already live in.
+Choose HumanChrome when agents need **persistent, signed-in browsers as a shared resource**: native Chrome on a Mac, separate profiles for concurrent work, remote access over MCP or HTTP, and supervision across one or more machines.
 
-|                      | Playwright / Puppeteer / browser-use                                | HumanChrome                                             |
-| -------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Browser instance** | Fresh Chromium you spawn                                            | The Chrome you already have open                        |
-| **Cookies & login**  | None; you script login on every run                                 | Your real, already-signed-in sessions                   |
-| **Anti-bot posture** | Flagged as fresh / headless-ish on LinkedIn, WhatsApp, Tinder, etc. | Nothing fresh at the environment level to flag          |
-| **WhatsApp Web**     | QR scan on every fresh launch                                       | Your already-paired session                             |
-| **Interface**        | A library you write code against                                    | MCP tool catalog or plain HTTP, driven by any AI client |
-| **Where it runs**    | A browser you spawn and own                                         | Your everyday Chrome profile                            |
-
-HumanChrome isn't a replacement for headless testing frameworks; it's the piece they can't be, which is native automation of the real, trusted browser you already use.
+Playwright and Puppeteer remain good choices for browser testing and library-driven automation; they can also use persistent profiles and headed browsers. HumanChrome's distinction is the integrated extension, native bridge, profile/session provisioning, agent leases, and fleet gateway — not a claim that other tools can only run fresh or headless browsers.
 
 ## FAQ
 
-**Q: Will I get banned from LinkedIn / WhatsApp / Tinder / Facebook / Instagram for using this?**
-Automation runs inside the browser session you already use. The fingerprint, login state, and browsing history are yours, so there is nothing fresh for an anti-bot system to flag at the environment level. Behavior is a different story. Anti-bot systems will still catch you if you fire 1000 requests per second or hit identical timing intervals between actions, so pace things at human speed. No tool can guarantee you won't get banned for what you do with it.
+**Q: How many browsers can run at once?**
+Run multiple Chrome processes with separate profiles on one Mac, and add peer Macs for more capacity. Practical concurrency depends on RAM, CPU, and the pages you run; this README does not promise an unlimited or benchmarked browser count. Cloning a profile creates another browser session, not another account or identity.
+
+**Q: Does every parallel browser look focused to a website?**
+Fleet launches disable Chrome's occluded-window backgrounding and renderer backgrounding. This supports work across browser windows without relying on a single foreground window, but it is not a guarantee that every tab reports `document.visibilityState === "visible"` or `document.hasFocus() === true`. Focus-sensitive workflows still need site-specific verification.
+
+**Q: Is it undetectable? Will it prevent account bans?**
+No. Native Chrome and retained login state avoid starting every workflow in an empty browser, but they cannot guarantee invisibility or account safety. Sites can detect automation behavior, challenge cloned sessions, expire cookies, or enforce their policies regardless of the browser environment.
 
 **Q: Does this work with Claude Desktop / Cursor / Cherry Studio / Continue?**
 Yes. Any MCP-aware client. Use the Streamable HTTP config block above.
@@ -256,7 +308,7 @@ No, and not planned. The native messaging host registers Chrome/Chromium hosts o
 The bridge logs to `~/Library/Logs/humanchrome-bridge` (macOS), `%LOCALAPPDATA%\humanchrome-bridge\logs` (Windows), or `~/.local/state/humanchrome-bridge/logs` (Linux). Every tool call is correlated by `requestId`. The `chrome_debug_dump` tool returns the per-call entries. Failures in the live-test harness produce paste-ready markdown prompts under `app/native-server/live-test/results/failures/`.
 
 **Q: Will my prompts and data leave my machine?**
-The bridge is local. It listens on `127.0.0.1:12306` and talks to the extension over Chrome's native messaging IPC. Nothing about HumanChrome itself sends data anywhere external. Whatever AI client you connect _to_ the bridge will of course send your tool calls and their results to its own model. That is between you and the client.
+Single-browser mode uses a loopback bridge and Chrome native messaging. Fleet mode deliberately exposes browser control over a network gateway, so protect its interface and credentials. HumanChrome does not require a hosted browser service; websites receive normal browser traffic, and your AI client may send tool calls and page data to its model provider.
 
 More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
@@ -265,18 +317,19 @@ More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 Honest about what's solid. HumanChrome is what I drive my own agents with daily, so the paths I hit are real.
 
 - **Chrome / Chromium only.** The native-messaging host registers Chrome/Chromium hosts; Firefox isn't supported and isn't planned.
-- **Cross-platform bridge, macOS-detailed install.** The bridge runs and logs on macOS, Windows, and Linux; the install walkthrough above (and its TCC caveat) is written for macOS.
-- **Forked and reoriented.** Descended from `mcp-chrome`, rebranded, switched to English, and pointed at hard-to-automate platforms.
+- **macOS fleet; cross-platform bridge.** Fleet provisioning, Keychain checks, and launchd supervision target macOS. The standalone bridge runs on macOS, Windows, and Linux; the install walkthrough above is macOS-specific.
+- **Forked and expanded.** Descended from `mcp-chrome`, with a native fleet layer for persistent profiles, remote access, and parallel agents.
 
 ## Built with
 
 - **Extension:** WXT + Vue 3 + Tailwind CSS 4, Manifest V3, TypeScript, Zod schemas, on-device embeddings (`@huggingface/transformers`, `hnswlib-wasm`) for tool selection
 - **Bridge:** Node 24, Fastify 5, `@modelcontextprotocol/sdk` (MCP over Streamable HTTP + stdio), a plain HTTP/OpenAPI surface, `better-sqlite3` + Drizzle ORM, `pino` logging, `commander` CLI
+- **Fleet:** Native macOS Chrome processes, launchd supervision, profile seeding, session preservation, leases, HTTP/MCP gateway, peer-node routing, and a read-only web dashboard
 - **Transport:** Chrome native messaging (bridge ↔ extension), MCP or plain HTTP (AI client ↔ bridge)
 
 ## Built by
 
-Built and maintained by [Mihai Mateias](https://github.com/cefege). I use HumanChrome daily to drive my own coding agents, so the effort went where day-to-day use needs it: it drives your real signed-in Chrome instead of a clean Chromium, the redaction layer tells a leaked token from a LinkedIn URN you actually need, form-fill fires the events frameworks like React listen for, it intercepts fetch/XHR from inside the page, multiple MCP clients share tabs without fighting over the active one, and a jammed transport resets without restarting Chrome.
+Built and maintained by [Mihai Mateias](https://github.com/cefege). I use HumanChrome daily with my own coding agents. It grew from controlling one signed-in Chrome into running a fleet: persistent browser sessions, independent agent work, and remote browser capacity without a hosted browser dependency.
 
 Architecture is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -296,4 +349,4 @@ MIT. See [`LICENSE`](LICENSE).
 
 ---
 
-Forked from [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) (MIT). The fork rebrands the project, switches the UI to English, and reorients it around hard-to-automate platforms.
+Forked from [hangwin/mcp-chrome](https://github.com/hangwin/mcp-chrome) (MIT). HumanChrome extends that foundation with native browser fleet management and remote multi-agent access.
