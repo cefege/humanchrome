@@ -13,6 +13,12 @@ export interface FleetProfileConfig {
   /** Absolute source user-data-dir this profile was seeded from, if any. */
   seededFrom?: string;
   seededAt?: string;
+  /**
+   * Seconds a demand-started browser may stay unleased while the fleet is parked
+   * before it is stopped again. Default 1800; 0 never stops it. Ignored unless a
+   * request started the browser.
+   */
+  idleStopSec?: number;
 }
 
 /** A peer machine running its own `fleet serve`, reachable over the LAN/Tailscale. */
@@ -32,8 +38,13 @@ export interface FleetConfig {
   extensionDir: string;
   basePort: number;
   leaseIdleTtlSec: number;
-  /** When true, every profile stays stopped regardless of its `enabled` flag. */
+  /**
+   * When true, nothing starts eagerly at boot or on monitor revival; a pool
+   * request for a profile can still start that one enabled browser on demand.
+   */
   parked: boolean;
+  /** How long a request waits for a demanded browser to answer before it gets a 503. */
+  demandStartTimeoutSec: number;
   profiles: FleetProfileConfig[];
   /**
    * Identifies this machine in lease keys; must not collide with a configured
@@ -110,6 +121,7 @@ export function createDefaultConfig(gatewayPort = 12300, basePort = 12500): Flee
     basePort,
     leaseIdleTtlSec: 900,
     parked: false,
+    demandStartTimeoutSec: 90,
     profiles: [],
     nodeId: os.hostname(),
     nodes: [],
@@ -157,6 +169,7 @@ export async function loadConfig(): Promise<FleetConfig> {
   // existed otherwise makes every liveness check compare against NaN, so
   // leases die instantly and live profiles are handed out from under agents.
   config.leaseIdleTtlSec ??= 900;
+  config.demandStartTimeoutSec ??= 90;
   config.dailyProfileDir ??= DEFAULT_DAILY_PROFILE_DIR;
   for (const node of config.nodes) {
     if (node.id === config.nodeId) {

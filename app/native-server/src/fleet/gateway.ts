@@ -6,7 +6,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { FleetLeases } from './leases';
 import { FleetConfig, FleetNodeConfig } from './config';
-import { ProfileState, ProfileSnapshot, ProfileSupervisor } from './supervisor';
+import { ProfileState, ProfileSnapshot, ProfileStartError, ProfileSupervisor } from './supervisor';
 import { addProfile, type AddedProfile } from './provision';
 import { fetchNodeProfiles, NODE_SEPARATOR } from './remote';
 import { createFleetMcpServer, type FleetMcpDeps } from './mcp';
@@ -35,6 +35,7 @@ interface ProfileRoute {
   port: number;
   labels: string[];
   purpose: string | null;
+  enabled: boolean;
   state: ProfileState;
   node: FleetNodeConfig | null;
 }
@@ -133,10 +134,11 @@ export class FleetGateway {
           port: route.port,
           labels: route.labels,
           purpose: route.purpose,
-          enabled: true,
+          enabled: route.enabled,
           state: route.state,
           pid: null,
           lastError: null,
+          startedBy: null,
           leasedBy: leasedBy(route.key),
         }));
       reply.send([...local, ...remote]);
@@ -234,18 +236,30 @@ export class FleetGateway {
       if (!PROXY_ALLOWED_PREFIXES.some((prefix) => remainder.startsWith(prefix))) {
         return reply.code(404).send({ error: 'not_found' });
       }
-      const routes = await this.routes();
+      let routes = await this.routes();
       const requested = params.name ? routes.find((route) => route.key === params.name) : undefined;
       if (params.name && !requested) return reply.code(404).send({ error: 'unknown_profile' });
       if (requested && requested.state !== 'healthy') {
         return reply.code(503).send({ error: 'profile_unavailable', state: requested.state });
       }
-      const key =
+      const label = params.label ?? 'any';
+      let key =
         params.name ??
-        this.options.leases.acquireFromPool(
-          agent,
-          this.healthyCandidates(routes, params.label ?? 'any'),
-        );
+        this.options.leases.acquireFromPool(agent, this.healthyCandidates(routes, label));
+      // A peer's browser is only leased and forwarded to; that peer's gateway starts it.
+      let peerStart = false;
+      if (!key && !params.name) {
+        try {
+          const started = await this.demandForPool(agent, label, routes);
+          if (started) {
+            key = started.key;
+            peerStart = started.peer;
+            routes = await this.routes();
+          }
+        } catch (error) {
+          return this.sendStartError(reply, error);
+        }
+      }
       if (!key) {
         return reply.code(503).send({ error: 'no_free_profile', label: params.label });
       }
@@ -261,7 +275,7 @@ export class FleetGateway {
         }
       }
       const route = routes.find((entry) => entry.key === key);
-      if (!route || route.state !== 'healthy') {
+      if (!route || (route.state !== 'healthy' && !peerStart)) {
         return reply.code(503).send({ error: 'profile_unavailable', state: route?.state });
       }
       this.options.leases.touch(agent, key);
@@ -298,9 +312,19 @@ export class FleetGateway {
       if (!this.options.supervisor.state(params.name)) {
         return reply.code(404).send({ error: 'unknown_profile' });
       }
-      const runtime = this.options.supervisor
-        .snapshot()
-        .find((entry) => entry.name === params.name);
+      let runtime = this.options.supervisor.snapshot().find((entry) => entry.name === params.name);
+      if (runtime?.enabled && runtime.state !== 'healthy') {
+        const agent = normalizeSessionName(request.headers['x-humanchrome-agent']) ?? 'peer';
+        try {
+          await this.options.supervisor.demandStart(params.name, {
+            agent,
+            request: `node/${params.name}`,
+          });
+        } catch (error) {
+          return this.sendStartError(reply, error);
+        }
+        runtime = this.options.supervisor.snapshot().find((entry) => entry.name === params.name);
+      }
       if (!runtime || runtime.state !== 'healthy') {
         return reply.code(503).send({ error: 'profile_unavailable', state: runtime?.state });
       }
@@ -353,9 +377,58 @@ export class FleetGateway {
       .map((route) => route.key);
   }
 
+  /**
+   * A pool request with no healthy free browser starts the best enabled match
+   * and leases it. A local profile is started and waited on (purpose binding
+   * first, then label). A peer's profile is only leased; that peer starts it
+   * when the request is forwarded. Returns null when nothing matches or leases.
+   */
+  private async demandForPool(
+    agent: string,
+    label: string,
+    routes: ProfileRoute[],
+  ): Promise<{ key: string; peer: boolean } | null> {
+    const leased = new Set(this.options.leases.list().map((lease) => lease.profile));
+    const pick = routes
+      .filter(
+        (route) =>
+          route.enabled &&
+          route.state !== 'healthy' &&
+          route.state !== 'unreachable' &&
+          !leased.has(route.key) &&
+          (label === 'any' || route.labels.includes(label) || route.purpose === label),
+      )
+      .sort(
+        (a, b) =>
+          Number(a.node !== null) - Number(b.node !== null) ||
+          Number(a.purpose !== label) - Number(b.purpose !== label) ||
+          a.key.localeCompare(b.key),
+      )[0];
+    if (!pick) return null;
+    if (!pick.node) {
+      await this.options.supervisor.demandStart(pick.name, { agent, request: `pool/${label}` });
+    }
+    const key = this.options.leases.acquireFromPool(agent, [pick.key]);
+    return key ? { key, peer: pick.node !== null } : null;
+  }
+
+  /** Maps a failed demand start to its 503 body; any other error is a bug and rethrows. */
+  private sendStartError(reply: FastifyReply, error: unknown): FastifyReply {
+    if (!(error instanceof ProfileStartError)) throw error;
+    return reply.code(503).send({
+      error: error.code,
+      profile: error.profile,
+      lastError: error.lastError,
+      timeoutSec: error.timeoutSec,
+    });
+  }
+
   private async sweep(): Promise<void> {
     for (const lease of this.options.leases.sweep())
       await this.releaseBridge(lease.agent, lease.profile);
+    // Demand-started browsers nobody leases are stopped after their idle window.
+    const leased = new Set(this.options.leases.list().map((lease) => lease.profile));
+    await this.options.supervisor.reapIdle((name) => leased.has(name));
   }
 
   private async releaseBridge(agent: string, key: string): Promise<void> {
@@ -391,6 +464,7 @@ export class FleetGateway {
       labels: profile.labels,
       state: profile.state,
       node: null,
+      enabled: profile.enabled,
       purpose: profile.purpose,
     }));
     if (config.nodes.length === 0) return local;
@@ -416,6 +490,7 @@ export class FleetGateway {
         port: profile.port,
         labels: profile.labels,
         purpose: profile.purpose,
+        enabled: profile.enabled,
         state: profile.state,
         node,
       }));
@@ -431,6 +506,7 @@ export class FleetGateway {
           port: node.port,
           labels: [],
           purpose: null,
+          enabled: false,
           state: 'unreachable',
           node,
         },

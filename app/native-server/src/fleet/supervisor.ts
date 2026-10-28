@@ -30,7 +30,12 @@ const TIMERS = {
    * replay, so a transient hiccup must never pay for one.
    */
   pingFailuresBeforeReplace: 6,
+  /** How often a demand start checks whether its browser's bridge has answered. */
+  demandPollMs: 500,
 } as const;
+
+/** Idle stop for a demand-started browser when its profile sets no `idleStopSec`. */
+const DEFAULT_IDLE_STOP_SEC = 30 * 60;
 
 function pidAlive(pid: number): boolean {
   try {
@@ -65,6 +70,18 @@ export type ProfileState =
   /** Only produced for profiles on a configured peer node that did not answer. */
   | 'unreachable';
 
+/** Why a parked fleet started a browser: the request that demanded it. */
+export interface DemandReason {
+  agent: string;
+  /** The request shape, such as `pool/linkedin` or `profile/p01`. */
+  request: string;
+}
+
+export interface StartedBy extends DemandReason {
+  /** ISO time of the demand start. */
+  at: string;
+}
+
 export interface ProfileSnapshot {
   name: string;
   port: number;
@@ -76,6 +93,25 @@ export interface ProfileSnapshot {
   leasedBy: string | null;
   /** Last launch failure, cleared when the profile is up again. */
   lastError: string | null;
+  /** Set while a parked fleet runs this browser because a request demanded it. */
+  startedBy: StartedBy | null;
+}
+
+/** A demand start that did not yield a healthy browser; the gateway maps it to a 503. */
+export class ProfileStartError extends Error {
+  constructor(
+    readonly code: 'profile_start_failed' | 'profile_start_timeout',
+    readonly profile: string,
+    readonly lastError: string | null,
+    readonly timeoutSec?: number,
+  ) {
+    super(
+      code === 'profile_start_timeout'
+        ? `profile ${profile} did not answer within ${timeoutSec}s`
+        : `profile ${profile} failed to start`,
+    );
+    this.name = 'ProfileStartError';
+  }
 }
 
 export type ProfileLauncher = (
@@ -109,6 +145,27 @@ interface ProfileRuntime {
   pingFailures: number;
   /** Last launch failure message, so a persistent fault is reported once. */
   lastError: string | null;
+  /** Set while a parked fleet runs this browser because a request demanded it. */
+  startedBy: StartedBy | null;
+  /** When a demand-started browser was first seen unleased; null while leased. */
+  idleSince: number | null;
+}
+
+function stoppedRuntime(profile: ProfileRuntime['config']): ProfileRuntime {
+  return {
+    config: profile,
+    state: 'stopped',
+    pid: null,
+    backoffMs: TIMERS.monitorMs,
+    healthySince: null,
+    launched: null,
+    label: null,
+    labelFocused: false,
+    lastError: null,
+    startedBy: null,
+    idleSince: null,
+    pingFailures: 0,
+  };
 }
 
 export class ProfileSupervisor {
@@ -120,6 +177,8 @@ export class ProfileSupervisor {
   /** Names with a launch in flight, so one profile never races two Chromes. */
   private readonly launching = new Set<string>();
   private stopping = false;
+  /** Demand starts in flight, keyed by profile: concurrent requests share one. */
+  private readonly demands = new Map<string, Promise<void>>();
 
   constructor(
     private config: FleetConfig,
@@ -163,13 +222,26 @@ export class ProfileSupervisor {
   }
 
   async reload(next: FleetConfig): Promise<void> {
+    const wasParked = this.config.parked;
     this.config = next;
+    // Unparking makes every enabled profile eager: a browser a request started
+    // is no longer on loan, so the idle reaper must leave it alone.
+    if (wasParked && !next.parked) {
+      for (const runtime of this.profiles.values()) runtime.startedBy = null;
+    }
     if (!next.parked) this.startTimers();
     if (next.parked) {
       for (const name of [...this.profiles.keys()]) await this.stopProfile(name);
+      // Parked means nothing runs, not that the config is frozen: a profile
+      // added, removed or relabelled while parked must show in `snapshot()`.
+      for (const profile of next.profiles) {
+        const runtime = this.profiles.get(profile.name);
+        if (runtime) runtime.config = profile;
+        else this.profiles.set(profile.name, stoppedRuntime(profile));
+      }
+      this.pruneProfiles(next);
       return;
     }
-    const nextNames = new Set(next.profiles.map((profile) => profile.name));
     for (const runtime of [...this.profiles.values()]) {
       const updated = next.profiles.find((profile) => profile.name === runtime.config.name);
       // One failing stop must not leave the remaining profiles unsupervised.
@@ -186,18 +258,7 @@ export class ProfileSupervisor {
     for (const profile of next.profiles) {
       const runtime = this.profiles.get(profile.name);
       if (!runtime) {
-        this.profiles.set(profile.name, {
-          label: null,
-          labelFocused: false,
-          config: profile,
-          state: 'stopped',
-          pid: null,
-          backoffMs: TIMERS.monitorMs,
-          healthySince: null,
-          launched: null,
-          pingFailures: 0,
-          lastError: null,
-        });
+        this.profiles.set(profile.name, stoppedRuntime(profile));
         // A profile added while disabled must stay stopped.
         if (!profile.enabled) continue;
         await this.adoptOrLaunch(profile);
@@ -212,6 +273,11 @@ export class ProfileSupervisor {
       if (!runtime.pid) await this.adoptOrLaunch(profile);
       await this.refreshLabel(profile.name);
     }
+    this.pruneProfiles(next);
+  }
+
+  private pruneProfiles(next: FleetConfig): void {
+    const nextNames = new Set(next.profiles.map((profile) => profile.name));
     for (const name of [...this.profiles.keys()])
       if (!nextNames.has(name)) this.profiles.delete(name);
   }
@@ -228,6 +294,7 @@ export class ProfileSupervisor {
         pid: runtime.pid,
         leasedBy: leasedBy(runtime.config.name),
         lastError: runtime.lastError,
+        startedBy: runtime.startedBy,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -244,6 +311,8 @@ export class ProfileSupervisor {
   async stopProfile(name: string): Promise<void> {
     const runtime = this.profiles.get(name);
     if (!runtime) throw new Error(`unknown profile: ${name}`);
+    runtime.startedBy = null;
+    runtime.idleSince = null;
     const pidPath = path.join(FLEET_ROOT, 'run', `${name}.pid`);
     if (!runtime.pid) {
       let recorded = 0;
@@ -283,8 +352,12 @@ export class ProfileSupervisor {
   }
 
   async restartProfile(name: string): Promise<void> {
+    const startedBy = this.profiles.get(name)?.startedBy ?? null;
     await this.stopProfile(name);
     await this.startProfile(name);
+    // A restart keeps a browser on loan; only a stop ends the loan.
+    const runtime = this.profiles.get(name);
+    if (runtime && startedBy) runtime.startedBy = startedBy;
   }
 
   /**
@@ -314,7 +387,6 @@ export class ProfileSupervisor {
     this.monitorTimer = null;
     this.healthTimer = null;
     for (const name of [...this.focusTimers.keys()]) this.clearFocusRetry(name);
-    if (this.config.parked) return;
     await Promise.all(
       [...this.profiles].map(async ([name, runtime]) => {
         if (!runtime.launched) return;
@@ -366,18 +438,7 @@ export class ProfileSupervisor {
   private replaceProfiles(config: FleetConfig): void {
     this.profiles.clear();
     for (const profile of config.profiles) {
-      this.profiles.set(profile.name, {
-        config: profile,
-        state: 'stopped',
-        pid: null,
-        backoffMs: TIMERS.monitorMs,
-        healthySince: null,
-        launched: null,
-        label: null,
-        labelFocused: false,
-        lastError: null,
-        pingFailures: 0,
-      });
+      this.profiles.set(profile.name, stoppedRuntime(profile));
     }
   }
 
@@ -387,7 +448,6 @@ export class ProfileSupervisor {
    * dead pipe cannot delay the others.
    */
   private async captureSessions(): Promise<void> {
-    if (this.config.parked) return;
     await Promise.all([...this.profiles].map(([name, runtime]) => this.captureOne(name, runtime)));
   }
 
@@ -467,6 +527,102 @@ export class ProfileSupervisor {
       if (!this.stopping) {
         console.error(`fleet: could not focus label for ${name}: ${(error as Error).message}`);
       }
+    }
+  }
+
+  /**
+   * A request needs this profile and it is not healthy: start it, and resolve
+   * once its bridge answers. Callers that arrive during a start share it, so a
+   * profile is never launched twice. Only an enabled profile can be demanded.
+   *
+   * While the fleet is parked the browser is on loan to `reason.agent`; it is
+   * supervised (revived on crash) until `reapIdle` finds it unleased.
+   */
+  async demandStart(name: string, reason: DemandReason): Promise<void> {
+    const runtime = this.profiles.get(name);
+    if (!runtime?.config.enabled) throw new Error(`profile ${name} is not enabled`);
+    const pending = this.demands.get(name);
+    if (pending) return pending;
+    const start = this.runDemand(runtime, reason).finally(() => this.demands.delete(name));
+    this.demands.set(name, start);
+    return start;
+  }
+
+  /**
+   * Stops each demand-started browser that no lease has held for its
+   * `idleStopSec` (default 30 minutes; 0 never stops). The gateway calls this
+   * from its sweep, since it owns the leases; a leased browser is never reaped.
+   */
+  async reapIdle(isLeased: (name: string) => boolean, now = Date.now()): Promise<string[]> {
+    const reaped: string[] = [];
+    for (const runtime of [...this.profiles.values()]) {
+      const name = runtime.config.name;
+      if (!runtime.startedBy || this.demands.has(name)) continue;
+      if (isLeased(name)) {
+        runtime.idleSince = null;
+        continue;
+      }
+      runtime.idleSince ??= now;
+      const idleMs = (runtime.config.idleStopSec ?? DEFAULT_IDLE_STOP_SEC) * 1000;
+      if (idleMs <= 0 || now - runtime.idleSince < idleMs) continue;
+      try {
+        await this.stopProfile(name);
+        reaped.push(name);
+      } catch (error) {
+        console.error(`fleet: could not stop idle ${name}: ${(error as Error).message}`);
+      }
+    }
+    return reaped;
+  }
+
+  /**
+   * Whether the supervisor keeps this profile running on its own. A parked fleet
+   * keeps only the browsers a request started; the rest wait for a request or
+   * for `fleet up`.
+   */
+  private wanted(runtime: ProfileRuntime): boolean {
+    return runtime.config.enabled && (!this.config.parked || runtime.startedBy !== null);
+  }
+
+  private async runDemand(runtime: ProfileRuntime, reason: DemandReason): Promise<void> {
+    const name = runtime.config.name;
+    if (this.config.parked) runtime.startedBy = { ...reason, at: new Date().toISOString() };
+    runtime.idleSince = null;
+    // A launch another path already has in flight is awaited below, not raced.
+    if (!this.launching.has(name)) {
+      await this.adoptOrLaunch(runtime.config);
+      if (!runtime.pid) {
+        throw new ProfileStartError(
+          'profile_start_failed',
+          name,
+          runtime.lastError ?? 'browser did not start',
+        );
+      }
+    }
+    const timeoutSec = this.config.demandStartTimeoutSec;
+    const deadline = Date.now() + timeoutSec * 1000;
+    for (;;) {
+      // The monitor stands aside for a demanded profile, so a browser that dies
+      // during the start is revived here.
+      if (runtime.pid && !pidAlive(runtime.pid) && !this.launching.has(name)) {
+        await this.revive(runtime);
+        continue;
+      }
+      if (runtime.pid && (await this.bridgeProbe(runtime.config.port))) {
+        await this.markHealthy(runtime);
+        return;
+      }
+      if (this.stopping || (this.config.parked && runtime.startedBy === null)) {
+        throw new ProfileStartError(
+          'profile_start_failed',
+          name,
+          'fleet stopped or parked during the start',
+        );
+      }
+      if (Date.now() >= deadline) {
+        throw new ProfileStartError('profile_start_timeout', name, runtime.lastError, timeoutSec);
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, TIMERS.demandPollMs));
     }
   }
 
@@ -607,10 +763,12 @@ export class ProfileSupervisor {
    * backoff × profiles — six dead profiles at max backoff is six minutes.
    */
   private async monitor(): Promise<void> {
-    if (this.stopping || this.config.parked) return;
+    if (this.stopping) return;
     const work: Promise<void>[] = [];
     for (const runtime of this.profiles.values()) {
-      if (!runtime.config.enabled) continue;
+      if (!this.wanted(runtime)) continue;
+      // A request is starting this profile; reviving it here would race that launch.
+      if (this.demands.has(runtime.config.name)) continue;
       // A launch in flight has no pid yet; acting on it would race a second
       // Chrome onto the same profile directory and kill the first one.
       if (runtime.state === 'starting') continue;
@@ -643,10 +801,36 @@ export class ProfileSupervisor {
     if (runtime.backoffMs > 0) {
       await new Promise<void>((done) => setTimeout(done, runtime.backoffMs));
     }
-    if (!this.stopping && runtime.config.enabled && !this.config.parked) {
+    if (!this.stopping && this.wanted(runtime)) {
       await this.launch(runtime.config);
     }
     runtime.backoffMs = Math.min(runtime.backoffMs * 2, TIMERS.backoffMaxMs);
+  }
+
+  /**
+   * A `/ping` that answered. The not-healthy → healthy edge stamps uptime and
+   * claims the label tab. Shared with a demand start, so a browser that was just
+   * started is healthy at once instead of at the next health tick.
+   */
+  private async markHealthy(runtime: ProfileRuntime): Promise<void> {
+    const wasHealthy = runtime.state === 'healthy';
+    runtime.state = 'healthy';
+    runtime.pingFailures = 0;
+    // Only on the not-healthy → healthy edge: with `??=` the stamp from before a
+    // crash survived, so the very first tick after a relaunch looked "stable"
+    // and reset the crash backoff.
+    if (!wasHealthy) runtime.healthySince = Date.now();
+    if (Date.now() - (runtime.healthySince ?? 0) > TIMERS.stableUptimeMs) {
+      runtime.backoffMs = TIMERS.monitorMs;
+    }
+    // The label tab is claimed here rather than at launch: the extension opens
+    // its welcome page once the bridge is already answering and takes focus, so
+    // an earlier claim is simply handed back.
+    if (!wasHealthy && !runtime.labelFocused) {
+      runtime.labelFocused = true;
+      await this.focusLabel(runtime.config.name);
+      this.scheduleFocusRetry(runtime.config.name);
+    }
   }
 
   private async checkHealth(): Promise<void> {
@@ -661,24 +845,7 @@ export class ProfileSupervisor {
         });
         const body = (await response.json()) as { status?: string };
         if (body.status === 'ok') {
-          const wasHealthy = runtime.state === 'healthy';
-          runtime.state = 'healthy';
-          runtime.pingFailures = 0;
-          // Only on the not-healthy → healthy edge: with `??=` the stamp from
-          // before a crash survived, so the very first tick after a relaunch
-          // looked "stable" and reset the crash backoff.
-          if (!wasHealthy) runtime.healthySince = Date.now();
-          if (Date.now() - (runtime.healthySince ?? 0) > TIMERS.stableUptimeMs) {
-            runtime.backoffMs = TIMERS.monitorMs;
-          }
-          // The label tab is claimed here rather than at launch: the extension
-          // opens its welcome page once the bridge is already answering and
-          // takes focus, so an earlier claim is simply handed back.
-          if (!wasHealthy && !runtime.labelFocused) {
-            runtime.labelFocused = true;
-            await this.focusLabel(runtime.config.name);
-            this.scheduleFocusRetry(runtime.config.name);
-          }
+          await this.markHealthy(runtime);
         } else {
           runtime.state = 'running';
           runtime.pingFailures += 1;

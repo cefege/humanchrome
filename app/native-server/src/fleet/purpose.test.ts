@@ -51,6 +51,7 @@ async function baseConfig(): Promise<FleetConfig> {
     extensionDir: '/nonexistent/extension',
     basePort: 12500,
     leaseIdleTtlSec: 900,
+    demandStartTimeoutSec: 90,
     parked: false,
     nodeId: 'central',
     nodes: [],

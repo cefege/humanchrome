@@ -49,6 +49,17 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0192 · Visible selector click acknowledges without invoking the button handler (bug) · score: 7
+
+- **Proposed by**: omp · 2026-10-28 (live private coordinator verification)
+- **Status**: proposed
+- **Why**: `chrome_click_element` returned without an error for a visible button, but its click handler did not run. An agent cannot treat the acknowledgement as proof that the website action happened.
+- **Cost**: M
+- **Value**: L
+- **Repro**: Navigate an owned tab to `https://example.com/`. Through `chrome_javascript`, append a button with id `hc-tailscale-smoke`, text `0`, and an `addEventListener('click', ...)` handler that increments its text. Call `chrome_click_element` with that selector, then read the text: it remained `0`. Explicitly switching to the tab did not change the result. The page reported `document.hasFocus() === true`, `visibilityState === "visible"`, and `elementFromPoint` at the button center returned that same button. Calling `button.click()` through `chrome_javascript` incremented the text immediately.
+- **Fix sketch**: Trace selector resolution, dispatch, and acknowledgement against a real DOM handler; retain the handler outcome as a regression assertion rather than checking only the tool's success envelope.
+- **Notes**: Observed through both browser MCP and HTTP routes on the live native Mac worker. Root cause is not isolated against a direct bridge call; do not attribute it to the coordinator yet. Private routing/restart verification passed using JavaScript-driven actions and does not count this selector-click contract as passing.
+
 ### IMP-0191 · chrome_combobox_select does not commit a keyboard-highlighted option (bug) · score: 6
 
 - **Proposed by**: omp · 2026-09-29 (surfaced by the E2E matrix during the fleet automation work)

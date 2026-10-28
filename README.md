@@ -32,6 +32,10 @@ HumanChrome combines a **Chrome extension**, a **native bridge**, and a **fleet 
 
 [Fleet setup and operations →](docs/FLEET.md) · [Browser tool reference →](docs/TOOLS.md)
 
+For a **browserless coordinator in Kubernetes** with native Mac workers, see
+[cloud coordinator and workers](docs/FLEET.md#cloud-coordinator-and-workers)
+and the [private Tailscale deployment guide](deploy/fleet/README.md).
+
 ## What agents can do
 
 Navigate, click, fill forms, scroll, read page content, take screenshots, run JavaScript, handle dialogs, upload files, inspect console output, capture network traffic, and intercept fetch/XHR responses. The same browser tool catalog is available through MCP and a plain HTTP API with a generated OpenAPI spec.

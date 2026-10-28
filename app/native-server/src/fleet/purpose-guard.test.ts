@@ -90,6 +90,7 @@ describe('currentProfileProtection', () => {
         extensionDir: '/nonexistent/ext',
         basePort: 12500,
         leaseIdleTtlSec: 900,
+        demandStartTimeoutSec: 90,
         parked: false,
         nodeId: 'test',
         nodes: [],

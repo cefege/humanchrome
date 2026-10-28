@@ -68,6 +68,7 @@ const config: FleetConfig = {
   extensionDir: '/tmp/extension',
   basePort: 12500,
   leaseIdleTtlSec: 900,
+  demandStartTimeoutSec: 90,
   nodeId: 'test',
   nodes: [],
   parked: false,

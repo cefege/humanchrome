@@ -167,7 +167,7 @@ async function refresh() {
     );
 
     $('profiles').replaceChildren(table(
-      ['profile', 'state', 'pid', 'port', 'labels', 'purpose', 'enabled', 'leased by', 'last error'],
+      ['profile', 'state', 'pid', 'port', 'labels', 'purpose', 'enabled', 'started by', 'leased by', 'last error'],
       profiles.map((p) => [
         cell(p.name, 'name'),
         pill(p.state),
@@ -176,6 +176,7 @@ async function refresh() {
         cell(p.labels.join(', ') || '—', p.labels.length ? '' : 'muted'),
         cell(p.purpose ?? '—', p.purpose ? '' : 'muted'),
         cell(p.enabled ? 'yes' : 'no', p.enabled ? '' : 'muted'),
+        cell(p.startedBy ? p.startedBy.request + ' (' + p.startedBy.agent + ')' : '—', p.startedBy ? '' : 'muted'),
         cell(p.leasedBy ?? '—', p.leasedBy ? '' : 'muted'),
         cell(p.lastError ?? '—', p.lastError ? 'err' : 'muted'),
       ]),

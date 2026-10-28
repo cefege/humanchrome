@@ -26,6 +26,7 @@ const profiles: ProfileSnapshot[] = [
     pid: 4242,
     leasedBy: null,
     lastError: null,
+    startedBy: null,
   },
 ];
 

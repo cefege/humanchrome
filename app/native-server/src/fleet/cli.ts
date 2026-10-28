@@ -24,8 +24,13 @@ import { ProfileSupervisor } from './supervisor';
 import type { ProfileState } from './supervisor';
 import { FleetLeases } from './leases';
 
+import { registerCoordinatorCommand } from './coordinator-cli';
+import { acquireFleetRootLock, registerWorkerCommands, releaseFleetRootLock } from './worker-cli';
+
 export function registerFleetCommands(program: Command): void {
   const fleet = program.command('fleet').description('Manage a multi-profile Chrome fleet');
+  registerCoordinatorCommand(fleet);
+  registerWorkerCommands(fleet);
   fleet
     .command('init')
     .description('Initialize fleet storage and credentials')
@@ -93,9 +98,18 @@ export function registerFleetCommands(program: Command): void {
       const supervisor = new ProfileSupervisor(config);
       const leases = new FleetLeases(config.leaseIdleTtlSec);
       const gateway = new FleetGateway({ config, supervisor, leases });
-      await fs.writeFile(path.join(FLEET_ROOT, 'run', 'serve.pid'), String(process.pid));
-      await supervisor.start();
-      console.log(await gateway.listen());
+      const rootLock = await acquireFleetRootLock();
+      try {
+        await fs.writeFile(path.join(FLEET_ROOT, 'run', 'serve.pid'), String(process.pid));
+        await supervisor.start();
+        console.log(await gateway.listen());
+      } catch (error) {
+        await gateway.close().catch(() => undefined);
+        await supervisor.shutdown().catch(() => undefined);
+        await fs.rm(path.join(FLEET_ROOT, 'run', 'serve.pid'), { force: true });
+        await releaseFleetRootLock(rootLock);
+        throw error;
+      }
       const reload = async () => {
         try {
           const next = await loadConfig();
@@ -114,6 +128,7 @@ export function registerFleetCommands(program: Command): void {
           await supervisor.shutdown();
         } finally {
           await fs.rm(path.join(FLEET_ROOT, 'run', 'serve.pid'), { force: true });
+          await releaseFleetRootLock(rootLock);
           process.exit(0);
         }
       };
@@ -278,7 +293,7 @@ export function registerFleetCommands(program: Command): void {
       .command(parked ? 'down' : 'up')
       .description(
         parked
-          ? 'Park the fleet: stop every profile Chrome and keep it stopped'
+          ? 'Park the fleet: stop every running profile; a request can still start one on demand'
           : 'Unpark the fleet and start every enabled profile',
       )
       .action(async () => {

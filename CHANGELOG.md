@@ -4,8 +4,38 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ## [Unreleased]
 
+### Changed
+
+- **Browserless coordinator and native workers**: `fleet coordinator` serves
+  authenticated HTTP/MCP browser access without local Chrome. Dedicated Mac
+  workers retain profiles and cookies locally, enforce durable lease fences,
+  and quarantine unknown action outcomes. PostgreSQL preserves assignments
+  through coordinator restarts; expired workflows require explicit release
+  rather than silently moving to another browser. Kubernetes/Tailscale
+  deployment and proxy identity-recovery verification live in `deploy/fleet/`.
+
+- **Fleet: browsers start when a request needs them**: `fleet up` used to start
+  every enabled profile and `fleet down` stopped all, so a pool request against a
+  parked fleet got `503 no_free_profile` even though its bound profile existed.
+  A pool request with no free healthy candidate now starts the one enabled
+  browser bound to its label or purpose, waits up to `demandStartTimeoutSec`
+  (default 90) and leases it. Failures answer `503 profile_start_failed` or
+  `profile_start_timeout`. Park now only stops eager starts (boot, revival);
+  demand-started browsers are supervised and stop after `idleStopSec` (default 1800) with no lease. `fleet status`, the status page and `fleet_park` reflect
+  it. See docs/FLEET.md, "Demand start".
+
 ### Fixed
 
+- **Kubernetes/Tailscale deployment checks**: use the pinned chart's actual
+  `operator` Deployment and the standalone proxy's `TailscaleProxyReady`
+  condition. Proxy verification waits for rollout readiness before comparing
+  persistent state Secret UIDs and tailnet device identities across restarts.
+
+- **Fleet: `fleet status` reflects profile changes made while parked**: a
+  parked `serve` reloaded on every CLI mutation but kept its old profile list,
+  so a profile removed with `profile rm` was still listed, and one added,
+  relabelled, enabled or disabled showed stale, until `serve` restarted. The
+  reload now syncs the list while parked, still without launching anything.
 - **Fleet: a fleet browser can sign in to Google**: `--remote-debugging-pipe`
   alone made every page report `navigator.webdriver === true`, and Google
   refused sign-in with "This browser or app may not be secure"

@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+FROM node:24-bookworm-slim AS build
+
+WORKDIR /workspace
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json packages/shared/package.json
+COPY app/native-server/package.json app/native-server/package.json
+COPY app/native-server/scripts/postinstall-guard.cjs app/native-server/scripts/postinstall-guard.cjs
+
+RUN npm install --global pnpm@10.33.2 && pnpm install --frozen-lockfile
+
+COPY packages/shared packages/shared
+COPY app/native-server app/native-server
+
+# Do not invoke the native package's build script: its postbuild synchronizes
+# a browser extension into a locally installed development host.
+RUN pnpm --filter humanchrome-shared build \
+ && pnpm --filter humanchrome-bridge exec tsc -p tsconfig.json \
+ && pnpm --filter humanchrome-bridge deploy --prod --legacy /runtime
+
+FROM node:24-bookworm-slim AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=build --chown=node:node /runtime ./
+
+USER node
+EXPOSE 12301
+
+ENTRYPOINT ["node", "dist/cli.js"]
+CMD ["fleet", "coordinator", "--config", "/etc/humanchrome/coordinator.json"]

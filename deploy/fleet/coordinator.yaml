@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-coordinator
+  labels:
+    app.kubernetes.io/name: fleet-coordinator
+    app.kubernetes.io/part-of: humanchrome-fleet
+  annotations:
+    # The Tailscale operator reconciles this into a private L3 proxy. It creates
+    # and owns a state Secret; do not replace that Secret during routine deploys.
+    tailscale.com/expose: 'true'
+    tailscale.com/hostname: humanchrome-fleet-coordinator
+    tailscale.com/tags: tag:k8s
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fleet-coordinator
+  ports:
+    - name: http
+      port: 12301
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-coordinator
+  labels:
+    app.kubernetes.io/name: fleet-coordinator
+    app.kubernetes.io/part-of: humanchrome-fleet
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fleet-coordinator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fleet-coordinator
+        app.kubernetes.io/part-of: humanchrome-fleet
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: coordinator
+          image: humanchrome-coordinator
+          imagePullPolicy: IfNotPresent
+          args:
+            - fleet
+            - coordinator
+            - --config
+            - /etc/humanchrome/coordinator.json
+          ports:
+            - name: http
+              containerPort: 12301
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HC_COORDINATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-coordinator-config
+                  key: coordinatorDatabaseUrl
+          volumeMounts:
+            - name: config
+              mountPath: /etc/humanchrome
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          secret:
+            secretName: fleet-coordinator-config
+            defaultMode: 0440

@@ -5,6 +5,7 @@ import { FleetGateway } from './gateway';
 import { FleetLeases } from './leases';
 import type { FleetConfig } from './config';
 import type { AddedProfile } from './provision';
+import { ProfileStartError } from './supervisor';
 import type { ProfileSnapshot, ProfileSupervisor } from './supervisor';
 
 const config: FleetConfig = {
@@ -16,6 +17,7 @@ const config: FleetConfig = {
   extensionDir: '/tmp/extension',
   basePort: 12500,
   leaseIdleTtlSec: 900,
+  demandStartTimeoutSec: 90,
   parked: false,
   nodeId: 'central',
   nodes: [],
@@ -88,6 +90,7 @@ async function gatewayFixture(): Promise<{
       pid: 1,
       leasedBy: null,
       lastError: null,
+      startedBy: null,
     },
     {
       name: 'p02',
@@ -99,6 +102,7 @@ async function gatewayFixture(): Promise<{
       pid: 2,
       leasedBy: null,
       lastError: null,
+      startedBy: null,
     },
   ];
   const verbs: string[] = [];
@@ -241,6 +245,7 @@ describe('FleetGateway federation', () => {
       pid: 1,
       leasedBy: null,
       lastError: null,
+      startedBy: null,
     };
   }
 
@@ -475,6 +480,131 @@ describe('FleetGateway federation', () => {
   });
 });
 
+describe('FleetGateway pool demand', () => {
+  const headers = {
+    authorization: `Bearer ${config.token}`,
+    'x-humanchrome-agent': 'agent-demand',
+  };
+  const idleOn = (port: number): ProfileSnapshot => ({
+    name: 'p03',
+    port,
+    labels: [],
+    purpose: 'linkedin',
+    enabled: true,
+    state: 'stopped',
+    pid: null,
+    leasedBy: null,
+    lastError: null,
+    startedBy: null,
+  });
+
+  /** The supervisor's demand start is scripted per test; `demanded` records each call. */
+  async function demandGateway(
+    profiles: ProfileSnapshot[],
+    demand: (name: string) => Promise<void>,
+  ): Promise<{ url: string; demanded: Array<{ name: string; request: string }> }> {
+    const demanded: Array<{ name: string; request: string }> = [];
+    const supervisor = {
+      ...(fakeSupervisor(profiles) as object),
+      demandStart: async (name: string, reason: { agent: string; request: string }) => {
+        demanded.push({ name, request: reason.request });
+        await demand(name);
+      },
+    } as unknown as ProfileSupervisor;
+    const gateway = new FleetGateway({ config, supervisor, leases: new FleetLeases(900, () => 0) });
+    gateways.push(gateway);
+    return { url: await gateway.listen(), demanded };
+  }
+
+  test('a pool request with no healthy candidate starts the bound profile and serves it', async () => {
+    const bridge = await upstream();
+    const profile = idleOn(bridge.port);
+    const { url, demanded } = await demandGateway([profile], async () => {
+      profile.state = 'healthy';
+    });
+    const response = await fetch(`${url}/v1/pool/linkedin/api/echo`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-humanchrome-profile')).toBe('p03');
+    expect(demanded).toEqual([{ name: 'p03', request: 'pool/linkedin' }]);
+  });
+
+  test('a request with a healthy candidate starts nothing', async () => {
+    const bridge = await upstream();
+    const healthy: ProfileSnapshot = {
+      ...idleOn(bridge.port),
+      name: 'p01',
+      purpose: null,
+      labels: ['linkedin'],
+      state: 'healthy',
+      pid: 1,
+    };
+    const { url, demanded } = await demandGateway([healthy], async () => undefined);
+    const response = await fetch(`${url}/v1/pool/linkedin/api/echo`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-humanchrome-profile')).toBe('p01');
+    expect(demanded).toEqual([]);
+  });
+
+  test('a disabled profile is never started and the pool answers no_free_profile', async () => {
+    const bridge = await upstream();
+    const disabled = { ...idleOn(bridge.port), enabled: false };
+    const { url, demanded } = await demandGateway([disabled], async () => undefined);
+    const response = await fetch(`${url}/v1/pool/linkedin/api/echo`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: 'no_free_profile' });
+    expect(demanded).toEqual([]);
+  });
+
+  test('a start that fails answers 503 profile_start_failed with the browser error', async () => {
+    const bridge = await upstream();
+    const { url } = await demandGateway([idleOn(bridge.port)], async (name) => {
+      throw new ProfileStartError('profile_start_failed', name, 'extension build missing');
+    });
+    const response = await fetch(`${url}/v1/pool/linkedin/api/echo`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: 'profile_start_failed',
+      profile: 'p03',
+      lastError: 'extension build missing',
+    });
+  });
+
+  test('a start that never becomes healthy answers 503 profile_start_timeout', async () => {
+    const bridge = await upstream();
+    const { url } = await demandGateway([idleOn(bridge.port)], async (name) => {
+      throw new ProfileStartError('profile_start_timeout', name, 'bridge silent', 90);
+    });
+    const response = await fetch(`${url}/v1/pool/linkedin/api/echo`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: 'profile_start_timeout',
+      profile: 'p03',
+      lastError: 'bridge silent',
+      timeoutSec: 90,
+    });
+  });
+});
+
 describe('FleetGateway profile control', () => {
   const auth = { authorization: `Bearer ${config.token}` };
 
@@ -531,6 +661,7 @@ describe('FleetGateway profile control', () => {
         pid: null,
         leasedBy: null,
         lastError: null,
+        startedBy: null,
       },
     ];
     const gateway = new FleetGateway({

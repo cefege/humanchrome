@@ -179,7 +179,8 @@ export const TOOLS = [
   },
   {
     name: 'fleet_park',
-    description: 'Stop every browser and keep them stopped, or start them all again.',
+    description:
+      'Park: stop every browser; a request can still start one on demand. Unpark: start every enabled browser.',
     inputSchema: {
       type: 'object' as const,
       properties: { parked: { type: 'boolean' } },

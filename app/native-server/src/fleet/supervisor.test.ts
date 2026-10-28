@@ -41,6 +41,7 @@ const BASE: FleetConfig = {
   extensionDir: '/nonexistent/extension',
   basePort: 12500,
   leaseIdleTtlSec: 900,
+  demandStartTimeoutSec: 90,
   nodeId: 'test-node',
   nodes: [],
   parked: false,
@@ -136,6 +137,29 @@ describe('ProfileSupervisor parked fleet', () => {
     expect(supervisor.snapshot().map((profile) => profile.state)).toEqual(['stopped', 'stopped']);
   });
 
+  test('a profile removed, added or relabelled while parked is reflected in the snapshot', async () => {
+    const { launched, launcher } = fakeLaunch(undefined);
+    const supervisor = build({ ...BASE, parked: true }, launcher);
+    await supervisor.start();
+
+    await supervisor.reload({
+      ...BASE,
+      parked: true,
+      profiles: [
+        { ...BASE.profiles[1], labels: ['work'] },
+        { name: 'p03', port: 12502, labels: [], enabled: true },
+      ],
+    });
+
+    expect(launched).toEqual([]);
+    expect(
+      supervisor.snapshot().map(({ name, labels, state }) => ({ name, labels, state })),
+    ).toEqual([
+      { name: 'p02', labels: ['work'], state: 'stopped' },
+      { name: 'p03', labels: [], state: 'stopped' },
+    ]);
+  });
+
   test('unparking starts the enabled profiles again', async () => {
     const { launched, launcher } = fakeLaunch(undefined);
     const supervisor = build({ ...BASE, parked: true }, launcher);
@@ -180,6 +204,144 @@ describe('ProfileSupervisor parked fleet', () => {
     expect(timers().monitorTimer).not.toBeNull();
     expect(timers().healthTimer).not.toBeNull();
     expect(timers().sessionTimer).not.toBeNull();
+  });
+});
+
+describe('ProfileSupervisor demand start', () => {
+  const REQUEST = { agent: 'career', request: 'pool/linkedin' };
+
+  test('a demand starts only the named profile and leases it healthy', async () => {
+    livePids = [];
+    const { launched, launcher } = fakeLaunch(process.pid);
+    const supervisor = build({ ...BASE, parked: true }, launcher, async () => true);
+    await supervisor.start();
+    expect(launched).toEqual([]);
+
+    await supervisor.demandStart('p02', REQUEST);
+
+    expect(launched.map((call) => call.name)).toEqual(['p02']);
+    const snapshot = Object.fromEntries(supervisor.snapshot().map((p) => [p.name, p]));
+    expect(snapshot.p02.state).toBe('healthy');
+    expect(snapshot.p02.startedBy).toMatchObject(REQUEST);
+    expect(snapshot.p01.state).toBe('stopped');
+    expect(snapshot.p01.startedBy).toBeNull();
+  });
+
+  test('concurrent demands for one profile share one launch', async () => {
+    livePids = [];
+    const { launched, launcher } = fakeLaunch(process.pid);
+    const supervisor = build({ ...BASE, parked: true }, launcher, async () => true);
+    await supervisor.start();
+
+    await Promise.all([
+      supervisor.demandStart('p02', REQUEST),
+      supervisor.demandStart('p02', REQUEST),
+    ]);
+
+    expect(launched.map((call) => call.name)).toEqual(['p02']);
+  });
+
+  test('a disabled profile is never started on demand', async () => {
+    livePids = [];
+    const { launched, launcher } = fakeLaunch(process.pid);
+    const supervisor = build(
+      {
+        ...BASE,
+        parked: true,
+        profiles: [{ ...BASE.profiles[0], enabled: false }, BASE.profiles[1]],
+      },
+      launcher,
+      async () => true,
+    );
+    await supervisor.start();
+
+    await expect(supervisor.demandStart('p01', REQUEST)).rejects.toThrow(
+      'profile p01 is not enabled',
+    );
+    expect(launched).toEqual([]);
+  });
+
+  test('a browser that never becomes healthy fails with profile_start_timeout', async () => {
+    livePids = [];
+    const { launcher } = fakeLaunch(process.pid);
+    const supervisor = build(
+      { ...BASE, parked: true, demandStartTimeoutSec: 0 },
+      launcher,
+      async () => false,
+    );
+    await supervisor.start();
+
+    await expect(supervisor.demandStart('p02', REQUEST)).rejects.toMatchObject({
+      code: 'profile_start_timeout',
+      profile: 'p02',
+      timeoutSec: 0,
+    });
+  });
+
+  test('a launch that throws fails with profile_start_failed and its lastError', async () => {
+    livePids = [];
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const supervisor = build(
+      { ...BASE, parked: true },
+      async () => {
+        throw new Error('extension build missing at /nonexistent/extension');
+      },
+      async () => true,
+    );
+    await supervisor.start();
+
+    await expect(supervisor.demandStart('p02', REQUEST)).rejects.toMatchObject({
+      code: 'profile_start_failed',
+      profile: 'p02',
+      lastError: expect.stringContaining('extension build missing'),
+    });
+    errors.mockRestore();
+  });
+
+  test('stopProfile stops a demand-started browser and clears startedBy', async () => {
+    livePids = [];
+    const { launcher } = fakeLaunch(process.pid);
+    const supervisor = build({ ...BASE, parked: true }, launcher, async () => true);
+    await supervisor.start();
+    await supervisor.demandStart('p02', REQUEST);
+
+    await supervisor.stopProfile('p02');
+
+    const p02 = supervisor.snapshot().find((p) => p.name === 'p02')!;
+    expect(p02.state).toBe('stopped');
+    expect(p02.startedBy).toBeNull();
+  });
+
+  test('unparking makes demand-started profiles eager and clears startedBy', async () => {
+    livePids = [];
+    const { launcher } = fakeLaunch(process.pid);
+    const supervisor = build({ ...BASE, parked: true }, launcher, async () => true);
+    await supervisor.start();
+    await supervisor.demandStart('p02', REQUEST);
+
+    await supervisor.reload(BASE);
+
+    expect(supervisor.snapshot().find((p) => p.name === 'p02')!.startedBy).toBeNull();
+  });
+
+  test('reapIdle stops a demand-started browser after idleStopSec, never while leased', async () => {
+    livePids = [];
+    const { launcher } = fakeLaunch(process.pid);
+    const config: FleetConfig = {
+      ...BASE,
+      parked: true,
+      profiles: [BASE.profiles[0], { ...BASE.profiles[1], idleStopSec: 60 }],
+    };
+    const supervisor = build(config, launcher, async () => true);
+    await supervisor.start();
+    await supervisor.demandStart('p02', REQUEST);
+    const t0 = Date.now();
+
+    expect(await supervisor.reapIdle(() => true, t0 + 3_600_000)).toEqual([]);
+    expect(await supervisor.reapIdle(() => false, t0)).toEqual([]);
+    expect(await supervisor.reapIdle(() => false, t0 + 59_000)).toEqual([]);
+    expect(await supervisor.reapIdle(() => false, t0 + 61_000)).toEqual(['p02']);
+    expect(supervisor.snapshot().find((p) => p.name === 'p02')!.state).toBe('stopped');
   });
 });
 

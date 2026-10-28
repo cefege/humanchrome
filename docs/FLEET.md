@@ -14,6 +14,7 @@ For the product overview and first remote connection, start with the
 [README fleet quickstart](../README.md#turn-a-mac-into-a-browser-fleet).
 This guide covers deployment and operating details.
 
+- [Cloud coordinator and workers](#cloud-coordinator-and-workers)
 - [Mac setup](#mac-setup)
 - [Provisioning](#provisioning)
 - [Commands](#commands)
@@ -27,6 +28,63 @@ This guide covers deployment and operating details.
 - [Agent config](#agent-config)
 - [Orphans and duplicate browsers](#orphans-and-duplicate-browsers)
 - [Troubleshooting](#troubleshooting)
+
+## Cloud coordinator and workers
+
+For a browserless service in Kubernetes, use `fleet coordinator` and one or
+more native Mac workers. The coordinator owns authentication, durable
+PostgreSQL assignments and routing; workers own Chrome, profiles, Keychain
+access and execution. The existing `fleet serve` remains the standalone mode.
+
+Initialize a worker in a **new, dedicated root**, not your existing fleet root:
+
+```bash
+export HC_FLEET_ROOT="$HOME/Library/Application Support/humanchrome-worker"
+humanchrome-bridge fleet worker init mac-1 \
+  --host 100.88.99.122 --port 12310 --base-port 12900
+humanchrome-bridge fleet worker install-agent
+```
+
+Replace the host with this worker's Tailscale address. Initialization seeds the
+first `browser` profile from daily Chrome and applies the existing cookie and
+Google-session gates. Use `--seed-source daily=null` only when you deliberately
+want an empty first profile. Treat the generated worker credential as a secret.
+The worker's allowlist initially contains only `browser`; additional permitted
+profile names and seed sources are explicit operator configuration.
+
+Run the browserless coordinator with a private JSON configuration:
+
+```bash
+humanchrome-bridge fleet coordinator --config /etc/humanchrome/coordinator.json
+```
+
+Client credentials and worker credentials are distinct. Client tokens identify
+the application principal; `X-Humanchrome-Agent` identifies a workflow within
+that principal. Workers derive browser-side tab ownership from the lease ID,
+not a caller-supplied client/session header.
+
+The coordinator keeps `/v1/pool/:label/mcp`, named browser HTTP/MCP routes and
+`/v1/fleet/mcp`. Names are qualified as `workerId:profile`. Administrators may
+provision profiles using approved symbolic seed sources; remote callers cannot
+choose arbitrary paths on a Mac.
+
+Assignments survive coordinator restarts. Lease expiry frees capacity but
+does not silently move an existing workflow: it returns `lease_expired` until
+that workflow explicitly releases its assignment. Release uses
+`DELETE /v1/leases/:agent` with the matching `X-Humanchrome-Agent` and client
+credential, including when the lease has expired.
+
+Browser actions are never automatically retried. An interrupted action can
+have an unknown outcome, and the worker preserves that uncertainty across
+restarts. After leases and active work are gone, an administrator can explicitly
+restart the affected browser through
+`POST /v1/profiles/:qualifiedName/recover`. Recovery preserves the fencing
+generation and does not replay the action.
+
+See [Kubernetes and Tailscale deployment](../deploy/fleet/README.md) for the
+container, durable database, worker enrollment and proxy identity persistence.
+The deployment starts with one coordinator replica; a database-held singleton
+lock also prevents accidental concurrent coordinators with the same identity.
 
 ## Mac setup
 
@@ -184,7 +242,7 @@ All commands live under `humanchrome-bridge fleet …`.
 | `profile ls`                                              | Print every profile in `fleet.json` as JSON.                                                                                                                                                                                                                                                                                                                  |
 | `profile enable <name>` / `profile disable <name>`        | Let the supervisor run a profile again, or stop it and keep it stopped. Data is untouched.                                                                                                                                                                                                                                                                    |
 | `start <name>` / `stop <name>` / `restart <name>`         | One browser. Routed through the running `serve` when there is one, applied locally otherwise.                                                                                                                                                                                                                                                                 |
-| `down` / `up`                                             | Park (stop everything and keep it stopped) / unpark the fleet.                                                                                                                                                                                                                                                                                                |
+| `down` / `up`                                             | Park (stop everything; a pool request can still start one browser on demand) / unpark (start every enabled profile).                                                                                                                                                                                                                                          |
 | `status`                                                  | Profiles, states and leases. Says `serve: up` or `serve: down`.                                                                                                                                                                                                                                                                                               |
 | `node add <id> <host> [--port N] [--token <hex>]`         | Register a peer gateway. `--token` may be omitted on a trusted LAN.                                                                                                                                                                                                                                                                                           |
 | `node ls` / `node rm <id>`                                | List or remove peers.                                                                                                                                                                                                                                                                                                                                         |
@@ -215,7 +273,7 @@ default). Every request carrying an `Origin` header is refused with
 | `DELETE /v1/leases/:agent`        | Releases that agent's leases and frees its client lane inside each browser. The `x-humanchrome-agent` header must name the same agent as the path segment, else `403 agent_mismatch`.   |
 | `POST\|GET\|DELETE /v1/fleet/mcp` | [Fleet MCP tools](#fleet-mcp-tools).                                                                                                                                                    |
 | `ALL /v1/profiles/:name/*`        | Proxy to one browser's bridge.                                                                                                                                                          |
-| `ALL /v1/pool/:label/*`           | Lease a browser matching a label (or a purpose tag) and proxy to it.                                                                                                                    |
+| `ALL /v1/pool/:label/*`           | Lease a browser matching a label (or a purpose tag) and proxy to it. With no healthy candidate, starts the one enabled browser bound to it ([demand start](#demand-start)).             |
 | `ALL /v1/node/:name/*`            | Federation entry point, resolved by a peer gateway against **local** profiles only.                                                                                                     |
 
 Proxying to a browser only reaches that browser's `/api/*`, `/mcp` and `/ping`.
@@ -226,20 +284,49 @@ the LAN until it is added here.
 Responses carry `X-Humanchrome-Profile` naming the browser that served the
 request, so a client can tell which of its leases answered.
 
-| Status | Body                                      | When                                                                                             |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `400`  | `missing_agent` / `invalid_agent`         | No usable `x-humanchrome-agent` header / unusable agent name in the path.                        |
-| `401`  | `unauthorized`                            | A token is configured and the bearer does not match it (or `/v1/node/*` without a peer token).   |
-| `403`  | `origin_not_allowed` / `agent_mismatch`   | Request carries an `Origin` header / lease release for an agent the caller does not claim to be. |
-| `404`  | `unknown_profile` / `not_found`           | No such profile (locally or on a peer) / proxy path outside the allowlist.                       |
-| `409`  | `profile_busy`                            | The browser is held by another agent, or a control verb targets one.                             |
-| `503`  | `no_free_profile` / `profile_unavailable` | No healthy candidate for the label / the profile exists but is not healthy yet.                  |
+| Status | Body                                                                                         | When                                                                                                                                                  |
+| ------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `missing_agent` / `invalid_agent`                                                            | No usable `x-humanchrome-agent` header / unusable agent name in the path.                                                                             |
+| `401`  | `unauthorized`                                                                               | A token is configured and the bearer does not match it (or `/v1/node/*` without a peer token).                                                        |
+| `403`  | `origin_not_allowed` / `agent_mismatch`                                                      | Request carries an `Origin` header / lease release for an agent the caller does not claim to be.                                                      |
+| `404`  | `unknown_profile` / `not_found`                                                              | No such profile (locally or on a peer) / proxy path outside the allowlist.                                                                            |
+| `409`  | `profile_busy`                                                                               | The browser is held by another agent, or a control verb targets one.                                                                                  |
+| `503`  | `no_free_profile` / `profile_unavailable` / `profile_start_failed` / `profile_start_timeout` | No candidate for the label (or none enabled) / the profile exists but is not healthy yet / an on-demand start failed or did not turn healthy in time. |
+
+### Demand start
+
+A browser runs because something needs it. A pool request (`/v1/pool/<label>/*`)
+with no free healthy candidate starts the one enabled browser bound to that
+label, or to that purpose (purpose first). It holds the request up to
+`demandStartTimeoutSec` (default 90) for the browser to turn healthy, then
+leases it.
+
+- Concurrent requests for one profile share one start.
+- A disabled profile never starts on demand: the request gets `503 no_free_profile`.
+- A launch that fails answers `503 profile_start_failed`; one not healthy in time
+  answers `503 profile_start_timeout`. Both carry `lastError`; the timeout also
+  carries `timeoutSec`. The client may retry.
+- While it runs, a demand-started browser is supervised like any other: a crash
+  is revived with backoff. It is marked `startedBy` (the request, such as
+  `pool/linkedin`, and the agent) on the status page and in `fleet status`.
+- It stops after `idleStopSec` (per profile; default 1800, `0` never) with no
+  lease. A leased browser is never stopped for idleness. The check runs on the
+  gateway's 30-second sweep.
+- On a federated pool, a request with no healthy local or peer candidate starts
+  an enabled local candidate first. Failing that, it leases an enabled peer
+  candidate, and that peer's gateway starts it under the same rules.
+
+`fleet down` parks the fleet: it stops everything, demand-started browsers
+included, and nothing starts eagerly at boot or on revival. A pool request can
+still start one browser. `fleet up` unparks and starts every enabled profile.
+A manual `fleet start <name>` is not a demand: it sets no `startedBy`, is not
+idle-stopped, and while parked is not revived after a crash.
 
 ### Status page
 
 `GET /` (and `GET /ui`) serves a read-only dashboard: browsers running,
 healthy / not healthy, leases held, and a per-profile table with state, pid,
-port, labels, purpose, enabled, lease holder and `lastError`, refreshing every
+port, labels, purpose, enabled, started by, lease holder and `lastError`, refreshing every
 3s. It is served by the gateway itself, so it is reachable wherever the gateway
 is and needs no second process.
 
@@ -273,13 +360,13 @@ from `/v1/pool/any/mcp` so an agent gets fleet control and a leased browser from
 two clearly-named URLs, and every tool is `fleet_`-prefixed so a client merging
 both servers cannot collide.
 
-| Tool             | Arguments                              | What it does                                                             |
-| ---------------- | -------------------------------------- | ------------------------------------------------------------------------ |
-| `fleet_profiles` | —                                      | Every browser with its state, lease holder and last failure. Start here. |
-| `fleet_profile`  | `action: start\|stop\|restart`, `name` | One browser. `name` may be a peer profile as `nodeId:profile`.           |
-| `fleet_leases`   | `action: list\|release`, `agent`       | Who holds what; `release` also frees the browser-side client lane.       |
-| `fleet_purposes` | —                                      | Each purpose tag and the browser serving it, with the live state.        |
-| `fleet_park`     | `parked: boolean`                      | Stop every browser and keep them stopped, or start them all again.       |
+| Tool             | Arguments                              | What it does                                                                                       |
+| ---------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `fleet_profiles` | —                                      | Every browser with its state, lease holder and last failure. Start here.                           |
+| `fleet_profile`  | `action: start\|stop\|restart`, `name` | One browser. `name` may be a peer profile as `nodeId:profile`.                                     |
+| `fleet_leases`   | `action: list\|release`, `agent`       | Who holds what; `release` also frees the browser-side client lane.                                 |
+| `fleet_purposes` | —                                      | Each purpose tag and the browser serving it, with the live state.                                  |
+| `fleet_park`     | `parked: boolean`                      | Stop every browser (a pool request can still start one on demand), or start every enabled browser. |
 
 Results are JSON text; a refused call carries `isError` and says why
 (`unknown profile: nope`), rather than failing the whole MCP session.
@@ -293,35 +380,36 @@ humanchrome-bridge fleet init    # prints the mcpServers block for both endpoint
 `~/Library/Application Support/humanchrome-fleet/fleet.json`, written atomically
 (temporary file + rename) at mode `0600`.
 
-| Key                             | Meaning                                                                           |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| `version`                       | Schema version; must be `1`.                                                      |
-| `gateway.host` / `gateway.port` | Where the gateway listens. Default `0.0.0.0:12300`.                               |
-| `token`                         | `null` (open) or the bearer LAN clients must present.                             |
-| `bridgeToken`                   | Credential the gateway injects toward each profile's bridge. Always present.      |
-| `chromePath`                    | Chrome binary used for spawns and for finding orphans.                            |
-| `extensionDir`                  | Unpacked extension loaded over CDP on every launch.                               |
-| `basePort`                      | First profile port; the template takes `basePort - 1`.                            |
-| `leaseIdleTtlSec`               | Idle seconds before a lease expires. Backfilled to `900` when absent.             |
-| `profiles[]`                    | `{ name, port, labels, enabled, purpose?, seededFrom?, seededAt? }`.              |
-| `parked`                        | When true, nothing runs and nothing is relaunched.                                |
-| `nodeId`                        | This machine in `nodeId:profile` keys. Defaults to the hostname.                  |
-| `nodes[]`                       | `{ id, host, port, token }` peer gateways. `token` may be empty on a trusted LAN. |
-| `dailyProfileDir`               | Default source for `--seed daily`.                                                |
+| Key                             | Meaning                                                                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`                       | Schema version; must be `1`.                                                                                                                                                        |
+| `gateway.host` / `gateway.port` | Where the gateway listens. Default `0.0.0.0:12300`.                                                                                                                                 |
+| `token`                         | `null` (open) or the bearer LAN clients must present.                                                                                                                               |
+| `bridgeToken`                   | Credential the gateway injects toward each profile's bridge. Always present.                                                                                                        |
+| `chromePath`                    | Chrome binary used for spawns and for finding orphans.                                                                                                                              |
+| `extensionDir`                  | Unpacked extension loaded over CDP on every launch.                                                                                                                                 |
+| `basePort`                      | First profile port; the template takes `basePort - 1`.                                                                                                                              |
+| `leaseIdleTtlSec`               | Idle seconds before a lease expires. Backfilled to `900` when absent.                                                                                                               |
+| `demandStartTimeoutSec`         | Seconds a pool request waits for an on-demand start to turn healthy. Default `90`.                                                                                                  |
+| `profiles[]`                    | `{ name, port, labels, enabled, purpose?, seededFrom?, seededAt?, idleStopSec? }`. `idleStopSec` (default 1800, `0` never) stops a demand-started browser after that long unleased. |
+| `parked`                        | When true, nothing starts eagerly at boot or on revival; a pool request can still start one browser on demand.                                                                      |
+| `nodeId`                        | This machine in `nodeId:profile` keys. Defaults to the hostname.                                                                                                                    |
+| `nodes[]`                       | `{ id, host, port, token }` peer gateways. `token` may be empty on a trusted LAN.                                                                                                   |
+| `dailyProfileDir`               | Default source for `--seed daily`.                                                                                                                                                  |
 
 Two CLI processes mutating the file at the same instant can still lose one
 another's change; each individual write is atomic.
 
 ## States
 
-| State         | Meaning                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------- |
-| `stopped`     | No browser, and none will be launched while disabled or parked.                                   |
-| `starting`    | A launch is in flight.                                                                            |
-| `running`     | Chrome is up; the bridge has not answered `/ping` yet.                                            |
-| `healthy`     | Chrome is up and its bridge answers. **Only this state is handed out.**                           |
-| `backoff`     | The browser died or failed to launch; a relaunch is scheduled with exponential backoff up to 60s. |
-| `unreachable` | A peer gateway did not answer. Only ever reported for peer profiles.                              |
+| State         | Meaning                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `stopped`     | No browser, and none will be launched while disabled, or while parked unless a pool request starts it on demand. |
+| `starting`    | A launch is in flight.                                                                                           |
+| `running`     | Chrome is up; the bridge has not answered `/ping` yet.                                                           |
+| `healthy`     | Chrome is up and its bridge answers. **Only this state is handed out.**                                          |
+| `backoff`     | The browser died or failed to launch; a relaunch is scheduled with exponential backoff up to 60s.                |
+| `unreachable` | A peer gateway did not answer. Only ever reported for peer profiles.                                             |
 
 `fleet purpose ls` reports `unknown` rather than `stopped` for a local profile
 when `serve` is down: nothing is reporting, and a fabricated `stopped` reads as
