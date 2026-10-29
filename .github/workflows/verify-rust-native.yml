@@ -33,6 +33,16 @@ jobs:
         with:
           toolchain: 1.99.1
           targets: x86_64-pc-windows-msvc
+      - name: Restore native compilation cache
+        id: native-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: verify-native-windows-1.99.1-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: verify-native-windows-1.99.1-${{ hashFiles('Cargo.lock') }}-
       - name: Create verification logs
         shell: bash
         run: mkdir -p native-logs
@@ -60,6 +70,14 @@ jobs:
           node scripts/package-native-release.mjs --target x86_64-pc-windows-msvc \
             --bin-dir target/x86_64-pc-windows-msvc/release --output-dir native-artifacts \
             2>&1 | tee native-logs/package.log
+      - name: Preserve compiled candidate before runtime smoke
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Smoke installed Windows archive without Node on child PATH
         shell: bash
         run: |

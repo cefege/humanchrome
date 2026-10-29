@@ -452,8 +452,18 @@ async function assertRegistration(bridge, nativeHost, home, env) {
         'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.humanchrome.nativehost',
         '/ve',
       ], env);
-      if (registry.code !== 0 || !registry.stdout.includes(manifestPath)) {
-        fail(`Windows HKCU native-messaging registration is absent: ${registry.stderr}`);
+      const registeredPath = registry.stdout.match(/\bREG_SZ\s+([^\r\n]+)/)?.[1]?.trim();
+      if (registry.code !== 0 || !registeredPath) {
+        fail(`Windows HKCU native-messaging query failed (${registry.code}): ${registry.stdout}\n${registry.stderr}`);
+      }
+      // Windows can render the same file with different case, 8.3 aliases, or a
+      // verbatim path prefix. Compare file identity, not CLI path spelling.
+      const [registeredFile, expectedFile] = await Promise.all([
+        stat(registeredPath, { bigint: true }),
+        stat(manifestPath, { bigint: true }),
+      ]);
+      if (registeredFile.dev !== expectedFile.dev || registeredFile.ino !== expectedFile.ino) {
+        fail(`Windows HKCU native-messaging value targets ${registeredPath}, expected ${manifestPath}`);
       }
     }
   } finally {
