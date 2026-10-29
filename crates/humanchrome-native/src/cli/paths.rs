@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn validates_owned_manifest_before_destructive_operations() {
-        let host = PathBuf::from("/opt/humanchrome/native-host");
+        let host = std::env::temp_dir().join("humanchrome/native-host");
         let manifest = NativeMessagingManifest::new(host.clone()).expect("absolute host path");
         manifest.validate_owned_by(&host).expect("owned manifest");
 
