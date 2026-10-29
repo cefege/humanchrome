@@ -1118,7 +1118,7 @@ fn append_windows_argument(command_line: &mut Vec<u16>, argument: &[u16]) {
     let needs_quotes = argument.is_empty()
         || argument
             .iter()
-            .any(|character| matches!(*character, 9 | 10 | 11 | 12 | 13 | 32 | b'"' as u16));
+            .any(|character| matches!(*character, 9 | 10 | 11 | 12 | 13 | 32 | 0x22));
     if !needs_quotes {
         command_line.extend_from_slice(argument);
         return;
