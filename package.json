@@ -18,6 +18,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
+    "build:contracts": "node packages/shared/scripts/export-rust-contract.mjs",
     "build:shared": "pnpm --filter humanchrome-shared build",
     "build:native": "pnpm --filter humanchrome-bridge build",
     "build:extension": "pnpm --filter humanchrome-extension build",
@@ -40,8 +41,8 @@
     "clean:dist": "pnpm -r exec rm -rf dist .turbo",
     "clean:modules": "pnpm -r exec rm -rf node_modules && rm -rf node_modules",
     "clean": "pnpm clean:dist && pnpm clean:modules",
-    "//typecheck": "Two filters: wasm-simd (Rust pkg, no tsconfig) AND humanchrome-monorepo (the workspace root, no tsconfig either — pnpm -r exec includes it).",
-    "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' exec tsc --noEmit",
+    "//typecheck": "Exclude Rust-only, dependency-only optional engines, and the root workspace: these packages have no TypeScript project.",
+    "typecheck": "pnpm -r --filter='!@humanchrome/wasm-simd' --filter='!@humanchrome/optional-engines' --filter='!humanchrome-monorepo' exec tsc --noEmit",
     "//test": "Serial workspace execution (--workspace-concurrency=1) — running native-server jest and chrome-extension vitest in parallel causes CPU/memory contention that times out otherwise-passing tests. Serial is ~150s vs parallel ~485s here, AND green vs flaky-failures. See IMP-0123.",
     "test": "pnpm -r --workspace-concurrency=1 --filter='!@humanchrome/wasm-simd' --filter='!humanchrome-monorepo' test",
     "doctor": "node scripts/claude-doctor.mjs",
@@ -74,22 +75,5 @@
     ],
     "packages/shared/src/tools.ts": "node .claude/scripts/regen-tools-doc.mjs",
     "packages/shared/src/tool-schemas/*.ts": "node .claude/scripts/regen-tools-doc.mjs"
-  },
-  "pnpm": {
-    "overrides": {
-      "hono@<4.12.25": ">=4.12.25",
-      "tmp@<0.2.6": ">=0.2.6",
-      "qs@>=6.11.1 <=6.15.1": ">=6.15.2",
-      "shell-quote@<1.8.2": ">=1.8.2",
-      "esbuild@<0.28.1": ">=0.28.1",
-      "protobufjs@<=7.6.2": ">=7.6.3",
-      "form-data@>=4.0.0 <4.0.6": ">=4.0.6",
-      "vite@>=8.0.0 <=8.0.15": ">=8.0.16",
-      "js-yaml@<=4.1.1": ">=4.2.0",
-      "@babel/core@<=7.29.0": ">=7.29.6",
-      "adm-zip@<0.6.0": ">=0.6.0",
-      "linkify-it@<=5.0.0": ">=5.0.1 <6",
-      "undici@<7.28.0": ">=7.28.0 <8"
-    }
   }
 }
