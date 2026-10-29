@@ -2,28 +2,29 @@
 
 use std::{
     collections::BTreeMap,
-    io,
     path::Path,
-    process::Stdio,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
+#[cfg(unix)]
+use std::{io, process::Stdio};
 
 #[cfg(windows)]
-use std::sync::Mutex as StdMutex;
+use std::os::windows::io::OwnedHandle;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    process::Child,
     sync::{Mutex, oneshot},
     task::JoinHandle,
     time,
 };
+#[cfg(unix)]
+use tokio::process::Child;
 
 use super::error::FleetRuntimeError;
 
@@ -241,26 +242,10 @@ pub struct ChromeProcess {
     #[cfg(unix)]
     child: Mutex<Child>,
     #[cfg(windows)]
-    child: StdMutex<WindowsProcess>,
+    // Retain the job (drop first, terminating descendants) and process until this owner drops.
+    _windows_handles: [OwnedHandle; 2],
 }
 
-#[cfg(windows)]
-#[derive(Debug)]
-struct WindowsProcess {
-    process: windows_sys::Win32::Foundation::HANDLE,
-    job: windows_sys::Win32::Foundation::HANDLE,
-}
-
-#[cfg(windows)]
-impl Drop for WindowsProcess {
-    fn drop(&mut self) {
-        // SAFETY: both handles are uniquely owned by this launched profile.
-        unsafe {
-            let _ = windows_sys::Win32::Foundation::CloseHandle(self.job);
-            let _ = windows_sys::Win32::Foundation::CloseHandle(self.process);
-        }
-    }
-}
 
 impl ChromeProcess {
     /// Waits for and reaps this owned Unix child without holding up the async executor.
@@ -738,7 +723,11 @@ pub fn spawn_with_cdp_pipe(
     Ok(ChromeProcess {
         pid,
         cdp: CdpPipe::new(input, output),
-        child: StdMutex::new(WindowsProcess { process, job }),
+        // SAFETY: launch_windows_process returned two validated, uniquely owned handles.
+        // OwnedHandle supplies thread-safe RAII ownership without asserting raw pointers Send.
+        _windows_handles: unsafe {
+            [OwnedHandle::from_raw_handle(job), OwnedHandle::from_raw_handle(process)]
+        },
     })
 }
 
@@ -915,11 +904,7 @@ fn launch_windows_process(
     }
     let word_count = attribute_size.div_ceil(size_of::<usize>());
     let mut attribute_storage = vec![0_usize; word_count];
-    let attribute_list = attribute_storage
-        .as_mut_ptr()
-        .cast::<core::ffi::c_void>()
-        .cast::<windows_sys::Win32::System::Threading::PROC_THREAD_ATTRIBUTE_LIST>(
-    );
+    let attribute_list = attribute_storage.as_mut_ptr().cast();
     // SAFETY: allocated storage has the required size and alignment.
     if unsafe { InitializeProcThreadAttributeList(attribute_list, 1, 0, &mut attribute_size) } == 0
     {
