@@ -22,6 +22,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   existsSync,
   cpSync,
@@ -54,14 +55,14 @@ const TEST_NATIVE_BIN = process.env.HC_TEST_NATIVE_BIN;
 
 /**
  * Match Chrome's staged extension identity: a manifest public key takes
- * precedence over the unpacked absolute path. Both use SHA-256's first
+ * precedence over the canonical unpacked filesystem path. Both use SHA-256's first
  * 16 bytes mapped through Chrome's a-p alphabet.
  */
 function deriveUnpackedExtensionId(absolutePath) {
   const manifest = JSON.parse(readFileSync(resolve(absolutePath, 'manifest.json'), 'utf8'));
   const identity = typeof manifest.key === 'string' && manifest.key.length > 0
     ? Buffer.from(manifest.key, 'base64')
-    : absolutePath;
+    : realpathSync(absolutePath);
   const hash = createHash('sha256').update(identity).digest('hex');
   const first32 = hash.slice(0, 32);
   let out = '';

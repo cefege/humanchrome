@@ -65,12 +65,16 @@ class AriaSnapshotTool extends BaseBrowserToolExecutor {
       );
 
       const filter = args.interactiveOnly === false ? 'all' : 'interactive';
-      const resp = await this.sendMessageToTab(tab.id!, {
-        action: TOOL_MESSAGE_TYPES.GENERATE_ACCESSIBILITY_TREE,
-        filter,
-        depth: args.maxDepth,
-        refId: args.refId || undefined,
-      });
+      const resp = await this.sendMessageToTab(
+        tab.id!,
+        {
+          action: TOOL_MESSAGE_TYPES.GENERATE_ACCESSIBILITY_TREE,
+          filter,
+          depth: args.maxDepth,
+          refId: args.refId || undefined,
+        },
+        0,
+      );
 
       if (!resp || resp.success !== true || typeof resp.pageContent !== 'string') {
         return createErrorResponse(

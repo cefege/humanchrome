@@ -162,7 +162,10 @@
             },
             "tabTarget": {
               "type": "string",
-              "enum": ["current", "new"],
+              "enum": [
+                "current",
+                "new"
+              ],
               "description": "Where to run the flow: in the current tab (default) or a new tab."
             },
             "refresh": {
@@ -186,7 +189,9 @@
               "description": "Optional URL to open before the flow runs."
             }
           },
-          "required": ["flowId"]
+          "required": [
+            "flowId"
+          ]
         }
       },
       {
@@ -197,7 +202,11 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["start", "stop", "analyze"],
+              "enum": [
+                "start",
+                "stop",
+                "analyze"
+              ],
               "description": "start=begin trace, stop=end + optionally save, analyze=summary of last trace."
             },
             "reload": {
@@ -229,7 +238,9 @@
               "description": "For action=analyze: native-host timeout (ms, default 60000)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -240,7 +251,10 @@
           "properties": {
             "format": {
               "type": "string",
-              "enum": ["tree", "aria"],
+              "enum": [
+                "tree",
+                "aria"
+              ],
               "description": "Snapshot format. \"tree\" (default) = viewport interactive tree; \"aria\" = Playwright-style ARIA snapshot (compact, ref-driven)."
             },
             "interactiveOnly": {
@@ -291,12 +305,21 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["get", "set", "remove", "clear", "keys"],
+              "enum": [
+                "get",
+                "set",
+                "remove",
+                "clear",
+                "keys"
+              ],
               "description": "Operation to perform on the storage area."
             },
             "scope": {
               "type": "string",
-              "enum": ["local", "session"],
+              "enum": [
+                "local",
+                "session"
+              ],
               "description": "Which web-app storage area to operate on: `local` (window.localStorage, persists across sessions) or `session` (window.sessionStorage, cleared when the tab closes). Default: `local`."
             },
             "key": {
@@ -320,7 +343,9 @@
               "description": "Optional frame to scope the operation to. Defaults to the main frame. localStorage and sessionStorage are origin-keyed, so different iframes on different origins keep separate stores."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -353,7 +378,15 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["create", "update", "query", "get", "add_tabs", "remove_tabs", "move"],
+              "enum": [
+                "create",
+                "update",
+                "query",
+                "get",
+                "add_tabs",
+                "remove_tabs",
+                "move"
+              ],
               "description": "Operation to perform."
             },
             "groupId": {
@@ -399,7 +432,9 @@
               "description": "Target index for `move`. -1 places the group at the end. Group moves within its current window only; cross-window moves require a separate flow."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -510,7 +545,12 @@
                   "type": "number"
                 }
               },
-              "required": ["x0", "y0", "x1", "y1"]
+              "required": [
+                "x0",
+                "y0",
+                "x1",
+                "y1"
+              ]
             },
             "selector": {
               "type": "string",
@@ -569,7 +609,10 @@
                     "description": "Value to set (stringified if non-string)"
                   }
                 },
-                "required": ["ref", "value"]
+                "required": [
+                  "ref",
+                  "value"
+                ]
               }
             },
             "width": {
@@ -601,7 +644,9 @@
               "description": "IMP-0097: per-call cap on the actionability wait, in milliseconds. Default 5000."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -666,12 +711,21 @@
                 "runAt": {
                   "type": "string",
                   "description": "Injection timing",
-                  "enum": ["document_start", "document_end", "document_idle", "auto"]
+                  "enum": [
+                    "document_start",
+                    "document_end",
+                    "document_idle",
+                    "auto"
+                  ]
                 },
                 "world": {
                   "type": "string",
                   "description": "Execution world",
-                  "enum": ["auto", "ISOLATED", "MAIN"]
+                  "enum": [
+                    "auto",
+                    "ISOLATED",
+                    "MAIN"
+                  ]
                 },
                 "allFrames": {
                   "type": "boolean",
@@ -680,7 +734,12 @@
                 "mode": {
                   "type": "string",
                   "description": "Injection strategy: auto | css | persistent | once. Use once to evaluate immediately (no persistence) and include the return value in onceResult.",
-                  "enum": ["auto", "css", "persistent", "once"]
+                  "enum": [
+                    "auto",
+                    "css",
+                    "persistent",
+                    "once"
+                  ]
                 },
                 "dnrFallback": {
                   "type": "boolean",
@@ -699,7 +758,10 @@
                 },
                 "status": {
                   "type": "string",
-                  "enum": ["enabled", "disabled"],
+                  "enum": [
+                    "enabled",
+                    "disabled"
+                  ],
                   "description": "Filter by status (list action)"
                 },
                 "domain": {
@@ -717,7 +779,9 @@
               }
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -805,7 +869,9 @@
               "description": "Per-URL load timeout in ms when maxConcurrent is set. Default 30000. Ignored when maxConcurrent is not set."
             }
           },
-          "required": ["urls"]
+          "required": [
+            "urls"
+          ]
         }
       },
       {
@@ -816,7 +882,11 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["ids", "matching", "mine"],
+              "enum": [
+                "ids",
+                "matching",
+                "mine"
+              ],
               "description": "ids=close specific tabIds; matching=bulk close by url/title/age filter; mine=close all tabs owned by the calling client."
             },
             "tabIds": {
@@ -858,7 +928,9 @@
               "description": "For action=matching/mine: report matched tabs without closing."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -876,7 +948,9 @@
               "description": "The ID of the window where the tab is located."
             }
           },
-          "required": ["tabId"]
+          "required": [
+            "tabId"
+          ]
         }
       },
       {
@@ -961,7 +1035,9 @@
               "description": "Multipart/form-data descriptor. If provided, overrides body and builds FormData with optional file attachments. Shape: { fields?: Record<string,string|number|boolean>, files?: Array<{ name: string, fileUrl?: string, filePath?: string, base64Data?: string, filename?: string, contentType?: string }> }. Also supports a compact array form: [ [name, fileSpec, filename?], ... ] where fileSpec may be url:, file:, or base64:."
             }
           },
-          "required": ["url"]
+          "required": [
+            "url"
+          ]
         }
       },
       {
@@ -972,7 +1048,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["start", "stop", "flush", "status"],
+              "enum": [
+                "start",
+                "stop",
+                "flush",
+                "status"
+              ],
               "description": "Action to perform: \"start\" begins capture, \"stop\" ends and returns results, \"flush\" returns the buffered results so far and clears them without ending the capture, \"status\" returns a side-effect-free snapshot of the current capture state."
             },
             "needResponseBody": {
@@ -1016,7 +1097,9 @@
               "description": "Do not activate tab/focus window when starting capture (default: true). Only honored by the debugger backend (needResponseBody:true); the webRequest backend never activates. Pass false to bring the tab forward."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -1050,7 +1133,9 @@
               "description": "How many matching responses to accumulate before detaching (default 1, max 100). When 1 (default), the tool resolves on the first match and returns the single-response shape (ok, tabId, requestId, url, method, status, ...). When >1, it accumulates up to N matches (or until timeoutMs fires) and returns { ok, tabId, count, matched, responses: [{...}, ...] } — matched may be less than count on timeout. On timeout with zero matches, the same TIMEOUT envelope is returned regardless of count."
             }
           },
-          "required": ["urlPattern"]
+          "required": [
+            "urlPattern"
+          ]
         }
       },
       {
@@ -1087,7 +1172,10 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["search", "delete"],
+              "enum": [
+                "search",
+                "delete"
+              ],
               "description": "search (default) or delete. Omit for search-mode."
             },
             "text": {
@@ -1134,7 +1222,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["search", "add", "update", "delete"],
+              "enum": [
+                "search",
+                "add",
+                "update",
+                "delete"
+              ],
               "description": "Which bookmark operation. search=query/list, add=create, update=rename/move/re-URL, delete=remove."
             },
             "query": {
@@ -1186,7 +1279,9 @@
               "description": "For action=update: new parent folder path/ID."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -1197,7 +1292,11 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["get", "set", "remove"],
+              "enum": [
+                "get",
+                "set",
+                "remove"
+              ],
               "description": "get=list, set=create/update single, remove=delete single."
             },
             "url": {
@@ -1234,7 +1333,12 @@
             },
             "sameSite": {
               "type": "string",
-              "enum": ["no_restriction", "lax", "strict", "unspecified"],
+              "enum": [
+                "no_restriction",
+                "lax",
+                "strict",
+                "unspecified"
+              ],
               "description": "For set: SameSite attribute (default \"unspecified\")."
             },
             "expirationDate": {
@@ -1246,7 +1350,9 @@
               "description": "Optional cookie store ID (e.g. incognito)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -1260,7 +1366,9 @@
               "description": "The query to search for related content across open tabs."
             }
           },
-          "required": ["query"]
+          "required": [
+            "query"
+          ]
         }
       },
       {
@@ -1290,7 +1398,9 @@
               "description": "Absolute file path. If set, the bridge writes the JSON-serialized `result` to this path and returns a small ack ({writtenTo, bytes, sha256}) instead of the full payload — keeps large blobs (e.g. ~200KB JSON fetches) out of the LLM context. Parent directories are created if missing. Relative paths are rejected with INVALID_ARGS."
             }
           },
-          "required": ["code"]
+          "required": [
+            "code"
+          ]
         }
       },
       {
@@ -1342,7 +1452,10 @@
                   "type": "number"
                 }
               },
-              "required": ["x", "y"]
+              "required": [
+                "x",
+                "y"
+              ]
             },
             "double": {
               "type": "boolean",
@@ -1350,7 +1463,11 @@
             },
             "button": {
               "type": "string",
-              "enum": ["left", "right", "middle"],
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ],
               "description": "Mouse button to click (default: \"left\")."
             },
             "modifiers": {
@@ -1442,7 +1559,11 @@
               "description": "Element ref from chrome_read_page (takes precedence over selector)."
             },
             "value": {
-              "type": ["string", "number", "boolean"],
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ],
               "description": "Value to fill. For text inputs: string. For checkboxes/radios: boolean. For selects: option value or text."
             },
             "force": {
@@ -1466,7 +1587,9 @@
               "description": "Target frame ID for iframe support."
             }
           },
-          "required": ["value"]
+          "required": [
+            "value"
+          ]
         }
       },
       {
@@ -1495,7 +1618,9 @@
                     "description": "Optional longer instruction shown to the user with more context (e.g., \"Click on the primary login button in the top-right corner\")."
                   }
                 },
-                "required": ["name"]
+                "required": [
+                  "name"
+                ]
               }
             },
             "timeoutMs": {
@@ -1511,7 +1636,9 @@
               "description": "Target window ID to pick the active tab when tabId is omitted."
             }
           },
-          "required": ["requests"]
+          "required": [
+            "requests"
+          ]
         }
       },
       {
@@ -1615,7 +1742,10 @@
             },
             "mode": {
               "type": "string",
-              "enum": ["snapshot", "buffer"],
+              "enum": [
+                "snapshot",
+                "buffer"
+              ],
               "description": "Console capture mode: snapshot (default; waits ~2s for messages) or buffer (persistent per-tab buffer; reads from memory instantly)."
             },
             "buffer": {
@@ -1689,7 +1819,9 @@
               "description": "Whether the input accepts multiple files (default: false)"
             }
           },
-          "required": ["selector"]
+          "required": [
+            "selector"
+          ]
         }
       },
       {
@@ -1700,17 +1832,29 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["handle_dialog", "register_default", "unregister_default", "list_defaults"],
+              "enum": [
+                "handle_dialog",
+                "register_default",
+                "unregister_default",
+                "list_defaults"
+              ],
               "description": "Action to perform. Omit (or pass \"handle_dialog\") for the legacy one-shot behavior."
             },
             "behavior": {
               "type": "string",
-              "enum": ["accept", "dismiss"],
+              "enum": [
+                "accept",
+                "dismiss"
+              ],
               "description": "For action=\"handle_dialog\": \"accept\" or \"dismiss\" the currently open dialog."
             },
             "defaultBehavior": {
               "type": "string",
-              "enum": ["accept", "dismiss", "prompt_with_text"],
+              "enum": [
+                "accept",
+                "dismiss",
+                "prompt_with_text"
+              ],
               "description": "For action=\"register_default\": how to auto-answer future dialogs on this tab. \"prompt_with_text\" requires `promptText` and only differs from \"accept\" for prompt() calls."
             },
             "promptText": {
@@ -1737,7 +1881,15 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["start", "stop", "status", "auto_start", "capture", "clear", "export"],
+              "enum": [
+                "start",
+                "stop",
+                "status",
+                "auto_start",
+                "capture",
+                "clear",
+                "export"
+              ],
               "description": "Action to perform:\n- \"start\": Begin fixed-FPS recording (captures frames at regular intervals)\n- \"auto_start\": Begin auto-capture mode (frames captured on tool actions)\n- \"stop\": End recording and save GIF\n- \"status\": Get current recording state\n- \"capture\": Manually trigger a frame capture in auto mode\n- \"clear\": Clear all recording state and cached GIF without saving\n- \"export\": Export the last recorded GIF (download or drag&drop upload)"
             },
             "tabId": {
@@ -1799,7 +1951,10 @@
                   "type": "number"
                 }
               },
-              "required": ["x", "y"]
+              "required": [
+                "x",
+                "y"
+              ]
             },
             "ref": {
               "type": "string",
@@ -1942,7 +2097,9 @@
               }
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -1953,7 +2110,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["dump_logs", "queue", "runtime_info", "dev_reload"],
+              "enum": [
+                "dump_logs",
+                "queue",
+                "runtime_info",
+                "dev_reload"
+              ],
               "description": "dump_logs=recent debug entries; queue=per-tab queue snapshot; runtime_info=SW identity / buildHash / toolNames; dev_reload=trigger chrome.runtime.reload() (dev only)."
             },
             "requestId": {
@@ -1970,7 +2132,12 @@
             },
             "level": {
               "type": "string",
-              "enum": ["debug", "info", "warn", "error"],
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ],
               "description": "For action=dump_logs: severity filter."
             },
             "sinceMs": {
@@ -1990,7 +2157,9 @@
               "description": "For action=dump_logs: toggle persist-through-SW-restart (default off)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2025,7 +2194,10 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["substring", "regex"],
+                    "enum": [
+                      "substring",
+                      "regex"
+                    ],
                     "description": "For url_matches and title_matches: how to interpret pattern. Default: regex."
                   },
                   "selector": {
@@ -2064,7 +2236,9 @@
                     "description": "For js: a JavaScript expression evaluated in the page context. Predicate passes if the expression returns truthy."
                   }
                 },
-                "required": ["kind"]
+                "required": [
+                  "kind"
+                ]
               }
             },
             "tabId": {
@@ -2076,7 +2250,9 @@
               "description": "Target window ID to pick the active tab when tabId is omitted."
             }
           },
-          "required": ["predicates"]
+          "required": [
+            "predicates"
+          ]
         }
       },
       {
@@ -2087,7 +2263,14 @@
           "properties": {
             "kind": {
               "type": "string",
-              "enum": ["element", "network_idle", "response_match", "js", "load_state", "url"],
+              "enum": [
+                "element",
+                "network_idle",
+                "response_match",
+                "js",
+                "load_state",
+                "url"
+              ],
               "description": "Which wait condition to use. Required."
             },
             "timeoutMs": {
@@ -2128,7 +2311,13 @@
             },
             "state": {
               "type": "string",
-              "enum": ["present", "absent", "load", "domcontentloaded", "complete"],
+              "enum": [
+                "present",
+                "absent",
+                "load",
+                "domcontentloaded",
+                "complete"
+              ],
               "description": "Dual-purpose field. For kind=\"element\": \"present\" (default) or \"absent\". For kind=\"load_state\": \"load\" (default) | \"domcontentloaded\" | \"complete\" — wait for the corresponding `chrome.webNavigation` event on the target tab+frame. \"complete\" is a Playwright synonym for \"load\" and maps to the same event. Pre-checked via `document.readyState` so already-loaded pages resolve synchronously."
             },
             "quietMs": {
@@ -2164,7 +2353,9 @@
               "description": "Target frame ID for iframe support."
             }
           },
-          "required": ["kind"]
+          "required": [
+            "kind"
+          ]
         }
       },
       {
@@ -2175,7 +2366,12 @@
           "properties": {
             "profile": {
               "type": "string",
-              "enum": ["off", "human", "careful", "fast"],
+              "enum": [
+                "off",
+                "human",
+                "careful",
+                "fast"
+              ],
               "description": "Pacing preset. Omit to read current state. off=no throttle (default); human=600-1200ms gap with jitter; careful=1500-3000ms (LinkedIn-grade); fast=tab-lock-only serialization with no extra wait."
             },
             "minGapMs": {
@@ -2198,7 +2394,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["create", "clear", "clear_all", "get_all"],
+              "enum": [
+                "create",
+                "clear",
+                "clear_all",
+                "get_all"
+              ],
               "description": "Operation to perform."
             },
             "notificationId": {
@@ -2215,7 +2416,12 @@
             },
             "type": {
               "type": "string",
-              "enum": ["basic", "image", "list", "progress"],
+              "enum": [
+                "basic",
+                "image",
+                "list",
+                "progress"
+              ],
               "description": "Notification template. Defaults to `basic`."
             },
             "iconUrl": {
@@ -2239,7 +2445,9 @@
               "description": "Up to 2 action buttons (for the `basic` type). Each: `{title}`."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2250,7 +2458,10 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["read", "write"],
+              "enum": [
+                "read",
+                "write"
+              ],
               "description": "Operation to perform."
             },
             "text": {
@@ -2258,7 +2469,9 @@
               "description": "Plain text to write. Required for `write`."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2269,7 +2482,10 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["get_recently_closed", "restore"],
+              "enum": [
+                "get_recently_closed",
+                "restore"
+              ],
               "description": "Operation to perform."
             },
             "sessionId": {
@@ -2281,7 +2497,9 @@
               "description": "Max entries for `get_recently_closed`. Default 25, cap 25."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2292,7 +2510,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["discard", "mute", "unmute", "set_auto_discardable"],
+              "enum": [
+                "discard",
+                "mute",
+                "unmute",
+                "set_auto_discardable"
+              ],
               "description": "Operation to perform."
             },
             "tabId": {
@@ -2304,7 +2527,10 @@
               "description": "Required for `set_auto_discardable`. `false` pins the tab; `true` allows Chrome to discard it."
             }
           },
-          "required": ["action", "tabId"]
+          "required": [
+            "action",
+            "tabId"
+          ]
         }
       },
       {
@@ -2373,7 +2599,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["add", "remove", "list", "clear"],
+              "enum": [
+                "add",
+                "remove",
+                "list",
+                "clear"
+              ],
               "description": "Operation to perform."
             },
             "ruleId": {
@@ -2386,7 +2617,10 @@
             },
             "ruleAction": {
               "type": "string",
-              "enum": ["block", "redirect"],
+              "enum": [
+                "block",
+                "redirect"
+              ],
               "description": "What to do when the URL matches. Required for `add`."
             },
             "redirectUrl": {
@@ -2418,7 +2652,9 @@
               "description": "Optional. Restrict the rule to specific resource types (e.g. `[\"xmlhttprequest\",\"script\"]`)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2429,7 +2665,10 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["set", "clear"],
+              "enum": [
+                "set",
+                "clear"
+              ],
               "description": "Operation to perform."
             },
             "text": {
@@ -2445,7 +2684,9 @@
               "description": "Optional. When set, the badge is scoped to this tab; without it, the badge is global."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2456,16 +2697,24 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["enable", "disable"],
+              "enum": [
+                "enable",
+                "disable"
+              ],
               "description": "Operation to perform."
             },
             "level": {
               "type": "string",
-              "enum": ["display", "system"],
+              "enum": [
+                "display",
+                "system"
+              ],
               "description": "Required for `enable`. `display` is stricter (also blocks screen sleep)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2476,7 +2725,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["add", "update", "remove", "remove_all"],
+              "enum": [
+                "add",
+                "update",
+                "remove",
+                "remove_all"
+              ],
               "description": "Operation to perform."
             },
             "id": {
@@ -2517,7 +2771,9 @@
               "description": "Optional. Match patterns the URL must satisfy for the item to appear (e.g. `[\"https://example.com/*\"]`)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2666,7 +2922,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["create", "focus", "update", "close"],
+              "enum": [
+                "create",
+                "focus",
+                "update",
+                "close"
+              ],
               "description": "Operation to perform."
             },
             "windowId": {
@@ -2679,7 +2940,11 @@
             },
             "type": {
               "type": "string",
-              "enum": ["normal", "popup", "panel"],
+              "enum": [
+                "normal",
+                "popup",
+                "panel"
+              ],
               "description": "Window type for `create`. Default: `normal`."
             },
             "incognito": {
@@ -2692,7 +2957,12 @@
             },
             "state": {
               "type": "string",
-              "enum": ["normal", "minimized", "maximized", "fullscreen"],
+              "enum": [
+                "normal",
+                "minimized",
+                "maximized",
+                "fullscreen"
+              ],
               "description": "Window state for `create` and `update`."
             },
             "left": {
@@ -2712,7 +2982,9 @@
               "description": "Window height in pixels (create / update)."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2723,7 +2995,11 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["start", "snapshot", "stop"],
+              "enum": [
+                "start",
+                "snapshot",
+                "stop"
+              ],
               "description": "Operation to perform."
             },
             "tabId": {
@@ -2739,7 +3015,9 @@
               "description": "For `start` only. Reload the tab before installing the observer so cold-start LCP / FCP / TTFB are captured. Default false."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2764,7 +3042,13 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["create", "clear", "clear_all", "get", "get_all"],
+              "enum": [
+                "create",
+                "clear",
+                "clear_all",
+                "get",
+                "get_all"
+              ],
               "description": "Operation to perform."
             },
             "name": {
@@ -2784,7 +3068,9 @@
               "description": "For `create`. When set, the alarm refires every N minutes after the first fire. Omit for one-shot."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2812,7 +3098,9 @@
               "description": "Optional origin-scoped filter (e.g. [\"https://example.com\"]). When omitted, applies to all origins."
             }
           },
-          "required": ["dataTypes"]
+          "required": [
+            "dataTypes"
+          ]
         }
       },
       {
@@ -2823,12 +3111,21 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["set", "clear", "get"],
+              "enum": [
+                "set",
+                "clear",
+                "get"
+              ],
               "description": "Operation to perform."
             },
             "mode": {
               "type": "string",
-              "enum": ["direct", "system", "fixed_servers", "pac_script"],
+              "enum": [
+                "direct",
+                "system",
+                "fixed_servers",
+                "pac_script"
+              ],
               "description": "For `set`. Required."
             },
             "singleProxy": {
@@ -2837,7 +3134,13 @@
               "properties": {
                 "scheme": {
                   "type": "string",
-                  "enum": ["http", "https", "quic", "socks4", "socks5"]
+                  "enum": [
+                    "http",
+                    "https",
+                    "quic",
+                    "socks4",
+                    "socks5"
+                  ]
                 },
                 "host": {
                   "type": "string"
@@ -2846,7 +3149,10 @@
                   "type": "number"
                 }
               },
-              "required": ["host", "port"]
+              "required": [
+                "host",
+                "port"
+              ]
             },
             "bypassList": {
               "type": "array",
@@ -2860,7 +3166,9 @@
               "description": "For `set` with mode=\"pac_script\". URL of the PAC script."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2871,7 +3179,11 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["get_token", "remove_token", "get_profile"],
+              "enum": [
+                "get_token",
+                "remove_token",
+                "get_profile"
+              ],
               "description": "Operation to perform."
             },
             "scopes": {
@@ -2890,7 +3202,9 @@
               "description": "For `remove_token`. The token previously returned by `get_token`."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -2995,12 +3309,20 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["list", "cancel"],
+              "enum": [
+                "list",
+                "cancel"
+              ],
               "description": "list=enumerate, cancel=stop an in-progress download."
             },
             "state": {
               "type": "string",
-              "enum": ["in_progress", "complete", "interrupted", "all"],
+              "enum": [
+                "in_progress",
+                "complete",
+                "interrupted",
+                "all"
+              ],
               "description": "For action=list: filter by state (default all)."
             },
             "filenameContains": {
@@ -3016,7 +3338,9 @@
               "description": "For action=cancel: download id from list or chrome.downloads.onCreated."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -3034,7 +3358,9 @@
               "description": "When true, claim the tab even if another client currently owns it. The previous owner is reported in the response and audit-logged via `debugLog.warn`. Defaults to false — without `force`, claiming an owned-by-other tab returns TAB_NOT_OWNED. Only use when you know the previous owner is gone (stale session, crashed bridge) or when intentionally handing off between operator-driven sessions."
             }
           },
-          "required": ["tabId"]
+          "required": [
+            "tabId"
+          ]
         }
       },
       {
@@ -3048,7 +3374,9 @@
               "description": "ID of the flow to delete (from `record_replay_list_published`)."
             }
           },
-          "required": ["flowId"]
+          "required": [
+            "flowId"
+          ]
         }
       },
       {
@@ -3059,7 +3387,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["register", "list", "remove", "clear"],
+              "enum": [
+                "register",
+                "list",
+                "remove",
+                "clear"
+              ],
               "description": "Operation to perform."
             },
             "selector": {
@@ -3072,7 +3405,10 @@
             },
             "dismissAction": {
               "type": "string",
-              "enum": ["click", "press"],
+              "enum": [
+                "click",
+                "press"
+              ],
               "description": "How to dismiss the overlay. `click` (default) dispatches the full pointerdown→mousedown→pointerup→mouseup→click sequence on `dismissSelector`. `press` dispatches keydown→keypress→keyup with `key` (defaults to `Escape`) and requires `key` to be set."
             },
             "key": {
@@ -3100,7 +3436,9 @@
               "description": "Target window for active-tab lookup when `tabId` is omitted."
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -3131,7 +3469,9 @@
               "description": "Tab to alias. Defaults to the caller's activeTabId."
             }
           },
-          "required": ["alias"]
+          "required": [
+            "alias"
+          ]
         }
       },
       {
@@ -3184,7 +3524,9 @@
               "type": "number"
             }
           },
-          "required": ["checked"]
+          "required": [
+            "checked"
+          ]
         }
       },
       {
@@ -3195,7 +3537,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["register", "unregister", "list", "clear"]
+              "enum": [
+                "register",
+                "unregister",
+                "list",
+                "clear"
+              ]
             },
             "tabId": {
               "type": "number"
@@ -3217,7 +3564,11 @@
             },
             "scheme": {
               "type": "string",
-              "enum": ["basic", "digest", "any"]
+              "enum": [
+                "basic",
+                "digest",
+                "any"
+              ]
             }
           }
         }
@@ -3230,7 +3581,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["register", "list_mocks", "unregister_mock", "clear"]
+              "enum": [
+                "register",
+                "list_mocks",
+                "unregister_mock",
+                "clear"
+              ]
             },
             "tabId": {
               "type": "number"
@@ -3286,7 +3642,10 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["export_from_active", "save_to_downloads"],
+              "enum": [
+                "export_from_active",
+                "save_to_downloads"
+              ],
               "description": "Operation. Defaults to \"export_from_active\"."
             },
             "tabId": {
@@ -3368,7 +3727,9 @@
               "type": "number"
             }
           },
-          "required": ["text"]
+          "required": [
+            "text"
+          ]
         }
       },
       {
@@ -3413,7 +3774,10 @@
                   "type": "number"
                 }
               },
-              "required": ["x", "y"]
+              "required": [
+                "x",
+                "y"
+              ]
             },
             "force": {
               "type": "boolean",
@@ -3580,14 +3944,23 @@
             },
             "colorScheme": {
               "type": "string",
-              "enum": ["light", "dark", "no-preference"]
+              "enum": [
+                "light",
+                "dark",
+                "no-preference"
+              ]
             },
             "reducedMotion": {
               "type": "string",
-              "enum": ["reduce", "no-preference"]
+              "enum": [
+                "reduce",
+                "no-preference"
+              ]
             }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
@@ -3598,7 +3971,12 @@
           "properties": {
             "action": {
               "type": "string",
-              "enum": ["set", "get", "clear", "list_tabs"],
+              "enum": [
+                "set",
+                "get",
+                "clear",
+                "list_tabs"
+              ],
               "description": "Operation to perform. Defaults to \"set\"."
             },
             "tabId": {
@@ -3653,7 +4031,11 @@
             },
             "matchMode": {
               "type": "string",
-              "enum": ["exact", "contains", "startsWith"],
+              "enum": [
+                "exact",
+                "contains",
+                "startsWith"
+              ],
               "description": "How to compare option text against matchText. Default \"contains\"."
             },
             "clearFirst": {
@@ -3690,7 +4072,9 @@
               "type": "number"
             }
           },
-          "required": ["query"]
+          "required": [
+            "query"
+          ]
         }
       },
       {
@@ -3713,7 +4097,12 @@
             },
             "mode": {
               "type": "string",
-              "enum": ["richtext", "combobox", "input", "auto"],
+              "enum": [
+                "richtext",
+                "combobox",
+                "input",
+                "auto"
+              ],
               "description": "Force a fill strategy. 'auto' (default) picks by the resolved element's tagName."
             },
             "tabId": {
@@ -3726,7 +4115,9 @@
               "type": "number"
             }
           },
-          "required": ["value"]
+          "required": [
+            "value"
+          ]
         }
       },
       {
@@ -4077,7 +4468,9 @@
           "description": "Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools."
         }
       },
-      "required": ["name"]
+      "required": [
+        "name"
+      ]
     },
     "staticAliases": {
       "alias_tab": "browser_alias_tab",
@@ -4153,7 +4546,11 @@
       "web_vitals": "chrome_web_vitals",
       "window": "chrome_window"
     },
-    "aliasResolutionOrder": ["exact", "chrome_prefix", "browser_prefix"],
+    "aliasResolutionOrder": [
+      "exact",
+      "chrome_prefix",
+      "browser_prefix"
+    ],
     "sunsetReplacements": {
       "chrome_get_cookies": {
         "name": "chrome_cookies",
@@ -4331,7 +4728,13 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["prepareFile", "readBase64File", "cleanupFile", "analyzeTrace", "saveToPath"]
+            "enum": [
+              "prepareFile",
+              "readBase64File",
+              "cleanupFile",
+              "analyzeTrace",
+              "saveToPath"
+            ]
           },
           "fileUrl": {
             "type": "string"
@@ -4358,7 +4761,9 @@
             "type": "string"
           }
         },
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "additionalProperties": {}
       },
       "ClientIdSchema": {
@@ -4401,7 +4806,9 @@
           },
           "error": {}
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": {}
       },
       "StopServerMessageSchema": {
@@ -4427,7 +4834,9 @@
           "payload": {},
           "error": {}
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": {}
       },
       "PingFromExtensionMessageSchema": {
@@ -4453,7 +4862,9 @@
           "payload": {},
           "error": {}
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": {}
       },
       "FileOperationMessageSchema": {
@@ -4479,7 +4890,10 @@
           "payload": {},
           "error": {}
         },
-        "required": ["type", "payload"],
+        "required": [
+          "type",
+          "payload"
+        ],
         "additionalProperties": {}
       },
       "CallToolPayloadSchema": {
@@ -4492,7 +4906,9 @@
           },
           "args": {}
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "additionalProperties": {}
       },
       "CallToolMessageSchema": {
@@ -4525,12 +4941,19 @@
               },
               "args": {}
             },
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "additionalProperties": {}
           },
           "error": {}
         },
-        "required": ["type", "requestId", "clientId", "payload"],
+        "required": [
+          "type",
+          "requestId",
+          "clientId",
+          "payload"
+        ],
         "additionalProperties": {}
       },
       "ClientDisconnectedMessageSchema": {
@@ -4564,7 +4987,10 @@
           },
           "error": {}
         },
-        "required": ["type", "clientId"],
+        "required": [
+          "type",
+          "clientId"
+        ],
         "additionalProperties": {}
       },
       "ResponseMessageSchema": {
@@ -4590,7 +5016,9 @@
           "payload": {},
           "error": {}
         },
-        "required": ["responseToRequestId"],
+        "required": [
+          "responseToRequestId"
+        ],
         "additionalProperties": {}
       },
       "UnknownTypedMessageSchema": {
@@ -4616,7 +5044,9 @@
           "payload": {},
           "error": {}
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": {}
       },
       "NativeMessageSchema": {
@@ -4654,7 +5084,9 @@
               },
               "error": {}
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4679,7 +5111,9 @@
               "payload": {},
               "error": {}
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4704,7 +5138,9 @@
               "payload": {},
               "error": {}
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4729,7 +5165,10 @@
               "payload": {},
               "error": {}
             },
-            "required": ["type", "payload"],
+            "required": [
+              "type",
+              "payload"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4761,12 +5200,19 @@
                   },
                   "args": {}
                 },
-                "required": ["name"],
+                "required": [
+                  "name"
+                ],
                 "additionalProperties": {}
               },
               "error": {}
             },
-            "required": ["type", "requestId", "clientId", "payload"],
+            "required": [
+              "type",
+              "requestId",
+              "clientId",
+              "payload"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4799,7 +5245,10 @@
               },
               "error": {}
             },
-            "required": ["type", "clientId"],
+            "required": [
+              "type",
+              "clientId"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4824,7 +5273,9 @@
               "payload": {},
               "error": {}
             },
-            "required": ["responseToRequestId"],
+            "required": [
+              "responseToRequestId"
+            ],
             "additionalProperties": {}
           },
           {
@@ -4849,7 +5300,9 @@
               "payload": {},
               "error": {}
             },
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "additionalProperties": {}
           }
         ]
@@ -4915,7 +5368,13 @@
         "shape": {
           "action": {
             "type": "enum",
-            "values": ["prepareFile", "readBase64File", "cleanupFile", "analyzeTrace", "saveToPath"]
+            "values": [
+              "prepareFile",
+              "readBase64File",
+              "cleanupFile",
+              "analyzeTrace",
+              "saveToPath"
+            ]
           },
           "fileUrl": {
             "type": "optional",
@@ -4994,7 +5453,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["start"]
+            "values": [
+              "start"
+            ]
           },
           "requestId": {
             "type": "optional",
@@ -5074,7 +5535,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["stop"]
+            "values": [
+              "stop"
+            ]
           },
           "requestId": {
             "type": "optional",
@@ -5132,7 +5595,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["ping_from_extension"]
+            "values": [
+              "ping_from_extension"
+            ]
           },
           "requestId": {
             "type": "optional",
@@ -5190,7 +5655,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["file_operation"]
+            "values": [
+              "file_operation"
+            ]
           },
           "requestId": {
             "type": "optional",
@@ -5266,7 +5733,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["call_tool"]
+            "values": [
+              "call_tool"
+            ]
           },
           "requestId": {
             "type": "string",
@@ -5339,7 +5808,9 @@
         "shape": {
           "type": {
             "type": "literal",
-            "values": ["client_disconnected"]
+            "values": [
+              "client_disconnected"
+            ]
           },
           "requestId": {
             "type": "optional",
@@ -5532,7 +6003,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["start"]
+                "values": [
+                  "start"
+                ]
               },
               "requestId": {
                 "type": "optional",
@@ -5612,7 +6085,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["stop"]
+                "values": [
+                  "stop"
+                ]
               },
               "requestId": {
                 "type": "optional",
@@ -5670,7 +6145,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["ping_from_extension"]
+                "values": [
+                  "ping_from_extension"
+                ]
               },
               "requestId": {
                 "type": "optional",
@@ -5728,7 +6205,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["file_operation"]
+                "values": [
+                  "file_operation"
+                ]
               },
               "requestId": {
                 "type": "optional",
@@ -5783,7 +6262,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["call_tool"]
+                "values": [
+                  "call_tool"
+                ]
               },
               "requestId": {
                 "type": "string",
@@ -5856,7 +6337,9 @@
             "shape": {
               "type": {
                 "type": "literal",
-                "values": ["client_disconnected"]
+                "values": [
+                  "client_disconnected"
+                ]
               },
               "requestId": {
                 "type": "optional",
@@ -6070,7 +6553,10 @@
         "nativeMessages": "passthrough",
         "toolCallBody": "strict"
       },
-      "strictReparseMessageTypes": ["call_tool", "client_disconnected"],
+      "strictReparseMessageTypes": [
+        "call_tool",
+        "client_disconnected"
+      ],
       "errorShape": {
         "type": "ZodError",
         "issuesProperty": "issues",
@@ -6105,7 +6591,10 @@
               "code": "too_small",
               "minimum": 0,
               "inclusive": false,
-              "path": ["payload", "port"],
+              "path": [
+                "payload",
+                "port"
+              ],
               "message": "Too small: expected number to be >0"
             }
           ]
@@ -6123,7 +6612,9 @@
               "code": "too_small",
               "minimum": 1,
               "inclusive": true,
-              "path": ["requestId"],
+              "path": [
+                "requestId"
+              ],
               "message": "Too small: expected string to have >=1 characters"
             },
             {
@@ -6131,13 +6622,17 @@
               "code": "invalid_format",
               "format": "regex",
               "pattern": "/^[A-Za-z0-9_.:-]+$/",
-              "path": ["clientId"],
+              "path": [
+                "clientId"
+              ],
               "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
             },
             {
               "expected": "object",
               "code": "invalid_type",
-              "path": ["payload"],
+              "path": [
+                "payload"
+              ],
               "message": "Invalid input: expected object, received undefined"
             }
           ]
@@ -6151,7 +6646,9 @@
           "issues": [
             {
               "code": "unrecognized_keys",
-              "keys": ["clientId"],
+              "keys": [
+                "clientId"
+              ],
               "path": [],
               "message": "Unrecognized key: \"clientId\""
             }
@@ -6227,7 +6724,10 @@
       }
     },
     "node": {
-      "sourceDeclarationInputs": ["src/node-spec.ts", "src/node-specs-builtin.ts"]
+      "sourceDeclarationInputs": [
+        "src/node-spec.ts",
+        "src/node-specs-builtin.ts"
+      ]
     },
     "agent": {
       "defaultCodexConfig": {

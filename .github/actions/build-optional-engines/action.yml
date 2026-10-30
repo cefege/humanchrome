@@ -1,0 +1,11 @@
+name: Build supported optional engines
+description: Build the Mac arm64 companion archive from checksum-pinned Node and Codex inputs.
+inputs:
+  output-dir:
+    description: Fresh output directory for the complete optional engines.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: bash "$GITHUB_ACTION_PATH/build.sh" "${{ inputs.output-dir }}"

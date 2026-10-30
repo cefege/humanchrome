@@ -11,12 +11,43 @@ package and ONNX/HNSW engines remain. The pre-reversal source is preserved in
 
 | Gate                                                                                    | Observed result                                                                                                                                    |
 | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 186 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
+| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 189 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
 | Shared and extension suites                                                             | 174 shared and 1,939 extension tests passed; one extension test skipped                                                                            |
 | TypeScript, generated contracts and source inventory                                    | Passed; 646 production files, 85 retained browser-policy boundaries, zero pending boundaries                                                       |
 | Owned Chrome for Testing                                                                | `browser-hc-rt-hziSan.json`: 35/35 matrix rows and 17/17 task scenarios                                                                            |
 | Extracted native core plus pinned optional-engine archives                              | Installation, upgrade, retained configuration, Node-absent core startup and actual trace smoke passed                                              |
 | Actual bundled Claude SDK and Codex                                                     | Local-only startup/activity/cancel/reap passed; Claude resume and invalid-resume clearing passed; no credentials or completed cloud-model response |
+
+The 35/35 + 17/17 result is an isolated owned-Chrome gate, not a probe of the
+daily-driver production profile or proof that its extension source has reloaded.
+
+## Current production rollout status (2026-10-30)
+
+The OVH coordinator is deployed from source
+`956ffd77c91f1124f3fc821647a5312b648fbe1e` as
+`humanchrome-coordinator:956ffd77c91f`. Its Docker
+build uses the pinned Rust/Debian bases, Rust `1.99.1`, and the locked Cargo
+graph; k3s runs `/usr/local/bin/humanchrome-bridge`, not a Node coordinator.
+Both coordinator health endpoints passed, while the rollout retained the
+existing PostgreSQL image, PVC identity, and Secret identities.
+
+The idle Mac fleet worker likewise runs the installed Rust process and passed
+its HTTP health probe using the existing root, database, and profile paths. A
+hot repair changed only its worker/browser profile descriptor executable to
+`ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`, retaining its origins.
+Native `/ping` returned 200, and authenticated MCP reached the existing
+TypeScript extension through the private Rust coordinator → Rust worker → Rust
+native-host path; diagnostic leases were released successfully.
+
+This proves that repaired live profile path, not complete desktop activation.
+The automatic worker/gateway descriptor refresh passes Clippy, 189 Rust tests
+and the extracted native/companion archive smoke. Its production activation
+remains pending; the source browser bundle has not synchronized/reloaded into
+the shared production path. The active
+LinkedIn maintenance path remains untouched while its client renews the
+existing lease. Desktop activation and IMP-0206 remain in-progress; no
+standalone/global CLI or extension deployment completion, and no Node fallback,
+is claimed.
 
 The retired general browser kernel's tests and benchmarks below are historical,
 not requirements or current-source certification. Browser policy uses direct

@@ -69,14 +69,29 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
   [checkpoint `1012e423`](https://github.com/cefege/humanchrome/commit/1012e423dca2265d9e84ebab0db696a22d63d829).
   Its recorder and workflow/vector CPU regressions motivated the browser rollback;
   native-service performance evidence does not imply a browser speedup.
+- A production hot repair corrected only a caller-owned, profile-local Native
+  Messaging descriptor from the removed Node wrapper to the installed Rust
+  executable, preserving its allowed origins. The authenticated Rust
+  coordinator → worker → native-host → installed TypeScript-extension MCP path
+  then succeeded. Automatic worker/gateway descriptor refresh passes Clippy,
+  189 Rust tests and packaged installation smoke; production activation remains
+  pending in IMP-0209. This migrates caller metadata, not a Node fallback.
 
 ### Fixed
+
+- CI/release companion builds now supply checksum-pinned Node and Codex inputs
+  on the supported Mac arm64 target; all four platforms retain core archive
+  packaging and Node-absent smoke coverage. The fixture workflow explicitly
+  selects the same intentional keyless CI mode as the other build workflows.
+- Keyless fixture origins use Chrome's canonical filesystem path. Generated
+  native contracts retain their byte-exact generator format instead of being
+  reflowed by pre-commit formatting.
 
 - Combobox selection now delivers trusted commit keys in background tabs sharing
   an existing debugger session, using temporary focus emulation without
   activating the tab.
-- Default page reading and its interactive-elements fallback address the main
-  frame explicitly rather than accepting an iframe response.
+- Default page/ARIA reading and the interactive-elements fallback address the
+  main frame explicitly rather than accepting an iframe response.
 - Browser builds retain numeric SIMD and generated worker/recorder assets without
   depending on a general-purpose Rust/WASM policy kernel.
 - The earlier four-platform native run for

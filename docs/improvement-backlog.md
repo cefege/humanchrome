@@ -71,16 +71,38 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Validate every configured origin and require all default origins, then retain the validated allowlist while replacing the owned executable path. Continue rejecting unsafe origins, missing defaults and foreign ownership.
 - **Notes**: Both allowlist preservation and unsafe/missing-origin regressions pass in the 186-test Rust workspace run. New manifests retain the original three defaults; no new origin is automatically granted.
 
+### IMP-0209 · Profile native-host descriptor remains on removed Node executable after versioned upgrade (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-30 (production Rust rollout)
+- **Status**: in-progress
+- **Why**: A profile-local NativeMessagingHosts descriptor still names the removed `app/native-server/dist/run_host.sh`. Chrome resolves that caller-owned descriptor ahead of the global Rust manifest, so a versioned Node→Rust upgrade cannot start the installed native host.
+- **Cost**: S
+- **Value**: L
+- **Repro**: On the owned production diagnostic profile, the descriptor's executable path is absent. A fresh Chrome `connectNative` reported `Specified native messaging host not found`; a subsequent live MCP initialization ended with `502 profile_start_timeout` without attempting a browser mutation.
+- **Fix sketch**: Automatically refresh both worker and gateway caller-owned profile descriptors to the current installed Rust executable while preserving their validated allowed origins and ownership protections. Cover versioned-upgrade migration; do not add or restore a Node fallback.
+- **Notes**: A production hot repair changed only the worker/browser profile path to `ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`; origins were unchanged. Native `/ping` returned 200, the worker profile became healthy, and authenticated MCP reached the existing TypeScript extension through Rust coordinator → Rust worker → Rust native host; `chrome_diagnostics` returned extension `1.2.0` / `dhabpgnpajocncnoigibmocmfjnhlmhe`. All diagnostic leases released with 200. The permanent worker/gateway refresh passes Clippy, 189 Rust tests and extracted native/companion installation smoke. Its production activation remains pending.
+
+### IMP-0210 · Release workflows omit required fixture and companion build inputs (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-30 (PR #414 checks)
+- **Status**: in-progress
+- **Why**: The fixture workflow does not opt into the existing intentional keyless CI mode. Native CI/release workflows invoke the Mac-arm64-only companion builder without its required target, Node archive or Codex executable, including on unsupported targets.
+- **Cost**: S
+- **Value**: L
+- **Repro**: CI run `41101366637` fails the production-key guard before its matrix; native job `124218996216` in run `41101366579` compiles the Intel core, then fails companion build with `--target is required`.
+- **Fix sketch**: Match the existing CI keyless setting; keep core archives on all four targets, and build/smoke companion archives only on the supported Mac arm64 target using checksum-pinned official runtime inputs shared by CI and release.
+- **Notes**: The exact shared companion build action downloaded and verified Node 24.22.2 and Codex 0.154.0, built the real SDK/analyzer artifact, and passed extracted core/companion archive smoke locally. Keyless startup exposed a canonical-path origin mismatch (`/tmp` versus `/private/tmp`); matching Chrome's actual canonical path fixed native authorization. The resulting `browser-hc-rt-vxH0UF.json` passed 35/35 matrix rows and 17/17 tasks. Byte-identical generated contracts now remain formatter-excluded; regeneration changed no contract values. New GitHub checks remain a separate gate.
+
 ### IMP-0208 · Page read can accept an iframe response for the main document (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-10-30 (Option A real-Chrome verification)
 - **Status**: done
-- **Why**: An unscoped accessibility-tree message can accept a sparse iframe response. Its interactive-element fallback is also unscoped, making an existing main-page launch code unreadable.
+- **Why**: Unscoped accessibility-tree messages can accept an iframe response for main-page reading or its ARIA snapshot format. The interactive-element fallback is also unscoped, making an existing main-page launch code unreadable.
 - **Cost**: S
 - **Value**: L
 - **Repro**: `browser-hc-rt-i6UKTj.json` passed 35 matrix rows but only 16/17 tasks; `search-fixture-launch-code` returned `Accessibility tree is too sparse and fallback failed`.
-- **Fix sketch**: Address both the default page tree and its interactive-element fallback to frame zero, retaining all-frame helper injection for existing locator behavior.
-- **Notes**: After explicit frame targeting, `browser-hc-rt-hziSan.json` passed all 35 matrix rows and all 17 tasks, including the exact launch code.
+- **Fix sketch**: Address default page/ARIA tree requests and the interactive-element fallback to frame zero, retaining all-frame helper injection for existing locator behavior.
+- **Notes**: `browser-hc-rt-hziSan.json` passed 35/35 matrix rows and 17/17 tasks after page-read targeting. A subsequent keyless run exposed the same race in ARIA formatting (the snapshot returned the CSP iframe button rather than main-page Submit). With that format also bound to frame zero, `browser-hc-rt-vxH0UF.json` passed 35/35 matrix rows and 17/17 tasks.
 
 ### IMP-0206 · Option A: retain Rust services and restore TypeScript browser policy (perf) · score: 8
 
@@ -89,7 +111,7 @@ The order of items inside ## Active is sorted by score descending.
 - **Why**: General browser Rust/WASM crossings regress recorder and workflow/vector CPU timings without a whole-browser win. Keep the measured native-service benefits without paying that browser boundary cost.
 - **Cost**: M
 - **Value**: L
-- **Notes**: The full experiment is preserved on GitHub at checkpoint `1012e423`. Browser policy is restored to TypeScript/JavaScript; native bridge/MCP/REST/agents/fleet/coordinator remain Rust. Numeric SIMD, ONNX/HNSW, independent browser fixes and persisted formats remain. Current local gates pass: 186 Rust, 174 shared and 1,939 extension tests; owned Chrome passes 35/35 matrix rows and 17/17 tasks. Complete extracted native core/optional-engine installation smoke and actual local-only Claude/Codex startup/cancel checks pass. Production native/extension and Docker coordinator activation remain separate release steps.
+- **Notes**: The full experiment is preserved on GitHub at checkpoint `1012e423`. Browser policy is restored to TypeScript/JavaScript; native bridge/MCP/REST/agents/fleet/coordinator remain Rust. Numeric SIMD, ONNX/HNSW, independent browser fixes and persisted formats remain. Current local gates pass: 189 Rust, 174 shared and 1,939 extension tests; owned Chrome passes 35/35 matrix rows and 17/17 tasks. Complete extracted native core/optional-engine installation smoke and actual local-only Claude/Codex startup/cancel checks pass. The cloud Rust coordinator is deployed with protected database/PVC/Secret identities intact and the hot-repaired idle Mac worker profile completed an authenticated Rust coordinator → Rust worker → Rust native host → installed TypeScript extension MCP call. The source browser bundle has not synchronized/reloaded into the shared production path, the active LinkedIn maintenance lease remains, and automatic worker/gateway manifest-refresh activation is pending. IMP-0206 stays in progress until every desktop activation gate passes.
 
 ### IMP-0202 · Native primary dies when its Chrome-owned relay disconnects (bug) · score: 8
 

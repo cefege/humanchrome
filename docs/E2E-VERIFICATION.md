@@ -55,8 +55,8 @@ lifecycle fixtures can select an isolated artifact with `HC_E2E_EXTENSION_DIR`.
 The main WXT build aliases `humanchrome-shared` to its TypeScript source;
 generated worker/recorder bundles consume the freshly built shared dist above.
 The staged manifest's public key determines its allowed origin when present;
-unkeyed builds use the path-derived identity. CDP uses an allocated port, not a
-fixed debugger belonging to another browser.
+unkeyed builds use the canonical filesystem path, including macOS `/tmp` →
+`/private/tmp` resolution. CDP uses an allocated port, not another browser's debugger.
 Fixture calls keep the explicit navigated tab ID rather than relying on global
 focus or an implicit mutation target.
 On macOS these credential-free DOM fixtures use Chrome's test-only Keychain so
@@ -85,8 +85,9 @@ packaged extension and native bridge, not test-only policy exports:
 | `Rust-7d`       | `rust-semantic-policy.html`                     | Genuine tokenizer/model loading and ONNX inference, HNSW indexing/ranking, finite scores, matching snippets and a persistable corpus. No replacement vectors or model are injected.                                                                                                                                                                                                                                                                                      |
 | `Rust-6`        | Service-worker stop/start, not extension reload | Native HTTP stays available; ownership/aliases restore, pacing resets, workflow events/`nextSeq` survive, and HNSW results match after the offscreen document is explicitly closed and recreated. Cold reset before model readiness must reopen a zero-document/zero-tab index with `search:[]`. Missing prerequisites fail rather than becoming passing partial coverage.                                                                                               |
 
-Latest Option A browser evidence is `target/rust-transition/browser-hc-rt-hziSan.json`
-with its `.tasks.json` sidecar: 35/35 matrix rows and 17/17 task scenarios passed.
+Owned Option A evidence includes keyed `browser-hc-rt-hziSan.json` and keyless
+`browser-hc-rt-vxH0UF.json`, each with its `.tasks.json` sidecar under
+`target/rust-transition/`. Each passed 35/35 matrix rows and 17/17 task scenarios.
 All five actual Vue realms mounted; the V2 editor committed opacity `0.42` and
 recorded its screenshot. Queue fairness, tab closure, six frozen recorder
 targets, actual recorded-flow replay, workflow lifecycle, genuine ONNX/HNSW,

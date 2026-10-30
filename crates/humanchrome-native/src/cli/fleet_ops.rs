@@ -4,23 +4,27 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
 use super::fleet::FleetAgent;
 use crate::{
-    cli::VerifiedNativeHost,
+    cli::{NativeMessagingManifest, VerifiedNativeHost},
     fleet::{
         config::{ConfigError, ConfigStore, validate_profile_name},
         runtime::{
-            ProfileProvisioner, find_chrome_for_profile, launch_profile_with_extension,
-            probe_profile_google_session, terminate_chrome_checked,
+            FleetProfile, ProfileProvisioner, find_chrome_for_profile,
+            launch_profile_with_extension, probe_profile_google_session, terminate_chrome_checked,
         },
         worker::NativeWorkerFleetConfig,
     },
 };
 use serde_json::{Value, json};
 use tokio::time;
+
+const PROFILE_NATIVE_HOST_MANIFEST: &str = "com.humanchrome.nativehost.json";
+static PROFILE_MANIFEST_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 /// Initializes a fresh fleet configuration at an explicit root.
 ///
@@ -457,6 +461,189 @@ pub async fn add_profile(
         .await
         .map_err(|error| error.to_string())?;
     Ok(crate::fleet::worker::server::added_profile_json(added))
+}
+
+/// Refreshes native-host descriptors for profiles declared by an exclusively owned fleet root.
+///
+/// # Errors
+/// Refuses malformed, foreign, unsafe, or symlinked profile descriptors without touching profiles.
+pub(super) async fn refresh_profile_native_host_descriptors(
+    root: &Path,
+    profiles: &[FleetProfile],
+    verified_host: &VerifiedNativeHost,
+) -> Result<(), String> {
+    let root = tokio::fs::canonicalize(root)
+        .await
+        .map_err(|error| format!("cannot resolve fleet root {}: {error}", root.display()))?;
+    let profiles_root =
+        managed_profile_directory(&root.join("profiles"), &root, "profiles").await?;
+
+    for profile in profiles {
+        validate_profile_name(&profile.name).map_err(|error| error.to_string())?;
+        let profile_dir = managed_profile_directory(
+            &profiles_root.join(&profile.name),
+            &profiles_root,
+            "profile",
+        )
+        .await?;
+        let manifest_dir = managed_profile_directory(
+            &profile_dir.join("NativeMessagingHosts"),
+            &profile_dir,
+            "native host directory",
+        )
+        .await?;
+        refresh_profile_native_host_descriptor(
+            &manifest_dir.join(PROFILE_NATIVE_HOST_MANIFEST),
+            verified_host,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn managed_profile_directory(
+    path: &Path,
+    root: &Path,
+    kind: &str,
+) -> Result<PathBuf, String> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(format!(
+                "refusing symlinked fleet {kind}: {}",
+                path.display()
+            ));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(format!(
+                "fleet {kind} is not a directory: {}",
+                path.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            tokio::fs::create_dir_all(path).await.map_err(|error| {
+                format!("cannot create fleet {kind} {}: {error}", path.display())
+            })?;
+        }
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect fleet {kind} {}: {error}",
+                path.display()
+            ));
+        }
+    }
+    let resolved = tokio::fs::canonicalize(path)
+        .await
+        .map_err(|error| format!("cannot resolve fleet {kind} {}: {error}", path.display()))?;
+    if !resolved.starts_with(root) {
+        return Err(format!(
+            "refusing fleet {kind} outside owned root: {}",
+            resolved.display()
+        ));
+    }
+    Ok(resolved)
+}
+
+async fn refresh_profile_native_host_descriptor(
+    path: &Path,
+    verified_host: &VerifiedNativeHost,
+) -> Result<(), String> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "refusing symlinked profile native host descriptor: {}",
+            path.display()
+        )),
+        Ok(metadata) if !metadata.is_file() => Err(format!(
+            "profile native host descriptor is not a regular file: {}",
+            path.display()
+        )),
+        Ok(_) => {
+            let bytes = tokio::fs::read(path).await.map_err(|error| {
+                format!(
+                    "cannot read profile native host descriptor {}: {error}",
+                    path.display()
+                )
+            })?;
+            let mut manifest =
+                serde_json::from_slice::<NativeMessagingManifest>(&bytes).map_err(|error| {
+                    format!(
+                        "refusing to replace invalid profile native host descriptor {}: {error}",
+                        path.display()
+                    )
+                })?;
+            if !manifest.path.is_absolute() {
+                return Err(format!(
+                    "refusing profile native host descriptor with relative executable path: {}",
+                    path.display()
+                ));
+            }
+            manifest
+                .validate_owned_by(&manifest.path)
+                .map_err(|error| {
+                    format!(
+                        "refusing to replace profile native host descriptor {}: {error}",
+                        path.display()
+                    )
+                })?;
+            if manifest.path == verified_host.path() {
+                return Ok(());
+            }
+            verified_host.path().clone_into(&mut manifest.path);
+            manifest
+                .description
+                .clone_from(&verified_host.manifest().description);
+            write_profile_native_host_descriptor(path, &manifest).await
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            write_profile_native_host_descriptor(path, verified_host.manifest()).await
+        }
+        Err(error) => Err(format!(
+            "cannot inspect profile native host descriptor {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+async fn write_profile_native_host_descriptor(
+    path: &Path,
+    manifest: &NativeMessagingManifest,
+) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "profile native host descriptor has no parent: {}",
+            path.display()
+        )
+    })?;
+    let sequence = PROFILE_MANIFEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".{PROFILE_NATIVE_HOST_MANIFEST}.{}.{}.tmp",
+        std::process::id(),
+        sequence
+    ));
+    let encoded = serde_json::to_vec_pretty(manifest).map_err(|error| error.to_string())?;
+    tokio::fs::write(&temporary, encoded)
+        .await
+        .map_err(|error| format!("cannot write profile native host descriptor: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if let Err(error) =
+            tokio::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o644)).await
+        {
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return Err(format!(
+                "cannot set profile native host descriptor permissions: {error}"
+            ));
+        }
+    }
+    if let Err(error) = tokio::fs::rename(&temporary, path).await {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(format!(
+            "cannot replace profile native host descriptor {}: {error}",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Starts, stops, or restarts a profile without creating a competing supervisor.
@@ -1200,5 +1387,174 @@ async fn process_identity(pid: u32) -> Result<Option<bool>, String> {
     {
         let _ = pid;
         Err("fleet pid ownership checks are unsupported on this platform".to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, path::Path};
+
+    use tempfile::tempdir;
+
+    use super::{FleetProfile, refresh_profile_native_host_descriptors};
+    use crate::cli::{
+        HostPlatform, NativeMessagingManifest, NativeMessagingPaths, RegistrationContext,
+        SystemInstallAuthorization,
+    };
+
+    fn context(root: &Path) -> RegistrationContext {
+        RegistrationContext::new(
+            NativeMessagingPaths::new(
+                HostPlatform::Linux,
+                root.join("home"),
+                root.join("appdata"),
+                root.join("system"),
+            ),
+            SystemInstallAuthorization::Verified,
+        )
+    }
+
+    fn native_host(root: &Path) -> std::path::PathBuf {
+        let host = root.join("native-host");
+        fs::write(&host, "#!/bin/sh\nexit 0\n").expect("write host");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&host, fs::Permissions::from_mode(0o755))
+                .expect("make host executable");
+        }
+        host
+    }
+
+    fn browser_profile() -> FleetProfile {
+        FleetProfile {
+            name: "browser".to_owned(),
+            port: 12_306,
+            labels: Vec::new(),
+            purpose: None,
+            enabled: true,
+            idle_stop: None,
+        }
+    }
+
+    #[test]
+    fn refresh_retargets_owned_stale_descriptor_and_preserves_origins() {
+        let directory = tempdir().expect("temporary root");
+        let root = directory.path().join("fleet");
+        let descriptor = root
+            .join("profiles/browser/NativeMessagingHosts")
+            .join("com.humanchrome.nativehost.json");
+        fs::create_dir_all(descriptor.parent().expect("descriptor parent"))
+            .expect("create profile descriptor parent");
+        let retired = directory
+            .path()
+            .join("source-checkout/app/native-server/dist/run_host.sh");
+        let mut stale = NativeMessagingManifest::new(retired).expect("stale manifest");
+        stale
+            .allowed_origins
+            .push("chrome-extension://abcdefghijklmnopabcdefghijklmnop/".to_owned());
+        fs::write(
+            &descriptor,
+            serde_json::to_vec_pretty(&stale).expect("serialize stale descriptor"),
+        )
+        .expect("write stale descriptor");
+
+        let unmanaged = root
+            .join("profiles/unmanaged/NativeMessagingHosts")
+            .join("com.humanchrome.nativehost.json");
+        fs::create_dir_all(unmanaged.parent().expect("unmanaged parent"))
+            .expect("create unmanaged descriptor parent");
+        fs::write(&unmanaged, b"unmanaged descriptor").expect("write unmanaged descriptor");
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let registration = context(directory.path());
+        let host = native_host(directory.path());
+        let verified = runtime
+            .block_on(registration.verify_native_host(&host))
+            .expect("verify replacement host");
+        runtime
+            .block_on(refresh_profile_native_host_descriptors(
+                &root,
+                &[browser_profile()],
+                &verified,
+            ))
+            .expect("refresh stale descriptor");
+
+        let refreshed: NativeMessagingManifest =
+            serde_json::from_slice(&fs::read(&descriptor).expect("read refreshed descriptor"))
+                .expect("parse refreshed descriptor");
+        assert_eq!(refreshed.path, verified.path());
+        assert_eq!(refreshed.allowed_origins, stale.allowed_origins);
+        assert_eq!(
+            fs::read(&unmanaged).expect("read unmanaged descriptor"),
+            b"unmanaged descriptor"
+        );
+    }
+
+    #[test]
+    fn refresh_leaves_current_valid_descriptor_byte_stable() {
+        let directory = tempdir().expect("temporary root");
+        let root = directory.path().join("fleet");
+        let descriptor = root
+            .join("profiles/browser/NativeMessagingHosts")
+            .join("com.humanchrome.nativehost.json");
+        fs::create_dir_all(descriptor.parent().expect("descriptor parent"))
+            .expect("create profile descriptor parent");
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let registration = context(directory.path());
+        let host = native_host(directory.path());
+        let verified = runtime
+            .block_on(registration.verify_native_host(&host))
+            .expect("verify current host");
+        let bytes = serde_json::to_vec(verified.manifest()).expect("serialize descriptor");
+        fs::write(&descriptor, &bytes).expect("write current descriptor");
+        runtime
+            .block_on(refresh_profile_native_host_descriptors(
+                &root,
+                &[browser_profile()],
+                &verified,
+            ))
+            .expect("refresh current descriptor");
+
+        assert_eq!(fs::read(descriptor).expect("read descriptor"), bytes);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refresh_refuses_profile_directory_symlinked_outside_fleet_root() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temporary root");
+        let root = directory.path().join("fleet");
+        let outside = directory.path().join("outside");
+        let outside_descriptor = outside
+            .join("NativeMessagingHosts")
+            .join("com.humanchrome.nativehost.json");
+        fs::create_dir_all(outside_descriptor.parent().expect("outside parent"))
+            .expect("create outside descriptor parent");
+        fs::write(&outside_descriptor, b"outside descriptor").expect("write outside descriptor");
+        fs::create_dir_all(root.join("profiles")).expect("create profiles root");
+        symlink(&outside, root.join("profiles/browser")).expect("link outside profile");
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let registration = context(directory.path());
+        let host = native_host(directory.path());
+        let verified = runtime
+            .block_on(registration.verify_native_host(&host))
+            .expect("verify replacement host");
+        let error = runtime
+            .block_on(refresh_profile_native_host_descriptors(
+                &root,
+                &[browser_profile()],
+                &verified,
+            ))
+            .expect_err("outside profile must be refused");
+
+        assert!(error.contains("symlinked fleet profile"));
+        assert_eq!(
+            fs::read(outside_descriptor).expect("read outside descriptor"),
+            b"outside descriptor"
+        );
     }
 }

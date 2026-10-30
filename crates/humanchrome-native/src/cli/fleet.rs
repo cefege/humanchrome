@@ -825,6 +825,12 @@ async fn serve_worker(
         .verify_native_host(host_path)
         .await
         .map_err(|error| error.to_string())?;
+    super::fleet_ops::refresh_profile_native_host_descriptors(
+        &runtime.runtime().root,
+        &runtime.runtime().profiles,
+        &verified,
+    )
+    .await?;
     let provisioner = NativeWorkerProvisioner::from_verified_host(
         store,
         runtime.runtime().launch.clone(),
@@ -955,6 +961,12 @@ async fn serve_gateway(
         .verify_native_host(host_path)
         .await
         .map_err(|error| error.to_string())?;
+    super::fleet_ops::refresh_profile_native_host_descriptors(
+        &runtime.runtime().root,
+        &runtime.runtime().profiles,
+        &verified,
+    )
+    .await?;
     let provisioner = ProfileProvisioner::new(
         store.clone(),
         runtime.runtime().launch.clone(),

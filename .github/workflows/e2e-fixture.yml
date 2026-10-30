@@ -19,6 +19,11 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
+# Match the other CI builds; the isolated runner registers the path-derived ID.
+env:
+  CHROME_EXTENSION_KEY: ${{ secrets.CHROME_EXTENSION_KEY }}
+  HC_ALLOW_KEYLESS_BUILD: '1'
+
 jobs:
   matrix:
     # macOS runner avoids the Linux headed-Chrome complications (Xvfb,

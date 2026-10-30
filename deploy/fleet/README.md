@@ -17,26 +17,33 @@ Read-only inspection through SSH alias `ovh1` established the following:
 - Flux runs other applications, but this repository is not currently a Flux source. The manifests are applied explicitly rather than modifying another application's GitOps source.
 - At initial inspection there was no Tailscale Kubernetes Operator. The current enrollment is recorded below; the existing Mac and OVH host devices remain user-owned and untagged.
 - The OVH host has Node `v22.23.1`, pnpm `10.33.2`, OpenSSL `3.5.5`, and k3s'
-  built-in Kustomize. The image build itself uses Node 24 inside Docker.
-  Corepack is not installed on the host, which does not affect that image build.
+  built-in Kustomize. Those host tools supported the historical Node-based
+  image workflow; Corepack is not installed on the host.
+
+  The current coordinator image is built in Docker from the pinned Rust/Debian
+  bases with Rust `1.99.1` and the locked Cargo graph. The resulting runtime is
+  the Rust coordinator, not a Node application.
+
 - Helm was absent during inspection. The checksum-verified bootstrap below
   subsequently installed Helm `v4.3.1`. No registry login or usable remote
   image registry was discovered.
 
 No live resource was created or changed during that inspection.
 
-## Current verified private deployment
+## Historical private deployment (2026-10-28)
 
-- Namespace: `humanchrome-fleet`; image:
-  `humanchrome-coordinator:20261028-a168ad6e`.
-- The coordinator and durable PostgreSQL are running on OVH. The Mac worker
-  enrolls only `mac-1:browser`, in a root separate from the existing local fleet.
+- Namespace: `humanchrome-fleet`; the then-current image was
+  `humanchrome-coordinator:20261028-a168ad6e`. It is now a rollback image, not
+  the current production image.
+- The coordinator and durable PostgreSQL were running on OVH. The Mac worker
+  enrolled only `mac-1:browser`, in a root separate from the existing local
+  fleet.
 - Real browser HTTP/MCP control, two-worker isolation on one Mac, stale-lease
   rejection and worker-disconnection handling were exercised. Restarting
   PostgreSQL triggered automatic coordinator recovery; browser state and lease
   identities survived with the same database PVC.
 - Tailscale Operator `1.98.4` is enrolled with a scoped OAuth client. Private
-  ingress reaches the coordinator; its worker URL now uses
+  ingress reaches the coordinator; its worker URL uses
   `fleet-worker.humanchrome-fleet.svc.cluster.local`, not the OVH host's route.
 - The private endpoint returned healthy/ready responses, rejected missing
   bearer credentials with HTTP 401, and served real single-tool MCP calls.
@@ -44,10 +51,52 @@ No live resource was created or changed during that inspection.
   device identities stayed unchanged. The browser DOM and workflow lease
   identity also survived, and a subsequent JavaScript-driven browser action
   completed. The smoke tab and lease were released afterward.
-- The existing unrestricted tailnet grant was preserved; only the two
-  required tag-owner definitions were added. Tailnet access is not restricted
-  to admins by this deployment. Application bearer authentication remains
-  mandatory.
+- The existing unrestricted tailnet grant was preserved; only the two required
+  tag-owner definitions were added. Tailnet access is not restricted to admins
+  by this deployment. Application bearer authentication remains mandatory.
+
+## Current production coordinator rollout (2026-10-30)
+
+- Source `956ffd77c91f1124f3fc821647a5312b648fbe1e`, committed and pushed on
+  `option-a/rust-native-typescript-browser-20261030` (PR #414), is built and
+  deployed on OVH as
+  `humanchrome-coordinator:956ffd77c91f`.
+  The image entrypoint is the Rust bridge: the running coordinator's
+  `/proc/1/exe` is `/usr/local/bin/humanchrome-bridge`.
+- The deployed coordinator returned HTTP 200 from both `/healthz` and
+  `/readyz`. The Rust Docker build/import path uses Docker only to build and
+  archive the amd64 image before k3s containerd import; it does not require a
+  registry pull.
+- The rollout preserved every pre-existing PostgreSQL PVC and Kubernetes Secret
+  UID. PostgreSQL remains `postgres:17-alpine`; neither its data identity nor
+  the protected Secret identities were replaced.
+- The idle `mac-1:browser` worker now runs the installed Rust native process
+  (PID `20750` at verification) under its existing root, database, and profile
+  paths; its health endpoint returned HTTP 200.
+- The worker/browser profile manifest was hot-repaired only at its executable
+  path, from the confirmed-absent `app/native-server/dist/run_host.sh` to
+  `ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`; its allowed origins
+  were unchanged. Native `/ping` on port `12900` then returned HTTP 200 and the
+  worker profile became healthy.
+- An authenticated MCP call through the private Rust coordinator → Rust worker
+  → actual Rust native host → existing installed TypeScript extension succeeded:
+  `humanchrome(name:"chrome_diagnostics", args:{action:"runtime_info"})`
+  returned extension version `1.2.0` and ID
+  `dhabpgnpajocncnoigibmocmfjnhlmhe`. All diagnostic leases were released with
+  HTTP 200.
+- This proves the repaired live profile path, not complete desktop activation.
+  The permanent worker/gateway refresh passes Clippy, 189 Rust tests and the
+  extracted core/companion archive smoke; its production activation remains
+  pending. The new browser source has not synchronized or reloaded into the
+  shared production path.
+- Existing standalone Node and LinkedIn maintenance processes remain untouched
+  while the active `career` → `linkedin` client continues renewing its lease.
+  This maintenance hold is intentional and does not prove standalone/global CLI
+  or extension deployment completion.
+
+IMP-0209 tracks verification of the permanent worker/gateway manifest refresh.
+It must retain validated origins and point to the installed Rust executable; it
+must not restore a Node fallback.
 
 The `local-path` PVC survives Pod restarts, not loss of the OVH disk. Back up
 PostgreSQL and Kubernetes Secrets separately; neither replication nor backup

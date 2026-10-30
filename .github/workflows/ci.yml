@@ -151,19 +151,25 @@ jobs:
             --bin humanchrome-bridge \
             --bin humanchrome-stdio
 
-      - name: Build optional JavaScript engines
-        shell: bash
-        run: node scripts/build-optional-engines.mjs --output-dir native-engines
+      - name: Build supported optional engines
+        if: matrix.target == 'aarch64-apple-darwin'
+        uses: ./.github/actions/build-optional-engines
+        with:
+          output-dir: native-engines
 
       - name: Package native release archives
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/package-native-release.mjs \
-            --target "${{ matrix.target }}" \
-            --bin-dir "target/${{ matrix.target }}/release" \
-            --output-dir native-artifacts \
-            --engines-dir native-engines
+          package_args=(
+            --target "${{ matrix.target }}"
+            --bin-dir "target/${{ matrix.target }}/release"
+            --output-dir native-artifacts
+          )
+          if [[ "${{ matrix.target }}" == aarch64-apple-darwin ]]; then
+            package_args+=(--engines-dir native-engines)
+          fi
+          node scripts/package-native-release.mjs "${package_args[@]}"
 
       - name: Smoke packaged native release without Node on child PATH
         shell: bash
@@ -172,8 +178,11 @@ jobs:
           version="$(node -p 'require("./package.json").version')"
           extension='tar.gz'
           if [[ "${{ matrix.target }}" == *windows* ]]; then extension='zip'; fi
-          node scripts/smoke-native-release.mjs \
-            --archive "native-artifacts/humanchrome-native-${version}-${{ matrix.target }}.${extension}"
+          smoke_args=(--archive "native-artifacts/humanchrome-native-${version}-${{ matrix.target }}.${extension}")
+          if [[ "${{ matrix.target }}" == aarch64-apple-darwin ]]; then
+            smoke_args+=(--engines-archive "native-artifacts/humanchrome-engines-${version}-${{ matrix.target }}.${extension}")
+          fi
+          node scripts/smoke-native-release.mjs "${smoke_args[@]}"
 
       - name: Upload native release artifacts
         uses: actions/upload-artifact@v7
