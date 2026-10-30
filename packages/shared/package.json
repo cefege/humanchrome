@@ -37,7 +37,8 @@
     "format": "prettier --write 'src/**/*.{js,ts,json}'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "regen:tool-index-snapshot": "node scripts/regen-tool-index-snapshot.mjs"
+    "regen:tool-index-snapshot": "node scripts/regen-tool-index-snapshot.mjs",
+    "build:contracts": "node scripts/export-rust-contract.mjs"
   },
   "files": [
     "dist"
@@ -48,11 +49,12 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@typescript-eslint/parser": "^8.60.1",
+    "esbuild": "^0.28.1",
     "tsup": "^8.5.1",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.1.0",
-    "zod": "^4.4.3"
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
   }
 }

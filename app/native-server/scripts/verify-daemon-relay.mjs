@@ -5,23 +5,20 @@
  * Spawns real bridge processes (not mocks) in an isolated registry dir
  * and walks the regression scenario end-to-end:
  *
- *   1. Spawn bridge1. Feed it a length-prefixed START frame on stdin.
- *      Bridge1 binds the daemon UDS and brings up an HTTP listener on
- *      a chosen port (HUMANCHROME_PORT). Verify /ping responds.
- *   2. Close bridge1's stdin (simulating SW reload). Bridge1 must NOT
- *      exit. HTTP must keep responding. The daemon's `sourceActive`
- *      goes false; new tool calls fail fast instead of hanging.
- *   3. Spawn bridge2 against the same isolated registry. Bridge2 tries
- *      the UDS lock, fails, becomes a relay. Feed it a START frame on
- *      its own stdin.
- *   4. Verify bridge1 (daemon) is still the HTTP owner. Verify the
- *      daemon's NM source recovered (sourceActive=true again) by
- *      asking the bridge to send a request to the (simulated) SW via
- *      the relay.
+ *   1. Spawn bridge1. Its disposable Native Messaging process starts the
+ *      detached daemon and forwards a length-prefixed START frame. Verify
+ *      the daemon HTTP owner responds to /ping.
+ *   2. Close bridge1's stdin (simulating Chrome terminating its native host
+ *      during SW reload). Bridge1 exits, but the detached daemon and /ping
+ *      remain available with exactly one registry owner.
+ *   3. Spawn bridge2 against the same isolated registry. It becomes a relay
+ *      and forwards a fresh START frame to the existing daemon.
+ *   4. Verify the existing HTTP owner and its native request state survive
+ *      the relay replacement with a real request/response round trip.
  *
  * Exits 0 on success, non-zero with diagnostics on failure.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -29,15 +26,75 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BRIDGE_ENTRY = resolve(HERE, '..', 'dist', 'index.js');
+const DEFAULT_NATIVE_BIN = resolve(HERE, '..', '..', '..', 'target', 'release', `humanchrome-nativehost${process.platform === 'win32' ? '.exe' : ''}`);
+const TEST_NATIVE_BIN = process.env.HC_TEST_NATIVE_BIN;
+
+function bridgeCommand() {
+  const candidate = resolve(TEST_NATIVE_BIN ?? DEFAULT_NATIVE_BIN);
+  if (!existsSync(candidate)) {
+    throw new Error(`native host executable does not exist: ${candidate}; run pnpm build:native or set HC_TEST_NATIVE_BIN`);
+  }
+  return { command: candidate, args: [] };
+}
 
 const tmp = mkdtempSync(join(tmpdir(), 'hc-verify-'));
 const registryDir = join(tmp, 'instances');
 const socketPath = join(tmp, 'bridge-daemon.sock');
 const port = 13900 + Math.floor(Math.random() * 1000);
+const home = join(tmp, 'home');
+const runtime = join(tmp, 'runtime');
+const agentDataDir = join(runtime, 'agent-data');
+const fleetRoot = join(runtime, 'fleet');
+mkdirSync(home, { recursive: true });
+mkdirSync(registryDir, { recursive: true });
+mkdirSync(agentDataDir, { recursive: true });
+mkdirSync(fleetRoot, { recursive: true });
+
 
 const procs = [];
+function detachedOwners() {
+  if (!existsSync(registryDir)) return [];
+  return readdirSync(registryDir)
+    .filter((entry) => entry.endsWith('.json'))
+    .flatMap((entry) => {
+      try {
+        const record = JSON.parse(readFileSync(join(registryDir, entry), 'utf8'));
+        return record.port === port && Number.isInteger(record.pid) ? [record.pid] : [];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function assertSingleDetachedOwner(relayPid) {
+  const owners = detachedOwners();
+  if (owners.length !== 1 || owners[0] === relayPid || !processAlive(owners[0])) {
+    throw new Error(`expected one live detached daemon owner, received ${JSON.stringify(owners)}`);
+  }
+  return owners[0];
+}
+
+function stopDetachedOwners() {
+  for (const pid of detachedOwners()) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* The isolated owner may already have exited. */
+    }
+  }
+}
+
 function cleanup() {
+  stopDetachedOwners();
   for (const p of procs) {
     try {
       p.kill('SIGKILL');
@@ -47,6 +104,18 @@ function cleanup() {
   }
   rmSync(tmp, { recursive: true, force: true });
 }
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`native relay did not exit within ${timeoutMs}ms`)), timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 process.on('exit', cleanup);
 process.on('SIGINT', () => {
   cleanup();
@@ -54,9 +123,28 @@ process.on('SIGINT', () => {
 });
 
 function spawnBridge(name) {
-  const child = spawn(process.execPath, [BRIDGE_ENTRY], {
+  const { command, args } = bridgeCommand();
+  const child = spawn(command, args, {
     env: {
       ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: join(home, '.config'),
+      XDG_DATA_HOME: join(home, '.local/share'),
+      HC_DISABLE_DAEMON: '0',
+      HC_BRIDGE_PORT: String(port),
+      HUMANCHROME_PORT: String(port),
+      HUMANCHROME_URL: '',
+      HUMANCHROME_TOKEN: '',
+      MCP_HTTP_PORT: String(port),
+      MCP_ALLOWED_WORKSPACE_BASE: home,
+      MCP_AGENT_PROJECT_ROOT: home,
+      CHROME_MCP_AGENT_DB_FILE: join(runtime, 'agent.db'),
+      CHROME_MCP_AGENT_DATA_DIR: agentDataDir,
+      HC_FLEET_ROOT: fleetRoot,
+      HC_FLEET_PROFILE: '',
+      HC_COORDINATOR_DATABASE_URL: '',
+      HC_CHROME_BINARY: '',
       HC_INSTANCE_REGISTRY_DIR: registryDir,
       HC_BRIDGE_DAEMON_SOCKET: socketPath,
       HC_DAEMON_IDLE_TIMEOUT_MS: '600000', // 10 min so the daemon doesn't time out during the test
@@ -93,8 +181,6 @@ function collectFramed(stream, onFrame) {
   });
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 async function ping(p) {
   const res = await fetch(`http://127.0.0.1:${p}/ping`, { signal: AbortSignal.timeout(2000) });
   return res.ok ? await res.json() : null;
@@ -105,8 +191,8 @@ async function main() {
   console.log(`[verify] socketPath=${socketPath}`);
   console.log(`[verify] port=${port}`);
 
-  // 1. Spawn bridge1, send START.
-  console.log('[verify] step 1: spawn bridge1 (will become daemon)');
+  // 1. Spawn bridge1, start the detached daemon, and send START through it.
+  console.log('[verify] step 1: spawn bridge1 (starts detached daemon)');
   const b1 = spawnBridge('bridge1');
   const b1Frames = [];
   collectFramed(b1.stdout, (f) => b1Frames.push(f));
@@ -139,26 +225,35 @@ async function main() {
   }
   console.log('[verify] ✓ /ping returned ok on initial source');
 
-  // 2. Close bridge1 stdin (simulating SW reload). Daemon must NOT exit.
-  console.log('[verify] step 2: close bridge1 stdin (simulate SW reload)');
+  // 2. Chrome can terminate its Native Messaging child on reload. The
+  // disposable relay must exit without taking the detached HTTP owner down.
+  console.log('[verify] step 2: close bridge1 stdin (simulate Chrome reload)');
   b1.stdin.end();
-  await sleep(500);
-
-  if (b1.exitCode !== null) {
-    console.error(`[verify] FAIL: bridge1 exited (code=${b1.exitCode}) — daemon should stay alive`);
+  await waitForExit(b1, 5_000);
+  if (b1.exitCode === null && b1.signalCode === null) {
+    console.error('[verify] FAIL: bridge1 did not exit after native input closed');
     process.exit(1);
   }
-  console.log('[verify] ✓ bridge1 still running after stdin close');
+  console.log('[verify] ✓ bridge1 exited after stdin close');
+
+  let daemonPid;
+  try {
+    daemonPid = assertSingleDetachedOwner(b1.pid);
+  } catch (error) {
+    console.error(`[verify] FAIL: ${error.message}`);
+    process.exit(1);
+  }
+  console.log(`[verify] ✓ detached daemon owner ${daemonPid} survived bridge1 exit`);
 
   const probe2 = await ping(port);
   if (!probe2 || probe2.status !== 'ok') {
-    console.error('[verify] FAIL: /ping did not return ok after stdin close');
+    console.error('[verify] FAIL: /ping did not return ok after Chrome-style relay exit');
     process.exit(1);
   }
-  console.log('[verify] ✓ /ping still returned ok — HTTP server survived source close');
+  console.log('[verify] ✓ /ping still returned ok after relay exit');
 
-  // 3. Spawn bridge2 as relay.
-  console.log('[verify] step 3: spawn bridge2 (will become relay)');
+  // 3. Spawn bridge2 as the replacement relay.
+  console.log('[verify] step 3: spawn bridge2 (replacement relay)');
   const b2 = spawnBridge('bridge2');
   const b2Frames = [];
   collectFramed(b2.stdout, (f) => b2Frames.push(f));
@@ -189,6 +284,41 @@ async function main() {
     `[verify] ✓ bridge2 received frame from daemon via relay: ${JSON.stringify(b2Frames[0])}`,
   );
 
+  // Make the recovered source answer a real request routed through the
+  // primary's HTTP server, rather than treating a START acknowledgement as
+  // sufficient evidence that relay traffic works in both directions.
+  const requestAbort = new AbortController();
+  const relayRequest = fetch(`http://127.0.0.1:${port}/ask-extension?probe=relay`, {
+    signal: requestAbort.signal,
+  });
+  waited = 0;
+  let forwarded;
+  while (waited < 5000) {
+    forwarded = b2Frames.find((frame) => frame.type === 'process_data' && frame.requestId);
+    if (forwarded) break;
+    await sleep(100);
+    waited += 100;
+  }
+  if (!forwarded) {
+    requestAbort.abort();
+    console.error('[verify] FAIL: bridge2 did not receive the relayed process_data request');
+    process.exit(1);
+  }
+  b2.stdin.write(
+    framed({ responseToRequestId: forwarded.requestId, payload: { relay: 'roundtrip-ok' } }),
+  );
+  const relayResponse = await relayRequest;
+  const relayBody = await relayResponse.json();
+  if (
+    relayResponse.status !== 200 ||
+    relayBody?.status !== 'success' ||
+    relayBody?.data?.relay !== 'roundtrip-ok'
+  ) {
+    console.error(`[verify] FAIL: relayed HTTP roundtrip returned ${JSON.stringify(relayBody)}`);
+    process.exit(1);
+  }
+  console.log('[verify] ✓ relay forwarded a request and correlated response through the primary');
+
   const probe3 = await ping(port);
   if (!probe3 || probe3.status !== 'ok') {
     console.error('[verify] FAIL: /ping did not return ok after relay handoff');
@@ -196,8 +326,16 @@ async function main() {
   }
   console.log('[verify] ✓ /ping returned ok after relay swap — HTTP never went down');
 
+  try {
+    assertSingleDetachedOwner(b2.pid);
+  } catch (error) {
+    console.error(`[verify] FAIL: ${error.message}`);
+    process.exit(1);
+  }
+  console.log('[verify] ✓ relay replacement preserved the single daemon owner');
+
   console.log('');
-  console.log('[verify] ALL CHECKS PASSED — IMP-0120 daemon/relay split works end-to-end');
+  console.log('[verify] ALL CHECKS PASSED — detached daemon survives Chrome-style native-host termination');
   process.exit(0);
 }
 

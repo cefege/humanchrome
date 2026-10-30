@@ -6,10 +6,10 @@
  *   - TOOL_SCHEMAS   — the `Tool[]` advertised over MCP; one entry per name.
  *   - TOOL_CATEGORIES — name → category for docs grouping.
  *
- * Append-only is enforced by two coverage tests so a missing entry breaks CI
+ * Append-only is enforced by coverage tests so a missing entry breaks CI
  * loudly instead of producing a silently undocumented tool:
  *   - app/chrome-extension/tests/lazy-tool-registry.test.ts
- *   - app/chrome-extension/tests/tool-categories-coverage.test.ts
+ *   - packages/shared/src/tool-categories-coverage.test.ts
  *
  * The shared fragments below (TAB_TARGETING, SELECTOR_PROP, ...) are spread
  * into individual schemas so cross-cutting wording lives in exactly one

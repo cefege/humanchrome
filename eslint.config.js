@@ -31,6 +31,8 @@ export default tseslint.config(
       'app/**/workers/**',
       'packages/**/workers/**',
       'test-inject-script.js',
+      // Frozen executable compatibility oracle; preserve its original bytes.
+      'tests/rust-transition/fixtures/selector-engine.original.js',
     ],
   },
 

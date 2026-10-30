@@ -19,10 +19,14 @@
  * `app/native-server/scripts/report-tool-index-size.mjs`.
  */
 import type { Tool } from '@modelcontextprotocol/server';
-import { TOOL_SCHEMAS } from './tools';
 import { didYouMean } from './invalid-args';
+import { SUNSET_TOOL_REPLACEMENTS, type SunsetReplacement } from './sunset-tool-replacements';
+import { DISPATCHER_TOOL_NAME, dispatcherInputSchema } from './tool-contract';
+import { TOOL_SCHEMAS } from './tools';
 
-export const DISPATCHER_TOOL_NAME = 'humanchrome';
+export { DISPATCHER_TOOL_NAME } from './tool-contract';
+export { SUNSET_TOOL_REPLACEMENTS } from './sunset-tool-replacements';
+export type { SunsetReplacement } from './sunset-tool-replacements';
 
 /**
  * Trim a tool description to its verb-phrase (first sentence). Used by
@@ -241,30 +245,7 @@ export function buildDispatcherTool(tools: readonly Tool[] = TOOL_SCHEMAS): Tool
   return {
     name: DISPATCHER_TOOL_NAME,
     description: buildDispatcherDescription(tools),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Tool name from the catalog above.',
-        },
-        args: {
-          type: 'object',
-          description: 'Tool-specific arguments object. Shape varies by tool.',
-        },
-        raw: {
-          type: 'boolean',
-          description:
-            'Bypass the dispatcher output-size cap for this call (default false). Use when you genuinely need the unbounded result.',
-        },
-        idemKey: {
-          type: 'string',
-          description:
-            'Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools.',
-        },
-      },
-      required: ['name'],
-    },
+    inputSchema: dispatcherInputSchema(),
   };
 }
 
@@ -302,56 +283,6 @@ export function resolveToolName(
   if (catalog.has(browserPrefixed)) return browserPrefixed;
   return null;
 }
-
-/**
- * Sunset → consolidated tool map.
- *
- * Several single-purpose tools were folded into action-enum tools (cookies
- * CRUD, diagnostics, downloads, bookmarks CRUD, performance, close_tabs).
- * Their old names still appear inside the consolidated tools' descriptions
- * (e.g. "Replaces chrome_get_cookies/..."), which causes `chrome_help`'s
- * substring search to surface a hit — the LLM then dispatches the deprecated
- * name and gets a bare "Tool not found". This map lets the dispatcher
- * surface a precise replacement instead.
- *
- * Keep entries that map cleanly to a single `{tool, action}` call. Don't add
- * names that need multi-arg translation — the hint stays advisory, the LLM
- * still issues the corrected call itself.
- */
-export interface SunsetReplacement {
-  /** Canonical tool name to use instead. */
-  name: string;
-  /** Action enum value on the replacement tool, if applicable. */
-  action?: string;
-}
-
-const SUNSET_TOOL_REPLACEMENTS: Readonly<Record<string, SunsetReplacement>> = Object.freeze({
-  // chrome_cookies (action enum)
-  chrome_get_cookies: { name: 'chrome_cookies', action: 'get' },
-  chrome_set_cookie: { name: 'chrome_cookies', action: 'set' },
-  chrome_remove_cookie: { name: 'chrome_cookies', action: 'remove' },
-  // chrome_diagnostics (action enum)
-  chrome_debug_dump: { name: 'chrome_diagnostics', action: 'dump_logs' },
-  chrome_queue_inspect: { name: 'chrome_diagnostics', action: 'queue' },
-  chrome_runtime_info: { name: 'chrome_diagnostics', action: 'runtime_info' },
-  chrome_dev_reload: { name: 'chrome_diagnostics', action: 'dev_reload' },
-  // chrome_performance_trace (action enum)
-  chrome_performance_start_trace: { name: 'chrome_performance_trace', action: 'start' },
-  chrome_performance_stop_trace: { name: 'chrome_performance_trace', action: 'stop' },
-  chrome_performance_analyze_insight: { name: 'chrome_performance_trace', action: 'analyze' },
-  // chrome_close_tabs (action enum)
-  chrome_close_tab: { name: 'chrome_close_tabs', action: 'ids' },
-  chrome_close_tabs_matching: { name: 'chrome_close_tabs', action: 'matching' },
-  browser_close_my_tabs: { name: 'chrome_close_tabs', action: 'mine' },
-  // chrome_bookmark (action enum)
-  chrome_bookmark_search: { name: 'chrome_bookmark', action: 'search' },
-  chrome_bookmark_add: { name: 'chrome_bookmark', action: 'add' },
-  chrome_bookmark_update: { name: 'chrome_bookmark', action: 'update' },
-  chrome_bookmark_delete: { name: 'chrome_bookmark', action: 'delete' },
-  // chrome_download (action enum) — chrome_handle_download is a separate live tool.
-  chrome_download_list: { name: 'chrome_download', action: 'list' },
-  chrome_download_cancel: { name: 'chrome_download', action: 'cancel' },
-});
 
 /**
  * Look up the consolidated replacement for a sunset tool name. Returns

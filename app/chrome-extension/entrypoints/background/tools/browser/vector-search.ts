@@ -71,13 +71,9 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
         return createErrorResponse('Failed to initialize vector search engine');
       }
 
-      // Execute vector search, get more results for deduplication.
       const searchResults = await indexerRpc.searchContent(query, 50);
-
-      const vectorSearchResults = this.convertSearchResults(searchResults);
-      const deduplicatedResults = this.deduplicateByTab(vectorSearchResults);
-      const topResults = deduplicatedResults
-        .sort((a, b) => b.semanticScore - a.semanticScore)
+      const topResults = this.deduplicateByTab(this.convertSearchResults(searchResults))
+        .sort((left, right) => right.semanticScore - left.semanticScore)
         .slice(0, 10);
 
       const stats = await indexerRpc.getStats();
@@ -129,7 +125,6 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /** Convert offscreen `SearchResult` -> tool-shape result. */
   private convertSearchResults(searchResults: SearchResult[]): VectorSearchResult[] {
     return searchResults.map((result) => ({
       tabId: result.document.tabId,
@@ -142,44 +137,30 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }));
   }
 
-  /** Keep only the top-scoring fragment per tab. */
   private deduplicateByTab(results: VectorSearchResult[]): VectorSearchResult[] {
-    const tabMap = new Map<number, VectorSearchResult>();
-
+    const tabs = new Map<number, VectorSearchResult>();
     for (const result of results) {
-      const existing = tabMap.get(result.tabId);
-      if (!existing || result.semanticScore > existing.semanticScore) {
-        tabMap.set(result.tabId, result);
-      }
+      const existing = tabs.get(result.tabId);
+      if (!existing || result.semanticScore > existing.semanticScore)
+        tabs.set(result.tabId, result);
     }
-
-    return Array.from(tabMap.values());
+    return [...tabs.values()];
   }
 
-  /** Pick a readable preview snippet, preferring sentence boundaries. */
-  private extractSnippet(text: string, maxLength: number = 200): string {
+  private extractSnippet(text: string, maxLength = 200): string {
     if (text.length <= maxLength) return text;
-
     const truncated = text.substring(0, maxLength);
-    const lastSentenceEnd = Math.max(
+    const sentenceEnd = Math.max(
       truncated.lastIndexOf('.'),
       truncated.lastIndexOf('!'),
       truncated.lastIndexOf('?'),
       truncated.lastIndexOf('。'),
-      truncated.lastIndexOf('!'),
-      truncated.lastIndexOf('?'),
+      truncated.lastIndexOf('！'),
+      truncated.lastIndexOf('？'),
     );
-
-    if (lastSentenceEnd > maxLength * 0.7) {
-      return truncated.substring(0, lastSentenceEnd + 1);
-    }
-
-    const lastSpaceIndex = truncated.lastIndexOf(' ');
-    if (lastSpaceIndex > maxLength * 0.8) {
-      return truncated.substring(0, lastSpaceIndex) + '...';
-    }
-
-    return truncated + '...';
+    if (sentenceEnd > maxLength * 0.7) return truncated.substring(0, sentenceEnd + 1);
+    const space = truncated.lastIndexOf(' ');
+    return space > maxLength * 0.8 ? `${truncated.substring(0, space)}...` : `${truncated}...`;
   }
 
   public async getIndexStats() {
@@ -211,12 +192,11 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
 
       const validTabs = allTabs.filter(
         (tab) =>
-          tab.id &&
-          tab.url &&
-          !tab.url.startsWith('chrome://') &&
-          !tab.url.startsWith('chrome-extension://') &&
-          !tab.url.startsWith('edge://') &&
-          !tab.url.startsWith('about:'),
+          Boolean(tab.id && tab.url) &&
+          !tab.url!.startsWith('chrome://') &&
+          !tab.url!.startsWith('chrome-extension://') &&
+          !tab.url!.startsWith('edge://') &&
+          !tab.url!.startsWith('about:'),
       );
 
       await Promise.allSettled(

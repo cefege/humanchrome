@@ -4,7 +4,112 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ## [Unreleased]
 
+### Added
+
+- Rust transition prerequisites: a pinned Cargo workspace, generated declarative
+  contracts, isolated process compatibility fixtures, and a production-source
+  ownership inventory. Native and isolated-Chrome verification can target
+  `HC_TEST_NATIVE_BIN` before any installed runtime cutover.
+- Rust shared/native primitives: catalog and graph policy, lossless UTF-16 JSON
+  transport, framed messaging and pending-request ownership, primary/relay
+  lifecycle, registry persistence, profile-wipe protection, replay caching,
+  and stderr-only structured logging.
+- Rust MCP/REST application compatibility and a real HTTP-to-stdio
+  proxy, verified against isolated TypeScript/native processes. Lossless UTF-16
+  routing includes metadata, dynamic flows, idempotency and result-file sinks.
+  The real DevTools engine is now built as ESM for trace-analysis adapters.
+- Rust fleet CLI and runtime integration: authenticated gateway
+  forwarding, per-profile native manifests, PID-bound lifecycle controls,
+  adopted/owned shutdown handling, worker enrollment, and signal-driven reload.
+  Worker enrollment accepts explicit `--chrome-path` and `--extension-dir`
+  overrides without changing installed-path defaults or installing launchd agents.
+- Rust agent application compatibility, including nullable session
+  patches, persisted history, SSE heartbeat/reset and cancellation. Verification
+  exercises the real Claude SDK initialization/cancel/reap path through its
+  narrow JSONL adapter; it does not claim a completed cloud-model response.
+- Rust MCP notifications no longer execute tools. An isolated-Chrome navigation
+  regression failed before the fix and passed afterward against the candidate
+  native host, while the installed Node runtime remained unchanged.
+- Native release archives retain checksums, complete versioned installation,
+  stdio configuration, and previous-release retention. Historical native/WASM verification for
+  [`5f223ec9d3a62ce9fb42ed8bbe708c6fc7ff4473`](https://github.com/cefege/humanchrome/actions/runs/41071714692)
+  passed workspace tests, archives, and Node-absent installed-archive smokes on
+  macOS ARM64/Intel, Linux x86-64, and Windows x86-64; Linux also passed the
+  coordinator container gate. Its opt-in real-PostgreSQL TLS release case passed
+  across strict, CA, no-verify, direct, and rejection URL paths. The corrected
+  `performance-native.json` validates fully read successful response bodies:
+  TypeScript → Rust p50/p95 startup is 607.195375/744.066166 →
+  11.499208/11.618833 ms, MCP help 0.704000/1.465792 → 0.205792/0.373500 ms,
+  successful REST forwarding 0.458583/1.111334 → 0.196833/0.519000 ms, and RSS
+  median 289341440 → 15433728 bytes. It excludes Chrome, ONNX, optional SDK
+  processes, and the optional Rust trace adapter; it is not a whole-feature-set
+  Node-free claim.
+- Separate Mac arm64 optional-engine archives containing the real Claude Agent
+  SDK, DevTools analyzer, pinned Node runtime and Codex executable. Native hosts
+  discover the overlaid engines beside their own executable; the core archive
+  remains Node-free. Extracted-bundle checks exercise SDK resume/cancel/reap,
+  Codex cancellation and actual trace analysis without an external runtime PATH
+  or paid model response.
+- An isolated Rust-native/TypeScript-browser gate runs the full matrix and local
+  task scenarios against one owned Chrome/bridge. WXT builds into a private output directory
+  without installed-runtime synchronization. Private registration,
+  public-key-derived origins, explicit fixture tabs, allocated CDP ports,
+  credential-free test Keychain and strict failure/deadline reporting avoid
+  daily-browser actions and false passing results. Baseline exceptions are never
+  silently applied; verified browser fixes are recorded below.
+
 ### Changed
+
+- Option A keeps Chrome extension policy and UI in TypeScript/JavaScript, while
+  the bridge, MCP/REST, agent application, fleet gateway/worker and coordinator
+  remain Rust. The browser is not a Node runtime. Numeric SIMD WASM, ONNX and HNSW
+  remain unchanged; general-purpose browser Rust/WASM glue and build hooks are
+  removed rather than retained as a second runtime.
+- The full Rust-browser experiment is preserved at
+  [checkpoint `1012e423`](https://github.com/cefege/humanchrome/commit/1012e423dca2265d9e84ebab0db696a22d63d829).
+  Its recorder and workflow/vector CPU regressions motivated the browser rollback;
+  native-service performance evidence does not imply a browser speedup.
+
+### Fixed
+
+- Combobox selection now delivers trusted commit keys in background tabs sharing
+  an existing debugger session, using temporary focus emulation without
+  activating the tab.
+- Default page reading and its interactive-elements fallback address the main
+  frame explicitly rather than accepting an iframe response.
+- Browser builds retain numeric SIMD and generated worker/recorder assets without
+  depending on a general-purpose Rust/WASM policy kernel.
+- The earlier four-platform native run for
+  `b1dc6fefb143822db8c19030df45a1912c4d959a` remains historical evidence, not
+  current-source certification, a release, merge, or installed-default
+  activation.
+- Recorder target production retains its original strategy configuration and
+  frozen serialized contract. Replay click/fill/read actions retain the bound
+  flow tab instead of resolving an unrelated active tab.
+- Offscreen model-resource initialization remains serialized; persisted HNSW
+  reopen and cold-reset behavior remain required real-browser checks.
+- Native upgrades preserve already configured, valid extension origins while
+  updating the executable path. Unsafe origins and missing required origins
+  remain rejected; new installations retain the existing default allowlist.
+
+### Security
+
+- Upgrade the MCP client/server packages, Fastify, Zod, Vue, Transformers,
+  Vite, and Vitest, with major-bounded transitive security floors centralized
+  in `pnpm-workspace.yaml`. Explicit peer providers prevent the Agent SDK and
+  Jest from retaining vulnerable MCP SDK or incompatible Babel versions.
+- Move WXT to `0.21.5`, remove its obsolete disabled-runner configuration,
+  and preserve the extension's prior TypeScript compiler contract. The unused
+  `web-ext-run` dependency tree is no longer installed.
+- Patch unreleased `deepmerge` prototype-poisoning fixes into the source,
+  CJS, and UMD bundles; keep the registry advisory visible and cover Jest's
+  consumed runtime with a security regression contract. See `SECURITY.md`.
+
+### Changed
+
+- **Project MCP connection**: point HumanChrome at the private OVH Tailscale
+  coordinator. Portable clients use an environment token; OMP resolves its
+  credential from the private bootstrap file without committing secrets.
 
 - **Browserless coordinator and native workers**: `fleet coordinator` serves
   authenticated HTTP/MCP browser access without local Chrome. Dedicated Mac
@@ -26,11 +131,54 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- Preserve macOS native-host TCC refusal when HOME is a filesystem alias, without
+  rejecting lookalike directory names. The optional JSONL adapter now recognizes
+  direct execution through canonicalized paths such as `/tmp` → `/private/tmp`.
+- Keep successful worker fixture responses unread until their actual consumer:
+  diagnostic assertions no longer consume JSON twice or await the end of an
+  intentionally open streaming response. Isolated worker enrollment explicitly
+  selects `daily=null`, avoiding an unintended seed lookup in its temporary HOME.
+- Finalize successful fixed-length and empty worker proxy responses before
+  exposing completion to callers; Hyper need not poll a stream again after
+  `Content-Length` bytes. Completed mutations no longer falsely quarantine the
+  next action; disconnected and incomplete mutations remain fenced.
+- Keep an already-supervised live Chrome owned across repeated starts instead
+  of re-adopting it and dropping the worker's private CDP connection.
+- Preserve agent project/session activity, permissive attachment decoding and
+  declared MIME behavior across the Rust cutover. A shared single-pass decoder
+  retains Node's noncanonical trailing-bit behavior instead of losing file data.
+- Map Codex failed items, plan progress, command/file metadata and final assistant
+  transitions consistently; flush Claude cancellation before waiting for reap
+  and restore the resolved Node directory after session PATH overrides.
+- Classify macOS picker process failure as an HTTP 500 error, not user
+  cancellation. Local-only provider smoke gates exercise real SDK/CLI startup,
+  Claude resume/invalid-resume clearing and cancellation without cloud responses.
+
+- Remove the stdio client's unsupported `2026-07-28` protocol pin; let the SDK
+  negotiate a version the HTTP bridge actually supports.
+- Honor Commander's negated `--no-seed` option instead of treating `false` as a
+  seed directory. Share the Rust Google-session probe's original POST/ListAccounts
+  behavior between CLI verification and provisioning.
+- Preserve Unix private-CDP disconnect behavior with socket-backed stdio. Keep
+  unrelated live PIDs protected while allowing a stop to complete when Chrome
+  exits during asynchronous ownership inspection.
+- Refuse non-allowlisted worker startup profiles and retain the running
+  supervisor after a malformed reload, matching the existing CLI lifecycle.
+- Honor `HC_TEST_NATIVE_BIN` when the TypeScript provisioning oracle creates
+  temporary native manifests, so candidate browser verification cannot silently
+  exercise the installed Node host.
+
 - **Kubernetes/Tailscale deployment checks**: use the pinned chart's actual
   `operator` Deployment and the standalone proxy's `TailscaleProxyReady`
   condition. Proxy verification waits for rollout readiness before comparing
   persistent state Secret UIDs and tailnet device identities across restarts.
 
+- **Fleet: only HumanChrome runs in a fleet browser**: a seeded profile carried
+  its user's extensions, and their frames made CDP attach fail with "Cannot
+  access a chrome-extension:// URL of different extension". Every launch now
+  disables each extension except the loaded HumanChrome (including an older
+  HumanChrome copy) through `chrome.management`, so no profile needs its files
+  deleted. See docs/FLEET.md, "Provisioning".
 - **Fleet: `fleet status` reflects profile changes made while parked**: a
   parked `serve` reloaded on every CLI mutation but kept its old profile list,
   so a profile removed with `profile rm` was still listed, and one added,

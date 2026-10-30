@@ -8,13 +8,17 @@ Loaded automatically by Claude Code every session. This is the source of truth f
 
 An MCP (Model Context Protocol) server that exposes Chrome browser automation as tools an LLM can call. Three workspaces:
 
-| Path                    | What                                                                               | Runtime                            |
-| ----------------------- | ---------------------------------------------------------------------------------- | ---------------------------------- |
-| `app/chrome-extension/` | Chrome MV3 extension. Tools and UI live here.                                      | Service worker + Vue 3 + WXT       |
-| `app/native-server/`    | Node bridge that MCP clients connect to. Speaks native messaging to the extension. | Node 20+ / Fastify                 |
-| `packages/shared/`      | Tool name enum, JSON schemas, error codes, IPC types — the contract surface.       | tsup-built, consumed by both sides |
+| Path                    | What                                                                               | Runtime                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `app/chrome-extension/` | Chrome MV3 extension. Browser policy, Chrome/DOM effects, and Vue UI live here.    | TypeScript/JavaScript + Vue 3 + WXT; existing numeric WASM and third-party engines |
+| `crates/`               | Native services, native portable policy, and generated contracts.                  | Rust native executables                                                            |
+| `packages/shared/`      | Declarative tool contracts, generated native artifacts, and shared browser policy. | TypeScript runtime/build inputs; consumed by browser and native-contract builds    |
 
-`docs/` is hand-written except for `docs/TOOLS.md`, which is generated from `packages/shared/src/tools.ts` — never edit it directly.
+`app/native-server/` is the private `@humanchrome/third-party-adapters` package:
+it retains only the Claude Agent SDK and Chromium DevTools trace-formatting
+subprocess boundary. It is not the native bridge runtime.
+
+`docs/` is hand-written except for `docs/TOOLS.md`, which is generated from `packages/shared/src/tools.ts` — never edit its generated section directly.
 
 ---
 
@@ -38,11 +42,11 @@ Every new MCP tool is exactly 5 file edits. Steps 2-4 each touch a registry; the
 
 After the 5 edits:
 
-- `cd packages/shared && npm run build` — regenerates `dist/` so the extension typechecks against the new TOOL_NAMES entry.
+- `pnpm build:shared` — regenerates `dist/` so the extension typechecks against the new `TOOL_NAMES` entry.
 - `cd app/chrome-extension && npx tsc --noEmit -p .` — must be clean.
 - `npx vitest run --reporter=dot tests/tools/browser/<slug>.test.ts tests/tools/lazy-tool-registry.test.ts` — both must pass.
-- `cd app/native-server && node scripts/generate-tools-doc.mjs` — regenerates `docs/TOOLS.md`.
-- `cd app/native-server && npm test` only if bridge code was touched.
+- `pnpm build:contracts && pnpm --filter @humanchrome/third-party-adapters run docs:tools` — refreshes `docs/TOOLS.md` without building or activating a native installation.
+- `cargo test --locked -p humanchrome-contracts` when a catalog/contract change affects the embedded native artifact.
 - **E2E verification (mandatory for chrome-extension changes)** — see § "E2E verification — required for every chrome-extension change" below. Build the extension, run the fixture matrix via `chrome-devtools-mcp` + `humanchrome` side-by-side per `docs/E2E-VERIFICATION.md`, extend the fixture if a new tool/contract was added. Push is not done until this passes.
 
 Long-form templates with copy-pasteable file scaffolds: [`docs/AUTHORING-A-TOOL.md`](docs/AUTHORING-A-TOOL.md).
@@ -84,7 +88,7 @@ The full table — including caller-side recovery semantics for `TARGET_NAVIGATE
 Not lint-enforced, but every PR follows them.
 
 - **Test-only escape hatches use `_`-prefix.** When module-scope state needs a reset or seed for tests, export a function named `_resetXForTest()` / `_seedXForTest(...)`. Examples: `_resetPlatformCacheForTest` in `keyboard.ts`, `_seedInjectedTabForTest` in `inject-script.ts`. The underscore signals "not part of the runtime API" without needing `// @internal` JSDoc.
-- **Reach into private methods via cast, not `eslint-disable`.** Pattern: `(tool as unknown as { privateMethod: (x: number) => string }).privateMethod(42)`. Used across the native-server engine tests; same pattern applies to extension tool tests when needed.
+- **Reach into private methods via cast, not `eslint-disable`.** Pattern: `(tool as unknown as { privateMethod: (x: number) => string }).privateMethod(42)`. Use the same cast pattern for extension and Rust-boundary tests; do not disable lint rules to access a private implementation detail.
 - **Single-window default.** humanchrome runs in one Chrome window by default. Tools needing a `windowId` should resolve via `chrome_get_windows_and_tabs` (or the `getActiveTabOrThrowInWindow` helper on `BaseBrowserToolExecutor`) rather than spawning new windows.
 - **Conventional Commits with IMP id + Co-Author footer.** Subject: `<type>(<scope>): <imperative> (IMP-NNNN)`. Body ends with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. Commitlint enforces type/scope.
 - **Response-body cap is 1 MiB.** When proxying response bodies (network-capture, intercept-response), cap at `1 * 1024 * 1024` bytes and surface truncation as `responseBodyTruncation: { truncated, originalSize, limit, unit:"bytes" }`.
@@ -207,7 +211,7 @@ them; building infrastructure is the inverse.
 These will fail your PR if you forget a registry update:
 
 - `app/chrome-extension/tests/tools/lazy-tool-registry.test.ts` — every `TOOL_NAMES.BROWSER` and `TOOL_NAMES.RECORD_REPLAY` value is reachable; heavy tools land in `lazyLoaders`, not `eagerTools`.
-- `app/native-server/src/scripts/tool-categories-coverage.test.ts` — every `TOOL_SCHEMAS` entry has a `TOOL_CATEGORIES` mapping; no stale labels.
+- `packages/shared/src/tool-categories-coverage.test.ts` — every `TOOL_SCHEMAS` entry has a `TOOL_CATEGORIES` mapping; no stale labels.
 - `packages/shared/src/ipc-schemas.test.ts` — IPC schema shape coverage.
 - `app/chrome-extension/tests/record-replay/*.contract.test.ts` and `tests/record-replay-v3/*.contract.test.ts` — adapter-handler parity, legacy node coverage, runner-onError, etc.
 
@@ -223,8 +227,8 @@ When adding a new "must not drift" invariant, name the file `*.contract.test.ts`
 - **Logging / troubleshooting**: `docs/LOGGING.md`, `docs/TROUBLESHOOTING.md`.
 - **Visual editor**: `docs/VisualEditor.md`.
 - **Caller contract** (calling tools, not authoring them): `docs/AGENTS.md`.
-- **Chrome fleet** (`app/native-server/src/fleet/` — supervisor, gateway, `fleet_*` MCP tools): `docs/FLEET.md`.
-- **Auto-generated tool reference**: `docs/TOOLS.md` (regenerate via `cd app/native-server && node scripts/generate-tools-doc.mjs`).
+- **Chrome fleet** (`crates/humanchrome-native/src/fleet/` — supervisor, gateway, `fleet_*` MCP tools): `docs/FLEET.md`.
+- **Auto-generated tool reference**: `docs/TOOLS.md` (regenerate with `pnpm build:shared && pnpm --filter @humanchrome/third-party-adapters run docs:tools`).
 - **E2E verification recipe**: `docs/E2E-VERIFICATION.md` + `app/chrome-extension/tests/e2e/` — runbook + HTML fixtures for real-browser verification driven by `chrome-devtools-mcp` + `humanchrome` side-by-side (the `.mcp.json` at repo root registers both). Use after any push that touches interaction tools, selector strategies, or inject-scripts.
 
 ---

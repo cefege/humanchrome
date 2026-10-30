@@ -32,7 +32,8 @@ const REPO_ROOT = resolve(import.meta.dirname || new URL('.', import.meta.url).p
 const STATE_PATH = resolve(REPO_ROOT, '.claude', 'loop-state.local.json');
 const BRIDGE_INSTALL = join(homedir(), 'Library', 'Application Support', 'humanchrome-bridge');
 const EXT_INSTALL = join(homedir(), 'Library', 'Application Support', 'humanchrome-extension');
-const SRC_BRIDGE_DIST = resolve(REPO_ROOT, 'app', 'native-server', 'dist');
+const NATIVE_HOST_NAME = `humanchrome-nativehost${process.platform === 'win32' ? '.exe' : ''}`;
+const SRC_NATIVE_HOST = resolve(REPO_ROOT, 'target', 'release', NATIVE_HOST_NAME);
 const SRC_EXT_OUTPUT = resolve(REPO_ROOT, 'app', 'chrome-extension', '.output', 'chrome-mv3');
 
 const STRICT = process.argv.includes('--strict');
@@ -52,22 +53,22 @@ function sh(cmd, opts = {}) {
   return { code: r.status ?? 1, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
 }
 
-function hashDir(dir) {
-  if (!existsSync(dir)) return null;
-  const h = createHash('sha256');
-  const walk = (d) => {
-    for (const name of readdirSync(d).sort()) {
-      const p = join(d, name);
-      const st = statSync(p);
-      if (st.isDirectory()) walk(p);
-      else if (st.isFile()) {
-        h.update(name);
-        h.update(readFileSync(p));
-      }
-    }
-  };
-  walk(dir);
-  return h.digest('hex').slice(0, 12);
+function hashFile(path) {
+  if (!existsSync(path)) return null;
+  return createHash('sha256').update(readFileSync(path)).digest('hex').slice(0, 12);
+}
+
+function activeReleaseRoot() {
+  const activeRelease = join(BRIDGE_INSTALL, 'active-release.json');
+  if (!existsSync(activeRelease)) return null;
+  try {
+    const release = JSON.parse(readFileSync(activeRelease, 'utf8')).release;
+    return typeof release === 'string' && release.length > 0
+      ? join(BRIDGE_INSTALL, 'releases', release)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function readBuildInfo(p) {
@@ -89,21 +90,23 @@ fact('repo.clean', dirty.length === 0 ? 'yes' : `no (${dirty.split('\n').length}
 const branch = sh('git rev-parse --abbrev-ref HEAD').stdout;
 fact('repo.branch', branch, branch === 'main');
 
-// --- Bridge install ---
-const srcBridgeHash = hashDir(SRC_BRIDGE_DIST);
-const instBridgeHash = hashDir(join(BRIDGE_INSTALL, 'dist'));
-if (srcBridgeHash && instBridgeHash) {
-  const synced = srcBridgeHash === instBridgeHash;
-  fact('bridge.dist.src', srcBridgeHash);
-  fact('bridge.dist.installed', instBridgeHash);
+// --- Native bridge build and selected installed release ---
+const srcNativeHash = hashFile(SRC_NATIVE_HOST);
+const installedRelease = activeReleaseRoot();
+const installedNativeHost = installedRelease && join(installedRelease, NATIVE_HOST_NAME);
+const installedNativeHash = installedNativeHost && hashFile(installedNativeHost);
+if (srcNativeHash && installedNativeHash) {
+  const matches = srcNativeHash === installedNativeHash;
+  fact('bridge.native.src', srcNativeHash);
+  fact('bridge.native.installed', installedNativeHash);
   fact(
-    'bridge.dist.synced',
-    synced ? 'yes' : `STALE (src=${srcBridgeHash} install=${instBridgeHash})`,
-    synced,
+    'bridge.native.matches-installed',
+    matches ? 'yes' : `DIFFERS (src=${srcNativeHash} install=${installedNativeHash})`,
+    matches,
   );
 } else {
-  fact('bridge.dist.src', srcBridgeHash || 'MISSING (run pnpm build:native)', srcBridgeHash != null);
-  fact('bridge.dist.installed', instBridgeHash || 'MISSING (run postbuild sync)', instBridgeHash != null);
+  fact('bridge.native.src', srcNativeHash || 'MISSING (run pnpm build:native)', srcNativeHash != null);
+  fact('bridge.native.installed', installedNativeHash || 'MISSING (no active native release)', installedNativeHash != null);
 }
 
 // --- Extension build-info ---

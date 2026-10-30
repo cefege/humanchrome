@@ -49,6 +49,92 @@ The order of items inside ## Active is sorted by score descending.
 
 ## Active
 
+### IMP-0197 · Legacy DAG execution panics on trigger constant lookup (bug) · score: 9
+
+- **Proposed by**: omp · 2026-10-30 (real saved-workflow browser verification)
+- **Status**: done
+- **Why**: Rust DAG planning requests `TRIGGER` from the linear `RR_STEP_TYPES` table, which does not contain that node type. Running a saved DAG reaches a Rust panic and the browser tool reports `UNKNOWN: unreachable`.
+- **Cost**: S
+- **Value**: L
+- **Repro**: In owned Chrome for Testing, save a trigger → fill → foreach → script DAG with a nested script subflow through `rr_save_flow`, then call `record_replay_flow_run`. Observed `isError:true` and `UNKNOWN: unreachable`. The permanent core regression `legacy_dag_trigger_routes_without_becoming_an_executable_step` independently failed at the graph-constant invariant.
+- **Fix sketch**: Read the authored `STEP_TYPES` table for DAG node-type policy, retaining `RR_STEP_TYPES` as the distinct linear-step contract; do not add a fallback literal or suppress the panic.
+- **Notes**: The permanent regression failed before and passed after the `STEP_TYPES` fix. The real saved-flow call now advances past graph planning instead of trapping; its separate fill-stage failure is tracked by IMP-0198. Original matrix 27/27 and task scenarios 17/17 do not certify a complete saved-workflow run.
+
+### IMP-0207 · Native upgrade rejects an installed custom extension origin (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-30 (production installation preflight)
+- **Status**: done
+- **Why**: The installed native manifest contains the three required extension origins plus one valid configured origin. Exact-vector validation rejected the owned manifest, blocking an upgrade; rewriting only defaults would silently remove that configuration.
+- **Cost**: S
+- **Value**: L
+- **Repro**: The permanent `force_preserves_configured_extension_origins` regression failed with `InvalidAllowedOrigins` before the fix.
+- **Fix sketch**: Validate every configured origin and require all default origins, then retain the validated allowlist while replacing the owned executable path. Continue rejecting unsafe origins, missing defaults and foreign ownership.
+- **Notes**: Both allowlist preservation and unsafe/missing-origin regressions pass in the 186-test Rust workspace run. New manifests retain the original three defaults; no new origin is automatically granted.
+
+### IMP-0208 · Page read can accept an iframe response for the main document (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-30 (Option A real-Chrome verification)
+- **Status**: done
+- **Why**: An unscoped accessibility-tree message can accept a sparse iframe response. Its interactive-element fallback is also unscoped, making an existing main-page launch code unreadable.
+- **Cost**: S
+- **Value**: L
+- **Repro**: `browser-hc-rt-i6UKTj.json` passed 35 matrix rows but only 16/17 tasks; `search-fixture-launch-code` returned `Accessibility tree is too sparse and fallback failed`.
+- **Fix sketch**: Address both the default page tree and its interactive-element fallback to frame zero, retaining all-frame helper injection for existing locator behavior.
+- **Notes**: After explicit frame targeting, `browser-hc-rt-hziSan.json` passed all 35 matrix rows and all 17 tasks, including the exact launch code.
+
+### IMP-0206 · Option A: retain Rust services and restore TypeScript browser policy (perf) · score: 8
+
+- **Proposed by**: user · 2026-10-30
+- **Status**: in-progress
+- **Why**: General browser Rust/WASM crossings regress recorder and workflow/vector CPU timings without a whole-browser win. Keep the measured native-service benefits without paying that browser boundary cost.
+- **Cost**: M
+- **Value**: L
+- **Notes**: The full experiment is preserved on GitHub at checkpoint `1012e423`. Browser policy is restored to TypeScript/JavaScript; native bridge/MCP/REST/agents/fleet/coordinator remain Rust. Numeric SIMD, ONNX/HNSW, independent browser fixes and persisted formats remain. Current local gates pass: 186 Rust, 174 shared and 1,939 extension tests; owned Chrome passes 35/35 matrix rows and 17/17 tasks. Complete extracted native core/optional-engine installation smoke and actual local-only Claude/Codex startup/cancel checks pass. Production native/extension and Docker coordinator activation remain separate release steps.
+
+### IMP-0202 · Native primary dies when its Chrome-owned relay disconnects (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-30 (isolated Rust transition verification)
+- **Status**: done
+- **Why**: The HTTP-owning native primary was coupled to Chrome Native Messaging relay lifetime. A service-worker/native-message disconnect could terminate the primary even though the bridge must remain available for a later relay.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Start the current compiled native host as the Chrome-owned source, let the source disconnect, then attach a replacement relay and issue a bridge call. Before the fix the primary lifetime was lost with the source; this is distinct from a browser reload/update probe.
+- **Fix sketch**: Keep the Unix primary detached from its Chrome-owned relay and make the relay disposable, preserving the primary's HTTP/registry ownership across source replacement without creating a second live owner.
+- **Notes**: The detached-primary relay regression passed against current binaries. An actual owned service-worker stop/start retained HTTP availability and completed the replacement-relay path. Current immutable native/core/WASM CI is [run 41071714692](https://github.com/cefege/humanchrome/actions/runs/41071714692) for `5f223ec9d3a62ce9fb42ed8bbe708c6fc7ff4473`, with all four platform jobs and the Linux coordinator image passing. The corrected `target/rust-transition/performance-native.json` validates fully read successful response bodies; its invalid synthetic predecessor, `before-success-envelope.json`, is retained and superseded. The controlled result excludes Chrome, ONNX, optional SDK processes, and the optional Rust trace adapter; it is not a whole-feature-set Node-free claim. This is uninstalled private-profile evidence only; it is not installed activation, release, merge, or a passing full `chrome.runtime.reload()` observation.
+
+### IMP-0193 · Native file downloads allow IPv4-mapped IPv6 loopback URLs (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-29 (Rust transition characterization)
+- **Status**: proposed
+- **Why**: `assertSafeUrl` promises to reject private/loopback destinations, but `isPrivateIp` strips `::ffff:` and passes the remaining hexadecimal tail to `net.isIP`, which does not recognize it. A mapped IPv6 spelling reaches the loopback service.
+- **Cost**: S
+- **Value**: L
+- **Repro**: In an isolated native process, start an owned HTTP fixture on `127.0.0.1:<port>`, then invoke the compiled `FileHandler.handleFileRequest({action:"prepareFile",fileUrl:"http://[::ffff:7f00:1]:<port>/fixture",fileName:"mapped.txt"})`. Observed `success:true` and the exact fixture body in the downloaded file. HOME and TMPDIR were owned temporary directories; no private service or user file was accessed.
+- **Fix sketch**: Classify IPv4-mapped IPv6 addresses through their decoded IPv4 address before applying the existing private-range policy. Cover literal and DNS-resolved mapped addresses without changing the explicit destination-path API.
+- **Notes**: Existing TypeScript behavior, not a Rust regression. Migration parity must not be described as proof of outbound-network safety; hardening should be an explicit change with matching oracles.
+
+### IMP-0194 · Prepared-upload fileName can escape its temporary directory (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-29 (Rust transition characterization)
+- **Status**: proposed
+- **Why**: Download/base64 preparation joins caller-supplied `fileName` to the uploads directory without checking resolved containment. A relative traversal writes outside the directory used to track temporary uploads.
+- **Cost**: S
+- **Value**: L
+- **Repro**: With isolated `TMPDIR=<owned>/tmp`, invoke compiled `FileHandler.handleFileRequest({action:"prepareFile",base64Data:"b3duZWQ=",fileName:"../../escaped.bin"})`. Observed `success:true`, `filePath:<owned>/escaped.bin`, and body `owned`, rather than a path under `<owned>/tmp/humanchrome-uploads`. The fixture removed its entire owned directory afterward.
+- **Fix sketch**: Require a safe basename or enforce resolved containment for prepared-upload names. Keep the separately authorized absolute `saveToPath` operation unchanged; verify cleanup boundaries with sibling-prefix paths too.
+- **Notes**: Existing TypeScript behavior, not a Rust regression. Keep this hardening decision separate from a behavior-preserving runtime migration.
+
+### IMP-0198 · Saved legacy workflow fails fill before its nested subflow starts (bug) · score: 7
+
+- **Proposed by**: omp · 2026-10-30 (real saved-workflow browser verification)
+- **Status**: proposed
+- **Why**: An owned live fixture contains the requested input, but `record_replay_flow_run` returns `success:false` at its first fill step. The input remains empty and neither the nested subflow nor final script executes.
+- **Cost**: M
+- **Value**: L
+- **Repro**: Save trigger → fill → foreach → script with a CSS target `#rust-workflow-input`, value `{who}`, and arguments `{who:"Rust workflow",items:["alpha","beta"]}`. The observed run had one failed `fill` step, and live DOM inspection returned `{input:"",value:""}`.
+- **Fix sketch**: Trace the retained fill/locator consumer contract, candidate collection shape, tab ownership and content-script targeting. Require actual input mutation plus both nested iterations and the final successor before calling the saved-workflow gate green.
+- **Notes**: Exact captured outcome: `target/rust-transition/recorded-workflow-fill-failure.json`. Candidate ranking integration was corrected, but retesting is blocked by later concurrent `runPolicy` missing exports. The user explicitly chose to wait for the other browser/shared rewrite before resuming integration.
+
 ### IMP-0192 · Visible selector click acknowledges without invoking the button handler (bug) · score: 7
 
 - **Proposed by**: omp · 2026-10-28 (live private coordinator verification)
@@ -60,22 +146,116 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Trace selector resolution, dispatch, and acknowledgement against a real DOM handler; retain the handler outcome as a regression assertion rather than checking only the tool's success envelope.
 - **Notes**: Observed through both browser MCP and HTTP routes on the live native Mac worker. Root cause is not isolated against a direct bridge call; do not attribute it to the coordinator yet. Private routing/restart verification passed using JavaScript-driven actions and does not count this selector-click contract as passing.
 
+### IMP-0204 · Offscreen model initialization races cached boot with explicit readiness (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-10-30 (cold-reset lifecycle verification)
+- **Status**: done
+- **Why**: Cached automatic offscreen initialization and an explicit semantic-engine initialization could overlap. One path disposed the engine while the other was still creating it, leaving `modelStatus` ready while the global engine was null.
+- **Cost**: S
+- **Value**: M
+- **Repro**: In an owned Chrome-for-Testing profile, close the offscreen document, wake a fresh service worker, and enter the cold reset before model readiness. The permanent two-case lifecycle regression failed before the fix (artifact 831).
+- **Fix sketch**: Serialize offscreen model-resource initialization through a promise tail. Preserve each caller's error and allow a failure to clear the queue rather than poisoning later initialization; do not change the model/index formats or browser API.
+- **Notes**: The two lifecycle cases passed after the fix, and the final `target/rust-transition/browser-hc-rt-DvXGRS.json` run passed 35/35 matrix rows and 17/17 task scenarios, including the cold reset with a reopened zero-document/zero-tab index and `search:[]`.
+
+### IMP-0205 · Browser fixture reads iframe content before the frame is ready (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-10-30 (isolated browser harness verification)
+- **Status**: done
+- **Why**: The task harness read the fixture iframe immediately after navigation, before its content had loaded. This created a real test-harness race that returned 16/17 scenarios rather than an application regression.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Run the isolated browser task suite against the owned fixture; artifact `browser-hc-rt-wBIThg` observed the iframe-token scenario before frame content was available and completed 16/17 tasks.
+- **Fix sketch**: Await the actual iframe load with a bounded five-second error path. Do not add a blind delay, retry an action, or change any production browser API.
+- **Notes**: The bounded frame-readiness check passed the next 17/17 task run and remains part of the final 35/35 + 17/17 evidence in `target/rust-transition/browser-hc-rt-DvXGRS.json`.
+
+### IMP-0203 · Vector reset defers deletion and reload reads the storage wrapper (bug) · score: 6
+
+- **Proposed by**: bug-scout · 2026-10-30 (isolated Rust transition verification)
+- **Status**: done
+- **Why**: The legacy port read the IndexedDB storage wrapper rather than its `.data` payload, while reset used `deleteDatabase` despite live connections. A blocked deletion could complete later on offscreen close and wipe a newly persisted index.
+- **Cost**: S
+- **Value**: M
+- **Repro**: In an owned Chrome-for-Testing profile, index the real 20-document corpus, persist it, close/recreate the offscreen host, and issue the two semantic queries. Before the fix reset/load sequencing could lose mappings or the persisted index.
+- **Fix sketch**: Await the mapping payload and write commit; consolidate model-reset cleanup in `clearAllVectorData` so mappings clear transactionally with the known HNSW files and filesystem sync, without dropping the database or changing persisted formats/model-reset intent.
+- **Notes**: Current owned-browser evidence saved and reopened the real 20-document HNSW corpus with exact astronomy/baking IDs, order, scores, and snippets (`target/rust-transition/browser-hc-rt-DvXGRS.json`). Its fresh service-worker path then performed the cold reset before model readiness; clear, restart/reopen, and new-index search returned zero documents, zero tabs, and `[]`.
+
 ### IMP-0191 · chrome_combobox_select does not commit a keyboard-highlighted option (bug) · score: 6
 
 - **Proposed by**: omp · 2026-09-29 (surfaced by the E2E matrix during the fleet automation work)
-- **Status**: open
+- **Status**: done
 - **Why**: The `Bug-007` row of the tier-1 matrix (`tests/e2e/scenarios/playwright-parity.html`) fails: after `ArrowDown` on a Downshift-style combobox, the tool reports `selectedText:"LangGraph"` but the page's own selected state stays `"(none)"` (`arrowDownCount=1`, `selectErr=none`). The tool claims a selection the DOM never made, so any workflow that reads the committed value back from the page (form submit, subsequent read) sees nothing selected. Confirmed pre-existing: the identical failure reproduces on a clean `main` extension build (verified by stashing the working tree and re-running `pnpm e2e:isolated` — 25 PASS / 1 FAIL both before and after).
 - **Cost**: S — the tool appears to dispatch the option's activation without the combobox committing it (missing blur/Enter or missing `pointerdown` default-prevention path for the highlighted item). Compare against the MAIN-world shim used by `drag-drop.ts` and the key dispatch in `keyboard.ts`.
 - **Value**: M — keyboard-driven form filling is a common agent workflow, and a silently uncommitted selection is worse than an error because the tool returns success.
+- **2026-10-29 dependency verification**: the isolated Chrome matrix returned 25 PASS / 1 FAIL, with exactly this existing `Bug-007` failure. The tool contract remains open and is not counted as passing. No additional matrix failures were observed; local runner output is `/tmp/humanchrome-security-e2e-9c8bde9.json`.
+- **2026-10-29 Rust transition oracle**: targeting the compiled TypeScript native host through `HC_TEST_NATIVE_BIN` produced 25 PASS / 1 FAIL with this exact existing DOM-commit failure. The runner verified the candidate PID's executable path; it did not use the installed wrapper. This is recorded baseline evidence, not a passing browser migration or acceptance of a new regression. Evidence: [Rust transition baseline matrix](e2e-runs/2026-10-29_rust-transition-baseline.json).
+- **2026-10-30 verified fix**: temporarily enable CDP focus emulation inside the combobox's existing debugger session, and disable it in `finally`. This delivers trusted ArrowDown/Enter events without activating the tab. The strengthened row holds a shared dialog debugger session and backgrounds the fixture; it failed before and now reads `selected:"LangGraph", visibility:"hidden"`. Full isolated result: 27/27 matrix rows and 17/17 task scenarios, `target/rust-transition/browser-hc-rt-7snaIs.json`. No baseline exception or installed-extension change.
 
 - **Repro**:
 
   ```bash
-  pnpm build:extension && pnpm e2e:isolated
-  # Bug-007 chrome_combobox_select keyboard-commits a Downshift-style option FAIL
+  HC_TEST_NATIVE_BIN="$PWD/target/release/humanchrome-nativehost" \
+  HC_CHROME_PATH="/absolute/path/to/Chrome for Testing" \
+    node scripts/verify-rust-transition.mjs --suite browser
+  # Before the fix: Bug-007 keyboard commit FAIL
   # expected selectedText:"LangGraph" + page state "LangGraph",
   # got selectedText:"LangGraph" arrowDownCount=1 pageSelected="(none)" selectErr=none
   ```
+
+### IMP-0195 · SIMD host buffer allocation rejects batch and matrix calls (bug) · score: 6
+
+- **Proposed by**: omp · 2026-10-29 (Rust/WASM caller assessment)
+- **Status**: proposed
+- **Why**: `SIMDMathEngine.getAlignedBuffer` constructs a `Float32Array` with a byte offset that is always 1 modulo 4. Batch and matrix methods allocate through this helper and throw before reaching the existing Rust/WASM math. The semantic matrix caller catches the error and uses JavaScript instead, silently losing the intended acceleration.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Initialize the shipped `workers/simd_math.js` with its actual `simd_math_bg.wasm`, and give an initialized `SIMDMathEngine` that real `SIMDMath` instance. `batchSimilarity([new Float32Array([1,0,0])], new Float32Array([1,0,0]))` throws `RangeError: byteOffset modulo TypedArray.BYTES_PER_ELEMENT must be 0`. For this length the helper allocates 27 bytes and chooses byte offset 5. Direct calls to the same real WASM return cosine 1, batch `[1,0,-1,0]`, and matrix `[-1,0,0,1]`.
+- **Fix sketch**: Allocate valid float-aligned buffers without inventing a misaligned byte offset; retain pooling and verify public batch/matrix operations plus nonzero-offset inputs against the actual WASM module. Wasm-bindgen performs the copy into WASM linear memory, so JavaScript buffer-offset arithmetic is not a reason for another Rust migration.
+- **Notes**: Pre-existing browser-side issue; no browser source, build, or installed extension changed during this assessment. Retaining browser effects and wrappers in TypeScript remains the approved boundary. This finding is not a passing acceleration/performance claim.
+
+### IMP-0196 · read_page can accept an iframe reply as the main-page tree (bug) · score: 6
+
+- **Proposed by**: omp · 2026-10-29 (isolated native candidate browser verification)
+- **Status**: done
+- **Why**: `ReadPageTool` injects its accessibility helper into all frames, then calls `sendMessageToTab` without a frame ID. Chrome can select an iframe response. The caller receives an unrelated sparse subtree, and the fallback can also fail, even though the requested main document is fully loaded.
+- **Cost**: S
+- **Value**: M
+- **Repro**: In an owned Chrome for Testing profile, navigate to `task-scenarios.html#s-search` and wait for the main-frame `#needle` element. Calling `chrome_read_page({tabId,textContent:true,depth:4})` returned `Inner heading`, `Iframe token: IFR-77-OK`, and `Inner button` from the `srcdoc` iframe, with `processed:4` and `refMapCount:1`. Calling without depth then returned `UNKNOWN: Accessibility tree is too sparse and fallback failed`. The main-page launch-code task failed on the Rust-backed run; an actual separately verified original Node bridge passed all 17 task scenarios on the same extension artifact.
+- **Fix sketch**: Target the main frame explicitly for the default tree and interactive-elements fallback. Preserve any separately specified frame-local ref contract rather than racing all frame responses. Verify a page containing both main-document text and a same-origin iframe.
+- **Notes**: Both tree generation and the interactive-elements fallback now address frame 0 explicitly. The main-page launch-code scenario passes with the same-origin iframe still present; all 17 local task scenarios pass. Before: `target/rust-transition/browser-hc-rt-62mTWm.json.tasks.json` and `target/rust-transition/read-page-frame-evidence.json`. After: `target/rust-transition/browser-hc-rt-7snaIs.json.tasks.json`. No timing delay, browser-source rollback or baseline waiver was used.
+
+### IMP-0200 · Production extension CSP blocks the sidepanel's native bridge requests (bug) · score: 6
+
+- **Proposed by**: omp · 2026-10-30 (isolated Rust transition UI verification)
+- **Status**: done
+- **Why**: Production `extension_pages` CSP permits only `'self'`, jsDelivr and Hugging Face for connections. The sidepanel resolves its actual native bridge correctly, but Chrome blocks its loopback `/agent/engines`, `/agent/projects` and `/agent/sessions` requests before they reach the healthy server.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Build a production extension into an owned temporary directory and load it in an isolated Chrome for Testing profile with its own Rust native host. Open `sidepanel.html`. The UI displays `Failed to fetch`; CDP `Log.entryAdded` reports that connecting to `http://127.0.0.1:<owned-port>/agent/engines` violates `connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co`. An out-of-browser request to that profile's bridge succeeds. No daily-driver profile or installed manifest was changed.
+- **Fix sketch**: Make an explicit extension-page connection-policy decision for the existing loopback native bridge, including per-profile ports. Keep the server's Host/Origin/bearer checks and page-world CSP unchanged; verify actual sidepanel project/session loading rather than only a successful native HTTP probe.
+- **Notes**: The exact same CSP string exists in the pre-browser-cutover candidate `4af7c3858eb07fdb72e6f1fb30d167b119b9baaf:app/chrome-extension/wxt.config.ts`. This is a characterized pre-existing restriction, not a Rust regression or an accepted passing sidepanel gate. Kernel initialization and Vue mounting passed separately; they do not prove sidepanel data loading.
+- **2026-10-30 approval and verification**: User approved adding only `http://127.0.0.1:*` for the existing dynamic-port bridge, alongside the separately observed model CDN host. Script policy, page CSP, Chrome permissions and server checks remain unchanged. The actual sidepanel opened the native-persisted project and session in isolated Chrome: `target/rust-transition/browser-hc-rt-3faH26.json`. No installed extension or daily-driver profile changed.
+
+### IMP-0199 · Production extension CSP blocks Hugging Face model-data redirects (bug) · score: 6
+
+- **Proposed by**: omp · 2026-10-30 (isolated real-model verification)
+- **Status**: done
+- **Why**: Hugging Face redirects the actual tokenizer download to `https://us.aws.cdn.hf.co`. Production extension-page `connect-src` allowed Hugging Face itself but not that CDN, so the genuine offscreen model engine failed before inference.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Initialize the semantic engine in an owned production Chrome profile with an empty model cache. `modelState` reported `Failed to fetch`; offscreen CDP `Log.entryAdded` identified the blocked CDN redirect for `tokenizer.json`. No fake model or vectors were used.
+- **Fix sketch**: Add the exact observed HTTPS CDN host to extension-page `connect-src`, leaving script policy, page CSP and server security unchanged.
+- **2026-10-30 verification**: The actual production extension downloaded the genuine tokenizer/model, created an ONNX session, and indexed/ranked the 20-document browser corpus. The current owned-browser result is 35/35 matrix rows and 17/17 task scenarios in `target/rust-transition/browser-hc-rt-DvXGRS.json`; its service-worker stop/start row reopened exact astronomy/baking HNSW results and passed the cold reset before model readiness. The separate asset fix preserves the existing persisted format.
+
+### IMP-0201 · HNSW package fetches its embedded WASM through a CSP-blocked data URL (bug) · score: 6
+
+- **Proposed by**: omp · 2026-10-30 (real offscreen indexer verification)
+- **Status**: done
+- **Why**: The static package's dist entry embeds `hnswlib.wasm` in a `data:application/wasm` URL. Production extension CSP blocked that fetch, so the indexer failed after the genuine model session became ready.
+- **Cost**: S
+- **Value**: M
+- **Repro**: Initializing the real model and content indexer in a private production Chrome profile produced `wasm streaming compile failed: TypeError: Failed to fetch`, followed by `Aborted(both async and sync fetching of the wasm failed)` and a `connect-src` violation for the embedded data URL. Evidence: `target/rust-transition/offscreen-indexer-asset-failure.json`.
+- **Fix sketch**: Bundle the package's existing source entry so Vite emits its WASM as a local packaged asset. The source binary and embedded dist binary are byte-identical: 469,916 bytes, SHA-256 `5fc0a13f2ea92922e49dcbb2f83ffc5bc4832d19387c4f4b6de4363006bde95d`. Do not broaden CSP, replace HNSW, or alter its persisted format.
+- **2026-10-30 verification**: The real offscreen indexer loaded the packaged asset and ranked the 20-document corpus through the actual HNSW path in the 35/35 owned-browser result, `target/rust-transition/browser-hc-rt-DvXGRS.json` (17/17 task scenarios). Its required service-worker stop/start row reopened exact astronomy/baking HNSW results and passed the cold reset before model readiness. The Chrome-effect host keeps storage/tab/script calls in the service worker and shares the offscreen-owned model directly.
 
 ### IMP-0189 · MCP 2026-07-28 via SDK v2 (feat) · score: 6
 

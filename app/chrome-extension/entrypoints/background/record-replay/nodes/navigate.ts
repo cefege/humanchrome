@@ -8,10 +8,10 @@ export const navigateNode: NodeRuntime<StepNavigate> = {
     const ok = !!step.url;
     return ok ? { ok } : { ok, errors: ['Missing URL'] };
   },
-  run: async (_ctx: ExecCtx, step: StepNavigate) => {
+  run: async (ctx: ExecCtx, step: StepNavigate) => {
     const res = await handleCallTool({
       name: TOOL_NAMES.BROWSER.NAVIGATE,
-      args: { url: step.url },
+      args: { url: step.url, tabId: ctx.tabId },
     });
     if ((res as { isError?: boolean }).isError) throw new Error('navigate failed');
     return {} as ExecResult;

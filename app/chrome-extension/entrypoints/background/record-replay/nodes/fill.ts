@@ -42,7 +42,7 @@ export const fillNode: NodeRuntime<StepFill> = {
     const firstTab = tabs && tabs[0];
     const tabId = firstTab && typeof firstTab.id === 'number' ? firstTab.id : undefined;
     if (!tabId) throw new Error('Active tab not found');
-    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
     const located = await locateElement(tabId, s.target, ctx.frameId);
     const frameId = located?.frameId ?? ctx.frameId;
     const first = s.target?.candidates?.[0]?.type;

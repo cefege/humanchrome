@@ -1,6 +1,8 @@
 export * from './constants';
 export * from './types';
 export * from './tools';
+export { LEGACY_TOOL_ALIASES } from './tool-contract';
+export type { LegacyToolAlias } from './tool-contract';
 export * from './error-codes';
 export * from './invalid-args';
 export * from './output-budget';

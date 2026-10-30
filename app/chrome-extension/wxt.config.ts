@@ -3,7 +3,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { config } from 'dotenv';
 import { resolve } from 'path';
-import { writeFileSync } from 'fs';
+import { readdirSync, writeFileSync } from 'fs';
+import { fileURLToPath } from 'node:url';
 import Icons from 'unplugin-icons/vite';
 import Components from 'unplugin-vue-components/vite';
 import IconsResolver from 'unplugin-icons/resolver';
@@ -46,20 +47,6 @@ if (!IS_DEV && !CHROME_EXTENSION_KEY && process.env.HC_ALLOW_KEYLESS_BUILD !== '
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
-  runner: {
-    // Disable auto-launch (recommended).
-    disabled: true,
-
-    // To auto-launch Chrome against your existing profile instead, uncomment below.
-    // chromiumArgs: [
-    //   '--user-data-dir=' + homedir() + (process.platform === 'darwin'
-    //     ? '/Library/Application Support/Google/Chrome'
-    //     : process.platform === 'win32'
-    //     ? '/AppData/Local/Google/Chrome/User Data'
-    //     : '/.config/google-chrome'),
-    //   '--remote-debugging-port=9222',
-    // ],
-  },
   manifest: {
     // Use the env key, or omit the field entirely when unset/empty (an empty
     // string is an invalid manifest key that Chrome rejects outright).
@@ -165,15 +152,26 @@ export default defineConfig({
           cross_origin_embedder_policy: { value: 'require-corp' as const },
           cross_origin_opener_policy: { value: 'same-origin' as const },
           content_security_policy: {
-            // Allow inline styles injected by Vite (compiled CSS) and data images used in UI thumbnails.
-            // `connect-src` allows fetching the JSEP/WebGPU ONNX wasm from jsDelivr on demand
-            // (the local 22 MB file is intentionally not bundled — see workers/similarity.worker.js).
+            // Styles/thumbnails stay local. Connections cover the per-profile loopback bridge,
+            // bundled-runtime support assets, and Hugging Face's observed model-data redirect.
             extension_pages:
-              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co;",
+              "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:* https://cdn.jsdelivr.net https://huggingface.co https://us.aws.cdn.hf.co;",
           },
         }),
   },
   hooks: {
+    'build:publicAssets': (wxt, files) => {
+      // Register workers with WXT so every output includes and tracks them.
+      const workers = resolve(wxt.config.root, 'workers');
+      for (const entry of readdirSync(workers, { withFileTypes: true })) {
+        if (!entry.isFile() || (!/\.(wasm|mjs)$/.test(entry.name) && entry.name !== 'simd_math.js'))
+          continue;
+        files.push({
+          absoluteSrc: resolve(workers, entry.name),
+          relativeDest: `workers/${entry.name}`,
+        });
+      }
+    },
     // The self-update watcher compares this file with the identity baked into
     // the running bundle, so it is written by the build that baked it.
     'build:done': (wxt) => {
@@ -233,15 +231,11 @@ export default defineConfig({
       }) as any,
       Icons({ compiler: 'vue3', autoInstall: false }) as any,
       // Ensure static assets are available as early as possible to avoid race conditions in dev
-      // Copy workers/_locales/inject-scripts into the build output before other steps
+      // Copy _locales/inject-scripts into the build output before other steps
       viteStaticCopy({
         targets: [
           {
             src: 'inject-scripts/*.js',
-            dest: '.',
-          },
-          {
-            src: ['workers/*'],
             dest: '.',
           },
           {
@@ -278,6 +272,13 @@ export default defineConfig({
     // configured on `env.backends.onnx.wasm.wasmPaths`.
     resolve: {
       conditions: ['onnxruntime-web-use-extern-wasm'],
+      // The package's dist embeds WASM as a data URL, which extension CSP rejects.
+      // Its source entry lets Vite emit the identical binary as a packaged asset.
+      alias: {
+        'hnswlib-wasm-static': fileURLToPath(
+          import.meta.resolve('hnswlib-wasm-static/lib/index.ts'),
+        ),
+      },
     },
     optimizeDeps: {
       // markstream-vue lists several heavy peers (katex, mermaid, monaco-editor,

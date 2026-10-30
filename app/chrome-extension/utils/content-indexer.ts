@@ -4,14 +4,10 @@
  */
 
 import { TextChunker } from './text-chunker';
-import { VectorDatabase, getGlobalVectorDatabase } from './vector-database';
-import {
-  SemanticSimilarityEngine,
-  SemanticSimilarityEngineProxy,
-  PREDEFINED_MODELS,
-  type ModelPreset,
-} from './semantic-similarity-engine';
-import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
+import { VectorDatabase, clearAllVectorData, getGlobalVectorDatabase } from './vector-database';
+import type { SemanticSimilarityEngine } from './semantic-similarity-engine';
+import { PREDEFINED_MODELS, type ModelPreset } from './semantic-similarity/model-registry';
+import { INDEXER_HOST_MESSAGES } from '@/common/content-indexer-messages';
 
 export interface IndexingOptions {
   autoIndex?: boolean;
@@ -19,25 +15,38 @@ export interface IndexingOptions {
   skipDuplicates?: boolean;
 }
 
+interface ChromeTab {
+  url?: string;
+  title?: string;
+}
+
+interface TabUpdate {
+  status?: string;
+}
+
+interface NavigationCommit {
+  frameId: number;
+  tabId: number;
+}
+
 export class ContentIndexer {
-  private textChunker: TextChunker;
+  private readonly textChunker = new TextChunker();
   private vectorDatabase!: VectorDatabase;
-  private semanticEngine!: SemanticSimilarityEngine | SemanticSimilarityEngineProxy;
   private isInitialized = false;
   private isInitializing = false;
   private initPromise: Promise<void> | null = null;
-  private indexedPages = new Set<string>();
   private readonly options: Required<IndexingOptions>;
 
-  constructor(options?: IndexingOptions) {
+  constructor(
+    private readonly getSemanticEngine: () => SemanticSimilarityEngine | null,
+    options?: IndexingOptions,
+  ) {
     this.options = {
       autoIndex: true,
       maxChunksPerPage: 50,
       skipDuplicates: true,
       ...options,
     };
-
-    this.textChunker = new TextChunker();
   }
 
   /**
@@ -45,10 +54,12 @@ export class ContentIndexer {
    */
   private async getCurrentModelConfig() {
     try {
-      const result = await chrome.storage.local.get(['selectedModel', 'selectedVersion']);
-      const selectedModel = (result.selectedModel as ModelPreset) || 'multilingual-e5-small';
-      const selectedVersion =
-        (result.selectedVersion as 'full' | 'quantized' | 'compressed') || 'quantized';
+      const result = await this.requestHost<{
+        selectedModel?: ModelPreset;
+        selectedVersion?: 'full' | 'quantized' | 'compressed';
+      }>(INDEXER_HOST_MESSAGES.GET_MODEL_SETTINGS);
+      const selectedModel = result.selectedModel || 'multilingual-e5-small';
+      const selectedVersion = result.selectedVersion || 'quantized';
 
       const modelInfo = PREDEFINED_MODELS[selectedModel];
 
@@ -77,6 +88,23 @@ export class ContentIndexer {
     }
   }
 
+  private async requestHost<T>(
+    type: (typeof INDEXER_HOST_MESSAGES)[keyof typeof INDEXER_HOST_MESSAGES],
+    payload: Record<string, unknown> = {},
+  ): Promise<T> {
+    const response = (await chrome.runtime.sendMessage({
+      target: 'background',
+      type,
+      ...payload,
+    })) as { success?: boolean; result?: T; error?: string } | undefined;
+
+    if (!response?.success) {
+      throw new Error(response?.error || `ContentIndexer host request failed: ${type}`);
+    }
+
+    return response.result as T;
+  }
+
   /**
    * Initialize content indexer
    */
@@ -94,20 +122,18 @@ export class ContentIndexer {
 
   private async _doInitialize(): Promise<void> {
     try {
-      // Get current selected model configuration
       const engineConfig = await this.getCurrentModelConfig();
-
-      // Use proxy class to reuse engine instance in offscreen
-      this.semanticEngine = new SemanticSimilarityEngineProxy(engineConfig);
-      await this.semanticEngine.initialize();
+      if (!this.isSemanticEngineReady()) {
+        throw new Error(
+          'Semantic engine is not ready yet. Please initialize the semantic engine first.',
+        );
+      }
 
       this.vectorDatabase = await getGlobalVectorDatabase({
         dimension: engineConfig.dimension,
         efSearch: 50,
       });
       await this.vectorDatabase.initialize();
-
-      this.setupTabEventListeners();
 
       this.isInitialized = true;
     } catch (error) {
@@ -141,14 +167,14 @@ export class ContentIndexer {
     }
 
     try {
-      const tab = await chrome.tabs.get(tabId);
+      const tab = await this.requestHost<ChromeTab>(INDEXER_HOST_MESSAGES.GET_TAB, { tabId });
       if (!tab.url || !this.shouldIndexUrl(tab.url)) {
         console.log(`ContentIndexer: Skipping tab ${tabId} - URL not indexable`);
         return;
       }
 
-      const pageKey = `${tab.url}_${tab.title}`;
-      if (this.options.skipDuplicates && this.indexedPages.has(pageKey)) {
+      const title = tab.title || '';
+      if (this.options.skipDuplicates && this.vectorDatabase.hasIndexedPage(tab.url, title)) {
         console.log(`ContentIndexer: Skipping tab ${tabId} - already indexed`);
         return;
       }
@@ -161,23 +187,25 @@ export class ContentIndexer {
         return;
       }
 
-      const chunks = this.textChunker.chunkText(content.textContent, content.title);
+      const chunks = this.textChunker
+        .chunkText(content.textContent, content.title)
+        .slice(0, this.options.maxChunksPerPage);
       console.log(`ContentIndexer: Generated ${chunks.length} chunks for tab ${tabId}`);
 
-      const chunksToIndex = chunks.slice(0, this.options.maxChunksPerPage);
-      if (chunks.length > this.options.maxChunksPerPage) {
-        console.log(
-          `ContentIndexer: Limited chunks from ${chunks.length} to ${this.options.maxChunksPerPage}`,
+      const engine = this.getSemanticEngine();
+      if (!engine?.isInitialized) {
+        throw new Error(
+          'Semantic engine is not ready yet. Please initialize the semantic engine first.',
         );
       }
 
-      for (const chunk of chunksToIndex) {
+      for (const chunk of chunks) {
         try {
-          const embedding = await this.semanticEngine.getEmbedding(chunk.text);
+          const embedding = await engine.getEmbedding(chunk.text);
           const label = await this.vectorDatabase.addDocument(
             tabId,
-            tab.url!,
-            tab.title || '',
+            tab.url,
+            title,
             chunk,
             embedding,
           );
@@ -187,11 +215,9 @@ export class ContentIndexer {
         }
       }
 
-      this.indexedPages.add(pageKey);
+      this.vectorDatabase.markIndexedPage(tab.url, title);
 
-      console.log(
-        `ContentIndexer: Successfully indexed ${chunksToIndex.length} chunks for tab ${tabId}`,
-      );
+      console.log(`ContentIndexer: Successfully indexed ${chunks.length} chunks for tab ${tabId}`);
     } catch (error) {
       console.error(`ContentIndexer: Failed to index tab ${tabId}:`, error);
     }
@@ -219,33 +245,19 @@ export class ContentIndexer {
     }
 
     try {
-      const queryEmbedding = await this.semanticEngine.getEmbedding(query);
+      const engine = this.getSemanticEngine();
+      if (!engine?.isInitialized) {
+        throw new Error(
+          'Semantic engine is not ready yet. Please initialize the semantic engine first.',
+        );
+      }
+      const queryEmbedding = await engine.getEmbedding(query);
       const results = await this.vectorDatabase.search(queryEmbedding, topK);
 
       console.log(`ContentIndexer: Found ${results.length} results for query: "${query}"`);
       return results;
     } catch (error) {
       console.error('ContentIndexer: Search failed:', error);
-
-      if (error instanceof Error && error.message.includes('not initialized')) {
-        console.log(
-          'ContentIndexer: Attempting to reinitialize semantic engine and retry search...',
-        );
-        try {
-          await this.semanticEngine.initialize();
-          const queryEmbedding = await this.semanticEngine.getEmbedding(query);
-          const results = await this.vectorDatabase.search(queryEmbedding, topK);
-
-          console.log(
-            `ContentIndexer: Retry successful, found ${results.length} results for query: "${query}"`,
-          );
-          return results;
-        } catch (retryError) {
-          console.error('ContentIndexer: Retry after reinitialization also failed:', retryError);
-          throw retryError;
-        }
-      }
-
       throw error;
     }
   }
@@ -261,12 +273,6 @@ export class ContentIndexer {
     try {
       await this.vectorDatabase.removeTabDocuments(tabId);
 
-      for (const pageKey of this.indexedPages) {
-        if (pageKey.includes(`tab_${tabId}_`)) {
-          this.indexedPages.delete(pageKey);
-        }
-      }
-
       console.log(`ContentIndexer: Removed index for tab ${tabId}`);
     } catch (error) {
       console.error(`ContentIndexer: Failed to remove index for tab ${tabId}:`, error);
@@ -274,43 +280,17 @@ export class ContentIndexer {
   }
 
   /**
-   * Check if semantic engine is ready (checks both local and global state)
+   * Check if semantic engine is ready in this offscreen document.
    */
   public isSemanticEngineReady(): boolean {
-    return this.semanticEngine && this.semanticEngine.isInitialized;
+    return this.getSemanticEngine()?.isInitialized ?? false;
   }
 
   /**
-   * Check if global semantic engine is ready (in background/offscreen).
-   *
-   * Pre-IMP-0122 this dynamically imported the background entrypoint to
-   * read model status. ContentIndexer now lives in the offscreen page,
-   * where importing a background entrypoint would either crash (no
-   * SW-only listeners) or fall through to a different chrome.storage
-   * code path. We read the persisted status directly instead — it's the
-   * same source of truth that `handleGetModelStatus()` exposes.
-   */
-  public async isGlobalSemanticEngineReady(): Promise<boolean> {
-    try {
-      if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-        return false;
-      }
-      const result = await chrome.storage.local.get(['modelState']);
-      const modelState = (result as { modelState?: { status?: string } }).modelState;
-      return modelState?.status === 'ready';
-    } catch (error) {
-      console.error('ContentIndexer: Failed to check global semantic engine status:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Check if semantic engine is initializing
+   * Check if semantic engine is initializing.
    */
   public isSemanticEngineInitializing(): boolean {
-    return (
-      this.isInitializing || (this.semanticEngine && (this.semanticEngine as any).isInitializing)
-    );
+    return this.isInitializing;
   }
 
   /**
@@ -325,27 +305,11 @@ export class ContentIndexer {
 
     await this.performCompleteDataCleanupForModelSwitch();
 
-    this.indexedPages.clear();
-    console.log('ContentIndexer: Cleared indexed pages cache');
-
-    try {
-      console.log('ContentIndexer: Creating new semantic engine proxy...');
-      const newEngineConfig = await this.getCurrentModelConfig();
-      console.log('ContentIndexer: New engine config:', newEngineConfig);
-
-      this.semanticEngine = new SemanticSimilarityEngineProxy(newEngineConfig);
-      console.log('ContentIndexer: New semantic engine proxy created');
-
-      await this.semanticEngine.initialize();
-      console.log('ContentIndexer: Semantic engine proxy initialization completed');
-    } catch (error) {
-      console.error('ContentIndexer: Failed to create new semantic engine proxy:', error);
-      throw error;
+    if (!this.isSemanticEngineReady()) {
+      throw new Error(
+        'Semantic engine is not ready yet. Please initialize the semantic engine first.',
+      );
     }
-
-    console.log(
-      'ContentIndexer: New semantic engine proxy is ready, proceeding with initialization',
-    );
 
     await this.initialize();
 
@@ -357,80 +321,8 @@ export class ContentIndexer {
    */
   private async performCompleteDataCleanupForModelSwitch(): Promise<void> {
     console.log('ContentIndexer: Starting complete data cleanup for model switch...');
-
     try {
-      // Clear existing vector database instance
-      if (this.vectorDatabase) {
-        try {
-          console.log('ContentIndexer: Clearing existing vector database instance...');
-          await this.vectorDatabase.clear();
-          console.log('ContentIndexer: Vector database instance cleared successfully');
-        } catch (error) {
-          console.warn('ContentIndexer: Failed to clear vector database instance:', error);
-        }
-      }
-
-      try {
-        const { clearAllVectorData } = await import('./vector-database');
-        await clearAllVectorData();
-        console.log('ContentIndexer: Cleared all vector data for model switch');
-      } catch (error) {
-        console.warn('ContentIndexer: Failed to clear vector data:', error);
-      }
-
-      try {
-        const keysToRemove = [
-          'hnswlib_document_mappings_tab_content_index.dat',
-          'hnswlib_document_mappings_content_index.dat',
-          'hnswlib_document_mappings_vector_index.dat',
-          'vectorDatabaseStats',
-          'lastCleanupTime',
-        ];
-        await chrome.storage.local.remove(keysToRemove);
-        console.log('ContentIndexer: Cleared chrome.storage model-related data');
-      } catch (error) {
-        console.warn('ContentIndexer: Failed to clear chrome.storage data:', error);
-      }
-
-      try {
-        const deleteVectorDB = indexedDB.deleteDatabase('VectorDatabaseStorage');
-        await new Promise<void>((resolve) => {
-          deleteVectorDB.onsuccess = () => {
-            console.log('ContentIndexer: VectorDatabaseStorage database deleted');
-            resolve();
-          };
-          deleteVectorDB.onerror = () => {
-            console.warn('ContentIndexer: Failed to delete VectorDatabaseStorage database');
-            resolve(); // Don't block the process
-          };
-          deleteVectorDB.onblocked = () => {
-            console.warn('ContentIndexer: VectorDatabaseStorage database deletion blocked');
-            resolve(); // Don't block the process
-          };
-        });
-
-        // Clean up hnswlib-index database
-        const deleteHnswDB = indexedDB.deleteDatabase('/hnswlib-index');
-        await new Promise<void>((resolve) => {
-          deleteHnswDB.onsuccess = () => {
-            console.log('ContentIndexer: /hnswlib-index database deleted');
-            resolve();
-          };
-          deleteHnswDB.onerror = () => {
-            console.warn('ContentIndexer: Failed to delete /hnswlib-index database');
-            resolve(); // Don't block the process
-          };
-          deleteHnswDB.onblocked = () => {
-            console.warn('ContentIndexer: /hnswlib-index database deletion blocked');
-            resolve(); // Don't block the process
-          };
-        });
-
-        console.log('ContentIndexer: All IndexedDB databases cleared for model switch');
-      } catch (error) {
-        console.warn('ContentIndexer: Failed to clear IndexedDB databases:', error);
-      }
-
+      await clearAllVectorData();
       console.log('ContentIndexer: Complete data cleanup for model switch finished successfully');
     } catch (error) {
       console.error('ContentIndexer: Complete data cleanup for model switch failed:', error);
@@ -439,28 +331,19 @@ export class ContentIndexer {
   }
 
   /**
-   * Manually trigger semantic engine initialization (async, don't wait for completion)
-   * Note: This should only be called after the semantic engine is already initialized
+   * Start indexer initialization once the local offscreen engine is ready.
    */
   public startSemanticEngineInitialization(): void {
     if (!this.isInitialized && !this.isInitializing) {
-      console.log('ContentIndexer: Checking if semantic engine is ready...');
+      if (!this.isSemanticEngineReady()) {
+        console.log('ContentIndexer: Semantic engine not ready, skipping initialization');
+        return;
+      }
 
-      // Check if global semantic engine is ready before initializing ContentIndexer
-      this.isGlobalSemanticEngineReady()
-        .then((isReady) => {
-          if (isReady) {
-            console.log('ContentIndexer: Starting initialization (semantic engine ready)...');
-            this.initialize().catch((error) => {
-              console.error('ContentIndexer: Background initialization failed:', error);
-            });
-          } else {
-            console.log('ContentIndexer: Semantic engine not ready, skipping initialization');
-          }
-        })
-        .catch((error) => {
-          console.error('ContentIndexer: Failed to check semantic engine status:', error);
-        });
+      console.log('ContentIndexer: Starting initialization (semantic engine ready)...');
+      this.initialize().catch((error) => {
+        console.error('ContentIndexer: Background initialization failed:', error);
+      });
     }
   }
 
@@ -478,7 +361,7 @@ export class ContentIndexer {
 
     return {
       ...vectorStats,
-      indexedPages: this.indexedPages.size,
+      indexedPages: this.vectorDatabase?.indexedPageCount() ?? 0,
       isInitialized: this.isInitialized,
       semanticEngineReady: this.isSemanticEngineReady(),
       semanticEngineInitializing: this.isSemanticEngineInitializing(),
@@ -495,81 +378,70 @@ export class ContentIndexer {
 
     try {
       await this.vectorDatabase.clear();
-      this.indexedPages.clear();
+      this.vectorDatabase.clearIndexedPages();
       console.log('ContentIndexer: All indexes cleared');
     } catch (error) {
       console.error('ContentIndexer: Failed to clear indexes:', error);
     }
   }
-  private setupTabEventListeners(): void {
-    chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-      if (this.options.autoIndex && changeInfo.status === 'complete' && tab.url) {
-        setTimeout(() => {
-          if (!this.isSemanticEngineReady() && !this.isSemanticEngineInitializing()) {
-            console.log(
-              `ContentIndexer: Skipping auto-index for tab ${tabId} - semantic engine not ready`,
-            );
-            return;
-          }
 
-          this.indexTabContent(tabId).catch((error) => {
-            console.error(`ContentIndexer: Auto-indexing failed for tab ${tabId}:`, error);
-          });
-        }, 2000);
-      }
-    });
-
-    chrome.tabs.onRemoved.addListener(async (tabId) => {
-      await this.removeTabIndex(tabId);
-    });
-
-    if (chrome.webNavigation) {
-      chrome.webNavigation.onCommitted.addListener(async (details) => {
-        if (details.frameId === 0) {
-          await this.removeTabIndex(details.tabId);
-        }
-      });
+  public handleTabUpdated(tabId: number, changeInfo: TabUpdate, tab: ChromeTab): void {
+    if (
+      !this.isInitialized ||
+      !this.options.autoIndex ||
+      changeInfo.status !== 'complete' ||
+      !tab.url
+    ) {
+      return;
     }
+
+    setTimeout(() => {
+      if (!this.isSemanticEngineReady() && !this.isSemanticEngineInitializing()) {
+        console.log(
+          `ContentIndexer: Skipping auto-index for tab ${tabId} - semantic engine not ready`,
+        );
+        return;
+      }
+
+      this.indexTabContent(tabId).catch((error) => {
+        console.error(`ContentIndexer: Auto-indexing failed for tab ${tabId}:`, error);
+      });
+    }, 2000);
+  }
+
+  public async handleTabRemoved(tabId: number): Promise<void> {
+    if (!this.isInitialized) {
+      return;
+    }
+    await this.removeTabIndex(tabId);
+  }
+
+  public async handleNavigationCommitted(details: NavigationCommit): Promise<void> {
+    if (!this.isInitialized || details.frameId !== 0) {
+      return;
+    }
+    await this.removeTabIndex(details.tabId);
   }
 
   private shouldIndexUrl(url: string): boolean {
-    const excludePatterns = [
+    return ![
       /^chrome:\/\//,
       /^chrome-extension:\/\//,
       /^edge:\/\//,
       /^about:/,
       /^moz-extension:\/\//,
       /^file:\/\//,
-    ];
-
-    return !excludePatterns.some((pattern) => pattern.test(url));
+    ].some((pattern) => pattern.test(url));
   }
 
   private async extractTabContent(
     tabId: number,
   ): Promise<{ textContent: string; title: string } | null> {
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: ['inject-scripts/web-fetcher-helper.js'],
-      });
-
-      const response = await chrome.tabs.sendMessage(tabId, {
-        action: TOOL_MESSAGE_TYPES.WEB_FETCHER_GET_TEXT_CONTENT,
-      });
-
-      if (response.success && response.textContent) {
-        return {
-          textContent: response.textContent,
-          title: response.title || '',
-        };
-      } else {
-        console.error(
-          `ContentIndexer: Failed to extract content from tab ${tabId}:`,
-          response.error,
-        );
-        return null;
-      }
+      return await this.requestHost<{ textContent: string; title: string } | null>(
+        INDEXER_HOST_MESSAGES.EXTRACT_TAB_CONTENT,
+        { tabId },
+      );
     } catch (error) {
       console.error(`ContentIndexer: Error extracting content from tab ${tabId}:`, error);
       return null;
@@ -582,9 +454,11 @@ let globalContentIndexer: ContentIndexer | null = null;
 /**
  * Get global ContentIndexer instance
  */
-export function getGlobalContentIndexer(): ContentIndexer {
+export function getGlobalContentIndexer(
+  getSemanticEngine: () => SemanticSimilarityEngine | null,
+): ContentIndexer {
   if (!globalContentIndexer) {
-    globalContentIndexer = new ContentIndexer();
+    globalContentIndexer = new ContentIndexer(getSemanticEngine);
   }
   return globalContentIndexer;
 }

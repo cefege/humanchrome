@@ -38,3 +38,9 @@ pnpm-lock.yaml
 # Lives outside the AUTO-GEN markers as a whole-file rule because prettier
 # would reflow the parameter tables and break the generator's idempotency.
 docs/TOOLS.md
+
+# Generated browser assets and the immutable executable compatibility oracle.
+app/chrome-extension/public/workers/similarity.worker.js
+app/chrome-extension/inject-scripts/selector-engine-bundle.js
+app/chrome-extension/workers/simd_math.js
+tests/rust-transition/fixtures/selector-engine.original.js

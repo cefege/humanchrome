@@ -1,15 +1,9 @@
 /**
- * Semantic similarity stack — bundles four unrelated concerns in one file
- * (kept together until IMP-0019 splits them):
+ * Semantic similarity engine for browser model and inference effects.
  *
- *   1. Model registry — PREDEFINED_MODELS + recommenders (which preset for
- *      which language/device); pure data, no runtime cost.
- *   2. EmbeddingMemoryPool — fixed-size Float32Array recycler so per-token
- *      inference doesn't churn the GC under steady load.
- *   3. SemanticSimilarityEngineProxy — IPC shim used by background-context
- *      callers; forwards to the offscreen document where ONNX actually runs.
- *   4. SemanticSimilarityEngine — the heavy class: ONNX session, tokenizer,
- *      SIMD pooling. Constructed *only* in the offscreen document.
+ * Model registry data, transformer tokenization, ONNX worker transport, cache eviction,
+ * pooling, normalization, and direct-worker similarity reconstruction remain in this
+ * browser host. Numeric SIMD acceleration remains optional.
  *
  * Why dynamic `import('@huggingface/transformers')`: the library is ~3 MB
  * minified. Static import would pull it into every consumer (popup,
@@ -46,9 +40,10 @@ function loadTransformers(): Promise<TransformersModule> {
   return transformersModulePromise;
 }
 import LRUCache from './lru-cache';
+import { EmbeddingMemoryPool } from './semantic-similarity/memory-pool';
 import { SIMDMathEngine } from './simd-math-engine';
 import { OffscreenManager } from './offscreen-manager';
-import { STORAGE_KEYS } from '@/common/constants';
+import { INDEXER_HOST_MESSAGES } from '@/common/content-indexer-messages';
 import { OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 
 import { ModelCacheManager } from './model-cache-manager';
@@ -138,27 +133,47 @@ export async function getCacheStats(): Promise<{
 // `cleanupModelCache` lives in `./model-cache-status` and is re-exported above
 // for back-compat. See IMP-0055.
 
+function isModelPreset(value: unknown): value is ModelPreset {
+  return typeof value === 'string' && value in PREDEFINED_MODELS;
+}
+
 /**
  * Check if the default model is cached and available
  * @returns Promise<boolean> True if default model is cached and valid
  */
 export async function isDefaultModelCached(): Promise<boolean> {
   try {
-    // Get the default model configuration
-    const result = await chrome.storage.local.get([STORAGE_KEYS.SEMANTIC_MODEL]);
-    const defaultModel =
-      (result[STORAGE_KEYS.SEMANTIC_MODEL] as ModelPreset) || 'multilingual-e5-small';
+    const response: unknown = await chrome.runtime.sendMessage({
+      target: 'background',
+      type: INDEXER_HOST_MESSAGES.GET_MODEL_SETTINGS,
+    });
+    if (
+      typeof response !== 'object' ||
+      response === null ||
+      !('success' in response) ||
+      response.success !== true ||
+      !('result' in response)
+    ) {
+      throw new Error('Unable to read semantic model settings from the background host');
+    }
 
-    // Build the model URL
+    const settings = response.result;
+    const defaultModel =
+      typeof settings === 'object' &&
+      settings !== null &&
+      'selectedModel' in settings &&
+      isModelPreset(settings.selectedModel)
+        ? settings.selectedModel
+        : 'multilingual-e5-small';
+
     const modelInfo = PREDEFINED_MODELS[defaultModel];
     const modelIdentifier = modelInfo.modelIdentifier;
-    const onnxModelFile = 'model.onnx'; // Default ONNX file name
+    const onnxModelFile = 'model.onnx';
 
     const modelIdParts = modelIdentifier.split('/');
     const modelNameForUrl = modelIdParts.length > 1 ? modelIdentifier : `Xenova/${modelIdentifier}`;
     const onnxModelUrl = `https://huggingface.co/${modelNameForUrl}/resolve/main/onnx/${onnxModelFile}`;
 
-    // Check if this model is cached
     const cacheManager = ModelCacheManager.getInstance();
     return await cacheManager.isModelCached(onnxModelUrl);
   } catch (error) {
@@ -186,11 +201,11 @@ export {
   getModelIdentifierWithVersion,
   getAllModelSizes,
 } from './semantic-similarity/model-registry';
-import type { ModelPreset } from './semantic-similarity/model-registry';
-
-// IMP-0019 slice 2: memory-pool extracted to ./semantic-similarity/memory-pool.
-// Internal use only — engine constructs it directly.
-import { EmbeddingMemoryPool } from './semantic-similarity/memory-pool';
+import {
+  PREDEFINED_MODELS,
+  getOnnxFileNameForVersion,
+  type ModelPreset,
+} from './semantic-similarity/model-registry';
 
 // IMP-0019 slice 3: proxy extracted to ./semantic-similarity/proxy. Re-exported
 // so background-context callers (ContentIndexer etc.) keep their import path.
@@ -270,10 +285,8 @@ export class SemanticSimilarityEngine {
   public readonly config: Required<ModelConfig>;
 
   private embeddingCache: LRUCache<string, Float32Array>;
-  // Added: tokenization cache
   private tokenizationCache: LRUCache<string, TokenizedOutput>;
-  // Added: memory pool manager
-  private memoryPool: EmbeddingMemoryPool;
+  private readonly memoryPool = new EmbeddingMemoryPool();
   // Added: SIMD math engine
   private simdMath: SIMDMathEngine | null = null;
   private useSIMD = false;
@@ -447,7 +460,6 @@ export class SemanticSimilarityEngine {
     this.tokenizationCache = new LRUCache<string, TokenizedOutput>(
       Math.min(this.config.cacheSize, 200),
     );
-    this.memoryPool = new EmbeddingMemoryPool();
     this.simdMath = new SIMDMathEngine();
   }
 
@@ -480,7 +492,7 @@ export class SemanticSimilarityEngine {
     try {
       const workerUrl = chrome.runtime.getURL('workers/similarity.worker.js');
       console.log(`SemanticSimilarityEngine: Trying chrome.runtime.getURL ${workerUrl}`);
-      this.worker = new Worker(workerUrl);
+      this.worker = new Worker(workerUrl, { type: 'module' });
       console.log(`SemanticSimilarityEngine: Method 1 successful with path`);
     } catch (error) {
       console.warn('Method (chrome.runtime.getURL) failed:', error);
@@ -1165,75 +1177,56 @@ export class SemanticSimilarityEngine {
     workerOutput: WorkerResponsePayload,
     attentionMaskArray: number[],
   ): Float32Array {
-    if (!workerOutput.data || !workerOutput.dims)
+    if (!workerOutput.data || !workerOutput.dims) {
       throw new Error('Invalid worker output for embedding extraction.');
-
-    // Reuse the underlying buffer directly when possible.
-    const lastHiddenStateData =
+    }
+    const hiddenState =
       workerOutput.data instanceof Float32Array
         ? workerOutput.data
         : new Float32Array(workerOutput.data);
-
-    const dims = workerOutput.dims;
-    const seqLength = dims[1];
-    const hiddenSize = dims[2];
-
+    const [, sequenceLength, hiddenSize] = workerOutput.dims;
     const embedding = this.memoryPool.getEmbedding(hiddenSize);
     let validTokens = 0;
-
-    for (let i = 0; i < seqLength; i++) {
-      if (attentionMaskArray[i] === 1) {
-        const offset = i * hiddenSize;
-        for (let j = 0; j < hiddenSize; j++) {
-          embedding[j] += lastHiddenStateData[offset + j];
-        }
-        validTokens++;
-      }
+    for (let token = 0; token < sequenceLength; token++) {
+      if (attentionMaskArray[token] !== 1) continue;
+      const offset = token * hiddenSize;
+      for (let dimension = 0; dimension < hiddenSize; dimension++)
+        embedding[dimension] += hiddenState[offset + dimension];
+      validTokens++;
     }
     if (validTokens > 0) {
-      for (let i = 0; i < hiddenSize; i++) {
-        embedding[i] /= validTokens;
-      }
+      for (let dimension = 0; dimension < hiddenSize; dimension++)
+        embedding[dimension] /= validTokens;
     }
     return this.normalizeVector(embedding);
   }
 
   private _extractBatchEmbeddingsFromWorkerOutput(
     workerOutput: WorkerResponsePayload,
-    attentionMasksBatch: number[][],
+    attentionMask: number[],
   ): Float32Array[] {
-    if (!workerOutput.data || !workerOutput.dims)
+    if (!workerOutput.data || !workerOutput.dims) {
       throw new Error('Invalid worker output for batch embedding extraction.');
-
-    // Reuse the underlying buffer directly when possible.
-    const lastHiddenStateData =
+    }
+    const hiddenState =
       workerOutput.data instanceof Float32Array
         ? workerOutput.data
         : new Float32Array(workerOutput.data);
-
-    const dims = workerOutput.dims;
-    const batchSize = dims[0];
-    const seqLength = dims[1];
-    const hiddenSize = dims[2];
+    const [batchSize, sequenceLength, hiddenSize] = workerOutput.dims;
     const embeddings: Float32Array[] = [];
-
-    for (let b = 0; b < batchSize; b++) {
+    for (let batch = 0; batch < batchSize; batch++) {
       const embedding = this.memoryPool.getEmbedding(hiddenSize);
       let validTokens = 0;
-      const currentAttentionMask = attentionMasksBatch[b];
-      for (let i = 0; i < seqLength; i++) {
-        if (currentAttentionMask[i] === 1) {
-          const offset = (b * seqLength + i) * hiddenSize;
-          for (let j = 0; j < hiddenSize; j++) {
-            embedding[j] += lastHiddenStateData[offset + j];
-          }
-          validTokens++;
-        }
+      for (let token = 0; token < sequenceLength; token++) {
+        if (attentionMask[batch * sequenceLength + token] !== 1) continue;
+        const offset = (batch * sequenceLength + token) * hiddenSize;
+        for (let dimension = 0; dimension < hiddenSize; dimension++)
+          embedding[dimension] += hiddenState[offset + dimension];
+        validTokens++;
       }
       if (validTokens > 0) {
-        for (let i = 0; i < hiddenSize; i++) {
-          embedding[i] /= validTokens;
-        }
+        for (let dimension = 0; dimension < hiddenSize; dimension++)
+          embedding[dimension] /= validTokens;
       }
       embeddings.push(this.normalizeVector(embedding));
     }
@@ -1343,140 +1336,61 @@ export class SemanticSimilarityEngine {
     options: Record<string, any> = {},
   ): Promise<Float32Array[]> {
     if (!this.isInitialized) await this.initialize();
-    if (!texts || texts.length === 0) return [];
-
-    if (this.useOffscreen) {
-      const results: (Float32Array | undefined)[] = new Array(texts.length).fill(undefined);
-      const uncachedTexts: string[] = [];
-      const uncachedIndices: number[] = [];
-
-      texts.forEach((text, index) => {
-        const cacheKey = this.getCacheKey(text, options);
-        const cached = this.embeddingCache.get(cacheKey);
-        if (cached) {
-          results[index] = cached;
-          this.cacheStats.embedding.hits++;
-        } else {
-          uncachedTexts.push(text);
-          uncachedIndices.push(index);
-          this.cacheStats.embedding.misses++;
-        }
-      });
-
-      if (uncachedTexts.length === 0) {
-        return results as Float32Array[];
+    if (!texts?.length) return [];
+    const results: (Float32Array | undefined)[] = new Array(texts.length);
+    const uncached: string[] = [];
+    const indices: number[] = [];
+    texts.forEach((text, index) => {
+      const cached = this.embeddingCache.get(this.getCacheKey(text, options));
+      if (cached) {
+        this.cacheStats.embedding.hits++;
+        results[index] = cached;
+      } else {
+        this.cacheStats.embedding.misses++;
+        uncached.push(text);
+        indices.push(index);
       }
-
+    });
+    if (uncached.length === 0) return results as Float32Array[];
+    let inferred: Float32Array[];
+    if (this.useOffscreen) {
       const response = await chrome.runtime.sendMessage({
         target: 'offscreen',
         type: OFFSCREEN_MESSAGE_TYPES.SIMILARITY_ENGINE_BATCH_COMPUTE,
-        texts: uncachedTexts,
-        options: options,
+        texts: uncached,
+        options,
       });
-
-      if (!response || !response.success) {
+      if (!response?.success)
         throw new Error(
           response?.error || 'Failed to get embeddings batch from offscreen document',
         );
-      }
-
-      response.embeddings.forEach((embeddingArray: number[], batchIndex: number) => {
-        const embedding = new Float32Array(embeddingArray);
-        const originalIndex = uncachedIndices[batchIndex];
-        const originalText = uncachedTexts[batchIndex];
-
-        results[originalIndex] = embedding;
-
-        const cacheKey = this.getCacheKey(originalText, options);
-        this.embeddingCache.set(cacheKey, embedding);
-      });
-
-      this.cacheStats.embedding.size = this.embeddingCache.size;
-      this.performanceStats.totalEmbeddingComputations += uncachedTexts.length;
-
-      return results as Float32Array[];
-    }
-
-    const results: (Float32Array | undefined)[] = new Array(texts.length).fill(undefined);
-    const uncachedTextsMap = new Map<string, number[]>();
-    const textsToTokenize: string[] = [];
-
-    texts.forEach((text, index) => {
-      const cacheKey = this.getCacheKey(text, options);
-      const cached = this.embeddingCache.get(cacheKey);
-      if (cached) {
-        results[index] = cached;
-        this.cacheStats.embedding.hits++;
-      } else {
-        if (!uncachedTextsMap.has(text)) {
-          uncachedTextsMap.set(text, []);
-          textsToTokenize.push(text);
-        }
-        uncachedTextsMap.get(text)!.push(index);
-        this.cacheStats.embedding.misses++;
-      }
-    });
-    this.cacheStats.embedding.size = this.embeddingCache.size;
-
-    if (textsToTokenize.length === 0) return results as Float32Array[];
-
-    if (this.runningWorkerTasks >= this.config.concurrentLimit) {
-      await this.waitForWorkerSlot();
-    }
-    this.runningWorkerTasks++;
-
-    const startTime = performance.now();
-    try {
-      const tokenizedBatch = await this._tokenizeText(textsToTokenize);
-      const workerPayload: WorkerMessagePayload = {
-        input_ids: this.convertTensorDataToNumbers(tokenizedBatch.input_ids.data),
-        attention_mask: this.convertTensorDataToNumbers(tokenizedBatch.attention_mask.data),
-        token_type_ids: tokenizedBatch.token_type_ids
-          ? this.convertTensorDataToNumbers(tokenizedBatch.token_type_ids.data)
+      inferred = response.embeddings.map((embedding: number[]) => new Float32Array(embedding));
+    } else {
+      const tokenized = await this._tokenizeText(uncached);
+      const output = await this._sendMessageToWorker('batchInfer', {
+        input_ids: this.convertTensorDataToNumbers(tokenized.input_ids.data),
+        attention_mask: this.convertTensorDataToNumbers(tokenized.attention_mask.data),
+        token_type_ids: tokenized.token_type_ids
+          ? this.convertTensorDataToNumbers(tokenized.token_type_ids.data)
           : undefined,
         dims: {
-          input_ids: tokenizedBatch.input_ids.dims,
-          attention_mask: tokenizedBatch.attention_mask.dims,
-          token_type_ids: tokenizedBatch.token_type_ids?.dims,
+          input_ids: tokenized.input_ids.dims,
+          attention_mask: tokenized.attention_mask.dims,
+          token_type_ids: tokenized.token_type_ids?.dims,
         },
-      };
-
-      const workerOutput = await this._sendMessageToWorker('batchInfer', workerPayload);
-      const attentionMasksForBatch: number[][] = [];
-      const batchSize = tokenizedBatch.input_ids.dims[0];
-      const seqLength = tokenizedBatch.input_ids.dims[1];
-      const rawAttentionMaskData = this.convertTensorDataToNumbers(
-        tokenizedBatch.attention_mask.data,
-      );
-
-      for (let i = 0; i < batchSize; ++i) {
-        attentionMasksForBatch.push(rawAttentionMaskData.slice(i * seqLength, (i + 1) * seqLength));
-      }
-
-      const batchEmbeddings = this._extractBatchEmbeddingsFromWorkerOutput(
-        workerOutput,
-        attentionMasksForBatch,
-      );
-      batchEmbeddings.forEach((embedding, batchIdx) => {
-        const originalText = textsToTokenize[batchIdx];
-        const cacheKey = this.getCacheKey(originalText, options);
-        this.embeddingCache.set(cacheKey, embedding);
-        const originalResultIndices = uncachedTextsMap.get(originalText)!;
-        originalResultIndices.forEach((idx) => {
-          results[idx] = embedding;
-        });
       });
-      this.cacheStats.embedding.size = this.embeddingCache.size;
-
-      this.performanceStats.totalEmbeddingComputations += textsToTokenize.length;
-      this.performanceStats.totalEmbeddingTime += performance.now() - startTime;
-      this.performanceStats.averageEmbeddingTime =
-        this.performanceStats.totalEmbeddingTime / this.performanceStats.totalEmbeddingComputations;
-      return results as Float32Array[];
-    } finally {
-      this.runningWorkerTasks--;
-      this.processWorkerQueue();
+      inferred = this._extractBatchEmbeddingsFromWorkerOutput(
+        output,
+        this.convertTensorDataToNumbers(tokenized.attention_mask.data),
+      );
     }
+    for (let index = 0; index < inferred.length; index++) {
+      results[indices[index]] = inferred[index];
+      this.embeddingCache.set(this.getCacheKey(uncached[index], options), inferred[index]);
+    }
+    this.cacheStats.embedding.size = this.embeddingCache.size;
+    this.performanceStats.totalEmbeddingComputations += uncached.length;
+    return results as Float32Array[];
   }
 
   public async computeSimilarity(
@@ -1506,49 +1420,27 @@ export class SemanticSimilarityEngine {
     options: Record<string, any> = {},
   ): Promise<number[]> {
     if (!this.isInitialized) await this.initialize();
-    if (!pairs || pairs.length === 0) return [];
-
+    if (!pairs?.length) return [];
     if (this.useOffscreen) {
       const response = await chrome.runtime.sendMessage({
         target: 'offscreen',
         type: OFFSCREEN_MESSAGE_TYPES.SIMILARITY_ENGINE_BATCH_COMPUTE,
-        pairs: pairs,
-        options: options,
+        pairs,
+        options,
       });
-
-      if (!response || !response.success) {
+      if (!response?.success)
         throw new Error(response?.error || 'Failed to compute similarities in offscreen document');
-      }
-
       return response.similarities;
     }
-
-    const simStartTime = performance.now();
-    const uniqueTextsSet = new Set<string>();
-    pairs.forEach((pair) => {
-      this.validateInput(pair.text1, pair.text2);
-      uniqueTextsSet.add(pair.text1);
-      uniqueTextsSet.add(pair.text2);
-    });
-
-    const uniqueTextsArray = Array.from(uniqueTextsSet);
-    const embeddingsArray = await this.getEmbeddingsBatch(uniqueTextsArray, options);
-    const embeddingMap = new Map<string, Float32Array>();
-    uniqueTextsArray.forEach((text, index) => {
-      embeddingMap.set(text, embeddingsArray[index]);
-    });
-
-    const similarities = pairs.map((pair) => {
-      const emb1 = embeddingMap.get(pair.text1);
-      const emb2 = embeddingMap.get(pair.text2);
-      if (!emb1 || !emb2) {
-        console.warn('Embeddings not found for pair:', pair);
-        return 0;
-      }
-      return this.cosineSimilarity(emb1, emb2);
-    });
+    const started = performance.now();
+    const unique = [...new Set(pairs.flatMap(({ text1, text2 }) => [text1, text2]))];
+    const embeddings = await this.getEmbeddingsBatch(unique, options);
+    const byText = new Map(unique.map((text, index) => [text, embeddings[index]]));
+    const similarities = pairs.map(({ text1, text2 }) =>
+      this.cosineSimilarity(byText.get(text1)!, byText.get(text2)!),
+    );
     this.performanceStats.totalSimilarityComputations += pairs.length;
-    this.performanceStats.totalSimilarityTime += performance.now() - simStartTime;
+    this.performanceStats.totalSimilarityTime += performance.now() - started;
     this.performanceStats.averageSimilarityTime =
       this.performanceStats.totalSimilarityTime / this.performanceStats.totalSimilarityComputations;
     return similarities;
@@ -1560,65 +1452,28 @@ export class SemanticSimilarityEngine {
     options: Record<string, any> = {},
   ): Promise<number[][]> {
     if (!this.isInitialized) await this.initialize();
-    if (!texts1 || !texts2 || texts1.length === 0 || texts2.length === 0) return [];
-
-    const simStartTime = performance.now();
-    const allTextsSet = new Set<string>([...texts1, ...texts2]);
-    texts1.forEach((t) => this.validateInput(t, 'valid_dummy'));
-    texts2.forEach((t) => this.validateInput(t, 'valid_dummy'));
-
-    const allTextsArray = Array.from(allTextsSet);
-    const embeddingsArray = await this.getEmbeddingsBatch(allTextsArray, options);
-    const embeddingMap = new Map<string, Float32Array>();
-    allTextsArray.forEach((text, index) => {
-      embeddingMap.set(text, embeddingsArray[index]);
-    });
-
+    if (!texts1?.length || !texts2?.length) return [];
+    const started = performance.now();
+    const unique = [...new Set([...texts1, ...texts2])];
+    const embeddings = await this.getEmbeddingsBatch(unique, options);
+    const byText = new Map(unique.map((text, index) => [text, embeddings[index]]));
+    const leftRows = texts1.map((text) => byText.get(text)!);
+    const rightRows = texts2.map((text) => byText.get(text)!);
+    let matrix: number[][];
     if (this.useSIMD && this.simdMath) {
       try {
-        const embeddings1 = texts1.map((text) => embeddingMap.get(text)!).filter(Boolean);
-        const embeddings2 = texts2.map((text) => embeddingMap.get(text)!).filter(Boolean);
-
-        if (embeddings1.length === texts1.length && embeddings2.length === texts2.length) {
-          const matrix = await this.simdMath.similarityMatrix(embeddings1, embeddings2);
-
-          this.performanceStats.totalSimilarityComputations += texts1.length * texts2.length;
-          this.performanceStats.totalSimilarityTime += performance.now() - simStartTime;
-          this.performanceStats.averageSimilarityTime =
-            this.performanceStats.totalSimilarityTime /
-            this.performanceStats.totalSimilarityComputations;
-
-          return matrix;
-        }
+        matrix = await this.simdMath.similarityMatrix(leftRows, rightRows);
       } catch (error) {
         console.warn('SIMD matrix computation failed, falling back to JavaScript:', error);
+        matrix = leftRows.map((left) =>
+          rightRows.map((right) => this.cosineSimilarity(left, right)),
+        );
       }
-    }
-
-    // JavaScript fallback.
-    const matrix: number[][] = [];
-    for (const textA of texts1) {
-      const row: number[] = [];
-      const embA = embeddingMap.get(textA);
-      if (!embA) {
-        console.warn(`Embedding not found for text1: "${textA}"`);
-        texts2.forEach(() => row.push(0));
-        matrix.push(row);
-        continue;
-      }
-      for (const textB of texts2) {
-        const embB = embeddingMap.get(textB);
-        if (!embB) {
-          console.warn(`Embedding not found for text2: "${textB}"`);
-          row.push(0);
-          continue;
-        }
-        row.push(this.cosineSimilarity(embA, embB));
-      }
-      matrix.push(row);
+    } else {
+      matrix = leftRows.map((left) => rightRows.map((right) => this.cosineSimilarity(left, right)));
     }
     this.performanceStats.totalSimilarityComputations += texts1.length * texts2.length;
-    this.performanceStats.totalSimilarityTime += performance.now() - simStartTime;
+    this.performanceStats.totalSimilarityTime += performance.now() - started;
     this.performanceStats.averageSimilarityTime =
       this.performanceStats.totalSimilarityTime / this.performanceStats.totalSimilarityComputations;
     return matrix;
@@ -1678,20 +1533,19 @@ export class SemanticSimilarityEngine {
 
   public normalizeVector(vector: Float32Array): Float32Array {
     let norm = 0;
-    for (let i = 0; i < vector.length; i++) norm += vector[i] * vector[i];
+    for (const value of vector) norm += value * value;
     norm = Math.sqrt(norm);
-    if (norm === 0) return vector;
-    const normalized = new Float32Array(vector.length);
-    for (let i = 0; i < vector.length; i++) normalized[i] = vector[i] / norm;
-    return normalized;
+    if (norm > 0) {
+      for (let index = 0; index < vector.length; index++) vector[index] /= norm;
+    }
+    return vector;
   }
 
   public validateInput(text1: string, text2: string | 'valid_dummy'): void {
-    if (typeof text1 !== 'string' || (text2 !== 'valid_dummy' && typeof text2 !== 'string')) {
-      throw new Error('Input must be a string');
-    }
-    if (text1.trim().length === 0 || (text2 !== 'valid_dummy' && text2.trim().length === 0)) {
-      throw new Error('Input text must not be empty');
+    if (typeof text1 !== 'string' || !text1.trim())
+      throw new Error('Text input must be a non-empty string');
+    if (text2 !== 'valid_dummy' && (typeof text2 !== 'string' || !text2.trim())) {
+      throw new Error('Text input must be a non-empty string');
     }
     const roughCharLimit = this.config.maxLength * 5;
     if (
@@ -1728,7 +1582,6 @@ export class SemanticSimilarityEngine {
               : 0,
         },
       },
-      memoryPool: this.memoryPool.getStats(),
       memoryUsage: this.getMemoryUsage(),
       isInitialized: this.isInitialized,
       isInitializing: this.isInitializing,

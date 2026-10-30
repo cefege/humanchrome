@@ -13,6 +13,14 @@ initKeepalive();
 
 // Global semantic similarity engine instance
 let similarityEngine: SemanticSimilarityEngine | null = null;
+
+/**
+ * Reads the current offscreen engine binding so consumers never retain an
+ * engine that main.ts replaced during a model switch.
+ */
+export function getCurrentSimilarityEngine(): SemanticSimilarityEngine | null {
+  return similarityEngine;
+}
 interface OffscreenMessage {
   target: MessageTarget | string;
   type: SendMessageType | string;
@@ -46,7 +54,7 @@ interface SimilarityEngineStatusMessage extends OffscreenMessage {
 }
 
 type MessageResponse = {
-  result?: string;
+  result?: unknown;
   error?: string;
   success?: boolean;
   similarities?: number[];
@@ -75,7 +83,7 @@ chrome.runtime.onMessage.addListener(
     // ContentIndexer RPC (IMP-0122) — vector-search / storage-manager /
     // semantic-similarity hooks dispatch here because SW can't `import()`
     // the heavy ML graph the indexer depends on.
-    if (handleIndexerMessage(message as any, sendResponse as any)) {
+    if (handleIndexerMessage(message, sendResponse, getCurrentSimilarityEngine)) {
       return true;
     }
 
@@ -214,11 +222,24 @@ function needsReinitialization(newConfig: any): boolean {
  * Progress callback function type
  */
 type ProgressCallback = (progress: { status: string; progress: number; message?: string }) => void;
+// Model creation/disposal share one offscreen resource. Cached startup and explicit
+// initialization requests must not dispose an engine that is still initializing.
+let engineInitializationTail: Promise<void> = Promise.resolve();
+
+function handleSimilarityEngineInit(config: any): Promise<void> {
+  const initialization = engineInitializationTail.then(() => initializeSimilarityEngine(config));
+  // Each caller receives its own rejection; a failed request must not poison the queue.
+  engineInitializationTail = initialization.then(
+    () => undefined,
+    () => undefined,
+  );
+  return initialization;
+}
 
 /**
  * Initialize semantic similarity engine
  */
-async function handleSimilarityEngineInit(config: any): Promise<void> {
+async function initializeSimilarityEngine(config: any): Promise<void> {
   console.log('Offscreen: Initializing semantic similarity engine with config:', config);
   console.log('Offscreen: Config useLocalFiles:', config.useLocalFiles);
   console.log('Offscreen: Config modelPreset:', config.modelPreset);
@@ -383,22 +404,10 @@ async function updateModelStatus(
       errorType: errorType || '',
     };
 
-    // In offscreen document, update storage through message passing to background script
-    // because offscreen document may not have direct chrome.storage access
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      await chrome.storage.local.set({ modelState });
-    } else {
-      // If chrome.storage is not available, pass message to background script
-      console.log('Offscreen: chrome.storage not available, sending message to background');
-      try {
-        await chrome.runtime.sendMessage({
-          type: BACKGROUND_MESSAGE_TYPES.UPDATE_MODEL_STATUS,
-          modelState: modelState,
-        });
-      } catch (messageError) {
-        console.error('Offscreen: Failed to send status update message:', messageError);
-      }
-    }
+    await chrome.runtime.sendMessage({
+      type: BACKGROUND_MESSAGE_TYPES.UPDATE_MODEL_STATUS,
+      modelState,
+    });
   } catch (error) {
     console.error('Offscreen: Failed to update model status:', error);
   }

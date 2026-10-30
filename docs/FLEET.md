@@ -15,6 +15,7 @@ For the product overview and first remote connection, start with the
 This guide covers deployment and operating details.
 
 - [Cloud coordinator and workers](#cloud-coordinator-and-workers)
+- [Rust candidate artifacts](#rust-candidate-artifacts)
 - [Mac setup](#mac-setup)
 - [Provisioning](#provisioning)
 - [Commands](#commands)
@@ -86,6 +87,56 @@ container, durable database, worker enrollment and proxy identity persistence.
 The deployment starts with one coordinator replica; a database-held singleton
 lock also prevents accidental concurrent coordinators with the same identity.
 
+## Rust candidate artifacts
+
+Candidate builds do not activate an installed-default cutover. Keep the current
+fleet root, native registration, Chrome/extension paths, and launchd agents
+intact while verifying an uninstalled candidate.
+
+Build the Mac arm64 executables and optional adapter package without registering
+them:
+
+```bash
+pnpm build:native
+node scripts/build-optional-engines.mjs \
+  --target aarch64-apple-darwin \
+  --output-dir target/native-packaging/engines \
+  --node-archive /absolute/path/node-v24.22.2-darwin-arm64.tar.xz \
+  --codex-path /absolute/path/codex
+node scripts/package-native-release.mjs \
+  --target aarch64-apple-darwin --bin-dir target/release \
+  --output-dir target/native-packaging/release \
+  --engines-dir target/native-packaging/engines
+```
+
+Use a fresh engine output directory. The builder verifies the official Node
+archive checksum, Codex CLI 0.154.0, and the frozen SDK/DevTools dependency
+graph. The core archive contains the three Rust executables, stdio
+configuration, and licenses. The optional archive supplies `adapters/` with
+the retained third-party engines and their Node/Codex runtimes; overlay that
+directory beside the core executables only for an explicit installation. The
+core starts without Node, while the optional Claude SDK and DevTools features
+require their packaged Node runtime.
+
+Run `node scripts/smoke-native-release.mjs --archive <native-archive>
+--engines-archive <engine-archive>` to exercise extraction, isolated
+registration and upgrade, Native Messaging/MCP/stdio, and genuine trace
+analysis. Registration writes in this smoke are confined to its private HOME.
+Publishing, signing, daily-browser registration, and `fleet worker
+install-agent` remain separate, explicit operator actions.
+
+`Dockerfile.coordinator` builds the browserless Linux amd64 Rust coordinator with
+locked Cargo dependencies and pinned Rust/Debian base images. Build it in an
+owned Docker context with `--platform linux/amd64`; do not push or deploy it as
+part of verification. `scripts/verify-coordinator-container.mjs` requires an
+explicit isolated `--context`, candidate `--image`, and
+`--machine-label physical-x86_64` or `emulated-x86_64`. It rejects an ARM daemon
+even if user-mode amd64 emulation is installed. The verifier owns its temporary
+PostgreSQL, network, config volume and containers; it checks authentication,
+MCP, non-root/read-only operation, singleton exclusion, leader loss and shutdown.
+Full-system x86 emulation proves execution compatibility, not native-CPU
+performance. See [Rust compatibility evidence](../crates/PORTING.md).
+
 ## Mac setup
 
 1. Use a dedicated macOS user with auto-login.
@@ -98,7 +149,9 @@ lock also prevents accidental concurrent coordinators with the same identity.
    ```
 
 3. Enable **System Settings → General → Sharing → Screen Sharing**.
-4. Install Google Chrome, run `pnpm build`, and run `humanchrome-bridge register`.
+4. Install Google Chrome and build the source artifacts with `pnpm build:extension`.
+   That build is an uninstalled candidate; do not replace a daily native
+   registration from `target/release` until the installation cutover is approved.
 5. Set `HC_FLEET_ROOT` only when the fleet must live outside the default
    `~/Library/Application Support/humanchrome-fleet` directory.
 
@@ -112,11 +165,22 @@ a profile. The load is re-applied on **every** launch: Chrome >= 137 ignores
 `--load-extension`, and a profile that relies on a persisted copy silently loses
 the extension the moment the build directory moves.
 
-The extension ID is the hardcoded `EXTENSION_ID` in
-`app/native-server/src/scripts/constant.ts`. The build must contain a manifest
-`key`; without it provisioning stops with an explicit rebuild error. The native
-host manifest is written per profile and refuses to point at a host script that
-does not exist — Chrome accepts such a manifest and then fails every
+Every other extension the profile carries is disabled on the same launch. A
+seeded profile holds the copied user's extensions (password managers, ad
+blockers, and so on) plus any older HumanChrome copy, and their frames are what
+make CDP attach fail with "Cannot access a chrome-extension:// URL of different
+extension". After the load, the launch opens `chrome://extensions` as a
+background target and calls `chrome.management.setEnabled(id, false)` for each
+enabled extension except the loaded `EXTENSION_ID`. Chrome persists that state
+in the profile, so nothing is deleted and Google sign-in cookies are untouched.
+Passes repeat until three in a row find nothing enabled, because Chrome installs
+some built-in extensions after startup. A failed pass kills the launch like any
+other provisioning error.
+
+The extension build must contain a manifest `key`; without it provisioning
+stops with an explicit rebuild error. The Rust native host allow-lists the
+stable extension origins and the per-profile manifest must point to a usable
+native executable. Chrome accepts an invalid host path and then fails every
 `connectNative()` with "Native host has exited.", which looks like a dead
 extension rather than a bad path.
 
@@ -160,6 +224,27 @@ humanchrome-bridge fleet profile add p04 --seed /path/to/user-data-dir
 `fleet status` reports `seededFrom` on such profiles, and the bridge refuses an
 unscoped `chrome_clear_browsing_data` on them (see
 [Purposes](#purposes)).
+
+### No on-device AI model weights
+
+Fleet browsers do not need Chrome's local AI models. Every launch disables
+`OptimizationGuideModelExecution` and `OnDeviceModelBackgroundDownload`.
+The execution flag gates model-asset registration/downloads, not just inference:
+Chromium's [manifest monitor](https://github.com/chromium/chromium/blob/main/components/optimization_guide/core/model_execution/manifest_broker/manifest_monitor.cc)
+selects an uninstall manifest when execution is disabled.
+
+Both daily-profile and template seeding exclude `OptGuideOnDeviceModel`,
+`OptGuideManifestModel`, and `OptimizationGuideModelsManifest`. Before Chrome
+starts, the fleet also removes these directories from older profiles. Cleanup
+failure aborts the launch; cookies, passwords, website storage, and other
+profile data are not removed by this model cleanup.
+
+Chrome can still download the small `OptimizationGuideModelsManifest` catalog:
+its [installer](https://github.com/chromium/chromium/blob/main/chrome/browser/component_updater/optimization_guide_on_device_model_installer.cc)
+registers metadata independently of model execution. This is not model weights.
+The general component updater stays enabled so unrelated security components
+continue receiving updates. Chrome's built-in on-device AI APIs are unavailable
+in fleet browsers; humanchrome browser tools are unaffected.
 
 ### Where a profile is launched, and the cookie gate
 
@@ -558,37 +643,47 @@ again` marks recovery.
 
 ## Updating the extension
 
-Every profile runs the unpacked build in `extensionDir`, and updates on the
-fly: no restart, no logins touched, nothing to click.
+Every profile runs the unpacked build at its configured `extensionDir`. Build
+browser assets for an **isolated candidate fleet** with:
 
 ```bash
-cd app/chrome-extension && pnpm build
+pnpm build:browser
 ```
 
-The build bakes one identity into the bundle (`__HC_BUILD_HASH__`,
-`__HC_BUILT_AT__`) and writes the same one beside it as `build-info.json`; its
-postbuild step copies both into `extensionDir`. Each profile's self-update
-watcher compares the two every 30 seconds and calls `chrome.runtime.reload()`
-when they differ, so every running browser is on the new build within about
-half a minute.
+This does not install or register a native candidate or approve a fleet rollout.
+Its extension postbuild can synchronize the local staging directory, so run it
+only for an isolated candidate fleet. Use the approved native bundle and fleet
+release process before updating an installed fleet.
+
+The build carries an identity (`__HC_BUILD_HASH__`, `__HC_BUILT_AT__`) beside
+`build-info.json`. A running profile's self-update watcher compares them every
+30 seconds and can reload when its configured installed extension directory is
+updated by the approved deployment path.
 
 To see what a profile is running, call `chrome_diagnostics` with
-`{"action": "runtime_info"}`: its `builtAt` must equal the one in
+`{"action": "runtime_info"}` and compare `builtAt` with
 `extensionDir/build-info.json`.
 
-- A browser restart on its own does not update the extension. Chrome can start
-  a stored copy of the previous service worker; the watcher compares against the
-  identity baked into the code it is running, so it catches that on start.
-- The build needs `CHROME_EXTENSION_KEY` (in `app/chrome-extension/.env.local`)
-  or the extension id changes and the native host refuses it.
-- A profile whose extension no longer answers cannot reload itself:
+- The extension build needs `CHROME_EXTENSION_KEY` (in
+  `app/chrome-extension/.env.local`) or the extension ID changes and the native
+  host refuses it.
+- A profile whose extension no longer answers requires a supervised restart:
   `humanchrome-bridge fleet restart <profile>`.
 
 ## Troubleshooting
 
-- `extension did not connect`: verify `humanchrome-bridge register`, confirm `extensionDir/manifest.json` has a key, inspect `~/Library/Application Support/humanchrome-fleet/logs/serve.log`, and rerun `fleet status`. A profile stuck in `backoff` in `fleet status` means the launch itself failed — the reason is logged to `serve.log`. A port collision surfaces the same way, not as a distinct "port busy" error.
-- `native host script missing`: the fleet was provisioned from a source checkout. Rebuild and reinstall the bridge (`cd app/native-server && npm run build`) and re-add the profile.
-- `profile failed to launch: extension build missing`: run `pnpm build:extension`, or point `extensionDir` in `fleet.json` at an existing build.
+- `extension did not connect`: inspect the registered native-host manifest with
+  `humanchrome-bridge doctor`, confirm `extensionDir/manifest.json` has a key,
+  inspect `~/Library/Application Support/humanchrome-fleet/logs/serve.log`, and
+  rerun `fleet status`. A profile stuck in `backoff` means its launch failed;
+  the reason is logged to `serve.log`. A port collision surfaces the same way.
+- `native host executable missing`: the profile manifest points at a removed or
+  incomplete native bundle. Rebuild a complete candidate with `pnpm build:native`
+  and use the approved bundle-installation process; do not re-add a daily
+  profile from `target/release`.
+- `profile failed to launch: extension build missing`: run `pnpm build:browser`
+  for an isolated candidate, or point `extensionDir` in `fleet.json` at an
+  existing approved build.
 - `invalid fleet.json: <field> is missing`: a required key was trimmed out of the file. Restore it; the message names the field.
 - `Specified native messaging host not found` in the browser console: the profile's `NativeMessagingHosts/com.humanchrome.nativehost.json` is gone. Re-create the profile (or restore that one file) — Chrome accepts the manifest silently and only fails at `connectNative()`.
 - `fleet serve` is not running: `humanchrome-bridge fleet status`; restart with `humanchrome-bridge fleet serve` or reinstall the launchd agent. Mutating commands signal the running serve with `SIGHUP`; a serve that ignores `SIGHUP` (for example one started under `nohup`) will not pick up the change until it restarts.

@@ -274,7 +274,20 @@ scenarios.push({
   agentTask: 'Return the IFR token visible inside the iframe.',
   async steps({ call }) {
     const res = await call('chrome_javascript', {
-      code: `(() => { const fr = document.getElementById('inner-frame'); const doc = fr?.contentDocument; const m = (doc?.querySelector('[data-marker="iframe-target"]')?.textContent || '').match(/IFR-\\d+-OK/); return m && m[0]; })()`,
+      code: `(async () => {
+        const frame = document.getElementById('inner-frame');
+        if (!frame) throw new Error('Iframe fixture is missing');
+        const readToken = () => (frame.contentDocument?.querySelector('[data-marker="iframe-target"]')?.textContent || '').match(/IFR-\\d+-OK/)?.[0];
+        if (!readToken()) await new Promise((resolve, reject) => {
+          const onLoad = () => { clearTimeout(timer); resolve(); };
+          const timer = setTimeout(() => {
+            frame.removeEventListener('load', onLoad);
+            reject(new Error('Iframe fixture did not finish loading'));
+          }, 5000);
+          frame.addEventListener('load', onLoad, { once: true });
+        });
+        return readToken();
+      })()`,
     });
     return { token: String(jsResult(res) ?? '').trim() };
   },

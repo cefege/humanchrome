@@ -50,7 +50,7 @@ export const assertNode: NodeRuntime<StepAssert> = {
       const firstTab = tabs && tabs[0];
       const tabId = firstTab && typeof firstTab.id === 'number' ? firstTab.id : undefined;
       if (!tabId) return fail('Active tab not found');
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
       const ensured = (await chrome.tabs.sendMessage(
         tabId,
         { action: 'ensureRefForSelector', selector },
@@ -67,7 +67,7 @@ export const assertNode: NodeRuntime<StepAssert> = {
       const firstTab = tabs && tabs[0];
       const tabId = firstTab && typeof firstTab.id === 'number' ? firstTab.id : undefined;
       if (!tabId) return fail('Active tab not found');
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
       const resp = (await chrome.tabs.sendMessage(
         tabId,
         { action: 'getAttributeForSelector', selector, name },

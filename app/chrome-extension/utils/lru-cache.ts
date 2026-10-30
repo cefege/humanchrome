@@ -4,23 +4,19 @@ class LRUNode<K, V> {
     public value: V,
     public prev: LRUNode<K, V> | null = null,
     public next: LRUNode<K, V> | null = null,
-    public frequency: number = 1,
-    public lastAccessed: number = Date.now(),
+    public frequency = 1,
+    public lastAccessed = Date.now(),
   ) {}
 }
 
-class LRUCache<K = string, V = any> {
-  private capacity: number;
-  private cache: Map<K, LRUNode<K, V>>;
-  private head: LRUNode<K, V>;
-  private tail: LRUNode<K, V>;
+class LRUCache<K = string, V = unknown> {
+  private readonly capacity: number;
+  private readonly cache = new Map<K, LRUNode<K, V>>();
+  private readonly head = new LRUNode<K, V>(null as K, null as V);
+  private readonly tail = new LRUNode<K, V>(null as K, null as V);
 
   constructor(capacity: number) {
     this.capacity = capacity > 0 ? capacity : 100;
-    this.cache = new Map<K, LRUNode<K, V>>();
-
-    this.head = new LRUNode<K, V>(null as any, null as any);
-    this.tail = new LRUNode<K, V>(null as any, null as any);
     this.head.next = this.tail;
     this.tail.prev = this.head;
   }
@@ -44,82 +40,63 @@ class LRUCache<K = string, V = any> {
 
   private findVictimNode(): LRUNode<K, V> {
     let victim = this.tail.prev!;
-    let minScore = this.calculateEvictionScore(victim);
-
+    let minimum = this.calculateEvictionScore(victim);
     let current = this.tail.prev;
-    let count = 0;
-    const maxCheck = Math.min(5, this.cache.size);
-
-    while (current && current !== this.head && count < maxCheck) {
+    for (
+      let checked = 0;
+      current && current !== this.head && checked < Math.min(5, this.cache.size);
+      checked++, current = current.prev
+    ) {
       const score = this.calculateEvictionScore(current);
-      if (score < minScore) {
-        minScore = score;
+      if (score < minimum) {
+        minimum = score;
         victim = current;
       }
-      current = current.prev;
-      count++;
     }
-
     return victim;
   }
 
   private calculateEvictionScore(node: LRUNode<K, V>): number {
-    const now = Date.now();
-    const timeSinceAccess = now - node.lastAccessed;
-    const timeWeight = 1 / (1 + timeSinceAccess / (1000 * 60));
-    const frequencyWeight = Math.log(node.frequency + 1);
-
-    return frequencyWeight * timeWeight;
+    return Math.log(node.frequency + 1) / (1 + (Date.now() - node.lastAccessed) / 60_000);
   }
 
   get(key: K): V | null {
     const node = this.cache.get(key);
-    if (node) {
-      node.frequency++;
-      node.lastAccessed = Date.now();
-      this.moveToHead(node);
-      return node.value;
-    }
-    return null;
+    if (!node) return null;
+    node.frequency++;
+    node.lastAccessed = Date.now();
+    this.moveToHead(node);
+    return node.value;
   }
 
   set(key: K, value: V): void {
-    const existingNode = this.cache.get(key);
-
-    if (existingNode) {
-      existingNode.value = value;
-      this.moveToHead(existingNode);
-    } else {
-      const newNode = new LRUNode(key, value);
-
-      if (this.cache.size >= this.capacity) {
-        const victimNode = this.findVictimNode();
-        this.removeNode(victimNode);
-        this.cache.delete(victimNode.key);
-      }
-
-      this.cache.set(key, newNode);
-      this.addToHead(newNode);
+    const existing = this.cache.get(key);
+    if (existing) {
+      existing.value = value;
+      this.moveToHead(existing);
+      return;
     }
+    if (this.cache.size >= this.capacity) {
+      const victim = this.findVictimNode();
+      this.removeNode(victim);
+      this.cache.delete(victim.key);
+    }
+    const node = new LRUNode(key, value);
+    this.cache.set(key, node);
+    this.addToHead(node);
   }
 
   has(key: K): boolean {
     return this.cache.has(key);
   }
-
   clear(): void {
     this.cache.clear();
     this.head.next = this.tail;
     this.tail.prev = this.head;
   }
-
   get size(): number {
     return this.cache.size;
   }
-
-  /**
-   * Get cache statistics
-   */
   getStats(): { size: number; capacity: number; usage: number } {
     return {
       size: this.cache.size,

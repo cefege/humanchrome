@@ -1,5 +1,6 @@
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TargetLocator, SelectorCandidate } from './types';
+import { compareSelectorCandidates, withStability } from '@/shared/selector';
 
 // design note: minimal selector engine that tries ref then candidates
 
@@ -16,11 +17,8 @@ function isCompositeSelector(sel: string): boolean {
 }
 
 // Helper: typed wrapper for chrome.tabs.sendMessage with optional frameId
-async function sendToTab(tabId: number, message: any, frameId?: number): Promise<any> {
-  if (typeof frameId === 'number') {
-    return await chrome.tabs.sendMessage(tabId, message, { frameId });
-  }
-  return await chrome.tabs.sendMessage(tabId, message);
+async function sendToTab(tabId: number, message: any, frameId = 0): Promise<any> {
+  return await chrome.tabs.sendMessage(tabId, message, { frameId });
 }
 
 // Helper: ensure ref for a selector, handling composite selectors and mapping frameId
@@ -75,8 +73,11 @@ export async function locateElement(
     if (ensured) return { ...ensured, resolvedBy: 'css' };
   }
 
-  // 1) Non-text candidates first for stability (css/attr/aria/xpath)
-  const nonText = (target.candidates || []).filter((c) => c.type !== 'text');
+  // Persisted candidates may pre-date the current generator. Reapply the
+  // JavaScript ranking policy so each fallback follows the recorder's stable
+  // weight/stability order rather than incidental serialization order.
+  const ranked = [...(target.candidates || [])].map(withStability).sort(compareSelectorCandidates);
+  const nonText = ranked.filter((c) => c.type !== 'text');
   for (const c of nonText) {
     try {
       if (c.type === 'css' || c.type === 'attr') {
@@ -142,7 +143,7 @@ export async function locateElement(
     }
   }
   // 2) Human-intent fallback: text-based search as last resort
-  const textCands = (target.candidates || []).filter((c) => c.type === 'text');
+  const textCands = ranked.filter((c) => c.type === 'text');
   const tagName = ((target as any)?.tag || '').toString();
   for (const c of textCands) {
     try {

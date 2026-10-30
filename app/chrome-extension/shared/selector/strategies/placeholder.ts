@@ -56,3 +56,41 @@ export const placeholderStrategy: SelectorStrategy & {
     return resolveByPlaceholder(scope, value, extras?.exact);
   },
 };
+
+/**
+ * Recorder-only projection of placeholders. The emitted attr selector and
+ * weight are part of the persisted recording compatibility contract.
+ */
+export const recorderPlaceholderStrategy: SelectorStrategy = {
+  id: 'placeholder',
+
+  generate(ctx) {
+    const { element, helpers } = ctx;
+    const tag = (element.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') return [];
+
+    const raw = element.getAttribute('placeholder');
+    const placeholder = raw ? raw.trim() : '';
+    if (!placeholder) return [];
+
+    const escaped = helpers.cssEscape(placeholder);
+    const attrOnly = `[placeholder="${escaped}"]`;
+    const withTag = `${tag}[placeholder="${escaped}"]`;
+    const value = helpers.isUnique(attrOnly)
+      ? attrOnly
+      : helpers.isUnique(withTag)
+        ? withTag
+        : undefined;
+    if (!value) return [];
+
+    return [
+      {
+        type: 'attr',
+        value,
+        weight: 25,
+        source: 'generated',
+        strategy: 'placeholder',
+      },
+    ];
+  },
+};

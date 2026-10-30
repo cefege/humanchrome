@@ -1,0 +1,315 @@
+{
+  "hostname": "mihai-m1-us.local",
+  "observations": [
+    {
+      "name": "missing-file",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "fleet not initialized — run: humanchrome-bridge fleet init"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "malformed-json",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "SyntaxError",
+              "message": "Unexpected end of JSON input"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "floating-version-one",
+      "output": {
+        "operations": [
+          {
+            "ok": true,
+            "value": {
+              "version": 1,
+              "gateway": {
+                "host": "0.0.0.0",
+                "port": 12300
+              },
+              "token": null,
+              "bridgeToken": "bridge-token",
+              "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              "extensionDir": "/tmp/extension",
+              "basePort": 12500,
+              "profiles": [],
+              "parked": false,
+              "nodeId": "mihai-m1-us.local",
+              "nodes": [],
+              "leaseIdleTtlSec": 900,
+              "demandStartTimeoutSec": 90,
+              "dailyProfileDir": "<temporary-directory>/home/Library/Application Support/Google/Chrome"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid-version",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "invalid fleet.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "profiles-must-be-an-array",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "invalid fleet.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "profile-name-precedes-earlier-duplicate-purpose",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "invalid fleet profile name: Bad_Name"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate-purpose",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "purpose \"shared\" is bound to both first and second"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid-purpose-name",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "invalid purpose name: Bad"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "non-string-purpose-coercion",
+      "output": {
+        "operations": [
+          {
+            "ok": true,
+            "value": {
+              "version": 1,
+              "gateway": {
+                "host": "0.0.0.0",
+                "port": 12300
+              },
+              "token": null,
+              "bridgeToken": "bridge-token",
+              "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              "extensionDir": "/tmp/extension",
+              "basePort": 12500,
+              "profiles": [
+                {
+                  "name": "bound",
+                  "purpose": 1
+                }
+              ],
+              "parked": false,
+              "nodeId": "mihai-m1-us.local",
+              "nodes": [],
+              "leaseIdleTtlSec": 900,
+              "demandStartTimeoutSec": 90,
+              "dailyProfileDir": "<temporary-directory>/home/Library/Application Support/Google/Chrome"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gateway-url-coerces-truthy-json-values",
+      "output": {
+        "operations": [
+          {
+            "ok": true,
+            "value": "http://[object Object]:1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "non-array-nodes",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "TypeError",
+              "message": "config.nodes is not iterable"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "node-collision",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "node id node-a collides with this machine's nodeId"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "required-field-order",
+      "output": {
+        "operations": [
+          {
+            "ok": false,
+            "error": {
+              "name": "Error",
+              "message": "invalid fleet.json: gateway.host is missing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "load-save-preserves-defaults-order-and-mode",
+      "output": {
+        "operations": [
+          {
+            "ok": true,
+            "value": {
+              "version": 1,
+              "gateway": {
+                "host": "0.0.0.0",
+                "port": 12300
+              },
+              "token": null,
+              "bridgeToken": "bridge-token",
+              "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              "extensionDir": "/tmp/extension",
+              "basePort": 12500,
+              "profiles": [
+                {
+                  "name": "bound",
+                  "purpose": 1
+                },
+                {
+                  "name": "seed",
+                  "seededFrom": {
+                    "from": "template"
+                  }
+                }
+              ],
+              "extra": "retained",
+              "numericProperties": {
+                "2": "two",
+                "10": "ten",
+                "tail": true
+              },
+              "parked": false,
+              "nodeId": "mihai-m1-us.local",
+              "nodes": [],
+              "leaseIdleTtlSec": 900,
+              "demandStartTimeoutSec": 90,
+              "dailyProfileDir": "<temporary-directory>/home/Library/Application Support/Google/Chrome"
+            },
+            "file": "{\n  \"version\": 1,\n  \"gateway\": {\n    \"host\": \"0.0.0.0\",\n    \"port\": 12300\n  },\n  \"token\": null,\n  \"bridgeToken\": \"bridge-token\",\n  \"chromePath\": \"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\",\n  \"extensionDir\": \"/tmp/extension\",\n  \"basePort\": 12500,\n  \"profiles\": [\n    {\n      \"name\": \"bound\",\n      \"purpose\": 1\n    },\n    {\n      \"name\": \"seed\",\n      \"seededFrom\": {\n        \"from\": \"template\"\n      }\n    }\n  ],\n  \"extra\": \"retained\",\n  \"numericProperties\": {\n    \"2\": \"two\",\n    \"10\": \"ten\",\n    \"tail\": true\n  },\n  \"parked\": false,\n  \"nodeId\": \"mihai-m1-us.local\",\n  \"nodes\": [],\n  \"leaseIdleTtlSec\": 900,\n  \"demandStartTimeoutSec\": 90,\n  \"dailyProfileDir\": \"<temporary-directory>/home/Library/Application Support/Google/Chrome\"\n}\n",
+            "temporaryFiles": [],
+            "mode": 384
+          },
+          {
+            "ok": true,
+            "value": "http://127.0.0.1:12300"
+          }
+        ]
+      }
+    },
+    {
+      "name": "purpose-guard",
+      "output": {
+        "operations": [
+          {
+            "allowed": false,
+            "message": "profile is bound to purpose \"work\"; chrome_clear_browsing_data without \"origins\" clears every login in this browser — pass origins to scope it, or confirmProfileWipe: true to wipe it anyway"
+          },
+          {
+            "allowed": false,
+            "args": null,
+            "message": "profile is bound to purpose \"work\"; chrome_clear_browsing_data without \"origins\" clears every login in this browser — pass origins to scope it, or confirmProfileWipe: true to wipe it anyway"
+          },
+          {
+            "allowed": false,
+            "args": {
+              "confirmProfileWipe": false
+            },
+            "message": "profile is bound to purpose \"work\"; chrome_clear_browsing_data without \"origins\" clears every login in this browser — pass origins to scope it, or confirmProfileWipe: true to wipe it anyway"
+          },
+          {
+            "allowed": true,
+            "args": {
+              "retained": 1
+            }
+          },
+          {
+            "allowed": true,
+            "args": {
+              "origins": ["https://example.test"]
+            }
+          },
+          {
+            "allowed": true,
+            "args": {}
+          },
+          {
+            "allowed": true,
+            "args": {}
+          }
+        ]
+      }
+    }
+  ]
+}

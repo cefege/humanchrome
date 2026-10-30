@@ -7,14 +7,14 @@ mirror.
 ## Run
 
 ```bash
-# 1. Build extension and bridge (if you haven't already today)
-pnpm --filter humanchrome-shared build
-pnpm --filter humanchrome-extension build
-pnpm --filter humanchrome-bridge build
+# 1. Build contracts, native candidate executables, and browser assets. The
+#    extension postbuild can synchronize local browser staging; run this only
+#    where that update is intended.
+pnpm build:extension
 
-# 2. Make sure Chrome is running with the extension loaded
-#    (chrome://extensions → load unpacked → app/chrome-extension/.output/chrome-mv3/)
-#    The extension auto-spawns the native host which listens on :12306.
+# 2. Use a Chrome instance with an already installed and registered native
+#    release plus the unpacked extension. The native candidate remains
+#    unregistered; this harness does not activate it against a daily browser.
 
 # 3. Run the suite
 node app/native-server/live-test/run.mjs

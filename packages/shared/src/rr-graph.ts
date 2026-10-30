@@ -3,6 +3,10 @@
 // Centralize step type strings and tiny helpers here to avoid magic literals.
 
 import { EDGE_LABELS, type EdgeLabel } from './labels';
+import { RR_STEP_TYPES } from './rr-step-types';
+
+export { RR_STEP_TYPES } from './rr-step-types';
+export type { RRStepType } from './rr-step-types';
 
 export interface RRNode {
   id: string;
@@ -15,38 +19,6 @@ export interface RREdge {
   to: string;
   label?: EdgeLabel;
 }
-
-// Centralized step type strings (kept in shared to avoid duplication)
-export const RR_STEP_TYPES = {
-  CLICK: 'click',
-  DBLCLICK: 'dblclick',
-  FILL: 'fill',
-  DRAG: 'drag',
-  KEY: 'key',
-  WAIT: 'wait',
-  ASSERT: 'assert',
-  IF: 'if',
-  FOREACH: 'foreach',
-  WHILE: 'while',
-  NAVIGATE: 'navigate',
-  SCRIPT: 'script',
-  HTTP: 'http',
-  EXTRACT: 'extract',
-  SCREENSHOT: 'screenshot',
-  SCROLL: 'scroll',
-  TRIGGER_EVENT: 'triggerEvent',
-  SET_ATTRIBUTE: 'setAttribute',
-  LOOP_ELEMENTS: 'loopElements',
-  SWITCH_FRAME: 'switchFrame',
-  OPEN_TAB: 'openTab',
-  SWITCH_TAB: 'switchTab',
-  CLOSE_TAB: 'closeTab',
-  EXECUTE_FLOW: 'executeFlow',
-  HANDLE_DOWNLOAD: 'handleDownload',
-  // UI-only, mapped to WAIT
-  DELAY: 'delay',
-} as const;
-export type RRStepType = (typeof RR_STEP_TYPES)[keyof typeof RR_STEP_TYPES];
 
 function ensureTarget(t: any) {
   return t && typeof t === 'object' ? t : { candidates: [] };
