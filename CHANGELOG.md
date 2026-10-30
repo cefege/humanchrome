@@ -69,13 +69,12 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
   [checkpoint `1012e423`](https://github.com/cefege/humanchrome/commit/1012e423dca2265d9e84ebab0db696a22d63d829).
   Its recorder and workflow/vector CPU regressions motivated the browser rollback;
   native-service performance evidence does not imply a browser speedup.
-- A production hot repair corrected only a caller-owned, profile-local Native
-  Messaging descriptor from the removed Node wrapper to the installed Rust
-  executable, preserving its allowed origins. The authenticated Rust
-  coordinator → worker → native-host → installed TypeScript-extension MCP path
-  then succeeded. Automatic worker/gateway descriptor refresh passes Clippy,
-  189 Rust tests and packaged installation smoke; production activation remains
-  pending in IMP-0209. This migrates caller metadata, not a Node fallback.
+- Option A production activation now runs the Rust coordinator in Docker/k3s and
+  Rust gateway/worker/native services on the Mac, with the TypeScript extension
+  deployed through its normal synchronization path. Automatic profile descriptor
+  refresh is active; all seven standalone profile directories and configured
+  extension origins are retained. The old Node core is stopped, while optional
+  SDK subprocesses and protected rollback backups remain.
 
 ### Fixed
 
@@ -86,6 +85,15 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 - Keyless fixture origins use Chrome's canonical filesystem path. Generated
   native contracts retain their byte-exact generator format instead of being
   reflowed by pre-commit formatting.
+- Native fleet PID checks inspect actual executable metadata on macOS/Linux,
+  preserving installed paths containing spaces and rejecting spoofed argv.
+- Queue fairness verification observes the first request's actual admission before
+  submitting its same-client successor, retaining FIFO and round-robin assertions.
+- Mac arm64 CI/release builds target macOS 15 rather than the retiring macOS 14
+  runner image.
+- Cancellation verification uses the production-shaped Tokio runtime and the
+  child's own readiness marker, proving an idle provider terminates gracefully
+  and is reaped without requiring a mocked progress event or relaxed deadlines.
 
 - Combobox selection now delivers trusted commit keys in background tabs sharing
   an existing debugger session, using temporary focus emulation without

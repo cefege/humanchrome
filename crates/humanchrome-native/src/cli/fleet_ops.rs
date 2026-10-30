@@ -1362,7 +1362,43 @@ pub async fn signal_gateway_reload(store: &ConfigStore) -> Result<bool, String> 
 }
 
 async fn process_identity(pid: u32) -> Result<Option<bool>, String> {
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    {
+        use std::{ffi::CStr, os::unix::ffi::OsStrExt as _};
+
+        let native_pid = libc::pid_t::try_from(pid)
+            .map_err(|error| format!("invalid fleet pid {pid}: {error}"))?;
+        let mut buffer = [0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: libproc receives a live, writable buffer and its exact capacity.
+        let length = unsafe {
+            libc::proc_pidpath(
+                native_pid,
+                buffer.as_mut_ptr().cast(),
+                u32::try_from(buffer.len()).expect("libproc path buffer fits u32"),
+            )
+        };
+        if length <= 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ESRCH) {
+                Ok(None)
+            } else {
+                Err(format!("cannot inspect fleet pid {pid}: {error}"))
+            };
+        }
+        let path = CStr::from_bytes_until_nul(&buffer)
+            .map_err(|error| format!("invalid executable path for fleet pid {pid}: {error}"))?;
+        matches_bridge_executable(Path::new(std::ffi::OsStr::from_bytes(path.to_bytes()))).map(Some)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let executable = match tokio::fs::read_link(format!("/proc/{pid}/exe")).await {
+            Ok(executable) => executable,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("cannot inspect fleet pid {pid}: {error}")),
+        };
+        matches_bridge_executable(&executable).map(Some)
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
     {
         let pid_text = pid.to_string();
         let output = tokio::process::Command::new("ps")
@@ -1375,19 +1411,26 @@ async fn process_identity(pid: u32) -> Result<Option<bool>, String> {
         }
         let command = String::from_utf8_lossy(&output.stdout);
         let executable = command.split_whitespace().next().unwrap_or_default();
-        let own_path = std::env::current_exe().map_err(|error| error.to_string())?;
-        let own_path = own_path.to_string_lossy();
-        Ok(Some(
-            executable == own_path
-                || executable.ends_with("/humanchrome-bridge")
-                || executable == "humanchrome-bridge",
-        ))
+        matches_bridge_executable(Path::new(executable)).map(Some)
     }
     #[cfg(not(unix))]
     {
         let _ = pid;
         Err("fleet pid ownership checks are unsupported on this platform".to_owned())
     }
+}
+
+#[cfg(unix)]
+fn matches_bridge_executable(executable: &Path) -> Result<bool, String> {
+    if executable
+        .file_name()
+        .is_some_and(|name| name == "humanchrome-bridge")
+    {
+        return Ok(true);
+    }
+    std::env::current_exe()
+        .map(|own_path| executable == own_path)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -1555,6 +1598,53 @@ mod tests {
         assert_eq!(
             fs::read(outside_descriptor).expect("read outside descriptor"),
             b"outside descriptor"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[tokio::test]
+    async fn pid_guard_uses_executable_metadata_not_space_separated_or_spoofed_argv() {
+        use std::os::unix::process::CommandExt as _;
+
+        let directory = tempdir().expect("temporary root");
+        let executable = directory.path().join("foreign executable with spaces");
+        fs::copy("/bin/sleep", &executable).expect("copy foreign executable");
+        let mut command = tokio::process::Command::new(&executable);
+        command.arg("30").kill_on_drop(true);
+        command.as_std_mut().arg0("humanchrome-bridge");
+        let mut child = command.spawn().expect("spawn foreign process");
+        let pid = child.id().expect("live child PID");
+        let pid_file = directory.path().join("worker.pid");
+        fs::write(&pid_file, pid.to_string()).expect("write fixture PID");
+
+        let error = super::live_pid_at(&pid_file)
+            .await
+            .expect_err("foreign executable must be refused despite its argv");
+        assert!(error.contains("different live executable"), "{error}");
+        assert_eq!(
+            fs::read_to_string(&pid_file).expect("retained PID"),
+            pid.to_string()
+        );
+        assert!(
+            child.try_wait().expect("inspect child").is_none(),
+            "foreign child was signalled"
+        );
+        child.kill().await.expect("reap foreign child");
+        assert_eq!(
+            super::live_pid_at(&pid_file).await.expect("stale PID"),
+            None
+        );
+        assert!(!pid_file.exists(), "stale PID file was retained");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[tokio::test]
+    async fn pid_guard_recognizes_its_own_native_executable() {
+        assert_eq!(
+            super::process_identity(std::process::id())
+                .await
+                .expect("own executable metadata"),
+            Some(true),
         );
     }
 }

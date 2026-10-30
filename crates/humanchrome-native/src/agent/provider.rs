@@ -846,7 +846,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancellation_delivers_graceful_termination_and_reaps_the_child() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -857,7 +857,7 @@ mod tests {
             r#"#!/bin/sh
 trap 'printf SIGTERM > terminated; exit 0' TERM
 printf '%s' "$$" > child.pid
-printf '%s\n' '{"type":"item.started","item":{"type":"command_execution","command":"ready"}}'
+: > ready
 while :; do sleep 1; done
 "#,
         )
@@ -885,13 +885,28 @@ while :; do sleep 1; done
         };
         let cancellation = CancellationToken::new();
         let run_cancellation = cancellation.clone();
-        let (events, mut received) = mpsc::unbounded_channel();
-        let run =
+        let (events, _received) = mpsc::unbounded_channel();
+        let mut run =
             tokio::spawn(async move { provider.run(request, events, run_cancellation).await });
-        tokio::time::timeout(std::time::Duration::from_secs(5), received.recv())
-            .await
-            .expect("child starts before cancellation")
-            .expect("child readiness event");
+        // Prove the child's TERM trap is installed without requiring a provider progress event.
+        // An idle provider must be cancellable before it produces any output.
+        let ready = directory.path().join("ready");
+        let readiness = async {
+            while !tokio::fs::try_exists(&ready)
+                .await
+                .expect("child readiness file")
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::select! {
+                () = readiness => {}
+                result = &mut run => panic!("provider exited before child readiness: {result:?}"),
+            }
+        })
+        .await
+        .expect("child starts before cancellation");
         let pid: u32 = std::fs::read_to_string(directory.path().join("child.pid"))
             .expect("child PID")
             .parse()

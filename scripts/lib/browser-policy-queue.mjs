@@ -228,6 +228,10 @@ async function runFairnessScenario(driver) {
       ),
     );
     calls.push(ownerAFirst);
+    await waitForQueue(driver, QUEUE_CLIENTS.ownerA, fixture.tabId, {
+      holderClientId: QUEUE_CLIENTS.ownerA,
+      waiterClientIds: [QUEUE_CLIENTS.ownerA],
+    });
     const ownerASecond = observed(
       driver.callTool(
         QUEUE_CLIENTS.ownerA,

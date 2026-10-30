@@ -55,7 +55,7 @@ No live resource was created or changed during that inspection.
   tag-owner definitions were added. Tailnet access is not restricted to admins
   by this deployment. Application bearer authentication remains mandatory.
 
-## Current production coordinator rollout (2026-10-30)
+## Current production rollout (2026-10-30–31)
 
 - Source `956ffd77c91f1124f3fc821647a5312b648fbe1e`, committed and pushed on
   `option-a/rust-native-typescript-browser-20261030` (PR #414), is built and
@@ -70,33 +70,33 @@ No live resource was created or changed during that inspection.
 - The rollout preserved every pre-existing PostgreSQL PVC and Kubernetes Secret
   UID. PostgreSQL remains `postgres:17-alpine`; neither its data identity nor
   the protected Secret identities were replaced.
-- The idle `mac-1:browser` worker now runs the installed Rust native process
-  (PID `20750` at verification) under its existing root, database, and profile
-  paths; its health endpoint returned HTTP 200.
-- The worker/browser profile manifest was hot-repaired only at its executable
-  path, from the confirmed-absent `app/native-server/dist/run_host.sh` to
-  `ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`; its allowed origins
-  were unchanged. Native `/ping` on port `12900` then returned HTTP 200 and the
-  worker profile became healthy.
-- An authenticated MCP call through the private Rust coordinator → Rust worker
-  → actual Rust native host → existing installed TypeScript extension succeeded:
-  `humanchrome(name:"chrome_diagnostics", args:{action:"runtime_info"})`
-  returned extension version `1.2.0` and ID
-  `dhabpgnpajocncnoigibmocmfjnhlmhe`. All diagnostic leases were released with
-  HTTP 200.
-- This proves the repaired live profile path, not complete desktop activation.
-  The permanent worker/gateway refresh passes Clippy, 189 Rust tests and the
-  extracted core/companion archive smoke; its production activation remains
-  pending. The new browser source has not synchronized or reloaded into the
-  shared production path.
-- Existing standalone Node and LinkedIn maintenance processes remain untouched
-  while the active `career` → `linkedin` client continues renewing its lease.
-  This maintenance hold is intentional and does not prove standalone/global CLI
-  or extension deployment completion.
-
-IMP-0209 tracks verification of the permanent worker/gateway manifest refresh.
-It must retain validated origins and point to the installed Rust executable; it
-must not restore a Node fallback.
+- The Mac worker and standalone gateway run Rust source
+  `a91797130696b43ea44e9625895138810a3fb2d1` from the complete installed
+  `~/Library/Application Support/humanchrome-bridge/releases/1.2.0-2108-0`
+  release. Their existing roots, databases and profile paths remain in use.
+- The permanent upgrade helper automatically retargeted the worker and all seven
+  standalone native-host descriptors. The global native registration preserved
+  its four configured origins; the worker profile retained its three origins.
+  All seven standalone profile directories retained their device/inode identity.
+- After the authorized restart, the standalone gateway reported up and its
+  LinkedIn profile reported healthy with the active client lease. No legacy
+  Node core process remained.
+- The global CLI now uses the complete `1.2.0-14233-0` release. Actual executable
+  metadata, rather than whitespace-split argv, lets installed CLI status/control
+  recognize the `Application Support` executable path. This CLI-only fix did not
+  interrupt the healthy services a second time.
+- The normal extension synchronization path deployed TypeScript build
+  `mvvcuxmn-lranwe`; live diagnostics confirmed that build, extension `1.2.0`,
+  and ID `dhabpgnpajocncnoigibmocmfjnhlmhe`.
+- Authenticated production MCP through Rust coordinator → worker → native host
+  → extension opened an owned fixture tab and read its main-frame Submit control.
+  Only that tab was closed; the diagnostic lease released with HTTP 200.
+- Coordinator `/healthz` and `/readyz`, worker health, and native `/ping` on
+  `12900` returned HTTP 200. Docker/k3s hosts the cloud coordinator; desktop
+  gateway, worker and native messaging remain Mac host executables.
+- Optional Node SDK subprocesses and protected rollback backups remain by design;
+  they are not a legacy Node core fallback. Fresh GitHub CI verdicts are separate
+  from this completed production activation.
 
 The `local-path` PVC survives Pod restarts, not loss of the OVH disk. Back up
 PostgreSQL and Kubernetes Secrets separately; neither replication nor backup

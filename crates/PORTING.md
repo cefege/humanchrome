@@ -7,21 +7,21 @@ The general browser Rust/WASM experiment is retired; the original numeric SIMD
 package and ONNX/HNSW engines remain. The pre-reversal source is preserved in
 [checkpoint `1012e423`](https://github.com/cefege/humanchrome/commit/1012e423dca2265d9e84ebab0db696a22d63d829).
 
-## Current Option A verification (2026-10-30)
+## Current Option A verification (2026-10-31)
 
 | Gate                                                                                    | Observed result                                                                                                                                    |
 | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 189 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
+| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 191 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
 | Shared and extension suites                                                             | 174 shared and 1,939 extension tests passed; one extension test skipped                                                                            |
 | TypeScript, generated contracts and source inventory                                    | Passed; 646 production files, 85 retained browser-policy boundaries, zero pending boundaries                                                       |
-| Owned Chrome for Testing                                                                | `browser-hc-rt-hziSan.json`: 35/35 matrix rows and 17/17 task scenarios                                                                            |
+| Owned Chrome for Testing                                                                | `browser-hc-rt-XKBl9X.json`: 35/35 matrix rows and 17/17 task scenarios                                                                            |
 | Extracted native core plus pinned optional-engine archives                              | Installation, upgrade, retained configuration, Node-absent core startup and actual trace smoke passed                                              |
 | Actual bundled Claude SDK and Codex                                                     | Local-only startup/activity/cancel/reap passed; Claude resume and invalid-resume clearing passed; no credentials or completed cloud-model response |
 
 The 35/35 + 17/17 result is an isolated owned-Chrome gate, not a probe of the
 daily-driver production profile or proof that its extension source has reloaded.
 
-## Current production rollout status (2026-10-30)
+## Current production rollout status (2026-10-31)
 
 The OVH coordinator is deployed from source
 `956ffd77c91f1124f3fc821647a5312b648fbe1e` as
@@ -31,23 +31,28 @@ graph; k3s runs `/usr/local/bin/humanchrome-bridge`, not a Node coordinator.
 Both coordinator health endpoints passed, while the rollout retained the
 existing PostgreSQL image, PVC identity, and Secret identities.
 
-The idle Mac fleet worker likewise runs the installed Rust process and passed
-its HTTP health probe using the existing root, database, and profile paths. A
-hot repair changed only its worker/browser profile descriptor executable to
-`ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`, retaining its origins.
-Native `/ping` returned 200, and authenticated MCP reached the existing
-TypeScript extension through the private Rust coordinator → Rust worker → Rust
-native-host path; diagnostic leases were released successfully.
+The Mac worker and standalone gateway now run Rust from source
+`a91797130696b43ea44e9625895138810a3fb2d1` under the complete installed release
+`~/Library/Application Support/humanchrome-bridge/releases/1.2.0-2108-0`.
+The permanent versioned-upgrade helper refreshed the worker and all seven
+standalone profile descriptors. Existing profile directories, database paths and
+validated origins were retained. The authorized standalone restart completed;
+the LinkedIn profile subsequently reported healthy with its existing client lease.
 
-This proves that repaired live profile path, not complete desktop activation.
-The automatic worker/gateway descriptor refresh passes Clippy, 189 Rust tests
-and the extracted native/companion archive smoke. Its production activation
-remains pending; the source browser bundle has not synchronized/reloaded into
-the shared production path. The active
-LinkedIn maintenance path remains untouched while its client renews the
-existing lease. Desktop activation and IMP-0206 remain in-progress; no
-standalone/global CLI or extension deployment completion, and no Node fallback,
-is claimed.
+The global CLI uses the complete `1.2.0-14233-0` release with the executable-metadata
+PID fix. Its installed `fleet status` reports the live gateway and seven profiles,
+and the global native registration retained all four configured origins. This
+CLI-only correction did not restart the healthy worker or LinkedIn gateway again.
+
+The TypeScript extension synchronized through the normal installed path and
+reloaded to build `mvvcuxmn-lranwe`. Authenticated production MCP reached a new
+owned fixture tab through Rust coordinator → worker → native host → extension;
+main-frame reading found Submit, then the owned tab and diagnostic lease were
+released. Coordinator health/readiness, worker health and native `/ping` returned 200. No legacy Node core process remained; optional Node SDK adapters and rollback
+backups are intentionally retained.
+
+Production activation is complete. Fresh source-release checks remain distinct
+from those live facts; IMP-0210 tracks the remaining fresh GitHub CI verdicts.
 
 The retired general browser kernel's tests and benchmarks below are historical,
 not requirements or current-source certification. Browser policy uses direct

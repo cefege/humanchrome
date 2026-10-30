@@ -71,16 +71,49 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Validate every configured origin and require all default origins, then retain the validated allowlist while replacing the owned executable path. Continue rejecting unsafe origins, missing defaults and foreign ownership.
 - **Notes**: Both allowlist preservation and unsafe/missing-origin regressions pass in the 186-test Rust workspace run. New manifests retain the original three defaults; no new origin is automatically granted.
 
+### IMP-0211 · Fleet PID ownership splits installed executable paths at spaces (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-31 (authorized desktop cutover)
+- **Status**: done
+- **Why**: The installed Rust gateway lives under `Application Support`. Parsing the first whitespace-separated word of `ps command` misidentifies that executable and rejects valid CLI status/control calls.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Both the global CLI and the directly invoked installed binary rejected live Rust gateway PID `78297` as a different executable. The compiled metadata-based candidate successfully reads that same gateway: up, parked, seven profiles.
+- **Fix sketch**: Inspect the actual executable with macOS libproc and Linux `/proc/<pid>/exe`, not caller-controlled argv. Preserve foreign-PID refusal and stale-file cleanup.
+- **Notes**: Real-process regressions cover spoofed argv, a path containing spaces, retained foreign PID files, stale cleanup and the current native executable. The complete `1.2.0-14233-0` CLI release is installed; global CLI status now reports the live Rust gateway and seven profiles. All four global origins were retained. Healthy worker/gateway processes were not restarted for this CLI-only correction.
+
+### IMP-0212 · Queue fairness fixture assumes concurrent HTTP submission order (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-31 (PR #414 browser CI)
+- **Status**: done
+- **Why**: The fixture starts owner A's two HTTP requests concurrently, then assumes their launch order equals server admission order. CI legitimately admitted A2 before A1, failing the FIFO assertion and blocking dependent restart coverage.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Run `41113915883` observed `holder-start, holder-release, owner-b-1, owner-a-2, owner-a-1`; the other 33 matrix rows passed.
+- **Fix sketch**: Observe A1's admission through the existing read-only queue diagnostics before submitting A2. Keep the exact cross-client round-robin and same-client FIFO assertions.
+- **Notes**: After the admission barrier, fresh keyless owned Chrome passed 35/35 matrix rows and 17/17 tasks (`browser-hc-rt-XKBl9X.json`), including dependent service-worker restart coverage. No expected execution order or coverage is relaxed.
+
+### IMP-0213 · Cancellation fixture launches outside the production runtime shape (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-31 (native release verification)
+- **Status**: done
+- **Why**: The default current-thread test runtime intermittently leaves the temporary shell at macOS dyld entry, before its script executes. A production provider launches on a multi-thread Tokio runtime; the fixture used a different parent-thread context and unnecessarily waited for a mocked progress event.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Full workspace runs failed at both five- and thirty-second readiness deadlines, with 128 other native library tests passing. The thirty-second run cancelled and reaped the provider successfully during failure cleanup.
+- **Fix sketch**: Match the production multi-thread runtime and gate readiness on the child's installed TERM trap, not a mocked Codex progress echo. Keep both five-second deadlines and the graceful-signal/reaping assertions.
+- **Notes**: With that test setup, format, warnings-denied Clippy and the unfiltered workspace pass: 191 tests across 13 suites, one pre-existing opt-in TLS test ignored. Temporary diagnostics and timeout increases are removed; production provider code is unchanged. The underlying Darwin loader mechanism is not established and no upstream Tokio/macOS fix is claimed.
+
 ### IMP-0209 · Profile native-host descriptor remains on removed Node executable after versioned upgrade (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-10-30 (production Rust rollout)
-- **Status**: in-progress
+- **Status**: done
 - **Why**: A profile-local NativeMessagingHosts descriptor still names the removed `app/native-server/dist/run_host.sh`. Chrome resolves that caller-owned descriptor ahead of the global Rust manifest, so a versioned Node→Rust upgrade cannot start the installed native host.
 - **Cost**: S
 - **Value**: L
 - **Repro**: On the owned production diagnostic profile, the descriptor's executable path is absent. A fresh Chrome `connectNative` reported `Specified native messaging host not found`; a subsequent live MCP initialization ended with `502 profile_start_timeout` without attempting a browser mutation.
 - **Fix sketch**: Automatically refresh both worker and gateway caller-owned profile descriptors to the current installed Rust executable while preserving their validated allowed origins and ownership protections. Cover versioned-upgrade migration; do not add or restore a Node fallback.
-- **Notes**: A production hot repair changed only the worker/browser profile path to `ASRoot/releases/1.2.0-19417-0/humanchrome-nativehost`; origins were unchanged. Native `/ping` returned 200, the worker profile became healthy, and authenticated MCP reached the existing TypeScript extension through Rust coordinator → Rust worker → Rust native host; `chrome_diagnostics` returned extension `1.2.0` / `dhabpgnpajocncnoigibmocmfjnhlmhe`. All diagnostic leases released with 200. The permanent worker/gateway refresh passes Clippy, 189 Rust tests and extracted native/companion installation smoke. Its production activation remains pending.
+- **Notes**: The automatic helper is active in the installed Rust worker and gateway from `1.2.0-2108-0`. It retargeted the worker and all seven standalone profile descriptors; existing profile directories were not replaced. Native `/ping`, worker health and authenticated production MCP to the deployed TypeScript extension passed. Global registration retained four origins and the worker retained three. The earlier hot repair is superseded by the automatic versioned-upgrade path; no Node fallback was restored.
 
 ### IMP-0210 · Release workflows omit required fixture and companion build inputs (bug) · score: 8
 
@@ -107,11 +140,11 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0206 · Option A: retain Rust services and restore TypeScript browser policy (perf) · score: 8
 
 - **Proposed by**: user · 2026-10-30
-- **Status**: in-progress
+- **Status**: done
 - **Why**: General browser Rust/WASM crossings regress recorder and workflow/vector CPU timings without a whole-browser win. Keep the measured native-service benefits without paying that browser boundary cost.
 - **Cost**: M
 - **Value**: L
-- **Notes**: The full experiment is preserved on GitHub at checkpoint `1012e423`. Browser policy is restored to TypeScript/JavaScript; native bridge/MCP/REST/agents/fleet/coordinator remain Rust. Numeric SIMD, ONNX/HNSW, independent browser fixes and persisted formats remain. Current local gates pass: 189 Rust, 174 shared and 1,939 extension tests; owned Chrome passes 35/35 matrix rows and 17/17 tasks. Complete extracted native core/optional-engine installation smoke and actual local-only Claude/Codex startup/cancel checks pass. The cloud Rust coordinator is deployed with protected database/PVC/Secret identities intact and the hot-repaired idle Mac worker profile completed an authenticated Rust coordinator → Rust worker → Rust native host → installed TypeScript extension MCP call. The source browser bundle has not synchronized/reloaded into the shared production path, the active LinkedIn maintenance lease remains, and automatic worker/gateway manifest-refresh activation is pending. IMP-0206 stays in progress until every desktop activation gate passes.
+- **Notes**: The full experiment is preserved on GitHub at checkpoint `1012e423`. Browser policy and UI are TypeScript/JavaScript; bridge/MCP/REST/agents/fleet/coordinator are Rust, with numeric SIMD and ONNX/HNSW retained. The Rust cloud coordinator is deployed without replacing protected database/PVC/Secret identities. Mac worker/gateway/native services and the global Rust CLI are installed; the source extension is live at build `mvvcuxmn-lranwe`. All seven standalone profile directories were preserved, LinkedIn returned healthy with its lease, and no legacy Node core owner remained. An authenticated production fixture navigation/read succeeded and its owned tab/lease were cleaned up. Fresh owned Chrome passed 35/35 matrix rows and 17/17 tasks. CI/fixture hardening remains tracked separately in IMP-0210/IMP-0213; it is not a desktop activation hold.
 
 ### IMP-0202 · Native primary dies when its Chrome-owned relay disconnects (bug) · score: 8
 
