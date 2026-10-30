@@ -1,7 +1,23 @@
 //! Narrow host-language intrinsics whose semantics are defined by JavaScript.
 
 use humanchrome_core::arguments::JsString;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, prelude::*};
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = String)]
+    type BrowserString;
+    #[wasm_bindgen(method, js_name = isWellFormed)]
+    fn is_well_formed(this: &BrowserString) -> bool;
+}
+
+thread_local! {
+    static HAS_WELL_FORMED_INTRINSIC: bool =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("String"))
+            .and_then(|constructor| js_sys::Reflect::get(&constructor, &JsValue::from_str("prototype")))
+            .and_then(|prototype| js_sys::Reflect::get(&prototype, &JsValue::from_str("isWellFormed")))
+            .is_ok_and(|method| method.is_function());
+}
 
 /// Transfers valid UTF-8 directly and preserves unpaired UTF-16 through JSON text.
 pub(crate) fn to_js_string(value: &JsString) -> js_sys::JsString {
@@ -13,8 +29,17 @@ pub(crate) fn to_js_string(value: &JsString) -> js_sys::JsString {
         .unchecked_into()
 }
 
-/// JSON.stringify escapes lone surrogates before wasm-bindgen's UTF-8 transfer.
+/// Avoids JSON encoding for well-formed strings while preserving every UTF-16 code unit.
 pub(crate) fn from_js_string(value: &js_sys::JsString) -> JsString {
+    if HAS_WELL_FORMED_INTRINSIC.with(|available| *available)
+        && value.unchecked_ref::<BrowserString>().is_well_formed()
+    {
+        return JsString::from(
+            value
+                .as_string()
+                .expect("a well-formed primitive string has a UTF-8 representation"),
+        );
+    }
     let literal = js_sys::JSON::stringify(value.as_ref())
         .expect("JSON.stringify cannot reject a primitive JavaScript string")
         .as_string()

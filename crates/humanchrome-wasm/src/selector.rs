@@ -21,8 +21,11 @@ mod action_target;
 /// Normalizes DOM-observed names without changing the host's synchronous API.
 #[wasm_bindgen]
 pub fn selector_normalize_accessible_name(value: WebString) -> WebString {
-    let value = crate::intrinsics::from_js_string(&value);
-    crate::intrinsics::to_js_string(&selector::normalize_accessible_name(&value))
+    let decoded = crate::intrinsics::from_js_string(&value);
+    match selector::normalize_accessible_name(&decoded) {
+        std::borrow::Cow::Borrowed(_) => value,
+        std::borrow::Cow::Owned(normalized) => crate::intrinsics::to_js_string(&normalized),
+    }
 }
 
 /// Matches strings using core policy and the browser's native Unicode lowercase intrinsic.
