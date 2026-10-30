@@ -4,6 +4,14 @@
 //! retains DOM handles or evaluates browser-native CSS semantics.
 
 use serde::{Deserialize, Serialize};
+mod apply_payload;
+pub use apply_payload::{
+    ApplyBatch, ApplyDebugSource, ApplyFingerprint, ApplyInstruction, ApplyInstructionType,
+    ApplyPayload, ApplyPayloadError, ApplyPayloadInput, ApplyStyleOperation, DebugSourceInput,
+    StringMapEntry, StringMapInput, StyleOperationInput, normalize_apply_batch,
+    normalize_apply_payload, normalize_apply_payload_extensions, normalize_string,
+    parse_apply_instruction_type,
+};
 
 mod cascade;
 pub use cascade::{

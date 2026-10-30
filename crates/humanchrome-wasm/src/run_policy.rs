@@ -3,9 +3,11 @@
 use humanchrome_core::arguments::JsString;
 use humanchrome_core::json_document::JsonDocument;
 use humanchrome_core::run_policy::{
-    self, Breakpoints, ErrorPlan, PolicyFieldSource, QueueOrderKey, RecoveryAction,
+    self, Breakpoints, CronClockParts, CronExpression, DomTriggerInput, ErrorPlan,
+    PolicyFieldSource, QueueOrderKey, RecoveryAction, TriggerAdmission, TriggerAdmissionConfig,
+    TriggerAdmissionState, TriggerDropReason,
 };
-use js_sys::{Array, Reflect};
+use js_sys::{Array, Function, Reflect};
 use wasm_bindgen::prelude::*;
 
 use crate::{error, parse_json, parse_string};
@@ -349,4 +351,332 @@ impl RustRunBreakpoints {
     pub fn clear(&mut self) {
         self.inner.clear();
     }
+}
+
+fn integer(value: f64, field_name: &str) -> Result<i64, JsValue> {
+    if !value.is_finite() || value < i64::MIN as f64 || value > i64::MAX as f64 {
+        return Err(error(format!("{field_name} must be a finite number")));
+    }
+    Ok(value as i64)
+}
+
+fn clock_parts(value: JsValue, include_timestamp: bool) -> Result<CronClockParts, JsValue> {
+    let number = |field: &str| -> Result<f64, JsValue> {
+        Reflect::get(&value, &JsValue::from_str(field))?
+            .as_f64()
+            .ok_or_else(|| error(format!("Date observer returned invalid {field}")))
+    };
+    Ok(CronClockParts {
+        timestamp_ms: if include_timestamp {
+            integer(number("timestampMs")?, "timestampMs")?
+        } else {
+            0
+        },
+        year: integer(number("year")?, "year")? as i32,
+        month: integer(number("month")?, "month")? as u8,
+        day: integer(number("day")?, "day")? as u8,
+        hour: integer(number("hour")?, "hour")? as u8,
+        minute: integer(number("minute")?, "minute")? as u8,
+        day_of_week: integer(number("dayOfWeek")?, "dayOfWeek")? as u8,
+    })
+}
+
+fn cron_error(error_value: JsValue) -> String {
+    error_value
+        .as_string()
+        .unwrap_or_else(|| "Date observer failed".to_owned())
+}
+
+fn admission_json(
+    state: &TriggerAdmissionState,
+    trigger_id: &JsString,
+    admission: TriggerAdmission,
+) -> String {
+    match admission {
+        TriggerAdmission::Admitted { ticket } => format!(r#"{{"kind":"admit","ticket":{ticket}}}"#),
+        TriggerAdmission::Dropped(reason) => {
+            let reason_name = match reason {
+                TriggerDropReason::NotStarted => "notStarted",
+                TriggerDropReason::NotInstalled => "notInstalled",
+                TriggerDropReason::MaxQueued => "maxQueued",
+                TriggerDropReason::Cooldown => "cooldown",
+            };
+            JsonDocument::object([
+                ("kind", JsonDocument::from("drop")),
+                ("reason", JsonDocument::from(reason_name)),
+                (
+                    "message",
+                    JsonDocument::string(state.drop_message(trigger_id, reason)),
+                ),
+            ])
+            .to_json_text()
+        }
+    }
+}
+
+/// Rust-owned stateful admission policy for one V3 trigger manager.
+#[wasm_bindgen]
+pub struct RustTriggerAdmission {
+    inner: TriggerAdmissionState,
+}
+
+#[wasm_bindgen]
+impl RustTriggerAdmission {
+    /// Validates storm control and creates a stopped admission state.
+    #[wasm_bindgen(constructor)]
+    pub fn new(cooldown_ms: JsValue, max_queued: JsValue) -> Result<Self, JsValue> {
+        let config = TriggerAdmissionConfig::new(
+            optional_number(&cooldown_ms, "storm.cooldownMs")?,
+            optional_number(&max_queued, "storm.maxQueued")?,
+        )
+        .map_err(error)?;
+        Ok(Self {
+            inner: TriggerAdmissionState::new(config),
+        })
+    }
+
+    /// Starts fire admission.
+    pub fn start(&mut self) {
+        self.inner.start();
+    }
+
+    /// Stops admission and removes installed identities and cooldown stamps.
+    pub fn stop(&mut self) {
+        self.inner.stop();
+    }
+
+    /// Returns whether the manager is started.
+    pub fn is_started(&self) -> bool {
+        self.inner.is_started()
+    }
+
+    /// Returns whether the host must observe its persisted queue length.
+    pub fn has_queue_cap(&self) -> bool {
+        self.inner.has_queue_cap()
+    }
+
+    /// Clears every installed identity before the host refreshes handlers.
+    pub fn clear_installed(&mut self) {
+        self.inner.clear_installed();
+    }
+
+    /// Marks one host-successfully-installed trigger as eligible to fire.
+    pub fn install(&mut self, trigger_id_json: &str) -> Result<(), JsValue> {
+        self.inner.install(parse_string(trigger_id_json)?);
+        Ok(())
+    }
+
+    /// Removes an uninstalled trigger identity.
+    pub fn uninstall(&mut self, trigger_id_json: &str) -> Result<(), JsValue> {
+        self.inner.uninstall(&parse_string(trigger_id_json)?);
+        Ok(())
+    }
+
+    /// Returns successfully installed trigger identities in insertion order.
+    pub fn installed_ids(&self) -> String {
+        JsonDocument::array(
+            self.inner
+                .installed_ids()
+                .into_iter()
+                .map(JsonDocument::string),
+        )
+        .to_json_text()
+    }
+
+    /// Admits or drops one host-observed fire without enqueueing a run itself.
+    pub fn admit(
+        &mut self,
+        trigger_id_json: &str,
+        now_ms: f64,
+        queued_count: f64,
+    ) -> Result<String, JsValue> {
+        let now_ms = integer(now_ms, "now")?;
+        let queued_count = integer(queued_count, "queued count")?;
+        if queued_count < 0 {
+            return Err(error("queued count must be a finite number"));
+        }
+        let trigger_id = parse_string(trigger_id_json)?;
+        let admission = self.inner.admit(&trigger_id, now_ms, queued_count as u64);
+        Ok(admission_json(&self.inner, &trigger_id, admission))
+    }
+
+    /// Reports terminal enqueue success or failure, rolling back cooldown only on failure.
+    pub fn finish(&mut self, ticket: f64, succeeded: bool) -> Result<(), JsValue> {
+        let ticket = integer(ticket, "ticket")?;
+        if ticket < 0 {
+            return Err(error("ticket must be a finite number"));
+        }
+        self.inner.finish(ticket as u64, succeeded);
+        Ok(())
+    }
+}
+
+/// Validates the complete five-field cron grammar after host string normalization.
+#[wasm_bindgen]
+pub fn run_policy_validate_cron(cron: String) -> Result<(), JsValue> {
+    CronExpression::parse(&cron).map_err(error)?;
+    Ok(())
+}
+
+/// Normalizes a cron source value through the host's String intrinsics, then validates grammar.
+#[wasm_bindgen]
+pub fn run_policy_normalize_cron(value: JsValue, normalize: &Function) -> Result<String, JsValue> {
+    let cron = normalize
+        .call1(&JsValue::NULL, &value)?
+        .as_string()
+        .ok_or_else(|| error("cron normalizer must return a string"))?;
+    if cron.is_empty() {
+        return Err(error("cron must be a non-empty string"));
+    }
+    CronExpression::parse(&cron).map_err(error)?;
+    Ok(cron)
+}
+
+/// Normalizes a timezone through host String/Intl observations while retaining error policy in Rust.
+#[wasm_bindgen]
+pub fn run_policy_normalize_timezone(
+    value: JsValue,
+    trim: &Function,
+    is_valid: &Function,
+) -> Result<Option<String>, JsValue> {
+    if value.is_null() || value.is_undefined() {
+        return Ok(None);
+    }
+    let raw = value
+        .as_string()
+        .ok_or_else(|| error("timezone must be a string"))?;
+    let timezone = trim
+        .call1(&JsValue::NULL, &JsValue::from_str(&raw))?
+        .as_string()
+        .ok_or_else(|| error("timezone trim observer must return a string"))?;
+    if timezone.is_empty() {
+        return Ok(None);
+    }
+    let valid = is_valid
+        .call1(&JsValue::NULL, &JsValue::from_str(&timezone))?
+        .as_bool()
+        .unwrap_or(false);
+    if !valid {
+        return Err(error(format!("Invalid timezone: \"{timezone}\"")));
+    }
+    Ok(Some(timezone))
+}
+
+/// Computes the next local-time cron fire using only host Date candidate observations.
+#[wasm_bindgen]
+pub fn run_policy_cron_next_local(
+    cron: String,
+    from_ms: f64,
+    local_candidate: &Function,
+) -> Result<f64, JsValue> {
+    let cron = CronExpression::parse(&cron).map_err(error)?;
+    let from_ms = integer(from_ms, "fromMs")?;
+    let next = run_policy::cron_next_local(&cron, from_ms, |from, day_offset, hour, minute| {
+        local_candidate
+            .call4(
+                &JsValue::NULL,
+                &JsValue::from_f64(from as f64),
+                &JsValue::from_f64(day_offset as f64),
+                &JsValue::from_f64(hour as f64),
+                &JsValue::from_f64(minute as f64),
+            )
+            .and_then(|value| clock_parts(value, true))
+            .map_err(cron_error)
+    })
+    .map_err(error)?;
+    Ok(next as f64)
+}
+
+/// Computes the next zoned cron fire using only host Intl DateTimeFormat observations.
+#[wasm_bindgen]
+pub fn run_policy_cron_next_zoned(
+    cron: String,
+    timezone: String,
+    from_ms: f64,
+    zoned_parts: &Function,
+) -> Result<f64, JsValue> {
+    let cron = CronExpression::parse(&cron).map_err(error)?;
+    let from_ms = integer(from_ms, "fromMs")?;
+    let next = run_policy::cron_next_zoned(&cron, from_ms, |utc_ms| {
+        zoned_parts
+            .call2(
+                &JsValue::NULL,
+                &JsValue::from_f64(utc_ms as f64),
+                &JsValue::from_str(&timezone),
+            )
+            .and_then(|value| clock_parts(value, false))
+            .map_err(cron_error)
+    })
+    .map_err(error)?;
+    Ok(next as f64)
+}
+
+fn string_field(entry: &JsValue, field: &str, fallback: &str) -> Result<String, JsValue> {
+    let value = Reflect::get(entry, &JsValue::from_str(field))?;
+    Ok(value.as_string().unwrap_or_else(|| fallback.to_owned()))
+}
+
+/// Canonicalizes a complete DOM-observer trigger payload batch and asks the host only to observe
+/// native `localeCompare` ordering.
+#[wasm_bindgen]
+pub fn run_policy_dom_trigger_payload(
+    entries: JsValue,
+    locale_compare: &Function,
+    stringify: &Function,
+    trim: &Function,
+) -> Result<String, JsValue> {
+    let entries = Array::from(&entries);
+    let mut inputs = Vec::with_capacity(entries.length() as usize);
+    for index in 0..entries.length() {
+        let entry = entries.get(index);
+        let selector_value = Reflect::get(&entry, &JsValue::from_str("selector"))?;
+        let selector = if selector_value.is_null() || selector_value.is_undefined() {
+            String::new()
+        } else {
+            let selector = stringify
+                .call1(&JsValue::NULL, &selector_value)?
+                .as_string()
+                .ok_or_else(|| error("String observer must return a string"))?;
+            trim.call1(&JsValue::NULL, &JsValue::from_str(&selector))?
+                .as_string()
+                .ok_or_else(|| error("String trim observer must return a string"))?
+        };
+        let appear_is_false =
+            Reflect::get(&entry, &JsValue::from_str("appear"))?.as_bool() == Some(false);
+        let once_is_false =
+            Reflect::get(&entry, &JsValue::from_str("once"))?.as_bool() == Some(false);
+        let debounce_ms = Reflect::get(&entry, &JsValue::from_str("debounceMs"))?.as_f64();
+        inputs.push(DomTriggerInput {
+            id: string_field(&entry, "id", "")?,
+            selector,
+            appear_is_false,
+            once_is_false,
+            debounce_ms,
+        });
+    }
+    let payload = run_policy::dom_trigger_payload(inputs, |left, right| {
+        locale_compare
+            .call2(
+                &JsValue::NULL,
+                &JsValue::from_str(left),
+                &JsValue::from_str(right),
+            )
+            .and_then(|value| {
+                value
+                    .as_f64()
+                    .ok_or_else(|| error("localeCompare observer returned a non-number"))
+            })
+            .map(|value| {
+                if value < 0.0 {
+                    -1
+                } else if value > 0.0 {
+                    1
+                } else {
+                    0
+                }
+            })
+            .map_err(cron_error)
+    })
+    .map_err(error)?;
+    serde_json::to_string(&payload).map_err(error)
 }

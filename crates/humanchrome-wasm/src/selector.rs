@@ -3,6 +3,7 @@
 //! The host supplies complete candidate batches once. Results refer back to candidate indexes and
 //! patches so opaque caller metadata and object identity remain in TypeScript.
 
+use js_sys::JsString as WebString;
 use wasm_bindgen::prelude::*;
 
 use humanchrome_core::arguments::JsString;
@@ -14,6 +15,35 @@ use humanchrome_core::selector::{
 };
 
 use crate::{error, parse_json, parse_string};
+
+mod action_target;
+
+/// Normalizes DOM-observed names without changing the host's synchronous API.
+#[wasm_bindgen]
+pub fn selector_normalize_accessible_name(value: WebString) -> WebString {
+    let value = crate::intrinsics::from_js_string(&value);
+    crate::intrinsics::to_js_string(&selector::normalize_accessible_name(&value))
+}
+
+/// Matches strings using core policy and the browser's native Unicode lowercase intrinsic.
+#[wasm_bindgen]
+pub fn selector_matches_accessible_name(
+    computed: WebString,
+    target: WebString,
+    mode: &str,
+) -> bool {
+    let mode = match mode {
+        "exact" => selector::AccessibleNameMatchMode::Exact,
+        "iexact" => selector::AccessibleNameMatchMode::InsensitiveExact,
+        _ => selector::AccessibleNameMatchMode::Contains,
+    };
+    selector::matches_accessible_name(
+        &crate::intrinsics::from_js_string(&computed),
+        &crate::intrinsics::from_js_string(&target),
+        mode,
+        crate::intrinsics::lower_case,
+    )
+}
 
 /// Builds the legacy ARIA fallback queries without browser handles or UTF-16 replacement.
 #[wasm_bindgen]

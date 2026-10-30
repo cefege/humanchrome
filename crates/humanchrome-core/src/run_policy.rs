@@ -4,6 +4,14 @@
 //! operations remain host effects. This module owns only deterministic decisions driven by
 //! host-supplied values.
 
+mod triggers;
+
+pub use triggers::{
+    CronClockParts, CronExpression, DomTriggerInput, DomTriggerPayload, TriggerAdmission,
+    TriggerAdmissionConfig, TriggerAdmissionState, TriggerDropReason, cron_next_local,
+    cron_next_zoned, dom_trigger_payload,
+};
+
 use indexmap::IndexMap;
 
 use crate::arguments::JsString;

@@ -7,13 +7,15 @@ use std::fmt::Write as _;
 
 use humanchrome_core::arguments::JsString;
 use humanchrome_core::browser_metadata::{
-    self, MarkerMatchRecord, OwnedTabOrderRow, PaceInputPlan, PaceInputValue, ParsedMarkerUrl,
-    RegistryEntry,
+    self, CloseTabCandidate, CloseTabMatchField, CloseTabMatcher, MarkerMatchRecord,
+    NavigationCandidate, NavigationUrlFacts, OwnedTabOrderRow, PaceInputPlan, PaceInputValue,
+    ParsedMarkerUrl, RegistryEntry,
 };
 use humanchrome_core::json_document::JsonDocument;
-use wasm_bindgen::prelude::*;
+use js_sys::{Array, Function, Reflect};
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 
-use crate::{error, parse_json, parse_string};
+use crate::{error, intrinsics, parse_json, parse_string};
 
 /// Normalizes stored marker URL fields around a host-native `URL` parse result.
 #[wasm_bindgen]
@@ -121,6 +123,271 @@ pub fn browser_metadata_owned_tab_order(rows_json: String) -> Result<String, JsV
     Ok(indexes_json(browser_metadata::stable_owned_tab_order(
         &rows,
     )))
+}
+
+/// Expands a navigation URL into existing Chrome query patterns using host-observed URL facts.
+#[wasm_bindgen]
+pub fn browser_metadata_navigation_url_patterns(
+    input_json: String,
+    parsed_json: String,
+) -> Result<String, JsValue> {
+    let input = parse_string(&input_json)?;
+    let parsed = parse_navigation_url_facts(parse_json(&parsed_json)?)?;
+    Ok(js_string_array_json(
+        browser_metadata::navigation_url_patterns(input, parsed.as_ref()),
+    ))
+}
+
+/// Selects the best existing navigation candidate index without moving Chrome tab objects.
+#[wasm_bindgen]
+pub fn browser_metadata_pick_navigation_candidate(
+    target_json: String,
+    candidates_json: String,
+) -> Result<String, JsValue> {
+    let target = parse_navigation_url_facts(parse_json(&target_json)?)?;
+    let candidates = parse_json(&candidates_json)?
+        .into_array_values()
+        .ok_or_else(|| error("navigation candidates must be an array"))?
+        .into_iter()
+        .enumerate()
+        .map(|(source_index, value)| {
+            Ok(NavigationCandidate {
+                source_index,
+                parsed: parse_navigation_url_facts(value)?,
+            })
+        })
+        .collect::<Result<Vec<_>, JsValue>>()?;
+    Ok(optional_index_json(
+        browser_metadata::pick_best_navigation_candidate(target.as_ref(), &candidates),
+    ))
+}
+
+/// Selects host-owned tab indexes for close-tab filters using native JavaScript matching intrinsics.
+#[wasm_bindgen]
+pub fn browser_metadata_close_tab_match_indexes(
+    filters_json: String,
+    candidates_json: String,
+    except_tab_ids_json: String,
+    now_ms: f64,
+) -> Result<String, JsValue> {
+    let ParsedCloseTabFilters {
+        url_match,
+        title_match,
+        older_than_ms,
+    } = parse_close_tab_filters(parse_json(&filters_json)?)?;
+    let Some(plan) =
+        browser_metadata::plan_close_tab_filters(url_match, title_match, older_than_ms)
+    else {
+        return Ok("{\"kind\":\"invalid\"}".to_owned());
+    };
+    let candidates = parse_json(&candidates_json)?
+        .into_array_values()
+        .ok_or_else(|| error("close-tab candidates must be an array"))?
+        .into_iter()
+        .enumerate()
+        .map(|(source_index, value)| parse_close_tab_candidate(value, source_index))
+        .collect::<Result<Vec<_>, JsValue>>()?;
+    let except_tab_ids = parse_close_tab_except_ids(parse_json(&except_tab_ids_json)?);
+    let mut url_matcher = plan
+        .url_matcher
+        .as_ref()
+        .map(compile_js_matcher)
+        .transpose()?;
+    let mut title_matcher = plan
+        .title_matcher
+        .as_ref()
+        .map(compile_js_matcher)
+        .transpose()?;
+    let indexes = browser_metadata::select_close_tab_indexes(
+        &plan,
+        &candidates,
+        &except_tab_ids,
+        now_ms,
+        |field, _, value| match field {
+            CloseTabMatchField::Url => url_matcher
+                .as_mut()
+                .is_some_and(|matcher| matcher.matches(value)),
+            CloseTabMatchField::Title => title_matcher
+                .as_mut()
+                .is_some_and(|matcher| matcher.matches(value)),
+        },
+    );
+    Ok(close_tab_selection_json(indexes))
+}
+
+fn parse_navigation_url_facts(value: JsonDocument) -> Result<Option<NavigationUrlFacts>, JsValue> {
+    if value.as_ref().is_null() {
+        return Ok(None);
+    }
+    let mut value = value;
+    Ok(Some(NavigationUrlFacts {
+        protocol: take_required_string(&mut value, "protocol")?,
+        host: take_required_string(&mut value, "host")?,
+        hostname: take_required_string(&mut value, "hostname")?,
+        pathname: take_required_string(&mut value, "pathname")?,
+        search: take_required_string(&mut value, "search")?,
+    }))
+}
+
+#[derive(Debug)]
+struct ParsedCloseTabFilters {
+    url_match: Option<JsString>,
+    title_match: Option<JsString>,
+    older_than_ms: Option<f64>,
+}
+
+fn parse_close_tab_filters(mut value: JsonDocument) -> Result<ParsedCloseTabFilters, JsValue> {
+    Ok(ParsedCloseTabFilters {
+        url_match: take_trimmed_optional_string(&mut value, "urlMatches")?,
+        title_match: take_trimmed_optional_string(&mut value, "titleMatches")?,
+        older_than_ms: take_nonnegative_optional_number(&mut value, "olderThanMs"),
+    })
+}
+
+fn parse_close_tab_candidate(
+    mut value: JsonDocument,
+    source_index: usize,
+) -> Result<CloseTabCandidate, JsValue> {
+    Ok(CloseTabCandidate {
+        source_index,
+        tab_id: take_js_optional_number(&mut value, "id"),
+        url: take_required_string(&mut value, "url")?,
+        title: take_required_string(&mut value, "title")?,
+        created_at: take_js_optional_number(&mut value, "createdAt"),
+    })
+}
+
+fn parse_close_tab_except_ids(value: JsonDocument) -> Vec<f64> {
+    value
+        .into_array_values()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.as_ref().as_f64())
+        .collect()
+}
+
+fn take_trimmed_optional_string(
+    value: &mut JsonDocument,
+    key: &str,
+) -> Result<Option<JsString>, JsValue> {
+    let Some(value) = value.remove(key) else {
+        return Ok(None);
+    };
+    if !value.as_ref().is_string() {
+        return Ok(None);
+    }
+    let trimmed = js_trim(value.to_js_string())?;
+    Ok((trimmed.utf16_len() > 0).then_some(trimmed))
+}
+
+fn take_nonnegative_optional_number(value: &mut JsonDocument, key: &str) -> Option<f64> {
+    value
+        .remove(key)
+        .and_then(|value| value.as_ref().as_f64())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+fn take_js_optional_number(value: &mut JsonDocument, key: &str) -> Option<f64> {
+    value.remove(key).and_then(|value| value.as_ref().as_f64())
+}
+
+enum JsCloseTabMatcher {
+    Regex(JsValue),
+    Substring(JsValue),
+}
+
+impl JsCloseTabMatcher {
+    fn matches(&mut self, value: &JsString) -> bool {
+        let value = core_js_value(value);
+        match self {
+            Self::Regex(regexp) => call_method(regexp, "test", Some(&value))
+                .ok()
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            Self::Substring(needle) => {
+                let Ok(value) = call_string_method(&value, "toLowerCase", None) else {
+                    return false;
+                };
+                call_string_method(&value, "includes", Some(needle))
+                    .ok()
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            }
+        }
+    }
+}
+
+fn compile_js_matcher(plan: &CloseTabMatcher) -> Result<JsCloseTabMatcher, JsValue> {
+    match plan {
+        CloseTabMatcher::Substring { needle } => {
+            let needle = call_string_method(&core_js_value(needle), "toLowerCase", None)?;
+            Ok(JsCloseTabMatcher::Substring(needle))
+        }
+        CloseTabMatcher::Regex { pattern, flags } => {
+            let arguments = Array::new();
+            arguments.push(&core_js_value(pattern));
+            arguments.push(&core_js_value(flags));
+            let constructor = global_function("RegExp")?;
+            match Reflect::construct(&constructor, &arguments) {
+                Ok(regexp) => Ok(JsCloseTabMatcher::Regex(regexp)),
+                Err(_) => {
+                    let needle = call_string_method(&core_js_value(pattern), "toLowerCase", None)?;
+                    Ok(JsCloseTabMatcher::Substring(needle))
+                }
+            }
+        }
+    }
+}
+
+fn js_trim(value: JsString) -> Result<JsString, JsValue> {
+    js_value_to_core_string(call_string_method(&core_js_value(&value), "trim", None)?)
+}
+
+fn core_js_value(value: &JsString) -> JsValue {
+    intrinsics::to_js_string(value).into()
+}
+
+fn js_value_to_core_string(value: JsValue) -> Result<JsString, JsValue> {
+    let value = value
+        .dyn_into::<js_sys::JsString>()
+        .map_err(|_| error("string intrinsic returned a non-string"))?;
+    Ok(intrinsics::from_js_string(&value))
+}
+
+fn global_function(name: &str) -> Result<Function, JsValue> {
+    Reflect::get(&js_sys::global(), &JsValue::from_str(name))?
+        .dyn_into::<Function>()
+        .map_err(|_| error(format!("global {name} is not callable")))
+}
+
+fn call_string_method(
+    value: &JsValue,
+    method: &str,
+    argument: Option<&JsValue>,
+) -> Result<JsValue, JsValue> {
+    let constructor = global_function("String")?;
+    let prototype = Reflect::get(&constructor, &JsValue::from_str("prototype"))?;
+    let method = Reflect::get(&prototype, &JsValue::from_str(method))?
+        .dyn_into::<Function>()
+        .map_err(|_| error("String intrinsic is not callable"))?;
+    match argument {
+        Some(argument) => method.call1(value, argument),
+        None => method.call0(value),
+    }
+}
+
+fn call_method(
+    target: &JsValue,
+    method: &str,
+    argument: Option<&JsValue>,
+) -> Result<JsValue, JsValue> {
+    let method = Reflect::get(target, &JsValue::from_str(method))?
+        .dyn_into::<Function>()
+        .map_err(|_| error("host method is not callable"))?;
+    match argument {
+        Some(argument) => method.call1(target, argument),
+        None => method.call0(target),
+    }
 }
 
 fn parse_optional_tab_id_display(value: JsonDocument) -> Result<Option<String>, JsValue> {
@@ -245,6 +512,30 @@ fn marker_url_json(value: browser_metadata::MarkerUrl) -> String {
         ),
     ])
     .to_json_text()
+}
+
+fn js_string_array_json(values: Vec<JsString>) -> String {
+    let mut json = String::with_capacity(values.len().saturating_mul(16).saturating_add(2));
+    json.push('[');
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        json.push_str(&value.json_string_literal());
+    }
+    json.push(']');
+    json
+}
+
+fn optional_index_json(index: Option<usize>) -> String {
+    index.map_or_else(|| "null".to_owned(), |index| index.to_string())
+}
+
+fn close_tab_selection_json(indexes: Vec<usize>) -> String {
+    format!(
+        "{{\"kind\":\"selected\",\"indexes\":{}}}",
+        indexes_json(indexes)
+    )
 }
 
 fn indexes_json(indexes: Vec<usize>) -> String {

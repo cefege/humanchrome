@@ -40,14 +40,14 @@ extern "C" {
     #[wasm_bindgen(method, getter)]
     fn pathname(this: &BrowserUrl) -> WebString;
     #[wasm_bindgen(js_name = String)]
-    fn javascript_string(value: &JsValue) -> WebString;
+    pub(crate) fn javascript_string(value: &JsValue) -> WebString;
     #[wasm_bindgen(js_name = Object)]
     fn javascript_object(value: &JsValue) -> Object;
     #[wasm_bindgen(js_name = Number)]
-    fn javascript_number(value: &JsValue) -> f64;
+    pub(crate) fn javascript_number(value: &JsValue) -> f64;
 }
 
-struct BrowserIntrinsics;
+pub(crate) struct BrowserIntrinsics;
 
 impl StringIntrinsics for BrowserIntrinsics {
     fn trim(&self, value: &JsString) -> JsString {
@@ -245,7 +245,7 @@ fn workflow_flow(document: &JsonDocument) -> Result<WorkflowFlow, JsValue> {
     ))
 }
 
-fn variable_store(document: JsonDocument) -> Result<VariableStore, JsValue> {
+pub(crate) fn variable_store(document: JsonDocument) -> Result<VariableStore, JsValue> {
     let values = document
         .into_object_fields()
         .ok_or_else(|| crate::error("Expected variables object"))?;
@@ -269,7 +269,7 @@ fn parse_url_rule(document: &JsonDocument) -> Result<UrlMatchRule, JsValue> {
     })
 }
 
-fn parse_resolvable(document: JsonDocument) -> Result<Resolvable, JsValue> {
+pub(crate) fn parse_resolvable(document: JsonDocument) -> Result<Resolvable, JsValue> {
     let Some(kind) = field(&document, "kind").filter(|value| value.as_ref().is_string()) else {
         return Ok(Resolvable::Literal(document));
     };
@@ -1397,6 +1397,13 @@ fn legacy_template_replacement(scope: &JsValue, key: &JsString) -> Result<JsStri
     )))
 }
 
+pub(crate) fn expand_legacy_string(
+    template: &JsString,
+    scope: &JsValue,
+) -> Result<JsString, JsValue> {
+    workflow::expand_legacy_braces(template, |key| legacy_template_replacement(scope, key))
+}
+
 fn legacy_expand_templates_inner(
     value: &JsValue,
     scope: &JsValue,
@@ -1407,9 +1414,7 @@ fn legacy_expand_templates_inner(
     }
     if value.is_string() {
         let template = crate::intrinsics::from_js_string(value.unchecked_ref::<WebString>());
-        let expanded = workflow::expand_legacy_braces(&template, |key| {
-            legacy_template_replacement(scope, key)
-        })?;
+        let expanded = expand_legacy_string(&template, scope)?;
         return Ok(crate::intrinsics::to_js_string(&expanded).into());
     }
     if Array::is_array(value) {

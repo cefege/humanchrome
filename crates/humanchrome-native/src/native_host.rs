@@ -235,6 +235,28 @@ impl NativeHost {
         result
     }
 
+    /// Serve as the detached primary without inheriting a Chrome native-message source.
+    ///
+    /// A Chrome-launched relay owns its own stdin/stdout and connects through the
+    /// daemon socket. Losing that relay therefore cannot terminate this HTTP owner.
+    ///
+    /// # Errors
+    /// Reports socket acquisition and signal-registration failures.
+    #[cfg(unix)]
+    pub async fn run_detached_primary(mut self) -> io::Result<()> {
+        let registry = InstanceRegistry::new(self.paths.registry.clone());
+        registry.list(epoch_millis()).await;
+        let Some(primary) = daemon::try_acquire_daemon_lock(&self.paths.daemon_socket).await?
+        else {
+            return Ok(());
+        };
+        let result = self.serve(Some(&primary)).await;
+        self.pending.disconnect();
+        drop(primary);
+        registry.remove(std::process::id()).await;
+        result
+    }
+
     fn now_ms(&self) -> u64 {
         u64::try_from(self.origin.elapsed().as_millis()).unwrap_or(u64::MAX)
     }

@@ -11,6 +11,25 @@ use humanchrome_core::editor_policy::{
 };
 
 use crate::{error, parse_json, parse_string};
+mod apply_payload;
+
+/// Coerces a primitive JavaScript string, retaining the historical empty-string fallback.
+#[wasm_bindgen]
+pub fn editor_normalize_string(value: JsValue) -> JsValue {
+    apply_payload::normalize_string(value)
+}
+
+/// Normalizes one web-editor apply payload without serializing opaque JavaScript values.
+#[wasm_bindgen]
+pub fn editor_normalize_apply_payload(raw: JsValue) -> Result<JsValue, JsValue> {
+    apply_payload::normalize_apply_payload(raw)
+}
+
+/// Normalizes one web-editor apply-batch payload while retaining its `elements` array identity.
+#[wasm_bindgen]
+pub fn editor_normalize_apply_batch_payload(raw: JsValue) -> Result<JsValue, JsValue> {
+    apply_payload::normalize_apply_batch_payload(raw)
+}
 
 fn snap_result_to_js(result: &editor_policy::SnapResult) -> Result<JsValue, JsValue> {
     let output = js_sys::Object::new();

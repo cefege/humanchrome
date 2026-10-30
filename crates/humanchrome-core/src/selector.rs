@@ -13,6 +13,17 @@ use crate::arguments::JsString;
 mod legacy_aria;
 pub use legacy_aria::legacy_aria_selectors;
 
+mod action_target;
+pub use action_target::{
+    ActionCandidateBatch, ActionCandidateInput, ActionCandidatePlan, clamp_action_integer,
+    prepare_action_candidates,
+};
+
+mod accessible_name;
+pub use accessible_name::{
+    AccessibleNameMatchMode, matches_accessible_name, normalize_accessible_name,
+};
+
 const COMPOSITE_SEPARATOR: [u16; 2] = [b'|' as u16, b'>' as u16];
 const DEFAULT_MAX_CANDIDATES: f64 = 8.0;
 const DEFAULT_TEXT_MAX_LENGTH: f64 = 64.0;
@@ -655,6 +666,8 @@ fn builtin_candidate_weight(candidate: &SelectorCandidate) -> Option<f64> {
     match candidate.strategy.as_ref().and_then(JsString::as_utf8) {
         Some("testid") => Some(test_id_candidate_weight(&candidate.value)),
         Some("aria") => Some(40.0),
+        Some("label") if candidate.selector_type == SelectorType::Aria => Some(30.0),
+        Some("placeholder") if candidate.selector_type == SelectorType::Attr => Some(25.0),
         Some("text") => Some(10.0),
         Some("anchor-relpath") => Some(-10.0),
         Some("css-path") => Some(-30.0),
@@ -2120,6 +2133,53 @@ mod tests {
         let target = rank_candidates(vec![semantic, css], &options(), None);
         assert_eq!(target.candidates[0].selector_type, SelectorType::Role);
         assert_eq!(target.selector, JsString::from("[data-testid=save]"));
+    }
+
+    #[test]
+    fn recorder_form_candidates_keep_their_priority_without_reweighting_modern_kinds() {
+        let generated = |kind, value, strategy| {
+            let mut candidate = SelectorCandidate::new(kind, JsString::from(value));
+            candidate.source = Some(super::SelectorCandidateSource::Generated);
+            candidate.strategy = Some(JsString::from(strategy));
+            candidate
+        };
+        let recorder = rank_candidates(
+            vec![
+                generated(SelectorType::Css, "#email", "css-unique"),
+                generated(SelectorType::Aria, "textbox[name=\"Email\"]", "label"),
+                generated(
+                    SelectorType::Attr,
+                    "[placeholder=\"Address\"]",
+                    "placeholder",
+                ),
+            ],
+            &options(),
+            None,
+        );
+        assert_eq!(
+            recorder
+                .candidates
+                .iter()
+                .map(|candidate| candidate.selector_type)
+                .collect::<Vec<_>>(),
+            [SelectorType::Aria, SelectorType::Attr, SelectorType::Css]
+        );
+        assert_eq!(
+            recorder.selector,
+            JsString::from("[placeholder=\"Address\"]")
+        );
+
+        let modern = rank_candidates(
+            vec![
+                generated(SelectorType::Css, "#email", "css-unique"),
+                generated(SelectorType::Label, "Email", "label"),
+                generated(SelectorType::Placeholder, "Address", "placeholder"),
+            ],
+            &options(),
+            None,
+        );
+        assert_eq!(modern.candidates[0].selector_type, SelectorType::Css);
+        assert_eq!(modern.selector, JsString::from("#email"));
     }
 
     #[test]

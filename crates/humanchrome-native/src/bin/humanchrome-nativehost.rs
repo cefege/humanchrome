@@ -3,6 +3,7 @@
 use humanchrome_core::json_document::JsonDocument;
 use humanchrome_native::{
     agent::{AgentHttp, AgentHttpConfig, CodexProvider, ProviderRegistry},
+    daemon::{self, DaemonMode},
     file_ops::{FileOperations, trace::DevtoolsTraceAnalyzer},
     native_host::{NativeClient, NativeHost},
     paths::NativePaths,
@@ -15,6 +16,16 @@ use std::{path::PathBuf, sync::Arc};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let paths = NativePaths::from_environment()?;
+    let detached_primary = daemon::is_detached_primary();
+    if !detached_primary
+        && let Err(error) =
+            daemon::ensure_detached_primary(&paths.daemon_socket, DaemonMode::from_environment())
+                .await
+    {
+        // Retain the direct-primary path when the host executable cannot be
+        // re-executed; this is the existing availability behavior.
+        tracing::warn!(%error, "unable to launch detached native daemon");
+    }
     let engines = engine_paths()?;
     let node =
         std::env::var_os("HC_TRACE_NODE").map_or_else(|| engines.node.clone(), PathBuf::from);
@@ -43,6 +54,15 @@ async fn main() -> anyhow::Result<()> {
     }
     let (host, client, mut directives) = NativeHost::new(paths.clone());
     let mut server = ServerLifecycle::new(paths.registry.clone());
+    #[cfg(unix)]
+    let mut host_task = tokio::spawn(async move {
+        if detached_primary {
+            host.run_detached_primary().await
+        } else {
+            host.run().await
+        }
+    });
+    #[cfg(not(unix))]
     let mut host_task = tokio::spawn(host.run());
     loop {
         tokio::select! {

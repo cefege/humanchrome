@@ -48,6 +48,85 @@ pub struct MarkerMatchRecord {
     pub path: Option<JsString>,
 }
 
+/// Browser URL facts observed through the host's native `URL` implementation.
+///
+/// URL parsing remains browser-owned; this type deliberately contains only the normalized fields
+/// needed for navigation-pattern expansion and candidate selection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigationUrlFacts {
+    /// Browser-normalized protocol, including its trailing colon.
+    pub protocol: JsString,
+    /// Browser-normalized host, including an explicit port when present.
+    pub host: JsString,
+    /// Browser-normalized hostname.
+    pub hostname: JsString,
+    /// Browser-normalized pathname.
+    pub pathname: JsString,
+    /// Browser-normalized query, including its leading question mark when present.
+    pub search: JsString,
+}
+
+/// A parsed navigation candidate held by the browser host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigationCandidate {
+    /// Source position in the host-owned candidate tab array.
+    pub source_index: usize,
+    /// Native-URL facts for the candidate URL, or `None` when parsing failed.
+    pub parsed: Option<NavigationUrlFacts>,
+}
+
+/// Matcher syntax selected from one nonempty, host-trimmed close-tab filter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CloseTabMatcher {
+    /// JavaScript `RegExp(pattern, flags)` semantics, retained at the WASM host boundary.
+    Regex {
+        /// Text between the opening and final slash.
+        pattern: JsString,
+        /// Text after the final slash.
+        flags: JsString,
+    },
+    /// Case-insensitive JavaScript substring semantics, retained at the WASM host boundary.
+    Substring {
+        /// The text to find.
+        needle: JsString,
+    },
+}
+
+/// Field whose close-tab matcher is being evaluated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseTabMatchField {
+    /// The candidate URL.
+    Url,
+    /// The candidate title.
+    Title,
+}
+
+/// Parsed close-tab filter policy before host intrinsic matching.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CloseTabFilterPlan {
+    /// Optional URL matcher.
+    pub url_matcher: Option<CloseTabMatcher>,
+    /// Optional title matcher.
+    pub title_matcher: Option<CloseTabMatcher>,
+    /// Optional inclusive age threshold in milliseconds.
+    pub older_than_ms: Option<f64>,
+}
+
+/// Candidate metadata required for close-tab selection while Chrome tab objects remain host-owned.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CloseTabCandidate {
+    /// Source position in the host-owned query result.
+    pub source_index: usize,
+    /// Tab identifier when Chrome supplied a JavaScript number.
+    pub tab_id: Option<f64>,
+    /// URL value after the host's nullish-empty normalization.
+    pub url: JsString,
+    /// Title value after the host's nullish-empty normalization.
+    pub title: JsString,
+    /// Creation timestamp tracked by the browser host.
+    pub created_at: Option<f64>,
+}
+
 /// Registry entry metadata used to choose host-owned values for eviction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegistryEntry {
@@ -364,6 +443,314 @@ pub fn stable_owned_tab_order(rows: &[OwnedTabOrderRow]) -> Vec<usize> {
     indexes
 }
 
+/// Expands a navigation target into the existing Chrome URL-query patterns.
+///
+/// A wildcard target passes through unchanged. For a parseable non-wildcard target, this retains
+/// the current HTTP/HTTPS and www/no-www expansion order; malformed inputs use the legacy suffix
+/// wildcard fallback.
+#[must_use]
+pub fn navigation_url_patterns(
+    input: JsString,
+    parsed: Option<&NavigationUrlFacts>,
+) -> Vec<JsString> {
+    if js_contains_unit(&input, u16::from(b'*')) {
+        return vec![input];
+    }
+
+    let Some(parsed) = parsed else {
+        return vec![navigation_fallback_pattern(input)];
+    };
+
+    let is_ip = is_ipv4_like(&parsed.hostname) || js_starts_with_ascii(&parsed.hostname, b"[");
+    let is_multi_label = js_contains_unit(&parsed.hostname, u16::from(b'.')) && !is_ip;
+    let host_without_www = strip_ascii_www(&parsed.host);
+    let host_with_www = prepend_ascii("www.", &host_without_www);
+    let alternate_protocol = if js_string_eq_ascii(&parsed.protocol, b"https:") {
+        JsString::from_string("http:")
+    } else {
+        JsString::from_string("https:")
+    };
+
+    let mut patterns = Vec::with_capacity(if is_multi_label { 6 } else { 2 });
+    push_unique_js_string(
+        &mut patterns,
+        join_navigation_pattern(&parsed.protocol, &parsed.host),
+    );
+    if is_multi_label {
+        push_unique_js_string(
+            &mut patterns,
+            join_navigation_pattern(&parsed.protocol, &host_without_www),
+        );
+        push_unique_js_string(
+            &mut patterns,
+            join_navigation_pattern(&parsed.protocol, &host_with_www),
+        );
+    }
+    push_unique_js_string(
+        &mut patterns,
+        join_navigation_pattern(&alternate_protocol, &parsed.host),
+    );
+    if is_multi_label {
+        push_unique_js_string(
+            &mut patterns,
+            join_navigation_pattern(&alternate_protocol, &host_without_www),
+        );
+        push_unique_js_string(
+            &mut patterns,
+            join_navigation_pattern(&alternate_protocol, &host_with_www),
+        );
+    }
+    patterns
+}
+
+/// Selects the first highest-scoring host-owned navigation candidate.
+///
+/// A malformed target preserves the existing first-candidate fallback. Parseable targets score
+/// only exact normalized path/query combinations; the historical root-host fallback is deliberately
+/// absent.
+#[must_use]
+pub fn pick_best_navigation_candidate(
+    target: Option<&NavigationUrlFacts>,
+    candidates: &[NavigationCandidate],
+) -> Option<usize> {
+    let Some(target) = target else {
+        return candidates.first().map(|candidate| candidate.source_index);
+    };
+
+    let target_path = normalize_navigation_path(&target.pathname);
+    let target_has_query = target.search.utf16_len() > 0;
+    let mut best: Option<(usize, i8)> = None;
+
+    for candidate in candidates {
+        let source_index = candidate.source_index;
+        let Some(candidate) = candidate.parsed.as_ref() else {
+            continue;
+        };
+        if !js_host_base_eq(&candidate.host, &target.host) {
+            continue;
+        }
+
+        let candidate_path = normalize_navigation_path(&candidate.pathname);
+        let path_equal = js_string_eq(&candidate_path, &target_path);
+        let search_equal = js_string_eq(&candidate.search, &target.search);
+        let score = if target_has_query && path_equal && search_equal {
+            3
+        } else if path_equal && !target_has_query {
+            2
+        } else {
+            -1
+        };
+
+        if score > 0 && best.is_none_or(|(_, best_score)| score > best_score) {
+            best = Some((source_index, score));
+            if score == 3 {
+                break;
+            }
+        }
+    }
+    best.map(|(index, _)| index)
+}
+
+/// Parses host-trimmed close-tab filters and validates that at least one filter is usable.
+#[must_use]
+pub fn plan_close_tab_filters(
+    url_match: Option<JsString>,
+    title_match: Option<JsString>,
+    older_than_ms: Option<f64>,
+) -> Option<CloseTabFilterPlan> {
+    let url_matcher = url_match.and_then(close_tab_matcher);
+    let title_matcher = title_match.and_then(close_tab_matcher);
+    let older_than_ms = older_than_ms.filter(|value| value.is_finite() && *value >= 0.0);
+    (url_matcher.is_some() || title_matcher.is_some() || older_than_ms.is_some()).then_some(
+        CloseTabFilterPlan {
+            url_matcher,
+            title_matcher,
+            older_than_ms,
+        },
+    )
+}
+
+/// Returns host-owned candidate indexes selected by the close-tab filter plan.
+///
+/// The matcher callback is invoked in the same short-circuit order as the legacy JavaScript loop,
+/// retaining JavaScript `RegExp.lastIndex` and string intrinsic behavior at the WASM boundary.
+#[must_use]
+pub fn select_close_tab_indexes<F>(
+    plan: &CloseTabFilterPlan,
+    candidates: &[CloseTabCandidate],
+    except_tab_ids: &[f64],
+    now_ms: f64,
+    mut matches: F,
+) -> Vec<usize>
+where
+    F: FnMut(CloseTabMatchField, &CloseTabMatcher, &JsString) -> bool,
+{
+    candidates
+        .iter()
+        .filter_map(|candidate| {
+            let tab_id = candidate.tab_id?;
+            if except_tab_ids
+                .iter()
+                .any(|except| js_same_value_zero(*except, tab_id))
+            {
+                return None;
+            }
+            if plan
+                .url_matcher
+                .as_ref()
+                .is_some_and(|matcher| !matches(CloseTabMatchField::Url, matcher, &candidate.url))
+            {
+                return None;
+            }
+            if plan.title_matcher.as_ref().is_some_and(|matcher| {
+                !matches(CloseTabMatchField::Title, matcher, &candidate.title)
+            }) {
+                return None;
+            }
+            if let Some(older_than_ms) = plan.older_than_ms {
+                let created_at = candidate.created_at?;
+                if now_ms - created_at < older_than_ms {
+                    return None;
+                }
+            }
+            Some(candidate.source_index)
+        })
+        .collect()
+}
+
+fn close_tab_matcher(value: JsString) -> Option<CloseTabMatcher> {
+    if value.utf16_len() == 0 {
+        return None;
+    }
+    let units = value.into_utf16_units();
+    if units.len() > 1
+        && units[0] == u16::from(b'/')
+        && let Some(last_slash) = units.iter().rposition(|unit| *unit == u16::from(b'/'))
+        && last_slash > 0
+    {
+        return Some(CloseTabMatcher::Regex {
+            pattern: JsString::from_utf16_units(units[1..last_slash].to_vec()),
+            flags: JsString::from_utf16_units(units[last_slash + 1..].to_vec()),
+        });
+    }
+    Some(CloseTabMatcher::Substring {
+        needle: JsString::from_utf16_units(units),
+    })
+}
+
+fn navigation_fallback_pattern(input: JsString) -> JsString {
+    let mut units = input.into_utf16_units();
+    if units.last() == Some(&u16::from(b'/')) {
+        units.push(u16::from(b'*'));
+    } else {
+        units.extend("/*".encode_utf16());
+    }
+    JsString::from_utf16_units(units)
+}
+
+fn join_navigation_pattern(protocol: &JsString, host: &JsString) -> JsString {
+    let mut units = Vec::with_capacity(protocol.utf16_len() + host.utf16_len() + 4);
+    units.extend(protocol.utf16_units());
+    units.extend("//".encode_utf16());
+    units.extend(host.utf16_units());
+    units.extend("/*".encode_utf16());
+    JsString::from_utf16_units(units)
+}
+
+fn prepend_ascii(prefix: &str, value: &JsString) -> JsString {
+    let mut units = Vec::with_capacity(prefix.len() + value.utf16_len());
+    units.extend(prefix.encode_utf16());
+    units.extend(value.utf16_units());
+    JsString::from_utf16_units(units)
+}
+
+fn strip_ascii_www(value: &JsString) -> JsString {
+    const WWW_PREFIX: &[u16] = &[b'w' as u16, b'w' as u16, b'w' as u16, b'.' as u16];
+    let units: Vec<u16> = value.utf16_units().collect();
+    if units.starts_with(WWW_PREFIX) {
+        JsString::from_utf16_units(units[WWW_PREFIX.len()..].to_vec())
+    } else {
+        JsString::from_utf16_units(units)
+    }
+}
+
+fn normalize_navigation_path(path: &JsString) -> JsString {
+    let mut units: Vec<u16> = path.utf16_units().collect();
+    if units.is_empty() {
+        return JsString::from_string("/");
+    }
+    if units[0] != u16::from(b'/') {
+        units.insert(0, u16::from(b'/'));
+    }
+    if units.len() > 1 && units.last() == Some(&u16::from(b'/')) {
+        units.pop();
+    }
+    JsString::from_utf16_units(units)
+}
+
+fn is_ipv4_like(hostname: &JsString) -> bool {
+    let units: Vec<u16> = hostname.utf16_units().collect();
+    let mut cursor = 0;
+    for component in 0..4 {
+        let start = cursor;
+        while cursor < units.len() && (u16::from(b'0')..=u16::from(b'9')).contains(&units[cursor]) {
+            cursor += 1;
+        }
+        let digits = cursor - start;
+        if !(1..=3).contains(&digits) {
+            return false;
+        }
+        if component < 3 {
+            if units.get(cursor) != Some(&u16::from(b'.')) {
+                return false;
+            }
+            cursor += 1;
+        }
+    }
+    cursor == units.len()
+}
+
+fn js_contains_unit(value: &JsString, expected: u16) -> bool {
+    value.utf16_units().any(|unit| unit == expected)
+}
+
+fn js_starts_with_ascii(value: &JsString, prefix: &[u8]) -> bool {
+    value
+        .utf16_units()
+        .zip(prefix.iter().copied().map(u16::from))
+        .all(|(left, right)| left == right)
+        && value.utf16_len() >= prefix.len()
+}
+
+fn js_string_eq(left: &JsString, right: &JsString) -> bool {
+    left.utf16_units().eq(right.utf16_units())
+}
+
+fn js_string_eq_ascii(value: &JsString, expected: &[u8]) -> bool {
+    value
+        .utf16_units()
+        .eq(expected.iter().copied().map(u16::from))
+}
+
+fn js_host_base_eq(left: &JsString, right: &JsString) -> bool {
+    let left_skip = usize::from(js_starts_with_ascii(left, b"www.")) * 4;
+    let right_skip = usize::from(js_starts_with_ascii(right, b"www.")) * 4;
+    left.utf16_units()
+        .skip(left_skip)
+        .map(ascii_lowercase)
+        .eq(right.utf16_units().skip(right_skip).map(ascii_lowercase))
+}
+
+fn js_same_value_zero(left: f64, right: f64) -> bool {
+    left == right || (left.is_nan() && right.is_nan())
+}
+
+fn push_unique_js_string(values: &mut Vec<JsString>, value: JsString) {
+    if !values.iter().any(|existing| js_string_eq(existing, &value)) {
+        values.push(value);
+    }
+}
+
 fn contains_ascii_case_insensitive(value: &JsString, pattern: &[u16]) -> bool {
     const MAX_PATTERN_LEN: usize = 30;
     if pattern.is_empty() {
@@ -483,5 +870,227 @@ mod tests {
         let unknown =
             classify_tab_error_message(JsString::from_string("CDP attach failed"), Some("7"));
         assert_eq!(unknown.category, TabErrorCategory::Unknown);
+    }
+
+    fn navigation_facts(
+        protocol: &str,
+        host: &str,
+        hostname: &str,
+        pathname: &str,
+        search: &str,
+    ) -> NavigationUrlFacts {
+        NavigationUrlFacts {
+            protocol: JsString::from_string(protocol),
+            host: JsString::from_string(host),
+            hostname: JsString::from_string(hostname),
+            pathname: JsString::from_string(pathname),
+            search: JsString::from_string(search),
+        }
+    }
+
+    #[test]
+    fn expands_navigation_patterns_with_domain_variants_but_not_ip_or_single_label_hosts() {
+        let domain = navigation_facts("https:", "www.example.com", "www.example.com", "/x", "");
+        let patterns = navigation_url_patterns(
+            JsString::from_string("https://www.example.com/x"),
+            Some(&domain),
+        );
+        let patterns: Vec<String> = patterns
+            .into_iter()
+            .map(|pattern| {
+                pattern
+                    .to_string_if_well_formed()
+                    .expect("test URL is well formed")
+            })
+            .collect();
+        assert_eq!(
+            patterns,
+            [
+                "https://www.example.com/*",
+                "https://example.com/*",
+                "http://www.example.com/*",
+                "http://example.com/*",
+            ]
+        );
+
+        let ipv4 = navigation_facts("https:", "127.0.0.1", "127.0.0.1", "/", "");
+        assert_eq!(
+            navigation_url_patterns(JsString::from_string("https://127.0.0.1"), Some(&ipv4)).len(),
+            2
+        );
+
+        let ipv6 = navigation_facts("https:", "[::1]", "[::1]", "/", "");
+        assert_eq!(
+            navigation_url_patterns(JsString::from_string("https://[::1]"), Some(&ipv6)).len(),
+            2
+        );
+        let single_label = navigation_facts("https:", "localhost", "localhost", "/", "");
+        assert_eq!(
+            navigation_url_patterns(
+                JsString::from_string("https://localhost"),
+                Some(&single_label)
+            )
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn navigation_patterns_preserve_wildcards_and_malformed_suffix_fallback() {
+        assert_eq!(
+            navigation_url_patterns(JsString::from_string("https://example.com/*"), None)[0]
+                .to_string_if_well_formed()
+                .as_deref(),
+            Some("https://example.com/*")
+        );
+        assert_eq!(
+            navigation_url_patterns(JsString::from_string("not a url/"), None)[0]
+                .to_string_if_well_formed()
+                .as_deref(),
+            Some("not a url/*")
+        );
+    }
+
+    #[test]
+    fn navigation_candidate_selection_keeps_first_equal_and_has_no_host_only_fallback() {
+        let target = navigation_facts("https:", "example.com", "example.com", "/feed/", "");
+        let root = navigation_facts("https:", "example.com", "example.com", "/", "");
+        let normalized_feed = navigation_facts("https:", "example.com", "example.com", "/feed", "");
+        let candidates = [
+            NavigationCandidate {
+                source_index: 4,
+                parsed: Some(root),
+            },
+            NavigationCandidate {
+                source_index: 7,
+                parsed: Some(normalized_feed),
+            },
+            NavigationCandidate {
+                source_index: 9,
+                parsed: Some(navigation_facts(
+                    "https:",
+                    "example.com",
+                    "example.com",
+                    "/feed",
+                    "?stale",
+                )),
+            },
+        ];
+        assert_eq!(
+            pick_best_navigation_candidate(Some(&target), &candidates),
+            Some(7)
+        );
+
+        let root_target = navigation_facts("https:", "example.com", "example.com", "/", "");
+        assert_eq!(
+            pick_best_navigation_candidate(Some(&root_target), &candidates),
+            Some(4)
+        );
+        let other_root_candidates = [NavigationCandidate {
+            source_index: 3,
+            parsed: Some(navigation_facts(
+                "https:",
+                "example.com",
+                "example.com",
+                "/different",
+                "",
+            )),
+        }];
+        assert_eq!(
+            pick_best_navigation_candidate(Some(&root_target), &other_root_candidates),
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_navigation_target_keeps_first_candidate_without_parsing_it() {
+        let candidates = [
+            NavigationCandidate {
+                source_index: 2,
+                parsed: None,
+            },
+            NavigationCandidate {
+                source_index: 5,
+                parsed: Some(navigation_facts(
+                    "https:",
+                    "example.com",
+                    "example.com",
+                    "/",
+                    "",
+                )),
+            },
+        ];
+        assert_eq!(pick_best_navigation_candidate(None, &candidates), Some(2));
+    }
+
+    #[test]
+    fn close_tab_selection_ands_filters_excludes_first_and_skips_unknown_creation_times() {
+        let plan = plan_close_tab_filters(
+            Some(JsString::from_string("example")),
+            Some(JsString::from_string("matching")),
+            Some(30_000.0),
+        )
+        .expect("filters are usable");
+        let candidates = [
+            CloseTabCandidate {
+                source_index: 0,
+                tab_id: Some(1.0),
+                url: JsString::from_string("https://example.com/a"),
+                title: JsString::from_string("matching"),
+                created_at: Some(20_000.0),
+            },
+            CloseTabCandidate {
+                source_index: 1,
+                tab_id: Some(2.0),
+                url: JsString::from_string("https://example.com/b"),
+                title: JsString::from_string("matching"),
+                created_at: Some(20_000.0),
+            },
+            CloseTabCandidate {
+                source_index: 2,
+                tab_id: Some(3.0),
+                url: JsString::from_string("https://example.com/c"),
+                title: JsString::from_string("other"),
+                created_at: Some(20_000.0),
+            },
+            CloseTabCandidate {
+                source_index: 3,
+                tab_id: Some(4.0),
+                url: JsString::from_string("https://example.com/d"),
+                title: JsString::from_string("matching"),
+                created_at: None,
+            },
+        ];
+        let selected =
+            select_close_tab_indexes(&plan, &candidates, &[2.0], 60_000.0, |_, matcher, value| {
+                let CloseTabMatcher::Substring { needle } = matcher else {
+                    panic!("test only supplies substring filters");
+                };
+                value
+                    .to_string_if_well_formed()
+                    .expect("test strings are well formed")
+                    .to_ascii_lowercase()
+                    .contains(
+                        &needle
+                            .to_string_if_well_formed()
+                            .expect("test strings are well formed")
+                            .to_ascii_lowercase(),
+                    )
+            });
+        assert_eq!(selected, [0]);
+    }
+
+    #[test]
+    fn close_tab_filter_decomposes_regex_and_preserves_invalid_regex_fallback_pattern() {
+        let plan = plan_close_tab_filters(Some(JsString::from_string("/[bad/")), None, None)
+            .expect("filter is usable");
+        assert_eq!(
+            plan.url_matcher,
+            Some(CloseTabMatcher::Regex {
+                pattern: JsString::from_string("[bad"),
+                flags: JsString::from_string(""),
+            })
+        );
+        assert!(plan_close_tab_filters(None, None, None).is_none());
     }
 }

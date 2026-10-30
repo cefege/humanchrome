@@ -4,9 +4,20 @@ use serde::Serialize;
 
 use crate::graph;
 
+mod condition;
+mod legacy_resolver;
+mod v2_adapter;
 mod variables;
+pub use condition::{CompareOp, Condition, ConditionHost, evaluate_condition};
+pub use legacy_resolver::{
+    LegacyNumberResolvable, LegacyNumberResolverHost, LegacyResolvable, LegacyResolverHost,
+    LegacyStringResolutionError, LegacyStringResolvable, LegacyStringResolverHost,
+    LegacyTemplateFormat, LegacyTemplatePart, VariablePathSegment,
+    resolve_json as resolve_legacy_json, resolve_number as resolve_legacy_number,
+    resolve_string as resolve_legacy_string,
+};
+pub use v2_adapter::{VarsPatchOp, diff_vars, map_v2_error_code, v2_action_policy};
 pub use variables::recording_variable_append_plan;
-
 const MINIMAL_HYBRID_ACTION_TYPES: [&str; 8] = [
     "fill",
     "key",

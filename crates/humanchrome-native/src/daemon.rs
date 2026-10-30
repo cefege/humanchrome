@@ -3,10 +3,16 @@
 use std::{io, path::Path, time::Duration};
 
 #[cfg(unix)]
+use std::{
+    os::unix::process::CommandExt,
+    process::{Command, Stdio},
+};
+
+#[cfg(unix)]
 use tokio::{
     io::{AsyncWriteExt, copy},
     net::{UnixListener, UnixStream},
-    time::timeout,
+    time::{sleep, timeout},
 };
 
 /// The existing HC_DISABLE_DAEMON switch selects standalone only for the value `1`.
@@ -26,6 +32,84 @@ impl DaemonMode {
             Self::Enabled
         }
     }
+}
+
+/// Private environment marker used only by the re-executed detached primary.
+pub const DETACHED_PRIMARY_ENV: &str = "HC_NATIVE_DETACHED_PRIMARY";
+
+/// Returns whether this process was re-executed to own the daemon socket.
+#[must_use]
+pub fn is_detached_primary() -> bool {
+    std::env::var_os(DETACHED_PRIMARY_ENV).as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+/// Start a detached primary when no existing owner accepts relay connections.
+///
+/// The Chrome-launched process remains the disposable relay. The replacement
+/// process has no native-message descriptors and owns the HTTP server until
+/// its normal idle or signal shutdown.
+///
+/// # Errors
+/// Reports an inability to launch or observe a detached primary. Callers may
+/// retain the existing direct-primary lifecycle when this setup fails.
+#[cfg(unix)]
+pub async fn ensure_detached_primary(path: &Path, mode: DaemonMode) -> io::Result<()> {
+    if mode == DaemonMode::Disabled || is_detached_primary() || daemon_is_ready(path).await {
+        return Ok(());
+    }
+
+    let executable = std::env::current_exe()?;
+    let mut command = Command::new(executable);
+    command
+        .env(DETACHED_PRIMARY_ENV, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: pre_exec only calls async-signal-safe setsid and reads errno;
+    // it does not allocate or touch inherited locks. The new session separates
+    // the HTTP owner from Chrome's native-host process group.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+    command.spawn()?;
+
+    const READY_WAIT: Duration = Duration::from_secs(3);
+    const READY_POLL: Duration = Duration::from_millis(20);
+    let deadline = tokio::time::Instant::now() + READY_WAIT;
+    while tokio::time::Instant::now() < deadline {
+        if daemon_is_ready(path).await {
+            return Ok(());
+        }
+        sleep(READY_POLL).await;
+    }
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!(
+            "timed out waiting for detached native daemon at {}",
+            path.display()
+        ),
+    ))
+}
+
+/// Non-Unix hosts retain their existing direct native-host lifecycle until
+/// their platform-local relay transport is available.
+#[cfg(not(unix))]
+pub async fn ensure_detached_primary(_path: &Path, _mode: DaemonMode) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn daemon_is_ready(path: &Path) -> bool {
+    matches!(
+        timeout(Duration::from_millis(100), UnixStream::connect(path)).await,
+        Ok(Ok(_))
+    )
 }
 
 /// One native process owns HTTP, relays protocol bytes, or runs without a daemon.
