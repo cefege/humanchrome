@@ -28,7 +28,7 @@ export const scrollNode: NodeRuntime<StepScroll> = {
       const amount = 3;
       const res = await handleCallTool({
         name: TOOL_NAMES.BROWSER.COMPUTER,
-        args: { action: 'scroll', scrollDirection: direction, scrollAmount: amount },
+        args: { action: 'scroll', scrollDirection: direction, scrollAmount: amount, tabId: ctx.tabId },
       });
       if ((res as { isError?: boolean }).isError) throw new Error('scroll failed');
       return {} as ExecResult;
@@ -36,7 +36,7 @@ export const scrollNode: NodeRuntime<StepScroll> = {
     if (code) {
       const res = await handleCallTool({
         name: TOOL_NAMES.BROWSER.INJECT_SCRIPT,
-        args: { type: 'MAIN', jsScript: code },
+        args: { type: 'MAIN', jsScript: code, tabId: ctx.tabId },
       });
       if ((res as { isError?: boolean }).isError) throw new Error('scroll failed');
     }

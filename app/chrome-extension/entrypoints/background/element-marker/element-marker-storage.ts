@@ -1,6 +1,8 @@
 // IndexedDB storage for element markers (URL -> marked selectors)
 // Uses the shared IndexedDbClient for robust transaction handling.
 
+import { browserMetadataPolicy } from 'humanchrome-shared';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 import { IndexedDbClient } from '@/utils/indexeddb-client';
 import type { ElementMarker, UpsertMarkerRequest } from '@/common/element-marker-types';
 
@@ -20,15 +22,6 @@ const idb = new IndexedDbClient(DB_NAME, DB_VERSION, (db, oldVersion) => {
   }
 });
 
-function normalizeUrl(raw: string): { url: string; origin: string; host: string; path: string } {
-  try {
-    const u = new URL(raw);
-    return { url: raw, origin: u.origin, host: u.hostname, path: u.pathname };
-  } catch {
-    return { url: raw, origin: '', host: '', path: '' };
-  }
-}
-
 function now(): number {
   return Date.now();
 }
@@ -38,25 +31,17 @@ export async function listAllMarkers(): Promise<ElementMarker[]> {
 }
 
 export async function listMarkersForUrl(url: string): Promise<ElementMarker[]> {
-  const { origin, path, host } = normalizeUrl(url);
+  await ensureRustKernel();
+  const current = browserMetadataPolicy.normalizeMarkerUrl(url);
   const all = await idb.getAll<ElementMarker>(STORE);
-  // Simple matching policy:
-  // - exact: origin + path must match exactly
-  // - prefix: origin matches and marker.path is a prefix of current path
-  // - host: host matches regardless of path
-  return all.filter((m) => {
-    if (!m) return false;
-    if (m.matchType === 'exact') return m.origin === origin && m.path === path;
-    if (m.matchType === 'host') return !!m.host && m.host === host;
-    // default 'prefix'
-    return m.origin === origin && (m.path ? path.startsWith(m.path) : true);
-  });
+  return browserMetadataPolicy.matchingMarkerIndexes(all, current).map((index) => all[index]!);
 }
 
 export async function saveMarker(req: UpsertMarkerRequest): Promise<ElementMarker> {
   const { url: rawUrl, selector } = req;
   if (!rawUrl || !selector) throw new Error('url and selector are required');
-  const { url, origin, host, path } = normalizeUrl(rawUrl);
+  await ensureRustKernel();
+  const { url, origin, host, path } = browserMetadataPolicy.normalizeMarkerUrl(rawUrl);
   const ts = now();
   const marker: ElementMarker = {
     id: req.id || (globalThis.crypto?.randomUUID?.() ?? `${ts}_${Math.random()}`),

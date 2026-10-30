@@ -14,8 +14,9 @@
  * - Single listener instance manages multiple triggers efficiently
  */
 
+import { workflowPolicy } from 'humanchrome-shared';
 import type { TriggerId } from '../../domain/ids';
-import type { TriggerSpecByKind, UrlMatchRule } from '../../domain/triggers';
+import type { TriggerSpecByKind } from '../../domain/triggers';
 import type { TriggerFireCallback, TriggerHandler, TriggerHandlerFactory } from './trigger-handler';
 
 // ==================== Types ====================
@@ -26,122 +27,9 @@ export interface UrlTriggerHandlerDeps {
 
 type UrlTriggerSpec = TriggerSpecByKind<'url'>;
 
-/**
- * Compiled URL match rules for efficient matching
- */
-interface CompiledUrlRules {
-  /** Full URL prefixes */
-  urlPrefixes: string[];
-  /** Normalized domains (lowercase, no leading/trailing dots) */
-  domains: string[];
-  /** Normalized path prefixes (always starts with '/') */
-  pathPrefixes: string[];
-}
-
 interface InstalledUrlTrigger {
   spec: UrlTriggerSpec;
-  rules: CompiledUrlRules;
-}
-
-// ==================== Normalization Utilities ====================
-
-/**
- * Normalize domain value
- * - Trim whitespace
- * - Convert to lowercase
- * - Remove leading/trailing dots
- */
-function normalizeDomain(value: string): string | null {
-  const normalized = value.trim().toLowerCase().replace(/^\.+/, '').replace(/\.+$/, '');
-  return normalized || null;
-}
-
-/**
- * Normalize path prefix
- * - Trim whitespace
- * - Ensure starts with '/'
- */
-function normalizePathPrefix(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-}
-
-/**
- * Normalize URL prefix
- * - Trim whitespace only
- */
-function normalizeUrlPrefix(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-/**
- * Compile URL match rules from spec
- */
-function compileUrlMatchRules(match: UrlMatchRule[] | undefined): CompiledUrlRules {
-  const urlPrefixes: string[] = [];
-  const domains: string[] = [];
-  const pathPrefixes: string[] = [];
-
-  for (const rule of match ?? []) {
-    const { kind } = rule;
-    const raw = typeof rule.value === 'string' ? rule.value : String(rule.value ?? '');
-
-    switch (kind) {
-      case 'url': {
-        const normalized = normalizeUrlPrefix(raw);
-        if (normalized) urlPrefixes.push(normalized);
-        break;
-      }
-      case 'domain': {
-        const normalized = normalizeDomain(raw);
-        if (normalized) domains.push(normalized);
-        break;
-      }
-      case 'path': {
-        const normalized = normalizePathPrefix(raw);
-        if (normalized) pathPrefixes.push(normalized);
-        break;
-      }
-    }
-  }
-
-  return { urlPrefixes, domains, pathPrefixes };
-}
-
-// ==================== Matching Logic ====================
-
-/**
- * Check if hostname matches domain (exact or subdomain)
- */
-function hostnameMatchesDomain(hostname: string, domain: string): boolean {
-  if (hostname === domain) return true;
-  return hostname.endsWith(`.${domain}`);
-}
-
-/**
- * Check if URL matches any of the compiled rules
- */
-function matchesRules(compiled: CompiledUrlRules, urlString: string, parsed: URL): boolean {
-  // URL prefix match
-  for (const prefix of compiled.urlPrefixes) {
-    if (urlString.startsWith(prefix)) return true;
-  }
-
-  // Domain match
-  const hostname = parsed.hostname.toLowerCase();
-  for (const domain of compiled.domains) {
-    if (hostnameMatchesDomain(hostname, domain)) return true;
-  }
-
-  // Path prefix match
-  const pathname = parsed.pathname || '/';
-  for (const prefix of compiled.pathPrefixes) {
-    if (pathname.startsWith(prefix)) return true;
-  }
-
-  return false;
+  rules: workflowPolicy.RustWorkflowUrlRules;
 }
 
 // ==================== Handler Implementation ====================
@@ -176,13 +64,6 @@ export function createUrlTriggerHandler(
 
     const urlString = details.url;
 
-    // Parse URL
-    let parsed: URL;
-    try {
-      parsed = new URL(urlString);
-    } catch {
-      return; // Invalid URL, skip
-    }
 
     if (installed.size === 0) return;
 
@@ -190,7 +71,7 @@ export function createUrlTriggerHandler(
     const snapshot = Array.from(installed.entries());
 
     for (const [triggerId, trigger] of snapshot) {
-      if (!matchesRules(trigger.rules, urlString, parsed)) continue;
+      if (!trigger.rules.matches(urlString)) continue;
 
       // Fire and forget: chrome event listeners should not block navigation
       Promise.resolve(
@@ -237,7 +118,7 @@ export function createUrlTriggerHandler(
     async install(trigger: UrlTriggerSpec): Promise<void> {
       installed.set(trigger.id, {
         spec: trigger,
-        rules: compileUrlMatchRules(trigger.match),
+        rules: new workflowPolicy.RustWorkflowUrlRules(trigger.match),
       });
       ensureListening();
     },

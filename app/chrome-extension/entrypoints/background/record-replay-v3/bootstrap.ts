@@ -6,6 +6,7 @@
  */
 
 import type { UnixMillis } from './domain/json';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 import type { RunId } from './domain/ids';
 import { RR_ERROR_CODES, createRRError, type RRError } from './domain/errors';
 
@@ -260,6 +261,7 @@ export async function bootstrapV3(): Promise<V3Runtime> {
   if (bootstrapPromise) return bootstrapPromise;
 
   bootstrapPromise = (async () => {
+    await ensureRustKernel();
     const logger: Logger = console;
     const now = (): UnixMillis => Date.now();
 

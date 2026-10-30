@@ -1,4 +1,6 @@
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
+import { RUST_KERNEL_ID } from 'humanchrome-shared';
+import { getPackagedRustKernelBytes } from '@/shared/rust-kernel';
 
 // Avoid magic strings for recorder control commands
 export type RecorderCmd = 'start' | 'stop' | 'pause' | 'resume';
@@ -12,13 +14,54 @@ export const REC_CMD = {
 const SELECTOR_BUNDLE_SCRIPT = 'inject-scripts/selector-engine-bundle.js';
 const RECORDER_JS_SCRIPT = 'inject-scripts/recorder.js';
 
-/**
- * Files injected for recording, in order. The selector-engine bundle MUST
- * land before recorder.js so the SelectorEngine shim can read
- * `window.__rrSelectorEngine`. Both files self-guard against double-install
- * (selector bundle: idempotent assignment; recorder: __RR_RECORDER_INSTALLED__).
- */
-const RECORDER_FILES: ReadonlyArray<string> = [SELECTOR_BUNDLE_SCRIPT, RECORDER_JS_SCRIPT];
+class RecorderKernelInitializationError extends Error {}
+
+async function installRecorder(
+  target: chrome.scripting.InjectionTarget,
+  bytes: number[],
+): Promise<void> {
+  await chrome.scripting.executeScript({
+    target,
+    files: [SELECTOR_BUNDLE_SCRIPT],
+    world: 'ISOLATED',
+  });
+  // Chrome serializes args as JSON. Transfer bytes, never an ArrayBuffer or Module.
+  // A serialized async function can capture build-generated helpers; return the Promise directly.
+  const initialized = await chrome.scripting.executeScript({
+    target,
+    world: 'ISOLATED',
+    args: [bytes],
+    func: (kernelBytes: number[]) => {
+      try {
+        const initialize = (
+          globalThis as typeof globalThis & {
+            __hcInitializeRustKernel?: (input: number[]) => Promise<void>;
+          }
+        ).__hcInitializeRustKernel;
+        if (!initialize) throw new Error('Recorder kernel bootstrap is unavailable');
+        return initialize(kernelBytes).then(
+          () => ({ ready: true }) as const,
+          (error: unknown) => ({ ready: false, error: String(error) }) as const,
+        );
+      } catch (error) {
+        return { ready: false, error: String(error) } as const;
+      }
+    },
+  });
+  for (const frame of initialized) {
+    if (frame.result?.ready !== true) {
+      throw new RecorderKernelInitializationError(
+        `Recorder Rust initialization failed in frame ${frame.frameId}: ${frame.result?.error ?? 'No readiness result returned'}`,
+      );
+    }
+  }
+  // The first recorder event must see the fully initialized selector engine.
+  await chrome.scripting.executeScript({
+    target,
+    files: [RECORDER_JS_SCRIPT],
+    world: 'ISOLATED',
+  });
+}
 
 export async function ensureRecorderInjected(tabId: number): Promise<void> {
   // Discover frames (top + subframes)
@@ -44,8 +87,23 @@ export async function ensureRecorderInjected(tabId: number): Promise<void> {
           { action: 'rr_recorder_ping' },
           { frameId },
         );
-        const pong = res?.status === 'pong';
-        if (!pong) needRecorder.push(frameId);
+        if (res?.status !== 'pong') {
+          needRecorder.push(frameId);
+          return;
+        }
+        const probe = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: 'ISOLATED',
+          args: [RUST_KERNEL_ID],
+          func: (kernelId: string) => {
+            const realm = globalThis as typeof globalThis & {
+              __hcRustKernelId?: string;
+              __rrSelectorEngine?: unknown;
+            };
+            return realm.__hcRustKernelId === kernelId && !!realm.__rrSelectorEngine;
+          },
+        });
+        if (!probe[0]?.result) needRecorder.push(frameId);
       } catch {
         needRecorder.push(frameId);
       }
@@ -53,22 +111,17 @@ export async function ensureRecorderInjected(tabId: number): Promise<void> {
   );
 
   if (needRecorder.length > 0) {
+    const bytes = Array.from(await getPackagedRustKernelBytes());
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId, frameIds: needRecorder },
-        files: [...RECORDER_FILES],
-        world: 'ISOLATED',
-      });
-    } catch {
-      // Fallback: try allFrames to cover dynamic/subframe changes; safe due to idempotent guard in recorder.js
+      await installRecorder({ tabId, frameIds: needRecorder }, bytes);
+    } catch (error) {
+      if (error instanceof RecorderKernelInitializationError) throw error;
+      // Preserve the existing bounded fallback for frames replaced during injection.
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          files: [...RECORDER_FILES],
-          world: 'ISOLATED',
-        });
-      } catch {
-        // ignore injection failures per-tab
+        await installRecorder({ tabId, allFrames: true }, bytes);
+      } catch (fallbackError) {
+        if (fallbackError instanceof RecorderKernelInitializationError) throw fallbackError;
+        // Inaccessible/removed frames remain a best-effort browser effect.
       }
     }
   }

@@ -1,7 +1,8 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { browserMetadataPolicy, TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { captureFrameOnAction, isAutoCaptureActive } from './gif-recorder';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 
 // Default window dimensions
 const DEFAULT_WINDOW_WIDTH = 1280;
@@ -175,126 +176,20 @@ class NavigateTool extends BaseBrowserToolExecutor {
       }
       console.log(`Checking if URL is already open: ${url}`);
 
-      // Build robust match patterns from the provided URL.
-      // This mirrors the approach in CloseTabsTool: ensure wildcard path and
-      // add common variants (www/no-www, http/https) to handle real-world redirects.
-      const buildUrlPatterns = (input: string): string[] => {
-        const patterns = new Set<string>();
-        try {
-          if (!input.includes('*')) {
-            const u = new URL(input);
-            // Use host-level wildcard to include all paths; we'll do precise selection later
-            const pathWildcard = '/*';
-
-            // Numeric IPs (and bracketed IPv6) reject the `www.` prefix in
-            // chrome.tabs.query — and "www.<single-label>" hosts like
-            // www.localhost don't behave the way you'd expect either. Only
-            // expand www-variants when the host looks like a multi-label
-            // domain.
-            const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(u.hostname) || u.hostname.startsWith('[');
-            const isMultiLabel = u.hostname.includes('.') && !isIp;
-            const hostNoWww = u.host.replace(/^www\./, '');
-            const hostWithWww = hostNoWww.startsWith('www.') ? hostNoWww : `www.${hostNoWww}`;
-
-            // Keep original host
-            patterns.add(`${u.protocol}//${u.host}${pathWildcard}`);
-            if (isMultiLabel) {
-              patterns.add(`${u.protocol}//${hostNoWww}${pathWildcard}`);
-              patterns.add(`${u.protocol}//${hostWithWww}${pathWildcard}`);
-            }
-
-            // Add protocol variant to catch http↔https redirects
-            const altProtocol = u.protocol === 'https:' ? 'http:' : 'https:';
-            patterns.add(`${altProtocol}//${u.host}${pathWildcard}`);
-            if (isMultiLabel) {
-              patterns.add(`${altProtocol}//${hostNoWww}${pathWildcard}`);
-              patterns.add(`${altProtocol}//${hostWithWww}${pathWildcard}`);
-            }
-          } else {
-            patterns.add(input);
-          }
-        } catch {
-          // Fallback: best-effort wildcard suffix
-          patterns.add(input.endsWith('/') ? `${input}*` : `${input}/*`);
-        }
-        return Array.from(patterns);
-      };
-
-      const urlPatterns = buildUrlPatterns(url);
+      await ensureRustKernel();
+      const urlPatterns = browserMetadataPolicy.buildNavigationUrlPatterns(url);
       const candidateTabs = skipExistingTabLookup
         ? []
         : await chrome.tabs.query({ url: urlPatterns });
       console.log(`Found ${candidateTabs.length} matching tabs with patterns:`, urlPatterns);
 
-      // Prefer strict match when user specifies a concrete path/query.
-      // Only fall back to host-level activation when the target is site root.
-      const pickBestMatch = (target: string, tabsToPick: chrome.tabs.Tab[]) => {
-        let targetUrl: URL | undefined;
-        try {
-          targetUrl = new URL(target);
-        } catch {
-          // Not a fully-qualified URL; cannot do structured comparison
-          return tabsToPick[0];
-        }
-
-        const normalizePath = (p: string) => {
-          if (!p) return '/';
-          // Ensure leading slash
-          const withLeading = p.startsWith('/') ? p : `/${p}`;
-          // Remove trailing slash except when root
-          return withLeading !== '/' && withLeading.endsWith('/')
-            ? withLeading.slice(0, -1)
-            : withLeading;
-        };
-
-        const hostBase = (h: string) => h.replace(/^www\./, '').toLowerCase();
-        const isRootTarget = normalizePath(targetUrl.pathname) === '/' && !targetUrl.search;
-        const targetPath = normalizePath(targetUrl.pathname);
-        const targetSearch = targetUrl.search || '';
-        const targetHostBase = hostBase(targetUrl.host);
-
-        let best: { tab?: chrome.tabs.Tab; score: number } = { score: -1 };
-
-        for (const tab of tabsToPick) {
-          const tabUrlStr = tab.url || '';
-          let tabUrl: URL | undefined;
-          try {
-            tabUrl = new URL(tabUrlStr);
-          } catch {
-            continue;
-          }
-
-          const tabHostBase = hostBase(tabUrl.host);
-          if (tabHostBase !== targetHostBase) continue;
-
-          const tabPath = normalizePath(tabUrl.pathname);
-          const tabSearch = tabUrl.search || '';
-
-          // Scoring:
-          // 3 - exact path match and (if target has query) exact query match
-          // 2 - exact path match ignoring query (target without query)
-          // 1 - same host, any path (only if target is root)
-          let score = -1;
-          const pathEqual = tabPath === targetPath;
-          const searchEqual = tabSearch === targetSearch;
-
-          if (pathEqual && (targetSearch ? searchEqual : true)) {
-            score = 3;
-          } else if (pathEqual && !targetSearch) {
-            score = 2;
-          }
-
-          if (score > best.score) {
-            best = { tab, score };
-            if (score === 3) break; // Cannot do better
-          }
-        }
-
-        return best.tab;
-      };
-
       const explicitTab = await this.tryGetTab(tabId);
-      const existingTab = explicitTab || pickBestMatch(url, candidateTabs);
+      const existingTab =
+        explicitTab ||
+        (() => {
+          const index = browserMetadataPolicy.pickBestNavigationCandidateIndex(url, candidateTabs);
+          return index === undefined ? undefined : candidateTabs[index];
+        })();
       if (existingTab?.id !== undefined) {
         console.log(
           `URL already open in Tab ID: ${existingTab.id}, Window ID: ${existingTab.windowId}`,

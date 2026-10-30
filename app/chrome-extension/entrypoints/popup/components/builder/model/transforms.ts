@@ -4,12 +4,14 @@ import type {
   Edge as EdgeV2,
 } from '@/entrypoints/background/record-replay/types';
 import {
+  builderPolicy,
+  legacyBuilderStepIndexes,
+  legacyExecutionPlan,
   nodesToSteps as sharedNodesToSteps,
   stepsToNodes as sharedStepsToNodes,
-  topoOrder as sharedTopoOrder,
+  STEP_TYPES,
+  EDGE_LABELS,
 } from 'humanchrome-shared';
-import { STEP_TYPES } from 'humanchrome-shared';
-import { EDGE_LABELS } from 'humanchrome-shared';
 
 export function newId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -18,37 +20,9 @@ export function newId(prefix: string) {
 export type NodeType = NodeBase['type'];
 
 export function defaultConfigFor(t: NodeType): any {
-  if ((t as any) === 'trigger') return { type: 'manual', description: '' };
-  if (t === STEP_TYPES.CLICK || t === STEP_TYPES.FILL)
-    return { target: { candidates: [] }, value: t === STEP_TYPES.FILL ? '' : undefined };
-  if (t === STEP_TYPES.IF)
-    return { branches: [{ id: newId('case'), name: '', expr: '' }], else: true };
-  if (t === STEP_TYPES.NAVIGATE) return { url: '' };
-  if (t === STEP_TYPES.WAIT) return { condition: { text: '', appear: true } };
-  if (t === STEP_TYPES.ASSERT) return { assert: { exists: '' } };
-  if (t === STEP_TYPES.KEY) return { keys: '' };
-  if (t === STEP_TYPES.DELAY) return { ms: 1000 };
-  if (t === STEP_TYPES.HTTP) return { method: 'GET', url: '', headers: {}, body: null, saveAs: '' };
-  if (t === STEP_TYPES.EXTRACT) return { selector: '', attr: 'text', js: '', saveAs: '' };
-  if (t === STEP_TYPES.SCREENSHOT) return { selector: '', fullPage: false, saveAs: 'shot' };
-  if (t === STEP_TYPES.DRAG)
-    return { start: { candidates: [] }, end: { candidates: [] }, path: [] };
-  if (t === STEP_TYPES.SCROLL)
-    return { mode: 'offset', offset: { x: 0, y: 300 }, target: { candidates: [] } };
-  if (t === STEP_TYPES.TRIGGER_EVENT)
-    return { target: { candidates: [] }, event: 'input', bubbles: true, cancelable: false };
-  if (t === STEP_TYPES.SET_ATTRIBUTE) return { target: { candidates: [] }, name: '', value: '' };
-  if (t === STEP_TYPES.LOOP_ELEMENTS)
-    return { selector: '', saveAs: 'elements', itemVar: 'item', subflowId: '' };
-  if (t === STEP_TYPES.SWITCH_FRAME) return { frame: { index: 0, urlContains: '' } };
-  if (t === STEP_TYPES.HANDLE_DOWNLOAD)
-    return { filenameContains: '', waitForComplete: true, timeoutMs: 60000, saveAs: 'download' };
-  if (t === STEP_TYPES.EXECUTE_FLOW) return { flowId: '', inline: true, args: {} };
-  if (t === STEP_TYPES.OPEN_TAB) return { url: '', newWindow: false };
-  if (t === STEP_TYPES.SWITCH_TAB) return { tabId: null, urlContains: '', titleContains: '' };
-  if (t === STEP_TYPES.CLOSE_TAB) return { tabIds: [], url: '' };
-  if (t === STEP_TYPES.SCRIPT) return { world: 'ISOLATED', code: '', saveAs: '', assign: {} };
-  return {};
+  const branchId = t === STEP_TYPES.IF ? newId('case') : '';
+  const config = builderPolicy.builderDefaultConfig(t, branchId);
+  return t === STEP_TYPES.CLICK ? { ...config, value: undefined } : config;
 }
 
 export function stepsToNodes(steps: any[]): NodeBase[] {
@@ -61,18 +35,12 @@ export function stepsToNodes(steps: any[]): NodeBase[] {
 }
 
 export function topoOrder(nodes: NodeBase[], edges: EdgeV2[]): NodeBase[] {
-  const filtered = (edges || []).filter((e) => !e.label || e.label === EDGE_LABELS.DEFAULT);
-  return sharedTopoOrder(nodes as any, filtered as any) as any;
+  return legacyExecutionPlan(nodes, edges).orderedNodeIndexes.map((index) => nodes[index]);
 }
 
-export function nodesToSteps(nodes: NodeBase[], edges: EdgeV2[]): any[] {
-  // Exclude non-executable nodes like 'trigger' and cut edges from them
-  const execNodes = (nodes || []).filter((n) => n.type !== ('trigger' as any));
-  const filtered = (edges || []).filter(
-    (e) =>
-      (!e.label || e.label === EDGE_LABELS.DEFAULT) && !execNodes.every((n) => n.id !== e.from),
-  );
-  return sharedNodesToSteps(execNodes as any, filtered as any);
+export function nodesToSteps(nodes: NodeBase[], edges: EdgeV2[]): Record<string, unknown>[] {
+  const executableNodes = legacyBuilderStepIndexes(nodes, edges).map((index) => nodes[index]);
+  return sharedNodesToSteps(executableNodes, []);
 }
 
 export function autoChainEdges(nodes: NodeBase[]): EdgeV2[] {

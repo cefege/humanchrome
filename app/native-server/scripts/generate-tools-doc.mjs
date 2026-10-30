@@ -17,11 +17,12 @@
  *   …generated content…
  *   <!-- AUTO-GEN END -->
  *
- * Run via: `pnpm --filter humanchrome-bridge run docs:tools`
+ * Run via: `pnpm --filter @humanchrome/third-party-adapters run docs:tools`
  *
- * IMPORTANT: requires `pnpm -w build` to have run first so the shared package
- * has a `dist/`. Node cannot load TypeScript directly here; we deliberately
- * avoid pulling in tsx/ts-node to keep this script's dep surface zero.
+ * IMPORTANT: requires `pnpm build:shared` to have run first so the shared
+ * package has a `dist/`. Node cannot load TypeScript directly here; we
+ * deliberately avoid pulling in tsx/ts-node to keep this script's dep surface
+ * zero.
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -34,6 +35,17 @@ const TOOLS_DOC = path.join(REPO_ROOT, 'docs', 'TOOLS.md');
 const START_MARKER = '<!-- AUTO-GEN BELOW -->';
 const END_MARKER = '<!-- AUTO-GEN END -->';
 
+const GENERATED_HEADER = [
+  '> The per-tool sections below are generated from `packages/shared/src/tools.ts`',
+  '> by `app/native-server/scripts/generate-tools-doc.mjs`. Edit the schemas (or',
+  '> `TOOL_CATEGORIES` in the same file) — never the generated section directly.',
+  '> Refresh after a schema change with:',
+  '> `pnpm build:shared && pnpm --filter @humanchrome/third-party-adapters run docs:tools`.',
+].join('\n');
+
+const GENERATED_HEADER_PATTERN =
+  /> The per-tool sections below are generated from `packages\/shared\/src\/tools\.ts`\n> by `app\/native-server\/scripts\/generate-tools-doc\.mjs`\. Edit the schemas \(or\n> `TOOL_CATEGORIES` in the same file\) — never the generated section directly\.\n> Refresh after a schema change with:\n> `[^`]+`\.\n/;
+
 async function loadShared() {
   // Importing the workspace package by name resolves through pnpm to the built
   // dist/. If the user hasn't built yet, this throws ERR_MODULE_NOT_FOUND with
@@ -43,7 +55,7 @@ async function loadShared() {
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     throw new Error(
-      `Failed to load humanchrome-shared. Did you run \`pnpm -w build\` first?\n  underlying: ${msg}`,
+      `Failed to load humanchrome-shared. Did you run \`pnpm build:shared\` first?\n  underlying: ${msg}`,
     );
   }
 }
@@ -195,6 +207,15 @@ function groupTools(toolSchemas, toolCategories, categoryOrder) {
   return { byCategory, fullOrder };
 }
 
+function refreshGeneratedHeader(document) {
+  if (!GENERATED_HEADER_PATTERN.test(document)) {
+    throw new Error(
+      `${TOOLS_DOC} is missing the generated tool-reference guidance block; restore it before regenerating.`,
+    );
+  }
+  return document.replace(GENERATED_HEADER_PATTERN, `${GENERATED_HEADER}\n`);
+}
+
 async function main() {
   const shared = await loadShared();
   const TOOL_SCHEMAS = shared.TOOL_SCHEMAS;
@@ -209,8 +230,9 @@ async function main() {
   const { byCategory, fullOrder } = groupTools(TOOL_SCHEMAS, TOOL_CATEGORIES, TOOL_CATEGORY_ORDER);
 
   const original = await fs.readFile(TOOLS_DOC, 'utf8');
-  const startIdx = original.indexOf(START_MARKER);
-  const endIdx = original.indexOf(END_MARKER);
+  const normalized = refreshGeneratedHeader(original);
+  const startIdx = normalized.indexOf(START_MARKER);
+  const endIdx = normalized.indexOf(END_MARKER);
   if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
     console.error(
       `[generate-tools-doc] ${TOOLS_DOC} is missing the AUTO-GEN markers.\n` +
@@ -221,8 +243,8 @@ async function main() {
     process.exit(1);
   }
 
-  const before = original.slice(0, startIdx + START_MARKER.length);
-  const after = original.slice(endIdx);
+  const before = normalized.slice(0, startIdx + START_MARKER.length);
+  const after = normalized.slice(endIdx);
   const generated = buildSection(byCategory, fullOrder);
   const next = `${before}\n\n${generated}\n\n${after}`;
   const usedCats = fullOrder.filter((c) => (byCategory.get(c) || []).length > 0).length;

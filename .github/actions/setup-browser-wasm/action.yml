@@ -1,0 +1,27 @@
+name: Set up browser Rust/WASM tooling
+description: Install the repository-pinned Rust toolchain and matching WASM build tools.
+runs:
+  using: composite
+  steps:
+    - name: Install pinned Rust toolchain and targets
+      shell: bash
+      run: rustup show active-toolchain
+    - name: Install matching wasm-bindgen CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(node scripts/build-browser-kernel.mjs --print-bindgen-version)"
+        if command -v wasm-bindgen && [[ "$(wasm-bindgen --version)" == "wasm-bindgen ${version}" ]]; then
+          echo "Using wasm-bindgen ${version}"
+        else
+          cargo install wasm-bindgen-cli --version "${version}" --locked
+        fi
+    - name: Install SIMD build tool
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v wasm-pack && [[ "$(wasm-pack --version)" == 'wasm-pack 0.15.0' ]]; then
+          echo 'Using wasm-pack 0.15.0'
+        else
+          cargo install wasm-pack --version 0.15.0 --locked
+        fi

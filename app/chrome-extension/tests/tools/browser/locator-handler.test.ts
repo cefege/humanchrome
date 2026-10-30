@@ -109,6 +109,7 @@ async function loadModule() {
   freshRunWithContext = rc.runWithContext;
   freshResetClientState = cs._resetClientStateForTests;
   freshResetClientState();
+  await cs.ensureClientStateReady();
   installInstrumentation(mod);
   return mod;
 }

@@ -7,6 +7,7 @@ pub fn main() {
     console_error_panic_hook::set_once();
 }
 
+#[derive(Default)]
 #[wasm_bindgen]
 pub struct SIMDMath;
 
@@ -40,6 +41,10 @@ impl SIMDMath {
         dot_product
     }
 
+    #[expect(
+        clippy::manual_clamp,
+        reason = "max/min maps NaN to -1; clamp would change persisted numeric behavior"
+    )]
     #[wasm_bindgen]
     pub fn cosine_similarity(&self, vec_a: &[f32], vec_b: &[f32]) -> f32 {
         if vec_a.len() != vec_b.len() || vec_a.is_empty() {
@@ -90,11 +95,21 @@ impl SIMDMath {
         (dot_product / magnitude).max(-1.0).min(1.0)
     }
 
+    #[expect(
+        clippy::manual_clamp,
+        reason = "max/min maps NaN to -1; clamp would change persisted numeric behavior"
+    )]
     #[wasm_bindgen]
     pub fn batch_similarity(&self, vectors: &[f32], query: &[f32], vector_dim: usize) -> Vec<f32> {
-        if vector_dim == 0 { return Vec::new(); }
-        if vectors.len() % vector_dim != 0 { return Vec::new(); }
-        if query.len() != vector_dim { return Vec::new(); }
+        if vector_dim == 0 {
+            return Vec::new();
+        }
+        if !vectors.len().is_multiple_of(vector_dim) {
+            return Vec::new();
+        }
+        if query.len() != vector_dim {
+            return Vec::new();
+        }
 
         let num_vectors = vectors.len() / vector_dim;
         let mut results = Vec::with_capacity(num_vectors);
@@ -139,8 +154,8 @@ impl SIMDMath {
         }
 
         let mut norm_sq = norm_sum_simd.reduce_add();
-        for i in simd_len..len {
-            norm_sq += vec[i] * vec[i];
+        for value in &vec[simd_len..] {
+            norm_sq += value * value;
         }
         norm_sq
     }
@@ -176,9 +191,21 @@ impl SIMDMath {
     }
 
     // Batched matrix similarity (optimized).
+    #[expect(
+        clippy::manual_clamp,
+        reason = "max/min maps NaN to -1; clamp would change persisted numeric behavior"
+    )]
     #[wasm_bindgen]
-    pub fn similarity_matrix(&self, vectors_a: &[f32], vectors_b: &[f32], vector_dim: usize) -> Vec<f32> {
-        if vector_dim == 0 || vectors_a.len() % vector_dim != 0 || vectors_b.len() % vector_dim != 0 {
+    pub fn similarity_matrix(
+        &self,
+        vectors_a: &[f32],
+        vectors_b: &[f32],
+        vector_dim: usize,
+    ) -> Vec<f32> {
+        if vector_dim == 0
+            || !vectors_a.len().is_multiple_of(vector_dim)
+            || !vectors_b.len().is_multiple_of(vector_dim)
+        {
             return Vec::new();
         }
 
@@ -204,23 +231,19 @@ impl SIMDMath {
             })
             .collect();
 
-        for i in 0..num_a {
+        for (i, &norm_a) in norms_a.iter().enumerate() {
             let start_a = i * vector_dim;
             let vec_a = &vectors_a[start_a..start_a + vector_dim];
-            let norm_a = norms_a[i];
 
             if norm_a == 0.0 {
                 // If norm_a is zero, all similarities are zero.
-                for _ in 0..num_b {
-                    results.push(0.0);
-                }
+                results.resize(results.len() + num_b, 0.0);
                 continue;
             }
 
-            for j in 0..num_b {
+            for (j, &norm_b) in norms_b.iter().enumerate() {
                 let start_b = j * vector_dim;
                 let vec_b = &vectors_b[start_b..start_b + vector_dim];
-                let norm_b = norms_b[j];
 
                 if norm_b == 0.0 {
                     results.push(0.0);
@@ -238,5 +261,35 @@ impl SIMDMath {
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SIMDMath;
+
+    #[test]
+    fn zero_and_mismatched_vectors_keep_existing_result_shapes() {
+        let math = SIMDMath::new();
+        assert_eq!(math.cosine_similarity(&[], &[]), 0.0);
+        assert_eq!(math.cosine_similarity(&[1.0], &[1.0, 2.0]), 0.0);
+        assert_eq!(
+            math.batch_similarity(&[1.0, 2.0], &[0.0], 1),
+            vec![0.0, 0.0]
+        );
+        assert!(math.batch_similarity(&[1.0], &[1.0], 0).is_empty());
+        assert!(math.batch_similarity(&[1.0], &[1.0, 2.0], 2).is_empty());
+        assert_eq!(
+            math.similarity_matrix(&[0.0, 1.0], &[1.0, -1.0], 1),
+            vec![0.0, 0.0, 1.0, -1.0]
+        );
+    }
+
+    #[test]
+    fn nan_is_clamped_to_negative_one_in_all_numeric_paths() {
+        let math = SIMDMath::new();
+        assert_eq!(math.cosine_similarity(&[f32::NAN], &[1.0]), -1.0);
+        assert_eq!(math.batch_similarity(&[f32::NAN], &[1.0], 1), vec![-1.0]);
+        assert_eq!(math.similarity_matrix(&[f32::NAN], &[1.0], 1), vec![-1.0]);
     }
 }

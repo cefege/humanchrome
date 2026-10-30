@@ -14,9 +14,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
+  Action,
   ActionExecutionContext,
   ActionExecutionResult,
   ActionHandler,
+  ActionPolicy,
 } from '@/entrypoints/background/record-replay/actions/types';
 import type { NodeExecutionContext } from '@/entrypoints/background/record-replay-v3/engine/plugins/types';
 import type { FlowV3 } from '@/entrypoints/background/record-replay-v3/domain/flow';
@@ -85,7 +87,7 @@ type TestActionType = 'test';
 function createMockHandler(
   runFn: (
     ctx: ActionExecutionContext,
-    action: unknown,
+    action: Action<TestActionType>,
   ) => Promise<ActionExecutionResult<TestActionType>>,
 ): ActionHandler<TestActionType> {
   return {
@@ -221,6 +223,50 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
         name: 'obj',
         value: { nested: { value: 42 } },
       });
+    });
+
+    it('preserves before-key patch order before newly added keys', async () => {
+      const handler = createMockHandler(async (ctx) => {
+        ctx.vars.changed = 2;
+        delete ctx.vars.removed;
+        ctx.vars.added = 'new';
+        return { status: 'success' };
+      });
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(handler);
+      const ctx = createMockV3Context({
+        vars: { changed: 1, removed: true, unchanged: { nested: ['same'] } },
+      });
+
+      const result = await nodeDef.execute(
+        ctx,
+        createMockNode() as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(asSucceeded(result).varsPatch).toEqual([
+        { op: 'set', name: 'changed', value: 2 },
+        { op: 'delete', name: 'removed' },
+        { op: 'set', name: 'added', value: 'new' },
+      ]);
+    });
+
+    it('isolates nested V2 mutations from the V3 variable snapshot', async () => {
+      const handler = createMockHandler(async (ctx) => {
+        const nested = ctx.vars.nested;
+        if (nested && typeof nested === 'object' && !Array.isArray(nested)) nested.value = 2;
+        return { status: 'success' };
+      });
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(handler);
+      const ctx = createMockV3Context({ vars: { nested: { value: 1 } } });
+
+      const result = await nodeDef.execute(
+        ctx,
+        createMockNode() as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(ctx.vars).toEqual({ nested: { value: 1 } });
+      expect(asSucceeded(result).varsPatch).toEqual([
+        { op: 'set', name: 'nested', value: { value: 2 } },
+      ]);
     });
 
     it('does not generate patch when vars unchanged', async () => {
@@ -404,6 +450,48 @@ describe('adaptV2ActionHandlerToV3NodeDefinition', () => {
         name: 'custom_tab',
         value: 42,
       });
+    });
+  });
+
+  describe('V3 policy projection', () => {
+    it('maps node scope and degrades node-target goto while preserving edge-label goto', async () => {
+      const policies: Array<ActionPolicy | undefined> = [];
+      const handler = createMockHandler(async (_ctx, action) => {
+        policies.push(action.policy);
+        return { status: 'success' };
+      });
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(handler);
+      const ctx = createMockV3Context();
+      const nodeTarget = {
+        ...createMockNode(),
+        policy: {
+          timeout: { ms: 25, scope: 'node' as const },
+          onError: { kind: 'goto' as const, target: { kind: 'node' as const, nodeId: 'next' } },
+        },
+      };
+      const edgeLabel = {
+        ...createMockNode(),
+        policy: {
+          onError: {
+            kind: 'goto' as const,
+            target: { kind: 'edgeLabel' as const, label: 'recover' },
+          },
+        },
+      };
+
+      await nodeDef.execute(
+        ctx,
+        nodeTarget as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+      await nodeDef.execute(
+        ctx,
+        edgeLabel as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(policies).toEqual([
+        { timeout: { ms: 25, scope: 'action' }, onError: { kind: 'stop' } },
+        { onError: { kind: 'goto', label: 'recover' } },
+      ]);
     });
   });
 

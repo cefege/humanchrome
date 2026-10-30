@@ -10,6 +10,7 @@
  * WARNING: This adapter accesses V2 handler internals and may need updates if V2 types change.
  */
 
+import { replayPolicy } from 'humanchrome-shared';
 import { z } from 'zod';
 
 import type {
@@ -17,7 +18,6 @@ import type {
   ActionExecutionResult,
   ActionHandler,
   ActionError,
-  ActionErrorCode,
   ActionPolicy,
   ExecutableActionType,
   ValidationResult,
@@ -25,16 +25,15 @@ import type {
 } from '@/entrypoints/background/record-replay/actions/types';
 
 import type { JsonValue, JsonObject } from '../../domain/json';
-import { RR_ERROR_CODES, createRRError, type RRError, type RRErrorCode } from '../../domain/errors';
-import type { NodePolicy } from '../../domain/policy';
+import { RR_ERROR_CODES, createRRError, type RRError } from '../../domain/errors';
 import { mergeNodePolicy } from '../../domain/policy';
-
 import type {
   NodeDefinition,
   NodeExecutionContext,
   NodeExecutionResult,
   VarsPatchOp,
 } from './types';
+
 
 // Internal run-scoped state keys used to emulate V2 "mutable context" across nodes.
 const DEFAULT_TAB_ID_VAR = '__rr_v2__tabId';
@@ -81,9 +80,9 @@ function deepClone<T>(value: T): T {
 function safeJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
   try {
-    const s = JSON.stringify(value);
-    if (s === undefined) return String(value);
-    return JSON.parse(s) as JsonValue;
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return String(value);
+    return JSON.parse(serialized) as JsonValue;
   } catch {
     return String(value);
   }
@@ -93,112 +92,17 @@ function mapLogLevel(level: 'info' | 'warn' | 'error' | undefined): 'info' | 'wa
   return level ?? 'info';
 }
 
-function mapV2ErrorCode(code: ActionErrorCode): RRErrorCode {
-  switch (code) {
-    case 'VALIDATION_ERROR':
-      return RR_ERROR_CODES.VALIDATION_ERROR;
-    case 'TIMEOUT':
-      return RR_ERROR_CODES.TIMEOUT;
-    case 'TAB_NOT_FOUND':
-      return RR_ERROR_CODES.TAB_NOT_FOUND;
-    case 'FRAME_NOT_FOUND':
-      return RR_ERROR_CODES.FRAME_NOT_FOUND;
-    case 'TARGET_NOT_FOUND':
-      return RR_ERROR_CODES.TARGET_NOT_FOUND;
-    case 'ELEMENT_NOT_VISIBLE':
-      return RR_ERROR_CODES.ELEMENT_NOT_VISIBLE;
-    case 'NAVIGATION_FAILED':
-      return RR_ERROR_CODES.NAVIGATION_FAILED;
-    case 'NETWORK_REQUEST_FAILED':
-      return RR_ERROR_CODES.NETWORK_REQUEST_FAILED;
-    case 'SCRIPT_FAILED':
-      return RR_ERROR_CODES.SCRIPT_FAILED;
-
-    // V3 doesn't currently have dedicated codes for these.
-    case 'DOWNLOAD_FAILED':
-    case 'ASSERTION_FAILED':
-      return RR_ERROR_CODES.TOOL_ERROR;
-
-    case 'UNKNOWN':
-    default:
-      return RR_ERROR_CODES.INTERNAL;
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function toRRErrorFromV2(error: ActionError): RRError {
   const data = error.data !== undefined ? safeJsonValue(error.data) : undefined;
   return createRRError(
-    mapV2ErrorCode(error.code),
+    replayPolicy.replayV2ErrorCode(error.code) as RRError['code'],
     error.message,
     data !== undefined ? { data } : undefined,
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function jsonEquals(a: JsonValue, b: JsonValue): boolean {
-  if (a === b) return true;
-
-  const aIsArray = Array.isArray(a);
-  const bIsArray = Array.isArray(b);
-  if (aIsArray || bIsArray) {
-    if (!aIsArray || !bIsArray) return false;
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!jsonEquals(a[i] as JsonValue, b[i] as JsonValue)) return false;
-    }
-    return true;
-  }
-
-  const aIsObj = isRecord(a);
-  const bIsObj = isRecord(b);
-  if (aIsObj || bIsObj) {
-    if (!aIsObj || !bIsObj) return false;
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-    if (aKeys.length !== bKeys.length) return false;
-    for (const k of aKeys) {
-      if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-      if (!jsonEquals(a[k] as JsonValue, (b as Record<string, unknown>)[k] as JsonValue))
-        return false;
-    }
-    return true;
-  }
-
-  return false;
-}
-
-function diffVars(
-  before: Record<string, JsonValue>,
-  after: Record<string, JsonValue>,
-): VarsPatchOp[] {
-  const patch: VarsPatchOp[] = [];
-  const keys = new Set<string>([...Object.keys(before), ...Object.keys(after)]);
-
-  for (const key of keys) {
-    const beforeHas = Object.prototype.hasOwnProperty.call(before, key);
-    const afterHas = Object.prototype.hasOwnProperty.call(after, key);
-
-    if (!afterHas) {
-      if (beforeHas) patch.push({ op: 'delete', name: key });
-      continue;
-    }
-
-    const afterVal = after[key];
-    if (!beforeHas) {
-      patch.push({ op: 'set', name: key, value: afterVal });
-      continue;
-    }
-
-    const beforeVal = before[key];
-    if (!jsonEquals(beforeVal, afterVal)) {
-      patch.push({ op: 'set', name: key, value: afterVal });
-    }
-  }
-
-  return patch;
 }
 
 function readNumberVar(vars: Record<string, JsonValue>, key: string): number | undefined {
@@ -206,59 +110,6 @@ function readNumberVar(vars: Record<string, JsonValue>, key: string): number | u
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
-function toV2ActionPolicy(policy: NodePolicy | undefined): ActionPolicy | undefined {
-  if (!policy) return undefined;
-
-  const timeout = policy.timeout
-    ? {
-        ms: policy.timeout.ms,
-        scope: policy.timeout.scope === 'node' ? ('action' as const) : ('attempt' as const),
-      }
-    : undefined;
-
-  // NodePolicy/ActionPolicy are structurally similar; we only normalize timeout.scope.
-  return {
-    ...(timeout ? { timeout } : {}),
-    ...(policy.retry ? { retry: policy.retry as unknown as ActionPolicy['retry'] } : {}),
-    ...(policy.artifacts
-      ? { artifacts: policy.artifacts as unknown as ActionPolicy['artifacts'] }
-      : {}),
-    ...(policy.onError
-      ? (() => {
-          // V2 only supports goto by edge label. Node-target goto can't be represented.
-          if (policy.onError.kind === 'goto' && policy.onError.target.kind === 'node') {
-            return { onError: { kind: 'stop' } as ActionPolicy['onError'] };
-          }
-          if (policy.onError.kind === 'continue') {
-            return {
-              onError: {
-                kind: 'continue',
-                level: policy.onError.as,
-              } as ActionPolicy['onError'],
-            };
-          }
-          if (policy.onError.kind === 'goto') {
-            const target = policy.onError.target;
-            if (target.kind === 'edgeLabel') {
-              return {
-                onError: {
-                  kind: 'goto',
-                  label: target.label,
-                } as ActionPolicy['onError'],
-              };
-            }
-            // Node target can't be represented in V2, fall through to stop
-            return { onError: { kind: 'stop' } as ActionPolicy['onError'] };
-          }
-          if (policy.onError.kind === 'retry') {
-            // V2 has retry policy on action.policy.retry; keep onError as stop to avoid double semantics.
-            return { onError: { kind: 'stop' } as ActionPolicy['onError'] };
-          }
-          return { onError: policy.onError as unknown as ActionPolicy['onError'] };
-        })()
-      : {}),
-  };
-}
 
 function toJsonRecord(value: unknown): Record<string, JsonValue> {
   const out: Record<string, JsonValue> = {};
@@ -319,7 +170,7 @@ export function adaptV2ActionHandlerToV3NodeDefinition<T extends ExecutableActio
       };
 
       const effectivePolicy = mergeNodePolicy(ctx.flow.policy?.defaultNodePolicy, node.policy);
-      const v2Policy = toV2ActionPolicy(effectivePolicy);
+      const v2Policy = replayPolicy.replayV2ActionPolicy<ActionPolicy>(effectivePolicy);
 
       const action: Action<T> = {
         id: node.id as Action<T>['id'],
@@ -396,7 +247,10 @@ export function adaptV2ActionHandlerToV3NodeDefinition<T extends ExecutableActio
       }
 
       const afterVars = toJsonRecord(v2Vars);
-      const varsPatch = diffVars(beforeVars, afterVars);
+      const varsPatch = replayPolicy.replayV2AdapterResultPlan(
+        beforeVars,
+        afterVars,
+      ) as VarsPatchOp[];
 
       const outputs: Record<string, JsonValue> | undefined =
         options.includeOutput === false || result.output === undefined

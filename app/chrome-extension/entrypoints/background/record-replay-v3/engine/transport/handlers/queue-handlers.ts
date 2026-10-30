@@ -4,12 +4,13 @@
  * Free functions over a deps bag so the orchestrator (RpcServer) stays
  * focused on port lifecycle + dispatch.
  */
+import { runPolicy } from 'humanchrome-shared';
 import type { JsonObject, JsonValue } from '../../../domain/json';
 import type { FlowId, NodeId, RunId } from '../../../domain/ids';
 import type { StoragePort } from '../../storage/storage-port';
 import type { EventsBus } from '../events-bus';
 import type { RunScheduler } from '../../queue/scheduler';
-import { compareQueueItems, isQueueItemStatus, QUEUE_ITEM_STATUSES } from '../../queue/queue';
+import { isQueueItemStatus, QUEUE_ITEM_STATUSES } from '../../queue/queue';
 import { enqueueRun } from '../../queue/enqueue-run';
 
 export interface QueueHandlerDeps {
@@ -46,8 +47,7 @@ export async function handleListQueue(
     throw new Error(`status must be one of: ${QUEUE_ITEM_STATUSES.join(', ')}`);
   }
 
-  const items = await deps.storage.queue.list(rawStatus);
-  items.sort(compareQueueItems);
+  const items = runPolicy.sortRunQueueItems(await deps.storage.queue.list(rawStatus));
   return items as unknown as JsonValue;
 }
 

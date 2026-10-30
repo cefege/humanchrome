@@ -161,13 +161,9 @@ export async function resolveSelectorToRef(
   }
   let resolved: EnsureRefResponse | undefined;
   try {
-    if (typeof frameId === 'number') {
-      resolved = (await chrome.tabs.sendMessage(tabId, message, {
-        frameId,
-      })) as EnsureRefResponse;
-    } else {
-      resolved = (await chrome.tabs.sendMessage(tabId, message)) as EnsureRefResponse;
-    }
+    resolved = (await chrome.tabs.sendMessage(tabId, message, {
+      frameId: frameId ?? 0,
+    })) as EnsureRefResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

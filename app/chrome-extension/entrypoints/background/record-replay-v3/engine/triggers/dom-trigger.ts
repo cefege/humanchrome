@@ -15,6 +15,8 @@
  * - Top-frame only (no frameId in TriggerFireContext).
  */
 
+import { runPolicy } from 'humanchrome-shared';
+
 import type { TriggerId } from '../../domain/ids';
 import type { TriggerSpecByKind } from '../../domain/triggers';
 import { CONTENT_MESSAGE_TYPES, TOOL_MESSAGE_TYPES } from '../../../../../common/message-types';
@@ -51,40 +53,16 @@ interface DomTriggerFiredMessage {
 // ==================== Constants ====================
 
 const DOM_OBSERVER_SCRIPT_FILE = 'inject-scripts/dom-observer.js';
-const DEFAULT_DEBOUNCE_MS = 800;
 
-// ==================== Utilities ====================
-
-function normalizeDebounceMs(value: unknown): number {
-  if (value === undefined || value === null) return DEFAULT_DEBOUNCE_MS;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_DEBOUNCE_MS;
-  return Math.max(0, Math.floor(value));
-}
-
-/**
- * Build payload for dom-observer content script
- */
 function buildDomObserverPayload(
   installed: Map<TriggerId, DomTriggerSpec>,
 ): DomObserverTriggerPayload[] {
-  const out: DomObserverTriggerPayload[] = [];
-
-  for (const t of installed.values()) {
-    const selector = String(t.selector ?? '').trim();
-    if (!selector) continue;
-
-    out.push({
-      id: t.id,
-      selector,
-      appear: t.appear !== false, // default true
-      once: t.once !== false, // default true
-      debounceMs: normalizeDebounceMs(t.debounceMs),
-    });
-  }
-
-  // Deterministic ordering for tests and debugging
-  out.sort((a, b) => a.id.localeCompare(b.id));
-  return out;
+  return runPolicy.buildRunDomTriggerPayload(
+    Array.from(installed.values()),
+    (left, right) => left.localeCompare(right),
+    String,
+    (value) => value.trim(),
+  );
 }
 
 /**

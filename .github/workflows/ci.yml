@@ -8,6 +8,8 @@ on:
       - "docs/**"
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
 
 permissions:
   contents: read
@@ -47,6 +49,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Set up Rust and WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
+
       - name: Build all packages
         run: pnpm build
 
@@ -56,11 +61,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests (shared + bridge + extension)
-        # Serial workspace execution (--workspace-concurrency=1 inside the
-        # `pnpm test` script) prevents CPU/memory contention between
-        # native-server jest and chrome-extension vitest that otherwise
-        # causes intermittent timeouts. See IMP-0123 + package.json `//test`.
+      - name: Unit tests (shared + extension + Rust workspace)
         run: pnpm test
 
       - name: Bridge smoke tests
@@ -70,6 +71,118 @@ jobs:
       - name: Extension smoke tests
         working-directory: app/chrome-extension
         run: node smoke-test.mjs
+  native-release:
+    name: Native release ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+          - id: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - id: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - id: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: pnpm
+
+      - name: Install Node build dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install vendored OpenSSL prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install --yes build-essential perl pkg-config
+              ;;
+            macOS)
+              command -v perl
+              command -v make
+              command -v clang
+              ;;
+            Windows)
+              choco.exe install strawberryperl nasm --no-progress --yes
+              printf '%s\n' 'OPENSSL_SRC_PERL=C:/Strawberry/perl/bin/perl.exe' >> "$GITHUB_ENV"
+              printf '%s\n' 'C:/Strawberry/perl/bin' 'C:/Strawberry/c/bin' >> "$GITHUB_PATH"
+              'C:/Strawberry/perl/bin/perl.exe' -MLocale::Maketext::Simple -e 1
+              command -v nasm
+              ;;
+            *)
+              echo "unsupported runner OS: ${RUNNER_OS}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Set up pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.target }}
+
+      - name: Build native public executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "${{ matrix.target }}" -p humanchrome-native \
+            --bin humanchrome-nativehost \
+            --bin humanchrome-bridge \
+            --bin humanchrome-stdio
+
+      - name: Build optional JavaScript engines
+        shell: bash
+        run: node scripts/build-optional-engines.mjs --output-dir native-engines
+
+      - name: Package native release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/package-native-release.mjs \
+            --target "${{ matrix.target }}" \
+            --bin-dir "target/${{ matrix.target }}/release" \
+            --output-dir native-artifacts \
+            --engines-dir native-engines
+
+      - name: Smoke packaged native release without Node on child PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          extension='tar.gz'
+          if [[ "${{ matrix.target }}" == *windows* ]]; then extension='zip'; fi
+          node scripts/smoke-native-release.mjs \
+            --archive "native-artifacts/humanchrome-native-${version}-${{ matrix.target }}.${extension}"
+
+      - name: Upload native release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.id }}-${{ github.sha }}
+          path: native-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
 
   typecheck-node26:
     name: Typecheck on Node 26
@@ -92,6 +205,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Set up Rust and WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
+
+      - name: Generate browser kernel bindings
+        run: node scripts/build-browser-kernel.mjs
 
       - name: Build shared (typecheck depends on it)
         run: pnpm build:shared
@@ -123,6 +242,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Set up Rust and WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
 
       - name: Build all packages
         run: pnpm build
@@ -157,11 +279,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build shared (extension depends on it)
-        run: pnpm build:shared
+      - name: Set up Rust and WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
 
-      - name: Build extension (unpacked)
-        run: pnpm build:extension
+      - name: Build contracts and browser extension assets
+        run: pnpm build:contracts && pnpm build:browser
 
       - name: Zip extension (wxt zip)
         run: pnpm --filter humanchrome-extension zip

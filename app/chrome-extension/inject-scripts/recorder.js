@@ -28,10 +28,9 @@
   // ==========================================================================
   // SelectorEngine — thin shim over the shared selector engine (IMP-0099).
   //
-  // The engine itself lives in `inject-scripts/selector-engine-bundle.js`,
-  // which mirrors `shared/selector/` for vanilla-JS content-script use. The
-  // bundle is injected by the recorder bootstrap (see content-injection.ts)
-  // BEFORE recorder.js, so `window.__rrSelectorEngine` is always available.
+  // The build-generated `inject-scripts/selector-engine-bundle.js` contains
+  // shared DOM adapters and the Rust selector policy. The recorder bootstrap
+  // initializes it in this frame before injecting recorder.js.
   //
   // If the bundle is somehow missing (e.g. a partial reload), a tiny inline
   // fallback returns a structural css-path so recording stays best-effort

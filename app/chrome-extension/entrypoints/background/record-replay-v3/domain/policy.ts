@@ -1,3 +1,4 @@
+import { runPolicy } from 'humanchrome-shared';
 import type { EdgeLabel, NodeId } from './ids';
 import type { RRErrorCode } from './errors';
 import type { UnixMillis } from './json';
@@ -50,20 +51,10 @@ export interface FlowPolicy {
   runTimeoutMs?: UnixMillis;
 }
 
-/** Merge a flow-level default policy with a node-level policy. */
+/** Merges flow and node policy through the Rust policy kernel. */
 export function mergeNodePolicy(
   flowDefault: NodePolicy | undefined,
   nodePolicy: NodePolicy | undefined,
 ): NodePolicy {
-  if (!flowDefault) return nodePolicy ?? {};
-  if (!nodePolicy) return flowDefault;
-
-  return {
-    timeout: nodePolicy.timeout ?? flowDefault.timeout,
-    retry: nodePolicy.retry ?? flowDefault.retry,
-    onError: nodePolicy.onError ?? flowDefault.onError,
-    artifacts: nodePolicy.artifacts
-      ? { ...flowDefault.artifacts, ...nodePolicy.artifacts }
-      : flowDefault.artifacts,
-  };
+  return runPolicy.mergeRunNodePolicy(flowDefault, nodePolicy);
 }

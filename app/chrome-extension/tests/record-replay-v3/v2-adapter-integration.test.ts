@@ -22,6 +22,11 @@ import {
 
 import { PluginRegistry } from '@/entrypoints/background/record-replay-v3/engine/plugins/registry';
 import { ifHandler } from '@/entrypoints/background/record-replay/actions/handlers/control-flow';
+import {
+  tryResolveJson,
+  tryResolveNumber,
+  tryResolveString,
+} from '@/entrypoints/background/record-replay/actions/registry';
 import { delayHandler } from '@/entrypoints/background/record-replay/actions/handlers/delay';
 import { adaptV2ActionHandlerToV3NodeDefinition } from '@/entrypoints/background/record-replay-v3/engine/plugins/v2-action-adapter';
 import { createV3E2EHarness, type V3E2EHarness, type RpcClient } from './v3-e2e-harness';
@@ -149,6 +154,78 @@ describe('V2 Action Adapter Integration', () => {
 
       expect(plugins.hasNode('if')).toBe(true);
       expect(plugins.getNode('if')).toBeDefined();
+    });
+
+    it('keeps generic resolver object handles intact', () => {
+      const shared = { value: 1 };
+      const left = { value: 1 };
+      const right = { value: 1 };
+      const vars = { shared, alias: shared, left, right };
+      const same = tryResolveJson({ kind: 'var', ref: { name: 'shared' } }, vars);
+      const alias = tryResolveJson({ kind: 'var', ref: { name: 'alias' } }, vars);
+      const distinctLeft = tryResolveJson({ kind: 'var', ref: { name: 'left' } }, vars);
+      const distinctRight = tryResolveJson({ kind: 'var', ref: { name: 'right' } }, vars);
+      const fallback = tryResolveJson(
+        { kind: 'var', ref: { name: 'missing' }, default: shared },
+        {},
+      );
+      const literal = tryResolveJson(shared, {});
+
+      expect(same).toEqual({ ok: true, value: shared });
+      expect(alias).toEqual({ ok: true, value: shared });
+      expect(distinctLeft).toEqual({ ok: true, value: left });
+      expect(distinctRight).toEqual({ ok: true, value: right });
+      expect(fallback).toEqual({ ok: true, value: shared });
+      expect(literal).toEqual({ ok: true, value: shared });
+      if (same.ok && alias.ok && distinctLeft.ok && distinctRight.ok && fallback.ok && literal.ok) {
+        expect(same.value).toBe(shared);
+        expect(alias.value).toBe(same.value);
+        expect(distinctLeft.value).not.toBe(distinctRight.value);
+        expect(fallback.value).toBe(shared);
+        expect(literal.value).toBe(shared);
+      }
+    });
+
+    it('preserves legacy string and numeric coercion boundaries', () => {
+      const cyclic: { self?: unknown } = {};
+      cyclic.self = cyclic;
+      expect(tryResolveString({ kind: 'var', ref: { name: 'nan' } }, { nan: Number.NaN })).toEqual({
+        ok: true,
+        value: 'NaN',
+      });
+      expect(
+        tryResolveString(
+          {
+            kind: 'template',
+            parts: [
+              { kind: 'text', value: 'json=' },
+              { kind: 'insert', value: { kind: 'var', ref: { name: 'missing' } }, format: 'json' },
+              { kind: 'insert', value: { kind: 'var', ref: { name: 'space' } }, format: 'urlEncoded' },
+            ],
+          },
+          { space: 'a b' },
+        ),
+      ).toEqual({ ok: true, value: 'json=nulla%20b' });
+      expect(
+        tryResolveString({ kind: 'var', ref: { name: 'cyclic' } }, { cyclic: cyclic as never }),
+      ).toEqual({
+        ok: true,
+        value: '[object Object]',
+      });
+      expect(tryResolveNumber({ kind: 'var', ref: { name: 'blank' }, default: 3 }, { blank: '  ' })).toEqual({
+        ok: true,
+        value: 3,
+      });
+      expect(tryResolveNumber({ kind: 'var', ref: { name: 'number' } }, { number: '0x10' })).toEqual({
+        ok: true,
+        value: 16,
+      });
+      expect(
+        tryResolveString(
+          { kind: 'template', parts: [{ kind: 'text', value: 1 }] } as never,
+          {},
+        ),
+      ).toEqual({ ok: false, error: 'Invalid template text part' });
     });
 
     it('evaluates truthy condition and returns true label', async () => {
@@ -472,6 +549,7 @@ describe('V2 Action Adapter Integration', () => {
         { op: 'startsWith', value: 'hello world', right: 'hello', expected: true },
         { op: 'endsWith', value: 'hello world', right: 'world', expected: true },
         { op: 'regex', value: 'test123', right: '\\d+', expected: true },
+        { op: 'regex', value: 'test123', right: '[', expected: false },
       ];
 
       for (const { op, value, right, expected } of testCases) {
@@ -505,6 +583,186 @@ describe('V2 Action Adapter Integration', () => {
         const expectedLabel = expected ? 'true' : 'false';
         expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: expectedLabel });
       }
+    });
+
+    it('preserves strict object identity instead of structural JSON equality', async () => {
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(ifHandler);
+      const shared = { value: 1 };
+      const ctx = {
+        runId: 'run-1',
+        flow: { policy: {} },
+        nodeId: 'if-node',
+        tabId: 1,
+        vars: { left: shared, alias: shared, right: { value: 1 } },
+        log: vi.fn(),
+        chooseNext: (label: string) => ({ kind: 'edgeLabel' as const, label }),
+        artifacts: { screenshot: vi.fn() },
+        persistent: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+      };
+      const distinctNode = {
+        id: 'if-node',
+        kind: 'if',
+        config: {
+          mode: 'binary',
+          condition: {
+            kind: 'compare',
+            left: { kind: 'var', ref: { name: 'left' } },
+            op: 'eq',
+            right: { kind: 'var', ref: { name: 'right' } },
+          },
+        },
+      };
+      const sameNode = {
+        ...distinctNode,
+        config: {
+          mode: 'binary',
+          condition: {
+            kind: 'compare',
+            left: { kind: 'var', ref: { name: 'left' } },
+            op: 'eq',
+            right: { kind: 'var', ref: { name: 'left' } },
+          },
+        },
+      };
+      const aliasNode = {
+        ...distinctNode,
+        config: {
+          mode: 'binary',
+          condition: {
+            kind: 'compare',
+            left: { kind: 'var', ref: { name: 'left' } },
+            op: 'eq',
+            right: { kind: 'var', ref: { name: 'alias' } },
+          },
+        },
+      };
+
+      const distinctResult = await nodeDef.execute(
+        ctx as unknown as Parameters<typeof nodeDef.execute>[0],
+        distinctNode as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+      const sameResult = await nodeDef.execute(
+        ctx as unknown as Parameters<typeof nodeDef.execute>[0],
+        sameNode as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+      const aliasResult = await nodeDef.execute(
+        ctx as unknown as Parameters<typeof nodeDef.execute>[0],
+        aliasNode as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(asSucceeded(distinctResult).next).toEqual({ kind: 'edgeLabel', label: 'false' });
+      expect(asSucceeded(sameResult).next).toEqual({ kind: 'edgeLabel', label: 'true' });
+      expect(asSucceeded(aliasResult).next).toEqual({ kind: 'edgeLabel', label: 'true' });
+    });
+
+    it('retains the identity of literal resolver defaults', async () => {
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(ifHandler);
+      const fallback = { value: 1 };
+      const ctx = {
+        runId: 'run-1',
+        flow: { policy: {} },
+        nodeId: 'if-node',
+        tabId: 1,
+        vars: {},
+        log: vi.fn(),
+        chooseNext: (label: string) => ({ kind: 'edgeLabel' as const, label }),
+        artifacts: { screenshot: vi.fn() },
+        persistent: { get: vi.fn() },
+      };
+      const node = {
+        id: 'if-node',
+        kind: 'if',
+        config: {
+          mode: 'binary',
+          condition: {
+            kind: 'compare',
+            left: { kind: 'var', ref: { name: 'missing-left' }, default: fallback },
+            op: 'eq',
+            right: { kind: 'var', ref: { name: 'missing-right' }, default: fallback },
+          },
+        },
+      };
+
+      const result = await nodeDef.execute(
+        ctx as unknown as Parameters<typeof nodeDef.execute>[0],
+        node as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'true' });
+    });
+
+    it('short-circuits before resolving later conditions', async () => {
+      const reads: string[] = [];
+      const vars = new Proxy(
+        { first: false, second: true },
+        {
+          get(target, key, receiver) {
+            reads.push(String(key));
+            return Reflect.get(target, key, receiver);
+          },
+        },
+      );
+      const action = {
+        id: 'if-node',
+        type: 'if',
+        params: {
+          mode: 'binary',
+          condition: {
+            kind: 'and',
+            conditions: [
+              { kind: 'truthy', value: { kind: 'var', ref: { name: 'first' } } },
+              { kind: 'truthy', value: { kind: 'var', ref: { name: 'second' } } },
+            ],
+          },
+        },
+      };
+
+      const result = await ifHandler.run(
+        { vars } as unknown as Parameters<typeof ifHandler.run>[0],
+        action as unknown as Parameters<typeof ifHandler.run>[1],
+      );
+
+      expect(result).toEqual({ status: 'success', nextLabel: 'false' });
+      expect(reads).toEqual(['first']);
+    });
+
+    it('treats resolver failures as false except for falsy conditions', async () => {
+      const nodeDef = adaptV2ActionHandlerToV3NodeDefinition(ifHandler);
+      const ctx = {
+        runId: 'run-1',
+        flow: { policy: {} },
+        nodeId: 'if-node',
+        tabId: 1,
+        vars: {},
+        log: vi.fn(),
+        chooseNext: (label: string) => ({ kind: 'edgeLabel' as const, label }),
+        artifacts: { screenshot: vi.fn() },
+        persistent: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+      };
+      const node = {
+        id: 'if-node',
+        kind: 'if',
+        config: {
+          mode: 'branches',
+          branches: [
+            {
+              label: 'truthy',
+              condition: { kind: 'truthy', value: { kind: 'var', ref: { name: 'missing' } } },
+            },
+            {
+              label: 'falsy',
+              condition: { kind: 'falsy', value: { kind: 'var', ref: { name: 'missing' } } },
+            },
+          ],
+        },
+      };
+
+      const result = await nodeDef.execute(
+        ctx as unknown as Parameters<typeof nodeDef.execute>[0],
+        node as unknown as Parameters<typeof nodeDef.execute>[1],
+      );
+
+      expect(asSucceeded(result).next).toEqual({ kind: 'edgeLabel', label: 'falsy' });
     });
   });
 });

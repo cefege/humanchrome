@@ -34,8 +34,8 @@
  * its own head-truncation when oversized.
  */
 
-const DEFAULT_BUDGET_BYTES = 25 * 1024;
-const HEADROOM_BYTES = 256;
+import { getRustKernel } from './rust-bindings';
+export { DEFAULT_OUTPUT_BUDGET_BYTES } from '../generated/rust-kernel-id';
 
 export interface TruncationMeta {
   truncated: true;
@@ -58,15 +58,10 @@ interface CallToolLike {
   [key: string]: unknown;
 }
 
-function byteLengthUtf8(s: string): number {
-  return new TextEncoder().encode(s).length;
-}
-
-function truncateUtf8(s: string, maxBytes: number): string {
-  const enc = new TextEncoder();
-  const bytes = enc.encode(s);
-  if (bytes.length <= maxBytes) return s;
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, maxBytes));
+interface OutputBudgetPlan {
+  singleText: boolean;
+  patches: Array<{ index: number; text: string }>;
+  truncation: TruncationMeta;
 }
 
 export interface EnforceOutputBudgetOptions {
@@ -88,75 +83,19 @@ export function enforceOutputBudget<T extends CallToolLike>(
   result: T,
   opts: EnforceOutputBudgetOptions = {},
 ): T {
-  if (opts.raw) return result;
-  if (!result || typeof result !== 'object') return result;
-  if (result.isError) return result;
-  if (!Array.isArray(result.content)) return result;
-
-  const budget = Math.max(1024, opts.budgetBytes ?? DEFAULT_BUDGET_BYTES);
-
-  // Serialize ONLY the text blocks for size accounting. Image content has
-  // its own size constraints handled upstream and we never partial-cut base64.
-  const textBlocks: Array<CallToolContent & { text: string; _bytes: number }> = [];
-  for (const c of result.content) {
-    if (c?.type === 'text' && typeof c.text === 'string') {
-      textBlocks.push({ ...c, text: c.text, _bytes: byteLengthUtf8(c.text) });
-    }
-  }
-  if (textBlocks.length === 0) return result;
-
-  const totalTextBytes = textBlocks.reduce((acc, b) => acc + b._bytes, 0);
-  if (totalTextBytes <= budget) return result;
-
-  // Single-text-block path: most common, keep simple.
-  const reservedFooter = HEADROOM_BYTES;
-  const headBudget = Math.max(1024, budget - reservedFooter);
-
-  if (textBlocks.length === 1 && result.content.length === 1) {
-    const original = textBlocks[0].text;
-    const head = truncateUtf8(original, headBudget);
-    const footer = `\n\n[Result truncated by dispatcher: originalSize=${totalTextBytes} bytes, limit=${budget} bytes. Pass raw=true to bypass.]`;
-    const truncation: TruncationMeta = {
-      truncated: true,
-      originalSize: totalTextBytes,
-      limit: budget,
-      unit: 'bytes',
-      hint: 'set raw=true to opt out',
-    };
+  const plan = getRustKernel().output_budget_plan(result, opts) as OutputBudgetPlan | undefined;
+  if (plan === undefined) return result;
+  if (plan.singleText) {
     return {
       ...result,
-      content: [{ type: 'text', text: head + footer }],
-      truncation,
+      content: [{ type: 'text', text: plan.patches[0]!.text }],
+      truncation: plan.truncation,
     } as T;
   }
-
-  // Multi-block path: cap each text block proportionally; preserve images.
-  // Sizes were measured once above; reuse via a name-keyed Map (text content
-  // is the only block kind we touch, and identical-text duplicates collapse
-  // to the same key — fine since the budget is the same either way).
-  const perBlockBudget = Math.max(512, Math.floor(headBudget / textBlocks.length));
-  const sizeByText = new Map<string, number>(textBlocks.map((b) => [b.text, b._bytes]));
-  const newContent = result.content.map((c) => {
-    if (c?.type === 'text' && typeof c.text === 'string') {
-      const bytes = sizeByText.get(c.text) ?? byteLengthUtf8(c.text);
-      if (bytes <= perBlockBudget) return c;
-      return {
-        ...c,
-        text:
-          truncateUtf8(c.text, perBlockBudget) +
-          `\n\n[Block truncated by dispatcher: per-block limit=${perBlockBudget} bytes.]`,
-      };
-    }
-    return c;
-  });
-  const truncation: TruncationMeta = {
-    truncated: true,
-    originalSize: totalTextBytes,
-    limit: budget,
-    unit: 'bytes',
-    hint: 'set raw=true to opt out',
-  };
-  return { ...result, content: newContent, truncation } as T;
+  const content = result.content!.slice();
+  for (const patch of plan.patches) {
+    content[patch.index] = { ...content[patch.index]!, text: patch.text };
+  }
+  return { ...result, content, truncation: plan.truncation };
 }
 
-export const DEFAULT_OUTPUT_BUDGET_BYTES = DEFAULT_BUDGET_BYTES;

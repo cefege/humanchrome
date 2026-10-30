@@ -238,6 +238,17 @@ Git. The initial non-admin token is `agentToken` in the private
 The Operator OAuth credential is separate: it belongs in
 `tailscale/operator-oauth`, not in MCP client configuration.
 
+This checkout's `.mcp.json` uses that environment variable and the private OVH
+endpoint. OMP's higher-priority `.omp/mcp.json` resolves the same header through
+a command: it uses `HUMANCHROME_COORDINATOR_TOKEN` when set, otherwise reads
+`agentToken` from the private bootstrap file above. Neither configuration
+contains a literal bearer token. Set `HUMANCHROME_AGENT` to a distinct, stable
+workflow name when separate clients need separate assignments.
+
+Existing clients load the changed configuration on their MCP reload or next
+session; the configuration was verified with an authenticated MCP handshake
+and `tools/list`, including the upgraded MCP client.
+
 This HTTP connection travels inside encrypted Tailscale; it is not publicly
 reachable. Each independent workflow needs a distinct, stable agent name.
 With the current single browser, only one workflow can hold it at a time.

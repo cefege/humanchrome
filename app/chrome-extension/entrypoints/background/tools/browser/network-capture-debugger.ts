@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { ToolErrorCode } from 'humanchrome-shared';
-import { truncateString, type TruncateUnit } from '@/utils/truncate';
+import { outputPolicy } from 'humanchrome-shared';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
@@ -66,7 +66,7 @@ interface NetworkRequestInfo extends BaseNetworkRequestInfo {
     originalSize: number;
     limit: number;
     rawAvailable: boolean;
-    unit: TruncateUnit;
+    unit: outputPolicy.TruncateUnit;
   };
   encodedDataLength?: number; // Actual bytes received
   canceled?: boolean; // If loading was canceled
@@ -473,7 +473,7 @@ class NetworkDebuggerStartTool extends NetworkCaptureBase<NetworkRequestInfo, De
         const responseBodyData = await this.getResponseBody(tabId, requestId);
         if (responseBodyData) {
           const fullBody = responseBodyData.body || '';
-          const cap = truncateString(fullBody, MAX_RESPONSE_BODY_SIZE_BYTES);
+          const cap = outputPolicy.truncateString(fullBody, MAX_RESPONSE_BODY_SIZE_BYTES);
           requestInfo.responseBody = cap.data;
           requestInfo.responseBodyTruncation = {
             truncated: cap.truncated,

@@ -69,44 +69,32 @@ There is also a **read-only web dashboard** at the gateway root (`/` or `/ui`) f
 
 See [architecture](docs/ARCHITECTURE.md) for the browser/bridge internals and [fleet operations](docs/FLEET.md) for deployment, security, and multi-machine routing.
 
-## Install
+## Build from source
 
-HumanChrome needs Node 24+ and pnpm, plus Google Chrome or Chromium. Quickstart:
+HumanChrome development needs Node 24+, pnpm, a pinned Rust toolchain (including
+`wasm32-unknown-unknown`), and Google Chrome or Chromium.
 
 ```bash
-# 1. Clone and build the bridge (Node 24+, pnpm)
 git clone https://github.com/cefege/humanchrome.git
 cd humanchrome
 pnpm install
-pnpm --filter humanchrome-bridge build
 pnpm build:extension
-
-# 2. Deploy to a stable install dir outside the repo, then install globally
-SAFE_DIR="$HOME/Library/Application Support/humanchrome-bridge"
-pnpm deploy --filter humanchrome-bridge --prod --legacy "$SAFE_DIR"
-npm install -g "$SAFE_DIR"
-
-# 3. Register the native messaging host
-humanchrome-bridge register
 ```
 
-> **Why deploy outside the repo.** Don't `npm install -g ./app/native-server`
-> from inside the workspace — pnpm intercepts that and creates a global symlink
-> back into the repo, which on macOS often sits under `~/Documents`. That
-> matters because macOS TCC blocks Chrome from `exec()`'ing scripts under
-> `~/Documents`, `~/Desktop`, `~/Downloads`, `~/Pictures`, `~/Movies`,
-> `~/Music`, or iCloud Drive — even with Full Disk Access. Registration
-> succeeds but every `connectNative()` silently fails, with Chrome reporting
-> `Native host has exited.` `humanchrome-bridge register` refuses to write a
-> manifest pointing into a TCC-protected dir, and `humanchrome-bridge doctor`
-> flags existing bad manifests from earlier installs.
+This produces the Rust native executable candidates in `target/release/`, the
+browser Rust/WASM kernel, shared contract artifacts, and the unpacked extension
+in `app/chrome-extension/.output/chrome-mv3/`. It **does not** install or
+register a native candidate or replace a running native host. The extension
+package's postbuild can synchronize browser output to its local staging
+directory, so do not run it while that directory serves a daily browser.
+Native installation activation remains a separately approved release gate; use
+the isolated verification harness for checkout artifacts.
 
-4. For **single-browser mode**, load the extension in Chrome (fleet provisioning loads it automatically):
-   - Go to `chrome://extensions/`, enable Developer mode.
-   - "Load unpacked" → pick `app/chrome-extension/.output/chrome-mv3/` from your clone (or the released zip from the GitHub Releases tab).
-   - Click the extension icon, then **Connect**.
+When an approved native installation exists, single-browser mode uses its
+configured unpacked extension directory:
 
-5. For single-browser mode, confirm the bridge is up:
+1. In Chrome, load the configured unpacked extension directory and connect it.
+2. Confirm the native bridge is reachable:
 
 ```bash
 curl http://127.0.0.1:12306/ping
@@ -115,7 +103,7 @@ curl http://127.0.0.1:12306/ping
 
 ### Turn a Mac into a browser fleet
 
-After building and registering the bridge above, follow the [Mac setup prerequisites](docs/FLEET.md#mac-setup): the fleet needs a logged-in GUI session with an accessible login Keychain. The extension build deploys to the fleet's default extension directory.
+After an approved native installation and fleet setup, follow the [Mac setup prerequisites](docs/FLEET.md#mac-setup): the fleet needs a logged-in GUI session with an accessible login Keychain. Its configured extension directory must be an approved keyed build.
 
 ```bash
 # Initialize the fleet and enable client authentication.
@@ -230,6 +218,12 @@ Drop one of the JSON blocks above into your client's MCP config file:
 
 After saving, restart the client. You should see `humanchrome` and its tools in the client's MCP tool list. Multiple clients can connect at once, and each keeps its own preferred-tab state.
 
+This checkout's project MCP configuration now selects the private OVH
+coordinator, not the local example above. See the
+[private MCP connection instructions](deploy/fleet/README.md#connect-an-mcp-client)
+for token handling and workflow identity, or use the local configuration above
+when running your own standalone browser.
+
 ### Or use it without MCP (plain HTTP)
 
 The bridge exposes the same browser tools over a plain HTTP REST surface. No MCP session, no protocol overhead. Useful when you're calling from a custom script, the Anthropic SDK, the OpenAI SDK, a curl pipeline, or anything that doesn't speak MCP.
@@ -272,15 +266,17 @@ chrome.storage.local.set({ rawOutput: true });
 
 ### Port
 
-Default `12306`. Override with `MCP_HTTP_PORT=12345` before launching the bridge, or change it in the extension settings.
-
-### Node executable path
-
-If the bridge can't find Node on your system, set `HUMANCHROME_NODE_PATH=/path/to/node` before Chrome launches the native host, or run `humanchrome-bridge doctor --fix`.
+Default `12306`. Set `HC_BRIDGE_PORT=12345` before the native host starts to
+pin its loopback port, or use the extension settings. `humanchrome-stdio`
+resolves an explicit `HUMANCHROME_URL` or `HUMANCHROME_PORT` before consulting
+the live instance registry and its installed `stdio-config.json`.
 
 ## Tools
 
-Full reference (categorized, with parameters) in [`docs/TOOLS.md`](docs/TOOLS.md) — generated from the schemas in `packages/shared/src/tools.ts`, refresh with `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`.
+Full reference (categorized, with parameters) is in
+[`docs/TOOLS.md`](docs/TOOLS.md). It is generated from
+`packages/shared/src/tools.ts`; refresh it with
+`pnpm build:shared && pnpm --filter @humanchrome/third-party-adapters run docs:tools`.
 
 ## When to use HumanChrome
 
@@ -321,14 +317,15 @@ More: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 Honest about what's solid. HumanChrome is what I drive my own agents with daily, so the paths I hit are real.
 
 - **Chrome / Chromium only.** The native-messaging host registers Chrome/Chromium hosts; Firefox isn't supported and isn't planned.
-- **macOS fleet; cross-platform bridge.** Fleet provisioning, Keychain checks, and launchd supervision target macOS. The standalone bridge runs on macOS, Windows, and Linux; the install walkthrough above is macOS-specific.
+- **macOS fleet; cross-platform native candidate.** Fleet provisioning, Keychain checks, and launchd supervision target macOS. The Rust standalone bridge is built for macOS, Windows, and Linux; activation of it as the default installed runtime remains separately gated.
 - **Forked and expanded.** Descended from `mcp-chrome`, with a native fleet layer for persistent profiles, remote access, and parallel agents.
 
 ## Built with
 
-- **Extension:** WXT + Vue 3 + Tailwind CSS 4, Manifest V3, TypeScript, Zod schemas, on-device embeddings (`@huggingface/transformers`, `hnswlib-wasm`) for tool selection
-- **Bridge:** Node 24, Fastify 5, `@modelcontextprotocol/sdk` (MCP over Streamable HTTP + stdio), a plain HTTP/OpenAPI surface, `better-sqlite3` + Drizzle ORM, `pino` logging, `commander` CLI
-- **Fleet:** Native macOS Chrome processes, launchd supervision, profile seeding, session preservation, leases, HTTP/MCP gateway, peer-node routing, and a read-only web dashboard
+- **Extension:** WXT + Vue 3 + Tailwind CSS 4, Manifest V3, TypeScript browser/DOM adapters, and Rust/WASM portable policy; on-device embedding engines remain in their browser/offscreen boundaries.
+- **Native runtime:** Rust (`humanchrome-nativehost`, `humanchrome-bridge`, and `humanchrome-stdio`) for Native Messaging, HTTP/MCP, persistence, file operations, agents, and fleet control.
+- **Optional adapters:** private Node child processes only for the retained Claude Agent SDK and Chromium DevTools trace formatter; the native core does not require Node on `PATH`.
+- **Fleet:** Native macOS Chrome processes, launchd supervision, profile seeding, session preservation, leases, HTTP/MCP gateway, peer-node routing, and a read-only web dashboard.
 - **Transport:** Chrome native messaging (bridge ↔ extension), MCP or plain HTTP (AI client ↔ bridge)
 
 ## Built by

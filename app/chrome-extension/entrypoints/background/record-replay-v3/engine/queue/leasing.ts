@@ -1,3 +1,4 @@
+import { runPolicy } from 'humanchrome-shared';
 import type { UnixMillis } from '../../domain/json';
 import type { RunId } from '../../domain/ids';
 import type { RunQueue, RunQueueConfig, Lease } from './queue';
@@ -49,13 +50,13 @@ export function createLeaseManager(queue: RunQueue, config: RunQueueConfig): Lea
     },
 
     isLeaseExpired(lease: Lease, now: UnixMillis): boolean {
-      return lease.expiresAt < now;
+      return runPolicy.isRunLeaseExpired(lease.expiresAt, now);
     },
 
     createLease(ownerId: string, now: UnixMillis): Lease {
       return {
         ownerId,
-        expiresAt: now + config.leaseTtlMs,
+        expiresAt: runPolicy.runLeaseExpiresAt(now, config.leaseTtlMs),
       };
     },
 

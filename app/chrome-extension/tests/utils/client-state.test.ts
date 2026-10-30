@@ -11,6 +11,7 @@ import {
   _handleTabRemovedForTests,
   _handleWindowRemovedForTests,
   _resetClientStateForTests,
+  ensureClientStateReady,
   claimTabForClient,
   clearLastWindowForClient,
   findTabOwner,
@@ -25,7 +26,7 @@ import {
 
 type SessionStore = Record<string, unknown>;
 
-beforeEach(() => {
+beforeEach(async () => {
   _resetClientStateForTests();
   const sessionStore: SessionStore = {};
   (globalThis.chrome as any) = {
@@ -50,6 +51,7 @@ beforeEach(() => {
       },
     },
   };
+  await ensureClientStateReady();
 });
 
 afterEach(() => {

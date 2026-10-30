@@ -20,6 +20,7 @@
  * callers so the data structure is reviewable in isolation.
  */
 
+import { browserMetadataPolicy } from 'humanchrome-shared';
 import { subscribeOnClientReleased } from './client-state';
 
 /** A registry entry, surfaced to `onEvict` callbacks and `entries()`. */
@@ -85,7 +86,7 @@ export interface CreateOwnedRegistryOptions<V> {
 const SYSTEM_CLIENT = '__system';
 
 function resolveClientId(clientId: string | undefined): string {
-  return clientId && clientId.length > 0 ? clientId : SYSTEM_CLIENT;
+  return browserMetadataPolicy.resolveRegistryClientId(clientId);
 }
 
 export function createOwnedRegistry<V>(
@@ -95,6 +96,25 @@ export function createOwnedRegistry<V>(
   // and `forgetTab` walks one shallow dimension.
   const byClient = new Map<string, Map<number, V>>();
   const unsubscribers: Array<() => void> = [];
+
+  function registryEntries(): Array<{
+    entry: OwnedRegistryEntry<V>;
+    metadata: browserMetadataPolicy.RegistryEntryMetadata;
+  }> {
+    const entries: Array<{
+      entry: OwnedRegistryEntry<V>;
+      metadata: browserMetadataPolicy.RegistryEntryMetadata;
+    }> = [];
+    for (const [clientId, inner] of byClient) {
+      for (const [tabId, value] of inner) {
+        entries.push({
+          entry: { clientId, tabId, value },
+          metadata: { clientId, tabId, valueIsDefined: value !== undefined },
+        });
+      }
+    }
+    return entries;
+  }
 
   function evict(clientId: string, tabId: number, value: V): void {
     if (!opts.onEvict) return;
@@ -109,9 +129,15 @@ export function createOwnedRegistry<V>(
     const inner = byClient.get(clientId);
     if (!inner) return false;
     const value = inner.get(tabId);
+    const shouldEvict =
+      value !== undefined &&
+      browserMetadataPolicy.registryForgetTabIndexes(
+        [{ clientId, tabId, valueIsDefined: true }],
+        tabId,
+      ).length > 0;
     if (!inner.delete(tabId)) return false;
     if (inner.size === 0) byClient.delete(clientId);
-    if (value !== undefined) evict(clientId, tabId, value);
+    if (shouldEvict && value !== undefined) evict(clientId, tabId, value);
     return true;
   }
 
@@ -147,25 +173,30 @@ export function createOwnedRegistry<V>(
       return total;
     },
     forgetTab(tabId) {
+      const entries = registryEntries();
       const evicted: OwnedRegistryEntry<V>[] = [];
-      for (const [clientId, inner] of byClient) {
-        const value = inner.get(tabId);
-        if (value === undefined) continue;
-        inner.delete(tabId);
-        if (inner.size === 0) byClient.delete(clientId);
-        evict(clientId, tabId, value);
-        evicted.push({ clientId, tabId, value });
+      for (const index of browserMetadataPolicy.registryForgetTabIndexes(
+        entries.map(({ metadata }) => metadata),
+        tabId,
+      )) {
+        const entry = entries[index]!.entry;
+        const inner = byClient.get(entry.clientId);
+        if (!inner || !inner.delete(entry.tabId)) continue;
+        if (inner.size === 0) byClient.delete(entry.clientId);
+        evict(entry.clientId, entry.tabId, entry.value);
+        evicted.push(entry);
       }
       return evicted;
     },
     forgetClient(clientId) {
       const key = resolveClientId(clientId);
-      const inner = byClient.get(key);
-      if (!inner) return [];
-      const evicted: OwnedRegistryEntry<V>[] = [];
-      for (const [tabId, value] of inner) {
-        evicted.push({ clientId: key, tabId, value });
-      }
+      const entries = registryEntries();
+      const indexes = browserMetadataPolicy.registryForgetClientIndexes(
+        entries.map(({ metadata }) => metadata),
+        key,
+      );
+      if (indexes.length === 0) return [];
+      const evicted = indexes.map((index) => entries[index]!.entry);
       byClient.delete(key);
       for (const entry of evicted) evict(entry.clientId, entry.tabId, entry.value);
       return evicted;

@@ -19,10 +19,26 @@
  * `app/native-server/scripts/report-tool-index-size.mjs`.
  */
 import type { Tool } from '@modelcontextprotocol/server';
+import { DISPATCHER_TOOL_NAME, dispatcherInputSchema } from './tool-contract';
+import {
+  SUNSET_TOOL_REPLACEMENTS,
+  type SunsetReplacement,
+} from './sunset-tool-replacements';
 import { TOOL_SCHEMAS } from './tools';
-import { didYouMean } from './invalid-args';
+import {
+  buildCatalogToolHelp,
+  catalogHasToolName,
+  catalogKnownToolNames,
+  didYouMeanPolicy,
+  resolveCatalogToolName,
+  searchCatalogTools,
+  suggestCatalogToolName,
+  type RustToolSearchHit,
+} from './rust-shared-policy';
 
-export const DISPATCHER_TOOL_NAME = 'humanchrome';
+export { DISPATCHER_TOOL_NAME } from './tool-contract';
+export { SUNSET_TOOL_REPLACEMENTS } from './sunset-tool-replacements';
+export type { SunsetReplacement } from './sunset-tool-replacements';
 
 /**
  * Trim a tool description to its verb-phrase (first sentence). Used by
@@ -107,24 +123,16 @@ function editDistance(a: string, b: string): number {
   }
   return v0[bl];
 }
-
 /**
  * Rank tools against a free-text query using token overlap + substring hits +
- * name proximity. Pure heuristic — no embeddings — but the scoring weights
- * make name matches dominate description matches so `query:"click"` surfaces
- * `chrome_click_element` first and synonyms (e.g. tools whose description
- * mentions "click") show up further down.
- *
- * Returns matches sorted by descending score. Caller applies the limit.
+ * name proximity. Default catalog ranking is Rust-owned; custom arrays stay
+ * explicit test/build tooling because they are not runtime catalog data.
  */
-export interface ToolSearchHit {
-  name: string;
-  summary: string;
-  score: number;
-}
+export interface ToolSearchHit extends RustToolSearchHit {}
 
 export function searchTools(query: string, tools: readonly Tool[] = TOOL_SCHEMAS): ToolSearchHit[] {
   if (typeof query !== 'string' || !query.trim()) return [];
+  if (tools === TOOL_SCHEMAS) return searchCatalogTools(query);
   // Drop noise tokens (length < 3) so a query like "no such thing" doesn't
   // score every description that happens to contain "no" or "to" or "is".
   const qTokens = tokenize(query).filter((t) => t.length >= 3);
@@ -204,6 +212,7 @@ export function buildToolHelp(
   arg?: string | ToolHelpArgs | Record<string, unknown>,
   tools: readonly Tool[] = TOOL_SCHEMAS,
 ): Record<string, unknown> {
+  if (tools === TOOL_SCHEMAS) return buildCatalogToolHelp(arg);
   const args: ToolHelpArgs =
     typeof arg === 'string' ? { name: arg } : ((arg ?? {}) as ToolHelpArgs);
 
@@ -241,40 +250,17 @@ export function buildDispatcherTool(tools: readonly Tool[] = TOOL_SCHEMAS): Tool
   return {
     name: DISPATCHER_TOOL_NAME,
     description: buildDispatcherDescription(tools),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Tool name from the catalog above.',
-        },
-        args: {
-          type: 'object',
-          description: 'Tool-specific arguments object. Shape varies by tool.',
-        },
-        raw: {
-          type: 'boolean',
-          description:
-            'Bypass the dispatcher output-size cap for this call (default false). Use when you genuinely need the unbounded result.',
-        },
-        idemKey: {
-          type: 'string',
-          description:
-            'Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools.',
-        },
-      },
-      required: ['name'],
-    },
+    inputSchema: dispatcherInputSchema(),
   };
 }
 
 /** Stable list of known names (sorted) — used for catalog lookups + didYouMean hints. */
 export function knownToolNames(tools: readonly Tool[] = TOOL_SCHEMAS): string[] {
-  return sortedTools(tools).map((t) => t.name);
+  return tools === TOOL_SCHEMAS ? catalogKnownToolNames() : sortedTools(tools).map((t) => t.name);
 }
 
 export function isKnownToolName(name: string, tools: readonly Tool[] = TOOL_SCHEMAS): boolean {
-  return tools.some((t) => t.name === name);
+  return tools === TOOL_SCHEMAS ? catalogHasToolName(name) : tools.some((t) => t.name === name);
 }
 
 /**
@@ -294,6 +280,7 @@ export function resolveToolName(
   tools: readonly Tool[] = TOOL_SCHEMAS,
 ): string | null {
   if (typeof name !== 'string' || name.length === 0) return null;
+  if (tools === TOOL_SCHEMAS) return resolveCatalogToolName(name, extras);
   const catalog = new Set<string>([...knownToolNames(tools), ...extras]);
   if (catalog.has(name)) return name;
   const chromePrefixed = `chrome_${name}`;
@@ -303,55 +290,6 @@ export function resolveToolName(
   return null;
 }
 
-/**
- * Sunset → consolidated tool map.
- *
- * Several single-purpose tools were folded into action-enum tools (cookies
- * CRUD, diagnostics, downloads, bookmarks CRUD, performance, close_tabs).
- * Their old names still appear inside the consolidated tools' descriptions
- * (e.g. "Replaces chrome_get_cookies/..."), which causes `chrome_help`'s
- * substring search to surface a hit — the LLM then dispatches the deprecated
- * name and gets a bare "Tool not found". This map lets the dispatcher
- * surface a precise replacement instead.
- *
- * Keep entries that map cleanly to a single `{tool, action}` call. Don't add
- * names that need multi-arg translation — the hint stays advisory, the LLM
- * still issues the corrected call itself.
- */
-export interface SunsetReplacement {
-  /** Canonical tool name to use instead. */
-  name: string;
-  /** Action enum value on the replacement tool, if applicable. */
-  action?: string;
-}
-
-const SUNSET_TOOL_REPLACEMENTS: Readonly<Record<string, SunsetReplacement>> = Object.freeze({
-  // chrome_cookies (action enum)
-  chrome_get_cookies: { name: 'chrome_cookies', action: 'get' },
-  chrome_set_cookie: { name: 'chrome_cookies', action: 'set' },
-  chrome_remove_cookie: { name: 'chrome_cookies', action: 'remove' },
-  // chrome_diagnostics (action enum)
-  chrome_debug_dump: { name: 'chrome_diagnostics', action: 'dump_logs' },
-  chrome_queue_inspect: { name: 'chrome_diagnostics', action: 'queue' },
-  chrome_runtime_info: { name: 'chrome_diagnostics', action: 'runtime_info' },
-  chrome_dev_reload: { name: 'chrome_diagnostics', action: 'dev_reload' },
-  // chrome_performance_trace (action enum)
-  chrome_performance_start_trace: { name: 'chrome_performance_trace', action: 'start' },
-  chrome_performance_stop_trace: { name: 'chrome_performance_trace', action: 'stop' },
-  chrome_performance_analyze_insight: { name: 'chrome_performance_trace', action: 'analyze' },
-  // chrome_close_tabs (action enum)
-  chrome_close_tab: { name: 'chrome_close_tabs', action: 'ids' },
-  chrome_close_tabs_matching: { name: 'chrome_close_tabs', action: 'matching' },
-  browser_close_my_tabs: { name: 'chrome_close_tabs', action: 'mine' },
-  // chrome_bookmark (action enum)
-  chrome_bookmark_search: { name: 'chrome_bookmark', action: 'search' },
-  chrome_bookmark_add: { name: 'chrome_bookmark', action: 'add' },
-  chrome_bookmark_update: { name: 'chrome_bookmark', action: 'update' },
-  chrome_bookmark_delete: { name: 'chrome_bookmark', action: 'delete' },
-  // chrome_download (action enum) — chrome_handle_download is a separate live tool.
-  chrome_download_list: { name: 'chrome_download', action: 'list' },
-  chrome_download_cancel: { name: 'chrome_download', action: 'cancel' },
-});
 
 /**
  * Look up the consolidated replacement for a sunset tool name. Returns
@@ -372,6 +310,6 @@ export function suggestToolName(
   extras: readonly string[] = [],
   tools: readonly Tool[] = TOOL_SCHEMAS,
 ): string | null {
-  const all = [...knownToolNames(tools), ...extras];
-  return didYouMean(received, all, 3);
+  if (tools === TOOL_SCHEMAS) return suggestCatalogToolName(received, extras);
+  return didYouMeanPolicy(received, [...knownToolNames(tools), ...extras], 3);
 }

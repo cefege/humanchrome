@@ -72,6 +72,8 @@ afterEach(() => {});
 async function loadRecorder() {
   vi.resetModules();
   const mod = await import('@/entrypoints/background/tools/browser/gif-recorder');
+  const { ensureClientStateReady } = await import('@/entrypoints/background/utils/client-state');
+  await ensureClientStateReady();
   mod._resetRecordingOwnerForTest();
   return mod;
 }

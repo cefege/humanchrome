@@ -17,6 +17,8 @@
  * - @layer ordering is approximated via source order
  */
 
+import { normalizeEditorCssProperty } from 'humanchrome-shared';
+
 // IMP-0046 slice 1: inheritance lookup extracted to ./cssom/inheritance —
 // re-exported so existing import paths (`from '.../cssom-styles-collector'`)
 // keep working.
@@ -140,12 +142,6 @@ interface CollectedElementRules {
   stats: { matchedRules: number };
 }
 
-function normalizePropertyName(property: string): string {
-  const raw = String(property || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('--')) return raw;
-  return raw.toLowerCase();
-}
 
 // =============================================================================
 // CSSOM Rule Index
@@ -350,7 +346,7 @@ function readStyleDecls(style: CSSStyleDeclaration): Array<{
     } catch {
       prop = '';
     }
-    prop = normalizePropertyName(prop);
+    prop = normalizeEditorCssProperty(prop);
     if (!prop) continue;
 
     let value = '';

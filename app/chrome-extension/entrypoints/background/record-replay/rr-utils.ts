@@ -5,52 +5,21 @@ import {
   TOOL_NAMES,
   topoOrder as sharedTopoOrder,
   mapNodeToStep as sharedMapNodeToStep,
+  workflowPolicy,
 } from 'humanchrome-shared';
 import type { Edge as DagEdge, NodeBase as DagNode, Step } from './types';
 import { handleCallTool } from '../tools';
-import { EDGE_LABELS } from 'humanchrome-shared';
 
 export function applyAssign(
-  target: Record<string, any>,
-  source: any,
+  target: Record<string, unknown>,
+  source: unknown,
   assign: Record<string, string>,
 ) {
-  const getByPath = (obj: any, path: string) => {
-    try {
-      const parts = path
-        .replace(/\[(\d+)\]/g, '.$1')
-        .split('.')
-        .filter(Boolean);
-      let cur = obj;
-      for (const p of parts) {
-        if (cur == null) return undefined;
-        cur = (cur as any)[p as any];
-      }
-      return cur;
-    } catch {
-      return undefined;
-    }
-  };
-  for (const [k, v] of Object.entries(assign || {})) {
-    target[k] = getByPath(source, String(v));
-  }
+  workflowPolicy.workflowLegacyApplyAssign(target, source, assign);
 }
 
-export function expandTemplatesDeep<T = any>(value: T, scope: Record<string, any>): T {
-  const replaceOne = (s: string) =>
-    s.replace(/\{([^}]+)\}/g, (_m, k) => (scope[k] ?? '').toString());
-  const walk = (v: any): any => {
-    if (v == null) return v;
-    if (typeof v === 'string') return replaceOne(v);
-    if (Array.isArray(v)) return v.map((x) => walk(x));
-    if (typeof v === 'object') {
-      const out: any = {};
-      for (const [k, val] of Object.entries(v)) out[k] = walk(val);
-      return out;
-    }
-    return v;
-  };
-  return walk(value);
+export function expandTemplatesDeep<T>(value: T, scope: Record<string, unknown>): T {
+  return workflowPolicy.workflowLegacyExpandTemplatesDeep(value, scope);
 }
 
 export async function ensureTab(options: {
@@ -75,11 +44,17 @@ export async function ensureTab(options: {
 
   // current tab target
   if (startUrl) {
-    await handleCallTool({ name: TOOL_NAMES.BROWSER.NAVIGATE, args: { url: startUrl } });
+    await handleCallTool({
+      name: TOOL_NAMES.BROWSER.NAVIGATE,
+      args: { url: startUrl, tabId: active?.id },
+    });
   } else if (options.refresh) {
     // only refresh if current tab is a web page
     if (isWebUrl(active?.url))
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.NAVIGATE, args: { refresh: true } });
+      await handleCallTool({
+        name: TOOL_NAMES.BROWSER.NAVIGATE,
+        args: { refresh: true, tabId: active?.id },
+      });
   }
 
   // Re-evaluate active after potential navigation
@@ -236,10 +211,6 @@ export function topoOrder(nodes: DagNode[], edges: DagEdge[]): DagNode[] {
   return sharedTopoOrder(nodes, edges as any);
 }
 
-// Helper: filter only default edges (no label or label === 'default')
-export function defaultEdgesOnly(edges: DagEdge[] = []): DagEdge[] {
-  return (edges || []).filter((e) => !e.label || e.label === EDGE_LABELS.DEFAULT);
-}
 
 export function mapDagNodeToStep(n: DagNode): Step {
   const s: any = sharedMapNodeToStep(n as any);

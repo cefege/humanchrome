@@ -32,6 +32,8 @@
  * identity to handle aria-labelledby self-references.
  */
 
+import { selectorPolicy } from 'humanchrome-shared';
+
 const MAX_NAME_LENGTH = 1024;
 
 /**
@@ -107,7 +109,7 @@ const NAME_FROM_CONTENT_TAGS = new Set<string>([
 ]);
 
 function normalize(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return selectorPolicy.normalizeRustAccessibleName(text);
 }
 
 function isHidden(el: Element): boolean {
@@ -353,11 +355,5 @@ export function matchesAccessibleName(
   mode: NameMatchMode = 'contains',
 ): boolean {
   if (target instanceof RegExp) return target.test(computed);
-  const a = normalize(computed);
-  const b = normalize(target);
-  if (!a || !b) return false;
-  if (mode === 'exact') return a === b;
-  if (mode === 'iexact') return a.toLowerCase() === b.toLowerCase();
-  // contains
-  return a.toLowerCase().includes(b.toLowerCase());
+  return selectorPolicy.matchesRustAccessibleName(computed, target, mode);
 }

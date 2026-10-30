@@ -11,6 +11,8 @@
  * accessibility-tree helper.
  */
 
+import { selectorPolicy } from 'humanchrome-shared';
+
 export type NonEmptyArray<T> = [T, ...T[]];
 
 export interface Point {
@@ -188,18 +190,7 @@ export interface CompositeSelectorParts {
 
 export function splitCompositeSelector(selector: string): CompositeSelectorParts | null {
   if (typeof selector !== 'string') return null;
-
-  const parts = selector
-    .split(COMPOSITE_SELECTOR_SEPARATOR)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (parts.length < 2) return null;
-
-  return {
-    frameSelector: parts[0],
-    innerSelector: parts.slice(1).join(` ${COMPOSITE_SELECTOR_SEPARATOR} `),
-  };
+  return selectorPolicy.splitRustCompositeSelector(selector);
 }
 
 export function isCompositeSelector(selector: string): boolean {
@@ -207,7 +198,7 @@ export function isCompositeSelector(selector: string): boolean {
 }
 
 export function composeCompositeSelector(frameSelector: string, innerSelector: string): string {
-  return `${String(frameSelector).trim()} ${COMPOSITE_SELECTOR_SEPARATOR} ${String(innerSelector).trim()}`.trim();
+  return selectorPolicy.composeRustCompositeSelector(String(frameSelector), String(innerSelector));
 }
 
 // ================================

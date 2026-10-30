@@ -49,14 +49,13 @@ Add the following to your `~/.claude/claude_desktop_config.json`:
 
 ### Option 2: Stdio Server (Alternative)
 
-If you prefer stdio-based MCP communication:
+If you prefer stdio-based MCP communication, use the installed Rust proxy:
 
 ```json
 {
   "mcpServers": {
     "humanchrome": {
-      "command": "node",
-      "args": ["/path/to/humanchrome-bridge/dist/mcp/mcp-server-stdio.js"]
+      "command": "humanchrome-stdio"
     }
   }
 }
@@ -101,8 +100,8 @@ If port 12306 is already in use:
 
 ## Environment Variables
 
-| Variable                     | Description                            | Default |
-| ---------------------------- | -------------------------------------- | ------- |
-| `MCP_HTTP_PORT`              | HTTP port for MCP server               | 12306   |
-| `MCP_ALLOWED_WORKSPACE_BASE` | Additional allowed workspace directory | (none)  |
-| `HUMANCHROME_NODE_PATH`      | Override Node.js executable path       | (auto)  |
+| Variable | Description | Default |
+| --- | --- | --- |
+| `HC_BRIDGE_PORT` | Pin the native host's loopback bridge port. | `12306` (or the collision walk) |
+| `HUMANCHROME_URL` | Override the URL used by `humanchrome-stdio`. | (none) |
+| `HUMANCHROME_PORT` | Override the port used by `humanchrome-stdio`. | (none) |

@@ -5,16 +5,12 @@ import {
   claimTabForClient,
   clearLastWindowForClient,
   consumePacingDelay,
+  getBrowserStateForClientPolicy,
   recordClientTab,
   recordClientWindow,
-  releaseTabFromClient,
-  resolveAliasForClient,
-  resolveOwnedTabIdForClient,
-  resolveOwnedWindowIdForClient,
-  type ResolveResult,
 } from '../utils/client-state';
+import { ensureClientStateReady } from '../utils/client-state';
 import { acquireTabLockWithMeta } from '../utils/tab-queue';
-import { DEFAULT_TAB_LOCK_TIMEOUT_MS, MAX_TOOL_TIMEOUT_MS } from '../utils/timeouts';
 import { runWithContext } from '../utils/request-context';
 
 // =============================================================================
@@ -306,42 +302,6 @@ export interface ToolCallParam {
   args: any;
 }
 
-/**
- * Resolve target tab for this call against per-client ownership.
- *
- * Priority:
- *   1. Explicit `tabId` from caller — auto-claims if unowned, conflict if
- *      owned by another client (mutating tools only; reads are accepted).
- *   2. Client's `activeTabId` if still owned.
- *   3. Most recently added entry in `ownedTabs`.
- *   4. Returns `{}` — caller (dispatcher) decides whether to auto-spawn.
- */
-function resolveTargetTab(args: any, clientId: string | undefined, isRead: boolean): ResolveResult {
-  const explicit = typeof args?.tabId === 'number' ? (args.tabId as number) : undefined;
-  const alias = typeof args?.tabAlias === 'string' ? args.tabAlias.trim() : '';
-  // IMP-0170: `tabId` and `tabAlias` are mutually exclusive. If the caller
-  // supplies both, we surface a dedicated error rather than silently
-  // picking one — silent precedence would mask LLM-side bugs where the
-  // caller thought they were targeting a different tab.
-  if (typeof explicit === 'number' && alias.length > 0) {
-    return { conflictingArgs: { tabId: explicit, alias } };
-  }
-  if (alias.length > 0) {
-    const hit = resolveAliasForClient(clientId, alias);
-    if (typeof hit.tabId === 'number') {
-      // Resolved via alias → re-enter the normal owned-tab resolver so
-      // ownership-conflict semantics apply (alias-on-force-claimed-tab
-      // path). For the client's own tab this is a no-op; for the cross-
-      // client edge case where the alias hasn't been evicted yet, the
-      // standard conflict path fires.
-      return resolveOwnedTabIdForClient(clientId, hit.tabId, { isRead });
-    }
-    return {
-      aliasMiss: { alias, reason: hit.reason ?? 'unknown-alias' },
-    };
-  }
-  return resolveOwnedTabIdForClient(clientId, explicit, { isRead });
-}
 
 /**
  * Sniff a numeric field out of a tool's response payload. Tool responses
@@ -382,27 +342,25 @@ const extractWindowIdFromResult = (result: any) =>
  * `undefined` on failure (caller falls through to its own active-tab
  * path as a last resort).
  */
-async function autoSpawnOwnedTab(clientId: string | undefined): Promise<number | undefined> {
-  if (!clientId) return undefined;
-  if (typeof chrome === 'undefined' || !chrome.tabs?.create) return undefined;
+async function autoSpawnOwnedTab(
+  clientId: string | undefined,
+  preferredWindowId: number | undefined,
+): Promise<number | undefined> {
+  if (!clientId || typeof chrome === 'undefined' || !chrome.tabs?.create) return undefined;
 
-  // Prefer the client's last-known window so multi-window sessions stay
-  // coherent. Probe with chrome.windows.get first so we don't pass a dead
-  // windowId to chrome.tabs.create — that would throw and lose us the
-  // implicit fallback to Chrome's last-focused window.
-  let preferredWindowId = resolveOwnedWindowIdForClient(clientId);
-  if (preferredWindowId !== undefined && chrome.windows?.get) {
+  let livePreferredWindowId = preferredWindowId;
+  if (livePreferredWindowId !== undefined && chrome.windows?.get) {
     try {
-      await chrome.windows.get(preferredWindowId);
+      await chrome.windows.get(livePreferredWindowId);
     } catch {
-      clearLastWindowForClient(clientId, preferredWindowId);
-      preferredWindowId = undefined;
+      clearLastWindowForClient(clientId, livePreferredWindowId);
+      livePreferredWindowId = undefined;
     }
   }
 
   try {
     const createArgs: chrome.tabs.CreateProperties = { url: 'about:blank', active: false };
-    if (preferredWindowId !== undefined) createArgs.windowId = preferredWindowId;
+    if (livePreferredWindowId !== undefined) createArgs.windowId = livePreferredWindowId;
     const created = await chrome.tabs.create(createArgs);
     if (typeof created?.id !== 'number') return undefined;
     claimTabForClient(clientId, created.id, created.windowId);
@@ -410,6 +368,22 @@ async function autoSpawnOwnedTab(clientId: string | undefined): Promise<number |
   } catch {
     return undefined;
   }
+}
+
+function createBrowserPolicyError(error: {
+  code: string;
+  message: string;
+  details: unknown;
+}) {
+  const code =
+    error.code === 'TAB_NOT_OWNED'
+      ? ToolErrorCode.TAB_NOT_OWNED
+      : error.code === 'TAB_NOT_FOUND'
+        ? ToolErrorCode.TAB_NOT_FOUND
+        : error.code === 'INVALID_ARGS'
+          ? ToolErrorCode.INVALID_ARGS
+          : ToolErrorCode.UNKNOWN;
+  return createErrorResponse(error.message, code, error.details as Record<string, unknown>);
 }
 
 /**
@@ -428,6 +402,11 @@ export const handleCallTool = async (
   clientId?: string,
 ) => {
   const startedAt = Date.now();
+  try {
+    await ensureClientStateReady();
+  } catch (error) {
+    return createErrorResponseFromThrown(error);
+  }
   const tool = await getTool(param.name);
   // Logger child first so the not-found path still carries correlation fields.
   const earlyLog = debugLog.with({ requestId, clientId, tool: param.name });
@@ -441,96 +420,57 @@ export const handleCallTool = async (
   const mutates = (tool.constructor as { mutates?: boolean })?.mutates === true;
   const autoSpawn = (tool.constructor as { autoSpawnTab?: boolean })?.autoSpawnTab !== false;
 
-  // Resolve target tab against ownership BEFORE injecting into args.
-  const resolved = resolveTargetTab(param.args, clientId, !mutates);
-  if (resolved.conflictingArgs) {
-    // IMP-0170: mutually-exclusive args.
-    return createErrorResponse(
-      `Cannot pass both \`tabId\` and \`tabAlias\` — choose one.`,
-      ToolErrorCode.INVALID_ARGS,
-      resolved.conflictingArgs,
-    );
-  }
-  if (resolved.aliasMiss) {
-    // IMP-0170: alias unknown or pointed at an evicted tab.
-    return createErrorResponse(
-      `No tab aliased as "${resolved.aliasMiss.alias}" for this client (${resolved.aliasMiss.reason}). Use browser_alias_tab to set it first.`,
-      ToolErrorCode.TAB_NOT_FOUND,
-      { alias: resolved.aliasMiss.alias, reason: resolved.aliasMiss.reason },
-    );
-  }
-  if (resolved.conflict) {
-    earlyLog.warn('tab not owned', {
-      data: { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
-    });
-    return createErrorResponse(
-      `Tab ${resolved.conflict.tabId} is owned by client ${resolved.conflict.owner}`,
-      ToolErrorCode.TAB_NOT_OWNED,
-      { tabId: resolved.conflict.tabId, owner: resolved.conflict.owner },
-    );
-  }
-  let tabId = resolved.tabId;
-
-  // Liveness probe: resolveOwnedTabIdForClient is sync and trusts the
-  // owned-set + activeTabId hints. Those can stay stale across a
-  // service-worker restart (the chrome.tabs.onRemoved listener
-  // re-attaches on SW boot, but events fired during the dead window
-  // are lost — the closed tabId resurrects). Probe chrome.tabs.get
-  // before returning; on miss, evict + fall through to auto-spawn.
-  if (typeof tabId === 'number' && typeof chrome !== 'undefined' && chrome.tabs?.get) {
-    try {
-      await chrome.tabs.get(tabId);
-    } catch {
-      // Tab no longer exists. Evict from this client's owned set so the
-      // next dispatch doesn't resurrect it, then drop tabId so the
-      // auto-spawn path below fires for mutating tools.
-      if (clientId) {
-        try {
-          releaseTabFromClient(clientId, tabId);
-        } catch {
-          /* ignore */
-        }
-      }
-      tabId = undefined;
-    }
-  }
-
-  // If a mutating tool has no resolved owned tab and didn't opt out of
-  // auto-spawn (and the caller didn't supply a url for tools like navigate
-  // that open their own tab), spawn a fresh tab for this client. This is
-  // the key isolation invariant: anonymous mutating calls never land on
-  // another client's tab.
   const callerSuppliesUrl = typeof param.args?.url === 'string' && param.args.url.length > 0;
-  if (tabId === undefined && mutates && autoSpawn && clientId !== undefined && !callerSuppliesUrl) {
-    tabId = await autoSpawnOwnedTab(clientId);
-  }
-
-  // When the caller provides a URL but no explicit tabId, URL-handling tools
-  // (e.g. chrome_navigate) resolve their own target tab via chrome.tabs.query.
-  // Don't inject the dispatcher-resolved owned tabId in this case: if the owned
-  // tab is dead the tool would get TAB_NOT_FOUND instead of gracefully
-  // finding or creating an appropriate tab via its URL-matching logic.
-  const callerSuppliedTabId = typeof param.args?.tabId === 'number';
-  if (callerSuppliesUrl && !callerSuppliedTabId && tabId !== undefined) {
-    tabId = undefined;
-  }
-
-  let windowId =
+  const explicitTabId = typeof param.args?.tabId === 'number' ? param.args.tabId : undefined;
+  const trimmedTabAlias =
+    typeof param.args?.tabAlias === 'string' && param.args.tabAlias.trim().length > 0
+      ? param.args.tabAlias.trim()
+      : undefined;
+  const explicitWindowId =
     typeof param.args?.windowId === 'number' ? (param.args.windowId as number) : undefined;
-
-  // Mirror tab injection for `windowId`: if the caller omitted one, fall
-  // back to the client's `lastWindowId` so multi-window sessions don't
-  // scatter across whichever window Chrome happens to have focused.
-  // Carve-out: `chrome_window action: 'close'` must stay explicit —
-  // implicit-close-by-last-window would be too destructive.
   const isWindowCloseAction =
     param.name === TOOL_NAMES.BROWSER.WINDOW_MANAGE && param.args?.action === 'close';
-  const resolvedWindowId = isWindowCloseAction
-    ? windowId
-    : resolveOwnedWindowIdForClient(clientId, windowId);
+  const state = getBrowserStateForClientPolicy();
+  let dispatchPlan = state.planDispatch(
+    {
+      target: {
+        clientId,
+        explicitTabId,
+        trimmedTabAlias,
+        access: mutates ? 'mutate' : 'read',
+      },
+      autoSpawnPolicy: autoSpawn ? 'enabled' : 'disabled',
+      urlTargeting: callerSuppliesUrl ? 'provided' : 'absent',
+      explicitWindowId,
+      windowTargeting: isWindowCloseAction ? 'explicitOnly' : 'useClientHint',
+      tabLiveness: 'unprobed',
+    },
+    Date.now(),
+  );
+  if (dispatchPlan.kind === 'rejected') return createBrowserPolicyError(dispatchPlan.error);
 
-  // Per-call tab-lock timeout override (IMP-0087). Strip from forwarded
-  // args so tools don't see the meta-arg; clamp to a sane range.
+  if (dispatchPlan.kind === 'needsLivenessProbe') {
+    let liveness: 'live' | 'missing' = 'live';
+    if (typeof chrome !== 'undefined' && chrome.tabs?.get) {
+      try {
+        await chrome.tabs.get(dispatchPlan.continuation.tabId);
+      } catch {
+        liveness = 'missing';
+      }
+    }
+    dispatchPlan = state.resumeDispatch(dispatchPlan.continuation, liveness);
+  }
+  if (dispatchPlan.kind === 'rejected') return createBrowserPolicyError(dispatchPlan.error);
+  if (dispatchPlan.kind !== 'ready') {
+    return createErrorResponse('Browser dispatch could not resolve a target.', ToolErrorCode.UNKNOWN);
+  }
+
+  let tabId = dispatchPlan.target.forwardedTabId;
+  if (dispatchPlan.target.autoSpawn) {
+    tabId = await autoSpawnOwnedTab(clientId, dispatchPlan.target.autoSpawn.preferredWindowId);
+  }
+  const windowId = dispatchPlan.target.forwardedWindowId;
+
   let callerTabLockTimeoutMs: number | undefined;
   if (
     param.args &&
@@ -539,12 +479,14 @@ export const handleCallTool = async (
   ) {
     const raw = (param.args as Record<string, number>).tabLockTimeoutMs;
     if (Number.isFinite(raw)) {
-      callerTabLockTimeoutMs = Math.max(100, Math.min(raw, MAX_TOOL_TIMEOUT_MS));
+      const transportSafeInteger = Math.trunc(
+        Math.max(Number.MIN_SAFE_INTEGER, Math.min(Number.MAX_SAFE_INTEGER, raw)),
+      );
+      callerTabLockTimeoutMs = state.clampTabLockTimeout(transportSafeInteger) ?? undefined;
     }
   }
 
-  // Surface the resolved tab/window into args so the tool sees them even
-  // when the caller omitted them. Tool internals stay unchanged.
+  // Surface Rust-selected targets into the unchanged tool argument shape.
   if (param.args && typeof param.args === 'object') {
     const next: Record<string, unknown> = { ...param.args };
     let mutated = false;
@@ -552,24 +494,20 @@ export const handleCallTool = async (
       next.tabId = tabId;
       mutated = true;
     }
-    if (resolvedWindowId !== undefined && next.windowId !== resolvedWindowId) {
-      next.windowId = resolvedWindowId;
+    if (windowId !== undefined && next.windowId !== windowId) {
+      next.windowId = windowId;
       mutated = true;
     }
     if ('tabLockTimeoutMs' in next) {
       delete next.tabLockTimeoutMs;
       mutated = true;
     }
-    // IMP-0170: strip `tabAlias` from forwarded args. It was just a
-    // dispatcher-level pointer to the tab; the tool sees the resolved
-    // `tabId` instead and never needs to know about the alias.
     if ('tabAlias' in next) {
       delete next.tabAlias;
       mutated = true;
     }
     if (mutated) param = { ...param, args: next };
   }
-  windowId = resolvedWindowId;
 
   const log = debugLog.with({ requestId, clientId, tool: param.name, tabId });
   log.info('tool call start');
@@ -651,7 +589,8 @@ export const handleCallTool = async (
   if (!mutates || typeof tabId !== 'number') return run();
 
   const staticTimeout = (tool.constructor as { tabLockTimeoutMs?: number }).tabLockTimeoutMs;
-  const effectiveTimeoutMs = callerTabLockTimeoutMs ?? staticTimeout ?? DEFAULT_TAB_LOCK_TIMEOUT_MS;
+  const effectiveTimeoutMs =
+    callerTabLockTimeoutMs ?? staticTimeout ?? state.defaultTabLockTimeout();
 
   let release: (() => void) | undefined;
   try {

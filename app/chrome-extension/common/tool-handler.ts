@@ -1,5 +1,5 @@
 import type { CallToolResult, TextContent, ImageContent } from '@modelcontextprotocol/server';
-import { ToolErrorCode, isToolError, serializeToolError } from 'humanchrome-shared';
+import { ToolErrorCode, browserMetadataPolicy, isToolError, serializeToolError } from 'humanchrome-shared';
 
 export interface ToolResult extends CallToolResult {
   content: (TextContent | ImageContent)[];
@@ -17,7 +17,8 @@ export interface ToolExecutor {
  * still work and get a `UNKNOWN` code. New callers can pass a code and details.
  *
  * The body is JSON: `{"error":{"code","message","details"?}}`. LLMs reading
- * raw text still see the message; programmatic callers can JSON.parse.
+ * raw text still see the message; programmatic callers can JSON.parse. This path deliberately
+ * does not touch the Rust kernel, so a kernel-initialization failure can be surfaced once.
  */
 export const createErrorResponse = (
   message: string = 'Unknown error, please try again',
@@ -50,23 +51,16 @@ export const createErrorResponseFromThrown = (err: unknown): ToolResult => {
 /**
  * Classify a thrown value from a tool's catch block — IMP-0132.
  *
- * Centralizes the 16+ duplicated `/no tab with id/i` → TAB_CLOSED
- * patterns scattered across `tools/browser/`. Adding a new related
- * regex (e.g. `Receiving end does not exist`, `Could not establish
- * connection`) used to require touching every tool; now it's a
- * single-file change here.
+ * Rust owns the plain-message category and any no-tab message normalization after the
+ * dispatcher has awaited kernel readiness. JavaScript retains opaque `ToolError` identity,
+ * original thrown-value extraction, detail merging, and error-envelope serialization.
  *
  * Resolution priority:
  *   1. ToolError instance → preserve its code + details (merged with
  *      ctx, ctx winning on key conflict so tools can override e.g.
  *      `details.frameId`).
- *   2. `/no tab with id/i` → TAB_CLOSED. When `ctx.tabId` is provided
- *      the message is normalised to `Tab N not found`; otherwise the
- *      original message is preserved.
- *   3. `/receiving end does not exist|could not establish connection/i`
- *      → TAB_CLOSED (content script gone — usually means the tab
- *      navigated or closed mid-call).
- *   4. fallback → UNKNOWN with the original message + ctx as details.
+ *   2. Rust classifies the plain host message as TAB_CLOSED or UNKNOWN and returns the
+ *      already-normalized message.
  *
  * `ctx.toolName` is included in `details` so log scrapers can attribute
  * the failure without re-parsing the message.
@@ -90,12 +84,7 @@ export const classifyTabError = (
     return createErrorResponse(err.message, err.code, merged);
   }
   const msg = err instanceof Error ? err.message : String(err);
-  if (/no tab with id/i.test(msg)) {
-    const message = typeof tabId === 'number' ? `Tab ${tabId} not found` : msg;
-    return createErrorResponse(message, ToolErrorCode.TAB_CLOSED, ctxDetails);
-  }
-  if (/receiving end does not exist|could not establish connection/i.test(msg)) {
-    return createErrorResponse(msg, ToolErrorCode.TAB_CLOSED, ctxDetails);
-  }
-  return createErrorResponse(msg, ToolErrorCode.UNKNOWN, ctxDetails);
+  const plan = browserMetadataPolicy.classifyTabErrorMessage(msg, tabId);
+  const code = plan.code === 'TAB_CLOSED' ? ToolErrorCode.TAB_CLOSED : ToolErrorCode.UNKNOWN;
+  return createErrorResponse(plan.message, code, ctxDetails);
 };

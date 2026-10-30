@@ -1,7 +1,6 @@
-import type { Edge, Flow, NodeBase, Step, VariableDef } from '../types';
+import type { Flow, NodeBase, Step, VariableDef } from '../types';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
-import { NODE_TYPES } from '@/common/node-types';
-import { mapStepToNodeConfig, stepsToDAG, EDGE_LABELS } from 'humanchrome-shared';
+import { mapStepToNodeConfig, replayPolicy, stepsToDAG } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 
 /**
@@ -24,8 +23,6 @@ export interface RecordingSessionState {
   stoppedTabs: Set<number>;
 }
 
-// Valid node types for type checking
-const VALID_NODE_TYPES = new Set<string>(Object.values(NODE_TYPES));
 
 export class RecordingSessionManager {
   private state: RecordingSessionState = {
@@ -190,128 +187,75 @@ export class RecordingSessionManager {
     const f = this.state.flow;
     if (!f || !Array.isArray(steps) || steps.length === 0) return;
 
-    // Initialize arrays if missing
     if (!Array.isArray(f.nodes)) f.nodes = [];
     if (!Array.isArray(f.edges)) f.edges = [];
-
-    // Legacy compatibility: if flow only has steps, initialize DAG from them once
     if (f.nodes.length === 0 && Array.isArray(f.steps) && f.steps.length > 0) {
       this.rebuildDagFromSteps();
     }
 
-    const nodes = f.nodes;
-    const edges = f.edges;
-
-    // Check invariants: edges must match linear chain
-    // If violated (e.g., imported flow, manual edit), rebuild linear chain
-    if (!this.checkDagInvariant(nodes, edges)) {
-      this.rechainEdges();
-    }
-
-    // Process each incoming step with upsert semantics + incremental DAG sync
-    let needsRebuild = false;
     for (const step of steps) {
-      // Ensure step has an id
       if (!step.id) {
         step.id = `step_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       }
+    }
 
-      const nodeIdx = this.nodeIndexMap.get(step.id);
-      if (nodeIdx !== undefined) {
-        // Upsert: update existing node in place
-        if (!nodes[nodeIdx]) {
-          needsRebuild = true;
-          continue;
-        }
-        nodes[nodeIdx] = {
-          ...nodes[nodeIdx],
-          type: this.toNodeType(step.type),
-          config: mapStepToNodeConfig(step),
-        };
-      } else {
-        // Append: new node
-        const prevNodeId = nodes.length > 0 ? nodes[nodes.length - 1]?.id : undefined;
+    const nodes = f.nodes;
+    const edges = f.edges;
+    const plan = replayPolicy.replayRecordingAppendPlan({
+      nodes: nodes.map(({ id }) => ({ id })),
+      edges: edges.map(({ to }) => ({ to })),
+      cache: Array.from(this.nodeIndexMap.entries()),
+      edgeSeq: this.edgeSeq,
+      steps: steps.map(({ id, type }) => ({ id, type })),
+    });
+    const replaceEdges = (planned: readonly replayPolicy.RecordingEdgePlan[]) => {
+      edges.splice(
+        0,
+        edges.length,
+        ...planned.map((edge) => ({ ...edge })),
+      );
+    };
+    if (plan.rechainBefore) replaceEdges(plan.rechainBefore);
 
-        // Create corresponding node
-        const newNode: NodeBase = {
-          id: step.id,
-          type: this.toNodeType(step.type),
-          config: mapStepToNodeConfig(step),
-        };
-        nodes.push(newNode);
-        this.nodeIndexMap.set(step.id, nodes.length - 1);
-
-        // Create edge from previous node (if exists)
-        if (prevNodeId) {
-          if (!this.nodeIndexMap.has(prevNodeId)) {
-            needsRebuild = true;
-            continue;
-          }
-          const edgeId = `e_${this.edgeSeq++}_${prevNodeId}_${step.id}`;
-          edges.push({
-            id: edgeId,
-            from: prevNodeId,
-            to: step.id,
-            label: EDGE_LABELS.DEFAULT,
-          });
-        }
+    for (const operation of plan.operations) {
+      const step = steps[operation.stepIndex];
+      if (!step || operation.kind === 'skip') continue;
+      if (operation.fallbackType) {
+        console.warn(
+          `[RecordingSession] Unknown step type "${step.type}", falling back to "script"`,
+        );
       }
+      if (operation.kind === 'update') {
+        const node = nodes[operation.nodeIndex];
+        if (!node) continue;
+        nodes[operation.nodeIndex] = {
+          ...node,
+          type: operation.nodeType as NodeBase['type'],
+          config: mapStepToNodeConfig(step),
+        };
+        continue;
+      }
+      nodes.push({
+        id: step.id,
+        type: operation.nodeType as NodeBase['type'],
+        config: mapStepToNodeConfig(step),
+      });
+      if (operation.edge) edges.push({ ...operation.edge });
     }
+    if (plan.rechainAfter) replaceEdges(plan.rechainAfter);
 
-    // Final invariant check: if any inconsistency detected, rebuild edges
-    if (needsRebuild || !this.checkDagInvariant(nodes, edges)) {
-      this.rechainEdges();
-    }
+    this.nodeIndexMap.clear();
+    for (const [id, index] of plan.cache.nodeIndexes) this.nodeIndexMap.set(id, index);
+    this.edgeSeq = plan.cache.edgeSeq;
 
-    // Update meta timestamp
     try {
-      if (f.meta) {
-        f.meta.updatedAt = new Date().toISOString();
-      }
+      if (f.meta) f.meta.updatedAt = new Date().toISOString();
     } catch {
       // ignore meta update errors
     }
-
     this.broadcastTimelineUpdate();
   }
 
-  /**
-   * Convert step type to valid NodeType with fallback to SCRIPT.
-   * Logs a warning for unknown types to help detect upstream type drift.
-   */
-  private toNodeType(stepType: string): NodeBase['type'] {
-    if (VALID_NODE_TYPES.has(stepType)) {
-      return stepType as NodeBase['type'];
-    }
-    console.warn(`[RecordingSession] Unknown step type "${stepType}", falling back to "script"`);
-    return NODE_TYPES.SCRIPT;
-  }
-
-  /**
-   * Check DAG invariant for linear recording:
-   * - edges.length === max(0, nodes.length - 1)
-   * - Last edge (if exists) points to the last node
-   */
-  private checkDagInvariant(nodes: NodeBase[], edges: Edge[]): boolean {
-    const nodeCount = nodes.length;
-    const expectedEdgeCount = Math.max(0, nodeCount - 1);
-
-    // Check edge count matches expected linear chain
-    if (edges.length !== expectedEdgeCount) {
-      return false;
-    }
-
-    // Check last edge points to last node (if edges exist)
-    if (edges.length > 0 && nodes.length > 0) {
-      const lastEdge = edges[edges.length - 1];
-      const lastNodeId = nodes[nodes.length - 1]?.id;
-      if (lastEdge.to !== lastNodeId) {
-        return false;
-      }
-    }
-
-    return true;
-  }
 
   /**
    * Rebuild caches from current flow state.
@@ -320,18 +264,13 @@ export class RecordingSessionManager {
   private rebuildCaches(): void {
     const f = this.state.flow;
     if (!f) return;
-
+    const cache = replayPolicy.replayRecordingCachePlan(
+      Array.isArray(f.nodes) ? f.nodes.map(({ id }) => ({ id })) : [],
+      Array.isArray(f.edges) ? f.edges.length : 0,
+    );
     this.nodeIndexMap.clear();
-
-    if (Array.isArray(f.nodes)) {
-      for (let i = 0; i < f.nodes.length; i++) {
-        const id = f.nodes[i]?.id;
-        if (id) this.nodeIndexMap.set(id, i);
-      }
-    }
-
-    // Sync edgeSeq to continue from current edge count (avoids id collision)
-    this.edgeSeq = Array.isArray(f.edges) ? f.edges.length : 0;
+    for (const [id, index] of cache.nodeIndexes) this.nodeIndexMap.set(id, index);
+    this.edgeSeq = cache.edgeSeq;
   }
 
   /**
@@ -348,9 +287,13 @@ export class RecordingSessionManager {
     if (!Array.isArray(f.nodes)) f.nodes = [];
     f.nodes.length = 0;
     for (const n of dag.nodes) {
+      const typePlan = replayPolicy.replayRecordingNodeTypePlan(n.type);
+      if (typePlan.fallbackType) {
+        console.warn(`[RecordingSession] Unknown step type "${n.type}", falling back to "script"`);
+      }
       f.nodes.push({
         id: n.id,
-        type: this.toNodeType(n.type),
+        type: typePlan.nodeType as NodeBase['type'],
         config: n.config,
       });
     }
@@ -371,33 +314,6 @@ export class RecordingSessionManager {
     this.rebuildCaches();
   }
 
-  /**
-   * Re-chain edges linearly according to current nodes order.
-   * Used when edge invariant is violated but nodes exist.
-   */
-  private rechainEdges(): void {
-    const f = this.state.flow;
-    if (!f) return;
-
-    if (!Array.isArray(f.nodes)) f.nodes = [];
-    if (!Array.isArray(f.edges)) f.edges = [];
-
-    // Clear and re-chain edges
-    f.edges.length = 0;
-    for (let i = 0; i < f.nodes.length - 1; i++) {
-      const from = f.nodes[i].id;
-      const to = f.nodes[i + 1].id;
-      f.edges.push({
-        id: `e_${i}_${from}_${to}`,
-        from,
-        to,
-        label: EDGE_LABELS.DEFAULT,
-      });
-    }
-
-    // Rebuild caches
-    this.rebuildCaches();
-  }
 
   /**
    * Append variables to the flow. Deduplicates by key.
@@ -410,20 +326,12 @@ export class RecordingSessionManager {
       f.variables = [];
     }
 
-    // Deduplicate by key - newer definitions override older ones
-    const existingKeys = new Set(f.variables.map((v) => v.key));
-    for (const v of variables) {
-      if (!v.key) continue;
-      if (existingKeys.has(v.key)) {
-        // Update existing variable
-        const idx = f.variables.findIndex((fv) => fv.key === v.key);
-        if (idx >= 0) {
-          f.variables[idx] = v;
-        }
-      } else {
-        f.variables.push(v);
-        existingKeys.add(v.key);
-      }
+    const operations = replayPolicy.replayRecordingVariableAppendPlan(
+      f.variables.map((variable) => variable.key),
+      variables.map((variable) => variable.key),
+    );
+    for (const operation of operations) {
+      f.variables[operation.targetIndex] = variables[operation.sourceIndex];
     }
 
     // Update meta timestamp

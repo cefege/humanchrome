@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { browserMetadataPolicy, TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 import { setClientPacing, getClientPacing, type PacingProfile } from '../../utils/client-state';
 
@@ -9,8 +9,6 @@ interface PaceToolParams {
   minGapMs?: number;
   jitterMs?: number;
 }
-
-const VALID_PROFILES: PacingProfile[] = ['off', 'human', 'careful', 'fast'];
 
 /**
  * Per-MCP-client pacing profile. Calling with `profile` sets it; calling
@@ -44,8 +42,12 @@ class PaceTool extends BaseBrowserToolExecutor {
       );
     }
 
-    // No profile arg → read current pacing (former chrome_pace_get path).
-    if (args.profile === undefined) {
+    const plan = browserMetadataPolicy.planPacingInput(
+      args.profile,
+      args.minGapMs,
+      args.jitterMs,
+    );
+    if (plan.kind === 'read') {
       const pacing = getClientPacing(clientId);
       return {
         content: [
@@ -62,31 +64,26 @@ class PaceTool extends BaseBrowserToolExecutor {
         isError: false,
       };
     }
-
-    if (typeof args.profile !== 'string') {
+    if (plan.kind === 'invalidProfileType') {
       return createErrorResponse(
         '`profile` must be one of: off, human, careful, fast (or omit it to read current state)',
         ToolErrorCode.INVALID_ARGS,
         { arg: 'profile' },
       );
     }
-    if (!VALID_PROFILES.includes(args.profile as PacingProfile)) {
+    if (plan.kind === 'invalidProfileValue') {
       return createErrorResponse(
-        `Invalid profile "${args.profile}": expected one of ${VALID_PROFILES.join(', ')}`,
+        `Invalid profile "${plan.profile}": expected one of off, human, careful, fast`,
         ToolErrorCode.INVALID_ARGS,
         { arg: 'profile' },
       );
     }
 
     const overrides: { minGapMs?: number; jitterMs?: number } = {};
-    if (typeof args.minGapMs === 'number' && Number.isFinite(args.minGapMs)) {
-      overrides.minGapMs = Math.max(0, Math.min(args.minGapMs, 30_000));
-    }
-    if (typeof args.jitterMs === 'number' && Number.isFinite(args.jitterMs)) {
-      overrides.jitterMs = Math.max(0, Math.min(args.jitterMs, 30_000));
-    }
+    if (plan.minGapMs !== null) overrides.minGapMs = plan.minGapMs;
+    if (plan.jitterMs !== null) overrides.jitterMs = plan.jitterMs;
 
-    const next = setClientPacing(clientId, args.profile as PacingProfile, overrides);
+    const next = setClientPacing(clientId, plan.profile, overrides);
     return {
       content: [
         {

@@ -108,6 +108,7 @@ async function loadTools() {
   // pinned at the top via the static import.
   const cs = await import('@/entrypoints/background/utils/client-state');
   cs._resetClientStateForTests();
+  await cs.ensureClientStateReady();
   cs.claimTabForClient(TEST_CLIENT, TEST_TAB_ID, 1);
   return tools;
 }

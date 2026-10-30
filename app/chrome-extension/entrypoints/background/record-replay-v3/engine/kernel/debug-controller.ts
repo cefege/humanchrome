@@ -1,18 +1,17 @@
 /**
  * @fileoverview Debug Controller
- * @description Central control plane for debugging - command routing, state aggregation, and UI push
+ * @description Host control plane for V3 debugger commands, state snapshots, and UI push.
+ *
+ * Breakpoint membership and one-shot step-over state belong to `RustRunBreakpoints`. This
+ * controller has no independent portable policy: it routes commands to opaque runner handles,
+ * aggregates storage/event state into DTOs, persists host records, and owns listener callbacks.
+ * Its callers are the V3 bootstrap and `rr_v3.debug` RPC handler.
  */
 
 import type { NodeId, RunId } from '../../domain/ids';
 import type { JsonValue } from '../../domain/json';
 import type { PauseReason, RunEvent, Unsubscribe } from '../../domain/events';
-import type {
-  DebuggerCommand,
-  DebuggerResponse,
-  DebuggerState,
-  Breakpoint,
-} from '../../domain/debug';
-import { createInitialDebuggerState } from '../../domain/debug';
+import type { DebuggerCommand, DebuggerResponse, DebuggerState } from '../../domain/debug';
 
 import type { StoragePort } from '../storage/storage-port';
 import type { EventsBus } from '../transport/events-bus';

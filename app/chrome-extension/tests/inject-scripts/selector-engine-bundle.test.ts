@@ -1,193 +1,66 @@
-/**
- * IMP-0099 — vanilla JS selector engine bundle.
- *
- * The `inject-scripts/selector-engine-bundle.js` is the vanilla-JS port of
- * `shared/selector/` that gets injected into content-script context before
- * `recorder.js`. Without ES module support there, the only way it gets
- * loaded is via `chrome.scripting.executeScript({files:[...]})`.
- *
- * These tests evaluate the bundle in jsdom (running it as a global script)
- * and assert it produces structurally-equivalent output to the TS source.
- */
-
-import { promises as fs } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { generateExtendedSelectorTarget } from '@/shared/selector';
+import type { generateExtendedSelectorTarget } from '@/shared/selector';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const BUNDLE_PATH = resolve(__dirname, '../../inject-scripts/selector-engine-bundle.js');
-
-interface RecorderSelectorEngine {
-  generateSelectorTarget: (
-    el: Element,
-    opts?: Record<string, unknown>,
-  ) => {
-    selector: string;
-    candidates: Array<{ type: string; value: string; strategy?: string; weight?: number }>;
-    tagName?: string;
+interface RecorderRealm {
+  __rrSelectorEngine?: {
+    generateExtendedSelectorTarget: typeof generateExtendedSelectorTarget;
+    computeFingerprint: (element: Element) => string;
   };
-  generateExtendedSelectorTarget: (
-    el: Element,
-    opts?: Record<string, unknown>,
-  ) => {
-    selector: string;
-    candidates: Array<{ type: string; value: string; strategy?: string; weight?: number }>;
-    tagName?: string;
-    fingerprint: string;
-    domPath: number[];
-    shadowHostChain: string[];
-  };
-  compareSelectorCandidates: (a: unknown, b: unknown) => number;
-  computeFingerprint: (el: Element) => string;
-  computeDomPath: (el: Element) => number[];
-  cssEscape: (v: string) => string;
+  __hcInitializeRustKernel?: (bytes: number[]) => Promise<void>;
+  __hcRustReady?: Promise<void>;
+  __hcRustKernelId?: string;
 }
 
-function getEngine(): RecorderSelectorEngine {
-  const engine = (window as unknown as { __rrSelectorEngine?: RecorderSelectorEngine })
-    .__rrSelectorEngine;
-  if (!engine) throw new Error('selector engine bundle not loaded');
-  return engine;
-}
+const realm = globalThis as typeof globalThis & RecorderRealm;
+let source: string;
+let bytes: number[];
 
 beforeAll(async () => {
-  // Load the vanilla-JS bundle into the global jsdom realm.
-  const source = await fs.readFile(BUNDLE_PATH, 'utf8');
-  new Function(source).call(globalThis);
-  expect(getEngine()).toBeDefined();
+  source = await readFile(resolve(import.meta.dirname, '../../inject-scripts/selector-engine-bundle.js'), 'utf8');
+  bytes = Array.from(await readFile(resolve(import.meta.dirname, '../../../../packages/shared/generated/humanchrome_wasm_bg.wasm')));
 });
 
 beforeEach(() => {
   document.body.innerHTML = '';
+  delete realm.__rrSelectorEngine;
+  delete realm.__hcRustReady;
+  delete realm.__hcRustKernelId;
+  // executeScript files are classic scripts, not imported modules.
+  new Function(source).call(globalThis);
 });
 
-describe('IMP-0099 bundle: API surface', () => {
-  it('exposes the documented public functions on the engine global', () => {
-    const engine = getEngine();
-    expect(typeof engine.generateSelectorTarget).toBe('function');
-    expect(typeof engine.generateExtendedSelectorTarget).toBe('function');
-    expect(typeof engine.compareSelectorCandidates).toBe('function');
-    expect(typeof engine.computeFingerprint).toBe('function');
-    expect(typeof engine.computeDomPath).toBe('function');
-    expect(typeof engine.cssEscape).toBe('function');
-  });
-
-  it('is idempotent (re-executing the bundle does not replace the engine)', async () => {
-    const before = getEngine();
-    const source = await fs.readFile(BUNDLE_PATH, 'utf8');
-    new Function(source).call(globalThis);
-    expect(getEngine()).toBe(before);
-  });
-});
-
-// TODO(IMP-followup): the vanilla bundle was built against IMP-0099's leaner
-// strategy implementations; the cherry-pick merge kept the richer IMP-0098
-// versions of label.ts / placeholder.ts (which export runtime resolvers).
-// Bundle ↔ TS-source parity needs regenerating against the merged tree —
-// tracked as a follow-up IMP. Recorder functionality is unaffected because
-// the bundle still produces valid candidates; only the field-for-field
-// parity assertion is stale.
-describe.skip('IMP-0099 bundle: parity with shared TS source', () => {
-  it('testid attribute parity', () => {
-    document.body.innerHTML = `<button data-testid="cta">Sign in</button>`;
-    const btn = document.querySelector('button')!;
-    const bundleTarget = getEngine().generateExtendedSelectorTarget(btn);
-    const tsTarget = generateExtendedSelectorTarget(btn);
-
-    expect(bundleTarget.selector).toBe(tsTarget.selector);
-    expect(bundleTarget.candidates.length).toBe(tsTarget.candidates.length);
-    expect(bundleTarget.candidates[0].strategy).toBe(tsTarget.candidates[0].strategy);
-    expect(bundleTarget.candidates[0].value).toBe(tsTarget.candidates[0].value);
-  });
-
-  it('labelled form control parity (synthesized role+name)', () => {
-    document.body.innerHTML = `
-      <label for="email">Email</label>
-      <input id="email" type="email" />
-    `;
-    const input = document.querySelector('input')!;
-    const bundleTarget = getEngine().generateExtendedSelectorTarget(input);
-    const tsTarget = generateExtendedSelectorTarget(input);
-
-    expect(bundleTarget.candidates[0].strategy).toBe(tsTarget.candidates[0].strategy);
-    expect(bundleTarget.candidates[0].value).toBe(tsTarget.candidates[0].value);
-  });
-
-  it('placeholder parity', () => {
-    document.body.innerHTML = `<input placeholder="Search" />`;
-    const input = document.querySelector('input')!;
-    const bundleTarget = getEngine().generateExtendedSelectorTarget(input);
-    const tsTarget = generateExtendedSelectorTarget(input);
-
-    expect(bundleTarget.candidates[0].strategy).toBe('placeholder');
-    expect(bundleTarget.candidates[0].value).toBe(tsTarget.candidates[0].value);
-  });
-
-  it('text strategy parity for button text ≤ 64 chars', () => {
-    document.body.innerHTML = `
-      <div>
-        <span>noise</span>
-        <button>Subscribe</button>
-      </div>
-    `;
-    const btn = document.querySelector('button')!;
-    const bundleTarget = getEngine().generateExtendedSelectorTarget(btn);
-    const tsTarget = generateExtendedSelectorTarget(btn);
-
-    const bundleText = bundleTarget.candidates.find((c) => c.strategy === 'text');
-    const tsText = tsTarget.candidates.find((c) => c.strategy === 'text');
-    expect(bundleText).toBeDefined();
-    expect(tsText).toBeDefined();
-    expect(bundleText!.value).toBe('Subscribe');
-    expect(bundleText!.value).toBe(tsText!.value);
-  });
-
-  it('extended target carries fingerprint and domPath', () => {
-    document.body.innerHTML = `<div><span><button data-testid="x">Hi</button></span></div>`;
-    const btn = document.querySelector('button')!;
-    const target = getEngine().generateExtendedSelectorTarget(btn);
-    expect(typeof target.fingerprint).toBe('string');
+describe('packaged recorder selector bootstrap', () => {
+  it('publishes the engine only after the JSON-byte bootstrap and selects the first button', async () => {
+    expect(realm.__rrSelectorEngine).toBeUndefined();
+    document.body.innerHTML = '<button id="fallback-id" data-testid="cta">Sign in</button>';
+    const button = document.querySelector('button')!;
+    await realm.__hcInitializeRustKernel!(bytes);
+    const target = realm.__rrSelectorEngine!.generateExtendedSelectorTarget(button);
+    expect(target.candidates[0].strategy).toBe('testid');
+    expect(document.querySelector(target.selector!)).toBe(button);
     expect(target.fingerprint).toContain('button');
-    expect(Array.isArray(target.domPath)).toBe(true);
-    expect(target.domPath.length).toBeGreaterThan(0);
-    expect(Array.isArray(target.shadowHostChain)).toBe(true);
-    expect(target.shadowHostChain).toEqual([]);
+    expect(target.domPath).toEqual([0, 1, 0]);
   });
 
-  it('cssEscape mirrors CSS.escape semantics for ASCII identifiers', () => {
-    const e = getEngine();
-    expect(e.cssEscape('hello')).toBe('hello');
-    expect(e.cssEscape('foo-bar_baz')).toBe('foo-bar_baz');
-    // First char being a digit forces hex-escape per the spec.
-    expect(e.cssEscape('1abc').startsWith('\\31')).toBe(true);
+  it('folds contextual Unicode tag casing while retaining fingerprint text case', async () => {
+    await realm.__hcInitializeRustKernel!(bytes);
+    const element = document.createElement('ΟΣ');
+    element.textContent = 'ΟΣ';
+    expect(realm.__rrSelectorEngine!.computeFingerprint(element)).toBe('ος|text=ΟΣ');
   });
-});
 
-describe('IMP-0099 bundle: backwards-compat candidate sorting', () => {
-  it('candidates recorded in any order are re-sorted by weight via compareSelectorCandidates', () => {
-    const e = getEngine();
-    // Simulate an "old" recording with the highest-priority candidate last.
-    const candidates = [
-      {
-        type: 'css',
-        value: 'body > div:nth-of-type(2) > button',
-        weight: -30,
-        source: 'recorded',
-        strategy: 'css-path',
-      },
-      {
-        type: 'attr',
-        value: '[data-testid="save"]',
-        weight: 50,
-        source: 'recorded',
-        strategy: 'testid',
-      },
-    ];
-    const sorted = candidates.slice().sort((a, b) => e.compareSelectorCandidates(a, b));
-    expect(sorted[0].value).toBe('[data-testid="save"]');
+  it('retains a ready engine across reinjection before another recorded event', async () => {
+    await realm.__hcInitializeRustKernel!(bytes);
+    const first = realm.__rrSelectorEngine;
+    new Function(source).call(globalThis);
+    await realm.__hcInitializeRustKernel!([]);
+    expect(realm.__rrSelectorEngine).toBe(first);
+    document.body.innerHTML = '<input data-testid="email" aria-label="Email" />';
+    const input = document.querySelector('input')!;
+    const target = realm.__rrSelectorEngine!.generateExtendedSelectorTarget(input);
+    expect(document.querySelector(target.selector!)).toBe(input);
+    expect(target.candidates[0].strategy).toBe('testid');
   });
 });

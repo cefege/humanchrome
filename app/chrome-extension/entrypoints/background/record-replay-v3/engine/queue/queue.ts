@@ -1,3 +1,4 @@
+import { runPolicy } from 'humanchrome-shared';
 import type { JsonObject, UnixMillis } from '../../domain/json';
 import type { FlowId, NodeId, RunId } from '../../domain/ids';
 import type { TriggerFireContext } from '../../domain/triggers';
@@ -23,8 +24,7 @@ export function isQueueItemStatus(value: unknown): value is QueueItemStatus {
 
 /** Comparator for queue items: priority DESC, then createdAt ASC (FIFO within priority). */
 export function compareQueueItems(a: RunQueueItem, b: RunQueueItem): number {
-  if (a.priority !== b.priority) return b.priority - a.priority;
-  return a.createdAt - b.createdAt;
+  return runPolicy.compareRunQueueItems(a, b);
 }
 
 export interface Lease {

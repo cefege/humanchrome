@@ -125,6 +125,36 @@ describe('NavigateTool — newTab override (#334)', () => {
     expect(chromeMock.tabs.query).not.toHaveBeenCalled();
   });
 
+  it('queries Rust-owned protocol and www variants in the existing insertion order', async () => {
+    await navigateTool.execute({ url: existingFeedTab.url });
+
+    expect(chromeMock.tabs.query).toHaveBeenCalledWith({
+      url: [
+        'https://www.linkedin.com/*',
+        'https://linkedin.com/*',
+        'http://www.linkedin.com/*',
+        'http://linkedin.com/*',
+      ],
+    });
+  });
+
+  it('does not activate a same-host different-path tab for a root target', async () => {
+    chromeMock.tabs.query.mockResolvedValueOnce([
+      {
+        id: 8080,
+        windowId: 1,
+        url: 'https://www.linkedin.com/not-the-root',
+        active: false,
+        index: 0,
+      } as chrome.tabs.Tab,
+    ]);
+
+    const resp = await navigateTool.execute({ url: 'https://www.linkedin.com/' });
+
+    expect(parseResult(resp).message).toMatch(/Opened URL in new tab/i);
+    expect(chromeMock.tabs.create).toHaveBeenCalledTimes(1);
+  });
+
   it('newTab:true with an explicit tabId still honors the pinned tab (explicit wins)', async () => {
     const resp = await navigateTool.execute({
       newTab: true,

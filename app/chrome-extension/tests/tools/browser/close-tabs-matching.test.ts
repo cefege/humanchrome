@@ -136,7 +136,19 @@ describe('chrome_close_tabs_matching — regex matchers', () => {
     const body = parse(res);
     expect(body.tabIds).toEqual([1]);
   });
+  it('retains JavaScript RegExp lastIndex behavior across candidate tabs', async () => {
+    tabsInBrowser = [
+      { id: 1, url: 'https://example.com/a', title: '' },
+      { id: 2, url: 'https://example.com/a', title: '' },
+      { id: 3, url: 'https://example.com/a', title: '' },
+    ];
+
+    const res = await closeTabsMatchingTool.execute({ urlMatches: '/example/g' });
+
+    expect(parse(res).tabIds).toEqual([1, 3]);
+  });
 });
+
 
 describe('chrome_close_tabs_matching — olderThanMs', () => {
   it('matches only tabs whose recorded creation time is older than the cutoff', async () => {

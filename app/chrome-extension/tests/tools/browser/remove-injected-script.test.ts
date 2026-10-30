@@ -66,6 +66,7 @@ async function loadTool() {
   freshRunWithContext = rc.runWithContext;
   freshResetClientState = cs._resetClientStateForTests;
   freshResetClientState();
+  await cs.ensureClientStateReady();
   return mod;
 }
 

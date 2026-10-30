@@ -1,9 +1,11 @@
-// engine/policies/retry.ts — unified retry/backoff policy
+// engine/policies/retry.ts — effect host for Rust-owned retry/backoff policy
+
+import { replayPolicy } from 'humanchrome-shared';
 
 export type BackoffKind = 'none' | 'exp';
 
 export interface RetryOptions {
-  count?: number; // max attempts beyond the first run
+  count?: number;
   intervalMs?: number;
   backoff?: BackoffKind;
 }
@@ -20,11 +22,11 @@ export async function withRetry<T>(
   while (true) {
     try {
       return await run();
-    } catch (e) {
-      if (attempt >= max) throw e;
-      if (onRetry) await onRetry(attempt, e);
-      const delay = base > 0 ? (backoff === 'exp' ? base * Math.pow(2, attempt) : base) : 0;
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    } catch (error) {
+      if (replayPolicy.replayRetryExhausted(attempt, max)) throw error;
+      if (onRetry) await onRetry(attempt, error);
+      const delay = replayPolicy.replayRetryDelayMs(base, backoff, attempt);
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       attempt += 1;
     }
   }

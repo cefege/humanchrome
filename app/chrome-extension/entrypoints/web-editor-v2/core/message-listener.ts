@@ -224,22 +224,27 @@ function findElementBySelector(selector: string): Element | null {
  * @param api The WebEditorV2Api instance to delegate commands to
  * @returns Function to remove the listener
  */
-export function installMessageListener(api: WebEditorV2Api): RemoveMessageListener {
+export function installMessageListener(
+  api: WebEditorV2Api,
+  rustReady: Promise<void>,
+): RemoveMessageListener {
   const listener = (
     request: unknown,
     _sender: chrome.runtime.MessageSender,
     sendResponse: (response: WebEditorV2Response) => void,
   ): boolean => {
-    // Handle highlight requests (can work even when editor is not active)
+    // Highlight resolution can invoke Rust-backed fingerprint verification, so
+    // the listener remains synchronous to register but responds asynchronously.
     if (isHighlightRequest(request)) {
-      if (request.mode === 'clear') {
-        clearHighlight();
-        sendResponse({ success: true });
-      } else {
-        // mode === 'hover'
-        let element: Element | null = null;
+      (async () => {
+        await rustReady;
+        if (request.mode === 'clear') {
+          clearHighlight();
+          sendResponse({ success: true });
+          return;
+        }
 
-        // Prefer locator-based resolution (supports Shadow DOM host chain)
+        let element: Element | null = null;
         if (request.locator) {
           try {
             element = locateElement(request.locator);
@@ -247,20 +252,17 @@ export function installMessageListener(api: WebEditorV2Api): RemoveMessageListen
             element = null;
           }
         }
-
-        // Fallback to selector (backward compatibility / degraded locators)
         if (!element && typeof request.selector === 'string') {
           element = findElementBySelector(request.selector);
         }
-
         if (element) {
           showHighlight(element);
           sendResponse({ success: true });
         } else {
           sendResponse({ success: false, error: 'Element not found' });
         }
-      }
-      return false; // Synchronous
+      })();
+      return true;
     }
 
     // Handle revert element requests (Phase 2 - Selective Undo)
@@ -268,6 +270,7 @@ export function installMessageListener(api: WebEditorV2Api): RemoveMessageListen
       // Revert is async, so we return true and call sendResponse later
       (async () => {
         try {
+          await rustReady;
           const result = await api.revertElement(request.elementKey);
           sendResponse(result);
         } catch (error) {
@@ -304,20 +307,20 @@ export function installMessageListener(api: WebEditorV2Api): RemoveMessageListen
       }
 
       case WEB_EDITOR_V2_ACTIONS.TOGGLE: {
-        const response: WebEditorV2ToggleResponse = {
-          active: api.toggle(),
-        };
-        sendResponse(response);
-        return false;
+        (async () => {
+          await rustReady;
+          sendResponse({ active: api.toggle() });
+        })();
+        return true;
       }
 
       case WEB_EDITOR_V2_ACTIONS.START: {
-        api.start();
-        const response: WebEditorV2StartResponse = {
-          active: true,
-        };
-        sendResponse(response);
-        return false;
+        (async () => {
+          await rustReady;
+          api.start();
+          sendResponse({ active: true });
+        })();
+        return true;
       }
 
       case WEB_EDITOR_V2_ACTIONS.STOP: {

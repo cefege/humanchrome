@@ -26,6 +26,7 @@ import type { TransactionChangeEvent, TransactionManager } from './transaction-m
 import type { ToolbarStatus } from '../ui/toolbar';
 import type { SelectionEngine } from '../selection/selection-engine';
 import { Disposer } from '../utils/disposables';
+import { parseFingerprint, type ElementFingerprint } from '@/shared/selector';
 import { computeDomPath, computeFingerprint, locateElement } from './locator';
 import {
   compareComputed,
@@ -33,6 +34,8 @@ import {
   readComputedMap,
   type CompareComputedResult,
 } from './css-compare';
+import { scoreEditorFingerprintCandidate } from 'humanchrome-shared';
+
 
 // =============================================================================
 // Types
@@ -306,103 +309,46 @@ function isValidCandidate(
   return true;
 }
 
-/** Parsed fingerprint structure */
-interface ParsedFingerprint {
-  tag: string;
-  id?: string;
-  classes: string[];
-  text?: string;
-}
 
-function parseFingerprint(raw: string): ParsedFingerprint {
-  const parts = String(raw ?? '')
-    .trim()
-    .split('|')
-    .filter(Boolean);
-  const tag = parts[0] || 'unknown';
-
-  let id: string | undefined;
-  let classes: string[] = [];
-  let text: string | undefined;
-
-  for (const part of parts.slice(1)) {
-    if (part.startsWith('id=')) id = part.slice(3) || undefined;
-    else if (part.startsWith('class=')) classes = part.slice(6).split('.').filter(Boolean);
-    else if (part.startsWith('text=')) text = part.slice(5) || undefined;
-  }
-
-  return { tag, id, classes, text };
-}
-
-function intersectCount(a: readonly string[], b: readonly string[]): number {
-  if (!a.length || !b.length) return 0;
-  const set = new Set(b);
-  return a.filter((item) => set.has(item)).length;
-}
-
-function commonPrefixLength(a: readonly number[], b: readonly number[]): number {
-  const n = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < n && a[i] === b[i]) i++;
-  return i;
-}
-
-/** Score an element candidate against expected fingerprint */
+/** Score a host-collected candidate fingerprint through Rust-owned ranking policy. */
 function scoreCandidate(params: {
   element: Element;
-  expected: ParsedFingerprint;
+  expected: ElementFingerprint;
   locator: ElementLocator;
   anchorCenter?: { x: number; y: number } | null;
 }): number {
   const { element, expected, locator, anchorCenter } = params;
   const candidateFp = parseFingerprint(computeFingerprint(element));
+  const rect = anchorCenter && Number.isFinite(anchorCenter.x) ? safeReadRect(element) : null;
+  const candidateCenter = rect ? rectCenter(rect) : null;
+  const candidatePath = locator.path?.length ? computeDomPath(element) : [];
 
-  // Tag must match
-  if (candidateFp.tag !== expected.tag) return -Infinity;
-
-  // ID must match if expected has one
-  if (expected.id && candidateFp.id !== expected.id) return -Infinity;
-
-  let score = 0;
-
-  // Strong ID anchor
-  if (expected.id) score += 12;
-
-  // Class overlap (soft match)
-  score += Math.min(8, intersectCount(expected.classes, candidateFp.classes) * 2);
-
-  // Text hint (soft match)
-  if (expected.text) {
-    const expectedText = normalizeText(expected.text);
-    const actualText = normalizeText(element.textContent ?? '');
-    if (actualText.includes(expectedText)) score += 4;
-  }
-
-  // DOM path similarity
-  if (locator.path?.length) {
-    const path = computeDomPath(element);
-    const prefix = commonPrefixLength(locator.path, path);
-    score += (prefix / locator.path.length) * 6;
-    if (prefix === locator.path.length && path.length === locator.path.length) score += 2;
-  }
-
-  // Geometry similarity
-  if (anchorCenter && Number.isFinite(anchorCenter.x)) {
-    const rect = safeReadRect(element);
-    if (rect) {
-      const c = rectCenter(rect);
-      const dist = Math.hypot(c.x - anchorCenter.x, c.y - anchorCenter.y);
-      score += Math.max(0, 6 - dist / 50);
-    }
-  }
-
-  return score;
+  return (
+    scoreEditorFingerprintCandidate({
+      expected: {
+        tag: expected.tag,
+        id: expected.id,
+        classes: expected.classes ?? [],
+      },
+      candidate: {
+        tag: candidateFp.tag,
+        id: candidateFp.id,
+        classes: candidateFp.classes ?? [],
+      },
+      expectedText: expected.text,
+      actualText: element.textContent ?? '',
+      expectedPath: locator.path ? [...locator.path] : [],
+      candidatePath,
+      anchorCenter,
+      candidateCenter,
+    }) ?? -Infinity
+  );
 }
 
 /** Relaxed locate: scan selectors without uniqueness constraint, score candidates */
 function relaxedLocate(params: {
   locator: ElementLocator;
-  expected: ParsedFingerprint;
+  expected: ElementFingerprint;
   isOverlayElement?: (node: unknown) => boolean;
   maxElements: number;
   anchorCenter?: { x: number; y: number } | null;
@@ -446,7 +392,7 @@ function relaxedLocate(params: {
 
 /** Geometric locate: find elements at anchor point and score them */
 function geometricLocate(params: {
-  expected: ParsedFingerprint;
+  expected: ElementFingerprint;
   locator: ElementLocator;
   anchorCenter: { x: number; y: number };
   isOverlayElement?: (node: unknown) => boolean;

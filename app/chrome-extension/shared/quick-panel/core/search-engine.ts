@@ -11,6 +11,8 @@
  * - Short-lived LRU caching to avoid repeat work
  */
 
+import { builderPolicy } from 'humanchrome-shared';
+
 import LRUCache from '@/utils/lru-cache';
 import {
   normalizeQuickPanelScope,
@@ -549,17 +551,44 @@ export class SearchEngine {
       }
     }
 
-    // Sort by score (desc), then by priority (desc), then by title (asc)
-    results.sort((a, b) => {
-      const scoreDelta = coerceScore(b.score) - coerceScore(a.score);
-      if (scoreDelta !== 0) return scoreDelta;
-
-      const priA = priorityById.get(a.provider) ?? 0;
-      const priB = priorityById.get(b.provider) ?? 0;
-      if (priA !== priB) return priB - priA;
-
-      return String(a.title ?? '').localeCompare(String(b.title ?? ''));
-    });
+    // Rust owns numeric score/priority ordering. The browser retains locale-sensitive title ties.
+    const ranks = results.map((result, index) => ({
+      index,
+      score: coerceScore(result.score),
+      priority: priorityById.get(result.provider) ?? 0,
+    }));
+    if (ranks.every((rank) => Number.isFinite(rank.priority))) {
+      const order = builderPolicy.builderQuickPanelRankOrder(ranks);
+      const ordered = order.map((index) => results[index]);
+      const orderedRanks = order.map((index) => ranks[index]);
+      let groupStart = 0;
+      while (groupStart < ordered.length) {
+        const rank = orderedRanks[groupStart];
+        let groupEnd = groupStart + 1;
+        while (groupEnd < ordered.length) {
+          const next = orderedRanks[groupEnd];
+          if (next.score !== rank.score || next.priority !== rank.priority) break;
+          groupEnd += 1;
+        }
+        ordered
+          .slice(groupStart, groupEnd)
+          .sort((left, right) => String(left.title ?? '').localeCompare(String(right.title ?? '')))
+          .forEach((result, index) => {
+            ordered[groupStart + index] = result;
+          });
+        groupStart = groupEnd;
+      }
+      results.splice(0, results.length, ...ordered);
+    } else {
+      results.sort((a, b) => {
+        const scoreDelta = coerceScore(b.score) - coerceScore(a.score);
+        if (scoreDelta !== 0) return scoreDelta;
+        const priA = priorityById.get(a.provider) ?? 0;
+        const priB = priorityById.get(b.provider) ?? 0;
+        if (priA !== priB) return priB - priA;
+        return String(a.title ?? '').localeCompare(String(b.title ?? ''));
+      });
+    }
 
     // Apply total limit
     const sliced = results.slice(0, limit);

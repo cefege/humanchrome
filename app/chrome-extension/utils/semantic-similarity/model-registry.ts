@@ -10,6 +10,8 @@
  * this module is intentionally side-effect-free.
  */
 
+import { builderPolicy } from 'humanchrome-shared';
+
 // 2025 curated multilingual models (quantized for download size).
 export const PREDEFINED_MODELS = {
   // Multilingual model - default recommendation
@@ -69,10 +71,7 @@ export function recommendModelForLanguage(
   _language: 'en' | 'zh' | 'multilingual' = 'multilingual',
   scenario: 'speed' | 'balanced' | 'quality' = 'balanced',
 ): ModelPreset {
-  if (scenario === 'quality') {
-    return 'multilingual-e5-base';
-  }
-  return 'multilingual-e5-small';
+  return builderPolicy.builderRecommendModelForLanguage(scenario) as ModelPreset;
 }
 
 /** Recommend model based on device performance and usage scenario. */
@@ -82,13 +81,11 @@ export function recommendModelForDevice(
   networkSpeed: 'slow' | 'fast' = 'fast',
   prioritizeSpeed: boolean = false,
 ): ModelPreset {
-  if (deviceMemory < 4 || networkSpeed === 'slow' || prioritizeSpeed) {
-    return 'multilingual-e5-small';
-  }
-  if (deviceMemory >= 8 && !prioritizeSpeed) {
-    return 'multilingual-e5-base';
-  }
-  return 'multilingual-e5-small';
+  return builderPolicy.builderRecommendModelForDevice(
+    deviceMemory,
+    networkSpeed,
+    prioritizeSpeed,
+  ) as ModelPreset;
 }
 
 /** Get model size information (quantized version only). */

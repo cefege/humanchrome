@@ -6,6 +6,7 @@
  * 2. Limits output length (default 50KB)
  * 3. Walks objects with depth and key/array caps
  */
+import { sharedPolicy } from 'humanchrome-shared';
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024;
 
@@ -104,35 +105,7 @@ try {
   // ignore — non-extension context
 }
 
-// Sensitive key markers (their values are redacted). Mirrors the list in mcp-tools.js.
-const SENSITIVE_KEY_MARKERS = [
-  'cookie',
-  'setcookie',
-  'authorization',
-  'proxyauthorization',
-  'bearer',
-  'token',
-  'accesstoken',
-  'refreshtoken',
-  'idtoken',
-  'password',
-  'passwd',
-  'pwd',
-  'secret',
-  'clientsecret',
-  'apikey',
-  'session',
-  'sessionid',
-  'sid',
-  'csrf',
-  'xsrf',
-  // Additional keys covered by mcp-tools.js
-  'credential',
-  'privatekey',
-  'accesskey',
-  'auth',
-  'oauth',
-] as const;
+// Sensitive-key matching is Rust-owned; this host retains only object enumeration.
 
 /** Sanitize any value and cap the resulting text. */
 export function sanitizeAndLimitOutput(
@@ -168,88 +141,8 @@ export function sanitizeAndLimitOutput(
  * Mirrors mcp-tools.js with extra base64/hex/cookie-query detection.
  */
 export function sanitizeText(text: string): { text: string; redacted: boolean } {
-  if (isRawOutputEnabled()) {
-    return { text, redacted: false };
-  }
-
-  let out = text;
-  let redacted = false;
-
-  const replace = (
-    re: RegExp,
-    replacement: string | ((substring: string, ...args: string[]) => string),
-  ) => {
-    const next = out.replace(re, replacement as Parameters<typeof String.prototype.replace>[1]);
-    if (next !== out) {
-      out = next;
-      redacted = true;
-    }
-  };
-
-  // 1. Whole-string detection (mcp-tools.js style).
-  // Cookie/query-string shape: contains '=' along with ';' or '&'.
-  if (out.includes('=') && (out.includes(';') || out.includes('&'))) {
-    if (looksLikeCookieString(out)) {
-      return { text: '[BLOCKED: Cookie/query string data]', redacted: true };
-    }
-    if (looksLikeQueryString(out)) {
-      return { text: '[BLOCKED: Cookie/query string data]', redacted: true };
-    }
-  }
-
-  // Base64-encoded payload (20+ chars).
-  if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(out)) {
-    return { text: '[BLOCKED: Base64 encoded data]', redacted: true };
-  }
-
-  // Hex credential (32+ chars).
-  if (/^[a-f0-9]{32,}$/i.test(out)) {
-    return { text: '[BLOCKED: Hex credential]', redacted: true };
-  }
-
-  // 2. Bearer token
-  replace(/\bBearer\s+([A-Za-z0-9._~+/=-]+)\b/gi, 'Bearer <redacted>');
-
-  // 3. JWT (three-segment)
-  replace(/\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '<redacted_jwt>');
-
-  // 4. Sensitive values in URL query parameters
-  replace(
-    /(^|[?&])(access_token|refresh_token|id_token|token|api_key|apikey|password|passwd|pwd|secret|session|sid|credential|auth|oauth)=([^&#\s]+)/gi,
-    (_m, p1, p2) => `${p1}${p2}=<redacted>`,
-  );
-
-  // 5. Header-like key/value pairs
-  replace(
-    /\b(authorization|cookie|set-cookie|x-api-key|api_key|apikey|password|passwd|pwd|secret|token|access_token|refresh_token|id_token|session|sid|credential|private_key|oauth)\b\s*[:=]\s*([^\s,;"']+)/gi,
-    (_m, key) => `${key}=<redacted>`,
-  );
-
-  // 6. Inline base64 data within mixed content
-  replace(/\b[A-Za-z0-9+/]{40,}={0,2}\b/g, '<redacted_base64>');
-
-  // 7. Inline long hex strings (possible API keys, hashes, etc.)
-  replace(/\b[a-f0-9]{40,}\b/gi, '<redacted_hex>');
-
-  return { text: out, redacted };
+  return sharedPolicy.sanitizeTextPolicy(text, isRawOutputEnabled());
 }
-
-/** Detect query-string-shaped text (key=value&key2=value2). */
-function looksLikeQueryString(text: string): boolean {
-  const s = (text || '').trim();
-  if (!s || !s.includes('=') || !s.includes('&')) return false;
-
-  const parts = s.split('&');
-  if (parts.length < 2) return false;
-
-  let pairs = 0;
-  for (const part of parts) {
-    const idx = part.indexOf('=');
-    if (idx > 0) pairs += 1;
-  }
-  return pairs >= 2;
-}
-
 function sanitizeValue(
   value: unknown,
   limits: {
@@ -269,11 +162,7 @@ function sanitizeValue(
     if (typeof v === 'string') {
       const sanitized = sanitizeText(v);
       if (sanitized.redacted) redacted = true;
-      let s = sanitized.text;
-      if (s.length > maxStringLength) {
-        s = `${s.slice(0, maxStringLength)}... [truncated ${s.length - maxStringLength} chars]`;
-      }
-      return s;
+      return sharedPolicy.limitOutputString(sanitized.text, maxStringLength);
     }
 
     if (
@@ -330,31 +219,8 @@ function sanitizeValue(
 }
 
 function isSensitiveKey(key: string): boolean {
-  const normalized = normalizeKey(key);
-  return SENSITIVE_KEY_MARKERS.some((marker) => normalized.includes(marker));
+  return sharedPolicy.isSensitiveOutputKey(key);
 }
-
-function normalizeKey(key: string): string {
-  return (key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-/** Detect cookie-shaped text (key=value; key2=value2). */
-function looksLikeCookieString(text: string): boolean {
-  const s = (text || '').trim();
-  if (!s) return false;
-  if (!s.includes('=') || !s.includes(';')) return false;
-
-  const parts = s.split(';');
-  if (parts.length < 2) return false;
-
-  let pairs = 0;
-  for (const part of parts) {
-    const idx = part.indexOf('=');
-    if (idx > 0) pairs += 1;
-  }
-  return pairs >= 2;
-}
-
 function formatValueForOutput(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'undefined') return 'undefined';
@@ -384,42 +250,12 @@ function truncateTextBytes(
   text: string,
   maxBytes: number,
 ): { text: string; truncated: boolean; originalBytes: number } {
-  const originalBytes = byteLength(text);
-  if (originalBytes <= maxBytes) {
-    return { text, truncated: false, originalBytes };
-  }
-
-  const suffix = `\n... [truncated to ${maxBytes} bytes; original ${originalBytes} bytes]`;
-  const suffixBytes = byteLength(suffix);
-  const budget = Math.max(0, maxBytes - suffixBytes);
-
-  // Binary-search the largest prefix that still fits the byte budget.
-  let lo = 0;
-  let hi = text.length;
-
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    const candidate = text.slice(0, mid);
-    if (byteLength(candidate) <= budget) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-
-  const prefix = text.slice(0, lo);
-  return { text: prefix + suffix, truncated: true, originalBytes };
+  return sharedPolicy.truncateOutputTextPolicy(text, maxBytes);
 }
-
 export function byteLength(text: string): number {
-  try {
-    return new TextEncoder().encode(text).length;
-  } catch {
-    return text.length;
-  }
+  return sharedPolicy.utf8ByteLengthPolicy(text);
 }
 
 function normalizePositiveInt(value: unknown, fallback: number): number {
-  const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback;
-  return Math.max(1, n);
+  return sharedPolicy.normalizePositiveIntPolicy(value, fallback);
 }

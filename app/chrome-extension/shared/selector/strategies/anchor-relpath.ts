@@ -1,15 +1,8 @@
 /**
- * Anchor + Relative Path Strategy
+ * Anchor + Relative Path Strategy.
  *
- * This strategy generates selectors by finding a stable ancestor "anchor"
- * (element with unique id or data-testid/data-qa/etc.) and building a
- * relative path from that anchor to the target element.
- *
- * Use case: When the target element itself has no unique identifiers,
- * but a nearby ancestor does.
- *
- * Example output: '[data-testid="card"] div > span:nth-of-type(2) > button'
- * (anchor selector + descendant combinator + relative path with child combinators)
+ * This strategy collects selectors from a stable ancestor and relative descent
+ * path. Rust assigns its generated-candidate priority after DOM collection.
  */
 
 import type { SelectorCandidate, SelectorStrategy, SelectorStrategyContext } from '../types';
@@ -30,12 +23,6 @@ const ANCHOR_DATA_ATTRS = [
   'data-cy',
 ] as const;
 
-/**
- * Weight penalty for anchor-relpath candidates.
- * This ensures they rank lower than direct selectors (id, testid, class)
- * but higher than pure text selectors.
- */
-const ANCHOR_RELPATH_WEIGHT = -10;
 
 // =============================================================================
 // Internal Helpers
@@ -59,7 +46,12 @@ function getSiblings(element: Element): Element[] {
   }
 
   const parentNode = element.parentNode;
-  if (parentNode instanceof ShadowRoot || parentNode instanceof Document) {
+
+  if (
+    parentNode &&
+    ((typeof ShadowRoot !== 'undefined' && parentNode instanceof ShadowRoot) ||
+      parentNode instanceof Document)
+  ) {
     return Array.from(parentNode.children);
   }
 
@@ -166,10 +158,10 @@ function buildRelativePathSelector(
 function buildAnchorRelPathSelector(element: Element, ctx: SelectorStrategyContext): string | null {
   const { root } = ctx;
 
-  // Ensure root is a valid query context
-  if (!(root instanceof Document || root instanceof ShadowRoot)) {
-    return null;
-  }
+  // Ensure root is a valid query context.
+  const isQueryableRoot =
+    root instanceof Document || (typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot);
+  if (!isQueryableRoot) return null;
 
   let current: Element | null = element.parentElement;
 
@@ -233,7 +225,6 @@ export const anchorRelpathStrategy: SelectorStrategy = {
       {
         type: 'css',
         value: selector,
-        weight: ANCHOR_RELPATH_WEIGHT,
         source: 'generated',
         strategy: 'anchor-relpath',
       },

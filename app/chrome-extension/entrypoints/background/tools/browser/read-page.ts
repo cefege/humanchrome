@@ -14,7 +14,7 @@ const READ_PAGE_NEXT = [
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { listMarkersForUrl } from '@/entrypoints/background/element-marker/element-marker-storage';
-import { modeFromRaw, truncateArray } from '@/utils/truncate';
+import { outputPolicy } from 'humanchrome-shared';
 import { ariaSnapshotTool } from './aria-snapshot';
 
 const FALLBACK_ELEMENT_LIMIT = 150;
@@ -101,13 +101,17 @@ class ReadPageTool extends BaseBrowserToolExecutor {
         true,
       );
 
-      // Ask content script to generate accessibility tree
-      const resp = await this.sendMessageToTab(tab.id, {
-        action: TOOL_MESSAGE_TYPES.GENERATE_ACCESSIBILITY_TREE,
-        filter: filter || null,
-        depth: requestedDepth,
-        refId: focusRefId || undefined,
-      });
+      // Read the main document; broadcasting may return an iframe's tree first.
+      const resp = await this.sendMessageToTab(
+        tab.id,
+        {
+          action: TOOL_MESSAGE_TYPES.GENERATE_ACCESSIBILITY_TREE,
+          filter: filter || null,
+          depth: requestedDepth,
+          refId: focusRefId || undefined,
+        },
+        0,
+      );
 
       // Evaluate tree result and decide whether to fallback
       const treeOk = resp && resp.success === true;
@@ -208,16 +212,20 @@ class ReadPageTool extends BaseBrowserToolExecutor {
       // Fallback path: try get_interactive_elements once
       try {
         await this.injectContentScript(tab.id, ['inject-scripts/interactive-elements-helper.js']);
-        const fallback = await this.sendMessageToTab(tab.id, {
-          action: TOOL_MESSAGE_TYPES.GET_INTERACTIVE_ELEMENTS,
-          includeCoordinates: true,
-        });
+        const fallback = await this.sendMessageToTab(
+          tab.id,
+          {
+            action: TOOL_MESSAGE_TYPES.GET_INTERACTIVE_ELEMENTS,
+            includeCoordinates: true,
+          },
+          0,
+        );
 
         if (fallback && fallback.success && Array.isArray(fallback.elements)) {
-          const truncation = truncateArray(
+          const truncation = outputPolicy.truncateArray(
             fallback.elements,
             FALLBACK_ELEMENT_LIMIT,
-            modeFromRaw(args?.raw),
+            outputPolicy.modeFromRaw(args?.raw),
           );
           const limited = truncation.data;
           // Merge user markers at the front, de-duplicated by selector

@@ -37,10 +37,10 @@ graph TB
         F[Tool Registry]
     end
 
-    subgraph "Native Server Layer"
-        G[Fastify HTTP Server]
-        H[Native Messaging Host]
-        I[Session Management]
+    subgraph "Native Runtime Layer"
+        G[Rust HTTP / MCP bridge]
+        H[Rust Native Messaging host]
+        I[Lifecycle, persistence, fleet]
     end
 
     subgraph "Chrome Extension Layer"
@@ -85,48 +85,59 @@ graph TB
 
 ## 🔧 Component Details
 
-### 1. Native Server (`app/native-server/`)
+### 1. Native Runtime (`crates/`)
 
-**Purpose**: MCP protocol implementation and native messaging bridge
+**Purpose**: Rust-owned MCP/HTTP, Native Messaging, persistence, agent, and
+fleet services. The three executables are `humanchrome-nativehost`,
+`humanchrome-bridge`, and `humanchrome-stdio`.
 
 **Key Components**:
 
-- **Fastify HTTP Server**: Handles MCP protocol over HTTP/SSE
-- **Native Messaging Host**: Communicates with Chrome extension
-- **Session Management**: Manages multiple MCP client sessions
-- **Tool Registry**: Routes tool calls to Chrome extension
+- **Rust HTTP/MCP bridge**: serves the loopback API and MCP transports.
+- **Native Messaging host**: communicates with the Chrome extension over framed
+  stdin/stdout while logging only to stderr.
+- **Lifecycle and fleet runtime**: owns registry, daemon, profile, lease, and
+  persistence behavior.
+- **Optional third-party adapters**: a private Node subprocess boundary exists
+  only for the Claude Agent SDK and Chromium DevTools trace formatter; it is
+  started only for those features.
 
 **Technologies**:
 
-- TypeScript + Fastify
-- MCP SDK (@modelcontextprotocol/sdk)
+- Rust, Tokio, Axum/Hyper, Serde, SQLite/PostgreSQL, and rmcp
 - Native messaging protocol
+- Optional Node adapters for the two retained third-party engines
 
 ### 2. Chrome Extension (`app/chrome-extension/`)
 
-**Purpose**: Browser automation and AI-powered content analysis
+**Purpose**: Browser automation and AI-powered content analysis. JavaScript and
+TypeScript remain the Chrome/DOM effect and UI boundary; Rust/WASM owns the
+portable policy and computation that can run in browser realms.
 
 **Key Components**:
 
-- **Background Script**: Main orchestrator and tool executor
-- **Content Scripts**: Page interaction and content extraction
-- **Popup Interface**: User configuration and status display
-- **Offscreen Documents**: AI model processing in isolated context
+- **Background Script**: registers Chrome listeners synchronously, executes
+  tools, and awaits the shared Rust/WASM kernel before policy-dependent work.
+- **Content Scripts**: retain page interaction, DOM traversal, and content
+  extraction adapters.
+- **Popup Interface**: Vue configuration and status rendering.
+- **Offscreen Documents**: retained browser-engine/model processing in an
+  isolated context.
 
 **Technologies**:
 
 - WXT Framework + Vue 3
-- Chrome Extension APIs
-- WebAssembly + SIMD
-- Transformers.js
+- Chrome Extension and DOM APIs
+- Rust/WASM typed bindings plus SIMD kernels
+- Transformers.js and HNSW in their existing offscreen/browser boundaries
 
 ### 3. Shared Packages (`packages/`)
 
-#### 3.1 Shared Types (`packages/shared/`)
+#### 3.1 Shared contracts and bindings (`packages/shared/`)
 
-- Tool schemas and type definitions
-- Common interfaces and utilities
-- MCP protocol types
+- Declarative tool schemas, type definitions, IPC JSON schemas, and error codes
+- Generated Rust contract artifact and typed browser-facing WASM bindings
+- Build-time catalog tooling; not a second native runtime
 
 #### 3.2 WASM SIMD (`packages/wasm-simd/`)
 

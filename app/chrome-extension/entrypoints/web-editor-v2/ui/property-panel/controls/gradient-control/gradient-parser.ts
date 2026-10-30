@@ -9,6 +9,11 @@
 
 import { splitTopLevel, tokenizeTopLevel } from '../css-helpers';
 import { clampNumber } from './color-parser';
+import {
+  editorGradientPlaceholderMapping,
+  normalizeEditorGradientStops,
+} from 'humanchrome-shared';
+
 
 // =============================================================================
 // Constants
@@ -188,76 +193,7 @@ export function parseColorStop(raw: string): ParsedStop | null {
  * - All positions are clamped to 0..100
  */
 export function normalizeStopPositions(stops: ParsedStop[]): GradientStop[] {
-  if (stops.length === 0) return [];
-  if (stops.length === 1) {
-    return [
-      {
-        color: stops[0]!.color.trim() || DEFAULT_STOP_1.color,
-        position: clampPercent(stops[0]!.position ?? 0),
-      },
-    ];
-  }
-
-  // Extract colors and initial positions
-  const colors = stops.map((s) => s.color.trim() || DEFAULT_STOP_1.color);
-  const positions: Array<number | null> = stops.map((s) =>
-    s.position === null ? null : clampPercent(s.position),
-  );
-
-  // Default first position to 0 if not defined
-  if (positions[0] === null) {
-    positions[0] = 0;
-  }
-
-  // Default last position to 100 if not defined
-  const lastIndex = positions.length - 1;
-  if (positions[lastIndex] === null) {
-    positions[lastIndex] = 100;
-  }
-
-  // CSS spec: Enforce monotonically non-decreasing positions
-  // If a later explicit position is less than an earlier one, bump it up
-  let maxSoFar = positions[0] ?? 0;
-  for (let i = 1; i < positions.length; i++) {
-    const pos = positions[i];
-    if (pos !== null) {
-      if (pos < maxSoFar) {
-        positions[i] = maxSoFar;
-      } else {
-        maxSoFar = pos;
-      }
-    }
-  }
-
-  // Fill in missing positions by linear interpolation
-  // Find runs of null positions and distribute them evenly
-  let runStart: number | null = null;
-
-  for (let i = 0; i < positions.length; i++) {
-    if (positions[i] === null) {
-      if (runStart === null) {
-        runStart = i;
-      }
-    } else {
-      if (runStart !== null) {
-        // Fill the run from runStart to i-1
-        const prevPos = positions[runStart - 1] ?? 0;
-        const nextPos = positions[i] ?? 100;
-        const runLength = i - runStart + 1;
-
-        for (let j = runStart; j < i; j++) {
-          const t = (j - runStart + 1) / runLength;
-          positions[j] = prevPos + (nextPos - prevPos) * t;
-        }
-        runStart = null;
-      }
-    }
-  }
-
-  return stops.map((_, i) => ({
-    color: colors[i]!,
-    position: clampPercent(positions[i] ?? 0),
-  }));
+  return normalizeEditorGradientStops(stops);
 }
 
 /**
@@ -511,23 +447,5 @@ export function buildPlaceholderMapping(
   inlineStops: GradientStop[],
   computedStops: GradientStop[],
 ): string[] {
-  if (inlineStops.length === 0 || computedStops.length === 0) {
-    return [];
-  }
-
-  return inlineStops.map((inlineStop) => {
-    let nearestStop = computedStops[0]!;
-    let minDistance = Math.abs(nearestStop.position - inlineStop.position);
-
-    for (let i = 1; i < computedStops.length; i++) {
-      const candidate = computedStops[i]!;
-      const distance = Math.abs(candidate.position - inlineStop.position);
-      if (distance < minDistance) {
-        nearestStop = candidate;
-        minDistance = distance;
-      }
-    }
-
-    return nearestStop.color;
-  });
+  return editorGradientPlaceholderMapping(inlineStops, computedStops);
 }

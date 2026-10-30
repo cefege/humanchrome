@@ -2,7 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
-import type { TruncateEnvelope, TruncateUnit } from '@/utils/truncate';
+import type { outputPolicy } from 'humanchrome-shared';
 import { consoleBuffer, BufferedConsoleMessage, BufferedConsoleException } from './console-buffer';
 
 const DEFAULT_MAX_MESSAGES = 100;
@@ -39,10 +39,10 @@ const ARG_SERIALIZER_DEFAULT_MAX_DEPTH = 3;
 const ARG_SERIALIZER_DEFAULT_MAX_PROPS = 100;
 const ARG_SERIALIZER_NO_CAP = Number.MAX_SAFE_INTEGER;
 
-type ConsoleTruncation = Omit<TruncateEnvelope<never>, 'data' | 'originalSize'> & {
+type ConsoleTruncation = Omit<outputPolicy.TruncateEnvelope<never>, 'data' | 'originalSize'> & {
   /** Pre-truncation message count when known; undefined for arg-only truncation. */
   originalSize?: number;
-  unit: TruncateUnit;
+  unit: outputPolicy.TruncateUnit;
   /** True when at least one console arg was truncated by the per-arg serializer. */
   argsTruncated: boolean;
 };

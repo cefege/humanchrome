@@ -1,9 +1,7 @@
 import type { Edge, Flow, NodeBase, Step } from '../types';
 import { STEP_TYPES } from '@/common/step-types';
 import { recordingSession } from './session-manager';
-import { mapStepToNodeConfig, EDGE_LABELS } from 'humanchrome-shared';
-
-const WORKFLOW_VERSION = 1;
+import { mapStepToNodeConfig, replayPolicy } from 'humanchrome-shared';
 
 /**
  * Creates an initial flow structure for recording.
@@ -11,20 +9,18 @@ const WORKFLOW_VERSION = 1;
  */
 export function createInitialFlow(meta?: Partial<Flow>): Flow {
   const timeStamp = new Date().toISOString();
-  const flow: Flow = {
-    id: meta?.id || `flow_${Date.now()}`,
-    name: meta?.name || 'new_workflow',
-    version: WORKFLOW_VERSION,
+  const plan = replayPolicy.replayInitialFlowPlan(meta ?? {}, `flow_${Date.now()}`, timeStamp);
+  // Rust preserves object-spread metadata fields; Flow's legacy meta type intentionally omits extensions.
+  const flowMeta = plan.meta as unknown as NonNullable<Flow['meta']>;
+  return {
+    id: plan.id,
+    name: plan.name,
+    version: plan.version,
     nodes: [],
     edges: [],
     variables: [],
-    meta: {
-      createdAt: timeStamp,
-      updatedAt: timeStamp,
-      ...meta?.meta,
-    },
+    meta: flowMeta,
   };
-  return flow;
 }
 
 export function generateStepId(): string {
@@ -65,6 +61,11 @@ function appendNodeToFlow(flow: Flow, step: Step): void {
   if (!Array.isArray(flow.edges)) flow.edges = [];
 
   const prevNodeId = flow.nodes.length > 0 ? flow.nodes[flow.nodes.length - 1]?.id : undefined;
+  const plan = replayPolicy.replayRecordedStepAppendPlan(
+    prevNodeId,
+    flow.edges.length,
+    step.id,
+  );
 
   // Create new node
   const newNode: NodeBase = {
@@ -74,14 +75,13 @@ function appendNodeToFlow(flow: Flow, step: Step): void {
   };
   flow.nodes.push(newNode);
 
-  // Create edge from previous node if exists
-  if (prevNodeId) {
-    const edgeId = `e_${flow.edges.length}_${prevNodeId}_${step.id}`;
+  // Create edge from the Rust-owned sequential append plan.
+  if (plan.previousNodeId && plan.edgeId) {
     const edge: Edge = {
-      id: edgeId,
-      from: prevNodeId,
+      id: plan.edgeId,
+      from: plan.previousNodeId,
       to: step.id,
-      label: EDGE_LABELS.DEFAULT,
+      label: plan.edgeLabel,
     };
     flow.edges.push(edge);
   }

@@ -7,6 +7,12 @@
  *
  * Pure data + one lookup function. Side-effect-free.
  */
+import { expandEditorCssShorthand } from 'humanchrome-shared';
+
+/**
+ * Compatibility metadata for callers that inspect the tracked shorthand table directly.
+ * The runtime expansion decision is owned by the Rust policy kernel.
+ */
 
 export const SHORTHAND_TO_LONGHANDS: Record<string, readonly string[]> = {
   // Spacing
@@ -142,10 +148,7 @@ export const SHORTHAND_TO_LONGHANDS: Record<string, readonly string[]> = {
   'list-style': ['list-style-position', 'list-style-image', 'list-style-type'],
 };
 
+/** Expands a CSSOM declaration into the cascade view's tracked longhands. */
 export function expandToLonghands(property: string): readonly string[] {
-  const raw = String(property || '').trim();
-  if (!raw) return [];
-  if (raw.startsWith('--')) return [raw];
-  const p = raw.toLowerCase();
-  return SHORTHAND_TO_LONGHANDS[p] ?? [p];
+  return expandEditorCssShorthand(property);
 }

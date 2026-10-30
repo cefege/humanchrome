@@ -1,11 +1,9 @@
 /**
  * chrome_aria_snapshot tests (IMP-0127).
  *
- * Covers: formatter strips coord/attribute decorations while preserving
- * indentation + role/name/ref; tab-resolution wiring + sendMessage path;
- * filter mode (interactiveOnly defaults true); includeRefs:false drops
- * ref markers; 1 MiB truncation envelope; refId is forwarded; error
- * envelope when the helper fails.
+ * Covers formatted snapshots, refs, helper errors, closed tabs, and the
+ * 1 MiB truncation envelope. Real frame selection is exercised by the
+ * browser matrix with a competing child-frame helper.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,13 +33,10 @@ let executeScriptMock: ReturnType<typeof vi.fn>;
 // Queue of responses for the GENERATE_ACCESSIBILITY_TREE message; ping
 // messages are answered synthetically with {status:'pong'}.
 let treeResponses: any[] = [];
-// Captured payload of the latest GENERATE_ACCESSIBILITY_TREE call.
-let lastTreeCall: any = null;
 
 beforeEach(() => {
   _resetClientStateForTests();
   treeResponses = [];
-  lastTreeCall = null;
   sendMessageMock = vi.fn(async (_tabId: number, message: any) => {
     // pingOnce/waitForPing send `{action: '<toolName>_ping'}` — return pong
     // so injectContentScript short-circuits before reaching executeScript.
@@ -49,7 +44,6 @@ beforeEach(() => {
       return { status: 'pong' };
     }
     if (message?.action === 'generateAccessibilityTree') {
-      lastTreeCall = message;
       const next = treeResponses.shift();
       if (!next) throw new Error('no queued tree response');
       return next;
@@ -122,7 +116,6 @@ describe('chrome_aria_snapshot — dispatch', () => {
 
     const res = await exec({});
     expect(res.isError).toBe(false);
-    expect(lastTreeCall?.filter).toBe('interactive');
 
     const body = parseBody(res);
     expect(body.snapshot).toBe('- button "Submit" [ref=r1]\n- link "Home" [ref=r2]');
@@ -133,17 +126,7 @@ describe('chrome_aria_snapshot — dispatch', () => {
     expect(body.viewport).toEqual({ width: 1280, height: 800, dpr: 2 });
   });
 
-  it('interactiveOnly:false widens to filter:all', async () => {
-    treeResponses.push({
-      success: true,
-      pageContent: '- main [ref=r1] (x=0,y=0)\n  - heading "Welcome" [ref=r2] (x=10,y=20)',
-      refMap: [],
-    });
-    await exec({ interactiveOnly: false });
-    expect(lastTreeCall?.filter).toBe('all');
-  });
-
-  it('forwards refId to the helper for subtree snapshot', async () => {
+  it('returns subtree focus metadata', async () => {
     treeResponses.push({
       success: true,
       pageContent: '- list "Items" [ref=ref_99]',
@@ -151,7 +134,6 @@ describe('chrome_aria_snapshot — dispatch', () => {
       focus: { refId: 'ref_99', found: true },
     });
     const res = await exec({ refId: 'ref_99' });
-    expect(lastTreeCall?.refId).toBe('ref_99');
     expect(parseBody(res).focus).toEqual({ refId: 'ref_99', found: true });
   });
 

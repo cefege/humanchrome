@@ -4,6 +4,7 @@
  * creation, queue insertion, or event emission.
  */
 
+import { runPolicy } from 'humanchrome-shared';
 import type { JsonObject, UnixMillis } from '../../domain/json';
 import type { FlowId, NodeId, RunId } from '../../domain/ids';
 import type { TriggerFireContext } from '../../domain/triggers';
@@ -11,7 +12,6 @@ import { RUN_SCHEMA_VERSION, type RunRecordV3 } from '../../domain/events';
 import type { StoragePort } from '../storage/storage-port';
 import type { EventsBus } from '../transport/events-bus';
 import type { RunScheduler } from './scheduler';
-import { compareQueueItems } from './queue';
 
 export interface EnqueueRunDeps {
   storage: Pick<StoragePort, 'flows' | 'runs' | 'queue'>;
@@ -50,27 +50,6 @@ function defaultGenerateRunId(): RunId {
   return `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function validateInt(
-  value: unknown,
-  defaultValue: number,
-  fieldName: string,
-  opts?: { min?: number; max?: number },
-): number {
-  if (value === undefined || value === null) {
-    return defaultValue;
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${fieldName} must be a finite number`);
-  }
-  const intValue = Math.floor(value);
-  if (opts?.min !== undefined && intValue < opts.min) {
-    throw new Error(`${fieldName} must be >= ${opts.min}`);
-  }
-  if (opts?.max !== undefined && intValue > opts.max) {
-    throw new Error(`${fieldName} must be <= ${opts.max}`);
-  }
-  return intValue;
-}
 
 /**
  * Compute the Run's position in the queue, ordered by priority DESC then
@@ -82,8 +61,7 @@ async function computeQueuePosition(
   storage: Pick<StoragePort, 'queue'>,
   runId: RunId,
 ): Promise<number> {
-  const queueItems = await storage.queue.list('queued');
-  queueItems.sort(compareQueueItems);
+  const queueItems = runPolicy.sortRunQueueItems(await storage.queue.list('queued'));
   const index = queueItems.findIndex((item) => item.id === runId);
   // Return -1 if not found (run may have been claimed already)
   return index === -1 ? -1 : index + 1;
@@ -101,8 +79,10 @@ export async function enqueueRun(
   const now = deps.now ?? (() => Date.now());
   const generateRunId = deps.generateRunId ?? defaultGenerateRunId;
 
-  const priority = validateInt(input.priority, 0, 'priority');
-  const maxAttempts = validateInt(input.maxAttempts, 1, 'maxAttempts', { min: 1 });
+  const { priority, maxAttempts } = runPolicy.normalizeRunEnqueueNumbers(
+    input.priority,
+    input.maxAttempts,
+  );
 
   const flow = await deps.storage.flows.get(flowId);
   if (!flow) {

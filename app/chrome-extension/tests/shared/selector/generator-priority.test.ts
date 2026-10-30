@@ -19,6 +19,7 @@ import {
   compareSelectorCandidates,
   generateExtendedSelectorTarget,
   generateSelectorTarget,
+  normalizeSelectorGenerationOptions,
   withStability,
 } from '@/shared/selector';
 
@@ -34,6 +35,18 @@ function firstCandidateMatching(
 }
 
 describe('IMP-0099 generator: Playwright-style priority ladder', () => {
+  it('does not leak mutated normalized options into subsequent selector generation', () => {
+    document.body.innerHTML = '<button>Save transaction</button>';
+    const options = { includeText: true, includeAria: false, maxCandidates: 32 };
+    const normalized = normalizeSelectorGenerationOptions(options);
+    normalized.includeText = false;
+
+    const target = generateSelectorTarget(document.querySelector('button')!, options);
+    expect(target.candidates).toContainEqual(
+      expect.objectContaining({ type: 'text', value: 'Save transaction' }),
+    );
+  });
+
   it('testid attribute beats id/class/text', () => {
     document.body.innerHTML = `
       <div>

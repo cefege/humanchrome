@@ -6,7 +6,7 @@ Complete reference for all available tools and their parameters.
 > by `app/native-server/scripts/generate-tools-doc.mjs`. Edit the schemas (or
 > `TOOL_CATEGORIES` in the same file) — never the generated section directly.
 > Refresh after a schema change with:
-> `pnpm -w build && pnpm --filter humanchrome-bridge run docs:tools`.
+> `pnpm build:shared && pnpm --filter @humanchrome/third-party-adapters run docs:tools`.
 
 ## 📋 Table of Contents
 

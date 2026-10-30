@@ -9,6 +9,7 @@
  */
 
 import { ToolResult } from '@/common/tool-handler';
+import { sharedPolicy } from 'humanchrome-shared';
 
 /**
  * Wrap a JSON-serializable body as a successful `ToolResult`. The body
@@ -38,13 +39,7 @@ export const MAX_SUGGESTED_NEXT = 4;
  */
 export function withSuggestedNext(result: ToolResult, hints: readonly string[]): ToolResult {
   if (result.isError) return result;
-  const clean: string[] = [];
-  for (const h of hints) {
-    if (!h || typeof h !== 'string') continue;
-    if (clean.includes(h)) continue;
-    clean.push(h);
-    if (clean.length >= MAX_SUGGESTED_NEXT) break;
-  }
+  const clean = sharedPolicy.suggestedNextPolicy(hints, MAX_SUGGESTED_NEXT);
   if (clean.length === 0) return result;
   return {
     ...result,

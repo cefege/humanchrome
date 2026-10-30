@@ -1,3 +1,5 @@
+import { builderPolicy } from 'humanchrome-shared';
+
 // Simple in-memory screenshot context manager per tab
 // Used to scale coordinates from screenshot space to viewport space
 
@@ -16,8 +18,6 @@ export interface ScreenshotContext {
   timestamp: number;
 }
 
-const TTL_MS = 5 * 60 * 1000; // 5 minutes
-
 const contexts = new Map<number, ScreenshotContext>();
 
 export const screenshotContextManager = {
@@ -27,7 +27,7 @@ export const screenshotContextManager = {
   getContext(tabId: number): ScreenshotContext | undefined {
     const ctx = contexts.get(tabId);
     if (!ctx) return undefined;
-    if (Date.now() - ctx.timestamp > TTL_MS) {
+    if (builderPolicy.builderScreenshotContextExpired(ctx.timestamp, Date.now())) {
       contexts.delete(tabId);
       return undefined;
     }
@@ -44,10 +44,12 @@ export function scaleCoordinates(
   y: number,
   ctx: ScreenshotContext,
 ): { x: number; y: number } {
-  if (!ctx.screenshotWidth || !ctx.screenshotHeight || !ctx.viewportWidth || !ctx.viewportHeight) {
-    return { x, y };
-  }
-  const sx = (x / ctx.screenshotWidth) * ctx.viewportWidth;
-  const sy = (y / ctx.screenshotHeight) * ctx.viewportHeight;
-  return { x: Math.round(sx), y: Math.round(sy) };
+  return builderPolicy.builderScaleScreenshotCoordinates({
+    x,
+    y,
+    screenshotWidth: ctx.screenshotWidth,
+    screenshotHeight: ctx.screenshotHeight,
+    viewportWidth: ctx.viewportWidth,
+    viewportHeight: ctx.viewportHeight,
+  });
 }

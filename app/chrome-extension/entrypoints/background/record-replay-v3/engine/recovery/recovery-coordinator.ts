@@ -10,9 +10,10 @@
  * Must be invoked before `scheduler.start()`, typically once per SW startup.
  */
 
+import { runPolicy } from 'humanchrome-shared';
 import type { UnixMillis } from '../../domain/json';
 import type { RunId } from '../../domain/ids';
-import { isTerminalStatus, type RunStatus } from '../../domain/events';
+import type { RunStatus } from '../../domain/events';
 import type { StoragePort } from '../storage/storage-port';
 import type { EventsBus } from '../transport/events-bus';
 
@@ -62,26 +63,18 @@ export async function recoverFromCrash(deps: RecoveryCoordinatorDeps): Promise<R
       const runId = item.id;
       const run = await deps.storage.runs.get(runId);
 
-      // Defensive: a queue item with no RunRecord cannot be executed.
-      if (!run) {
+      const action = runPolicy.runRecoveryPrecleanAction(run?.status);
+      if (action === 'clean') {
         try {
           await deps.storage.queue.markDone(runId, now);
           cleanedTerminalSet.add(runId);
-          logger.debug(`[Recovery] Cleaned orphan queue item without RunRecord: ${runId}`);
+          if (run) {
+            logger.debug(`[Recovery] Cleaned terminal queue item: ${runId} (status=${run.status})`);
+          } else {
+            logger.debug(`[Recovery] Cleaned orphan queue item without RunRecord: ${runId}`);
+          }
         } catch (e) {
-          logger.warn('[Recovery] markDone for missing RunRecord failed:', runId, e);
-        }
-        continue;
-      }
-
-      // SW may have crashed after the runner finished but before scheduler.markDone.
-      if (isTerminalStatus(run.status)) {
-        try {
-          await deps.storage.queue.markDone(runId, now);
-          cleanedTerminalSet.add(runId);
-          logger.debug(`[Recovery] Cleaned terminal queue item: ${runId} (status=${run.status})`);
-        } catch (e) {
-          logger.warn('[Recovery] markDone for terminal run failed:', runId, e);
+          logger.warn('[Recovery] markDone during pre-clean failed:', runId, e);
         }
       }
     }
@@ -112,31 +105,18 @@ export async function recoverFromCrash(deps: RecoveryCoordinatorDeps): Promise<R
 
     try {
       const run = await deps.storage.runs.get(runId);
-      if (!run) {
+      const action = runPolicy.runRecoveryReconcileAction('running', run?.status);
+      if (action === 'clean') {
         try {
           await deps.storage.queue.markDone(runId, now);
           cleanedTerminalSet.add(runId);
+          logger.debug(`[Recovery] Cleaned terminal queue item in Step3: ${runId}`);
         } catch (markDoneErr) {
-          logger.warn(
-            '[Recovery] markDone for missing RunRecord in Step3 failed:',
-            runId,
-            markDoneErr,
-          );
+          logger.warn('[Recovery] markDone during Step3 failed:', runId, markDoneErr);
         }
         continue;
       }
-
-      // Status may have flipped to terminal during recovery; clean up either way.
-      if (isTerminalStatus(run.status)) {
-        try {
-          await deps.storage.queue.markDone(runId, now);
-          cleanedTerminalSet.add(runId);
-          logger.debug(
-            `[Recovery] Cleaned terminal queue item in Step3: ${runId} (status=${run.status})`,
-          );
-        } catch (markDoneErr) {
-          logger.warn('[Recovery] markDone for terminal run in Step3 failed:', runId, markDoneErr);
-        }
+      if (action !== 'requeue' || !run) {
         continue;
       }
 
@@ -174,30 +154,18 @@ export async function recoverFromCrash(deps: RecoveryCoordinatorDeps): Promise<R
 
     try {
       const run = await deps.storage.runs.get(runId);
-      if (!run) {
+      const action = runPolicy.runRecoveryReconcileAction('paused', run?.status);
+      if (action === 'clean') {
         try {
           await deps.storage.queue.markDone(runId, now);
           cleanedTerminalSet.add(runId);
+          logger.debug(`[Recovery] Cleaned terminal queue item in Step4: ${runId}`);
         } catch (markDoneErr) {
-          logger.warn(
-            '[Recovery] markDone for missing RunRecord in Step4 failed:',
-            runId,
-            markDoneErr,
-          );
+          logger.warn('[Recovery] markDone during Step4 failed:', runId, markDoneErr);
         }
         continue;
       }
-
-      if (isTerminalStatus(run.status)) {
-        try {
-          await deps.storage.queue.markDone(runId, now);
-          cleanedTerminalSet.add(runId);
-          logger.debug(
-            `[Recovery] Cleaned terminal queue item in Step4: ${runId} (status=${run.status})`,
-          );
-        } catch (markDoneErr) {
-          logger.warn('[Recovery] markDone for terminal run in Step4 failed:', runId, markDoneErr);
-        }
+      if (action !== 'adoptPaused' || !run) {
         continue;
       }
 

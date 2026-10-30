@@ -26,7 +26,7 @@
  */
 
 import { ToolError, ToolErrorCode } from 'humanchrome-shared';
-import { DEFAULT_TAB_LOCK_TIMEOUT_MS, MAX_TAB_QUEUE_DEPTH } from './timeouts';
+import { getBrowserStateForClientPolicy, ensureClientStateReady } from './client-state';
 
 export interface AcquireOptions {
   /** Cap on time spent waiting for prior holders. Default 60s. */
@@ -45,228 +45,6 @@ export interface AcquireResult {
 
 export type Release = () => void;
 
-interface QueueEntry {
-  /** Monotonic ticket — FIFO tie-break inside a single client. */
-  ticket: number;
-  clientId: string | undefined;
-  enqueuedAt: number;
-  /** Resolves to start the holder's critical section. */
-  start: () => void;
-  /** Rejects when the holder exceeded its timeout or the tab closed. */
-  cancel: (err: Error) => void;
-  /** Settles after `release()` is called so the next pick can run. */
-  released: Promise<void>;
-  /** Set when this entry becomes the holder. */
-  startedAt?: number;
-  /** Used to guard against double-cancel after release. */
-  settled: boolean;
-}
-
-interface TabQueueState {
-  entries: QueueEntry[];
-  /** EWMA of completed critical-section durations, for ETA. */
-  meanHoldMs: number;
-  servedTotal: number;
-  /** Last clientId to finish a hold — drives the round-robin tie-break. */
-  lastServedClientId: string | undefined;
-}
-
-const tabs = new Map<number, TabQueueState>();
-let nextTicket = 1;
-
-function getState(tabId: number): TabQueueState {
-  let s = tabs.get(tabId);
-  if (!s) {
-    s = { entries: [], meanHoldMs: 0, servedTotal: 0, lastServedClientId: undefined };
-    tabs.set(tabId, s);
-  }
-  return s;
-}
-
-/**
- * Acquire the queue slot for a tab. Awaits any prior holders, then returns
- * the release callback the caller MUST invoke (use try/finally). Throws
- * `TAB_LOCK_TIMEOUT` if the wait exceeds `timeoutMs`, or `QUEUE_FULL` if
- * the queue is at depth cap.
- */
-export async function acquireTabLock(tabId: number, opts: AcquireOptions = {}): Promise<Release> {
-  const result = await acquireTabLockWithMeta(tabId, opts);
-  return result.release;
-}
-
-/**
- * Same as `acquireTabLock` but returns the queue position + waited time.
- * Used by the dispatcher for tool-call-start logging without changing the
- * downstream caller surface.
- */
-export async function acquireTabLockWithMeta(
-  tabId: number,
-  opts: AcquireOptions = {},
-): Promise<AcquireResult> {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TAB_LOCK_TIMEOUT_MS;
-  const state = getState(tabId);
-
-  if (state.entries.length >= MAX_TAB_QUEUE_DEPTH) {
-    throw new ToolError(
-      ToolErrorCode.QUEUE_FULL,
-      `Tab ${tabId} queue is at capacity (${MAX_TAB_QUEUE_DEPTH} waiters); back off and retry, or pin a different tabId.`,
-      { tabId, depth: state.entries.length, max: MAX_TAB_QUEUE_DEPTH },
-    );
-  }
-
-  const enqueuedAt = Date.now();
-  const ticket = nextTicket++;
-  const queuedAtPosition = state.entries.length + 1;
-
-  let startWait!: () => void;
-  let cancelWait!: (err: Error) => void;
-  const waitForTurn = new Promise<void>((resolve, reject) => {
-    startWait = resolve;
-    cancelWait = reject;
-  });
-
-  let releaseHold!: () => void;
-  const released = new Promise<void>((resolve) => {
-    releaseHold = resolve;
-  });
-
-  const entry: QueueEntry = {
-    ticket,
-    clientId: opts.clientId,
-    enqueuedAt,
-    start: startWait,
-    cancel: cancelWait,
-    released,
-    settled: false,
-  };
-
-  state.entries.push(entry);
-
-  // Fast path: head of queue, start immediately.
-  if (state.entries.length === 1) {
-    entry.startedAt = enqueuedAt;
-    entry.start();
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      waitForTurn,
-      new Promise<void>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(
-            new ToolError(
-              ToolErrorCode.TAB_LOCK_TIMEOUT,
-              `Lock acquisition for tab ${tabId} timed out after ${timeoutMs}ms`,
-              { tabId, timeoutMs },
-            ),
-          );
-        }, timeoutMs);
-      }),
-    ]);
-  } catch (err) {
-    clearTimeout(timer);
-    // Remove our slot so the chain doesn't deadlock. If we were the holder
-    // (very rare race: we hit the timer immediately after start()), promote
-    // the next waiter.
-    removeAndPromote(state, entry);
-    throw err;
-  }
-  clearTimeout(timer);
-
-  const startedAt = entry.startedAt ?? Date.now();
-  return {
-    release: () => releaseEntry(state, entry, releaseHold),
-    queuedAtPosition,
-    waitedMs: startedAt - enqueuedAt,
-  };
-}
-
-function releaseEntry(state: TabQueueState, entry: QueueEntry, releaseHold: () => void): void {
-  if (entry.settled) return;
-  entry.settled = true;
-
-  if (typeof entry.startedAt === 'number') {
-    const sample = Date.now() - entry.startedAt;
-    state.meanHoldMs = state.meanHoldMs === 0 ? sample : state.meanHoldMs * 0.7 + sample * 0.3;
-    state.servedTotal += 1;
-    state.lastServedClientId = entry.clientId;
-  }
-  releaseHold();
-
-  const idx = state.entries.indexOf(entry);
-  if (idx !== -1) state.entries.splice(idx, 1);
-
-  promoteNext(state);
-}
-
-/**
- * Pick the next entry to run via round-robin across distinct clientIds,
- * tie-breaking by ticket order. Entries with `clientId === undefined`
- * share one lane.
- */
-function promoteNext(state: TabQueueState): void {
-  if (state.entries.length === 0) {
-    // If this queue has no waiters and no holder, drop the slot so unused
-    // tabs carry no state.
-    for (const [tabId, s] of tabs) {
-      if (s === state) {
-        tabs.delete(tabId);
-        break;
-      }
-    }
-    return;
-  }
-
-  // Already a holder? Don't promote — they're mid-critical-section.
-  const head = state.entries[0];
-  if (head && typeof head.startedAt === 'number') return;
-
-  const last = state.lastServedClientId;
-  let pickIdx = 0;
-  if (last !== undefined) {
-    const fromOtherClient = state.entries.findIndex((e) => e.clientId !== last);
-    if (fromOtherClient !== -1) pickIdx = fromOtherClient;
-  }
-
-  if (pickIdx !== 0) {
-    const [picked] = state.entries.splice(pickIdx, 1);
-    if (picked) state.entries.unshift(picked);
-  }
-  const next = state.entries[0];
-  if (!next) return;
-  next.startedAt = Date.now();
-  next.start();
-}
-
-function removeAndPromote(state: TabQueueState, entry: QueueEntry): void {
-  if (entry.settled) return;
-  entry.settled = true;
-  const idx = state.entries.indexOf(entry);
-  if (idx !== -1) state.entries.splice(idx, 1);
-  promoteNext(state);
-}
-
-/**
- * Run `fn` with the tab's lock held; releases automatically.
- */
-export async function withTabLock<T>(
-  tabId: number,
-  fn: () => Promise<T>,
-  opts?: AcquireOptions,
-): Promise<T> {
-  const release = await acquireTabLock(tabId, opts);
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inspectors (used by chrome_queue_inspect)
-// ---------------------------------------------------------------------------
-
 export interface QueueWaiterSnapshot {
   clientId: string | null;
   position: number;
@@ -284,67 +62,6 @@ export interface QueueTabSnapshot {
   waiters: QueueWaiterSnapshot[];
 }
 
-/** Default expected-wait per waiter when EWMA has no samples yet. */
-const DEFAULT_EXPECTED_HOLD_MS = 250;
-
-function snapshotTab(tabId: number, state: TabQueueState): QueueTabSnapshot {
-  const now = Date.now();
-  const head = state.entries[0];
-  const holder =
-    head && typeof head.startedAt === 'number'
-      ? {
-          clientId: head.clientId ?? null,
-          heldMs: now - head.startedAt,
-          ticket: head.ticket,
-        }
-      : null;
-  const waiterEntries = holder ? state.entries.slice(1) : state.entries;
-  const baseHold = state.meanHoldMs > 0 ? state.meanHoldMs : DEFAULT_EXPECTED_HOLD_MS;
-  const waiters: QueueWaiterSnapshot[] = waiterEntries.map((entry, idx) => ({
-    clientId: entry.clientId ?? null,
-    position: idx + (holder ? 2 : 1),
-    waitedMs: now - entry.enqueuedAt,
-    expectedWaitMs: (idx + 1) * baseHold,
-    ticket: entry.ticket,
-  }));
-  return {
-    tabId,
-    depth: state.entries.length,
-    servedTotal: state.servedTotal,
-    meanHoldMs: state.meanHoldMs,
-    holder,
-    waiters,
-  };
-}
-
-export function inspectTabQueue(tabId: number): QueueTabSnapshot | null {
-  const state = tabs.get(tabId);
-  if (!state) return null;
-  return snapshotTab(tabId, state);
-}
-
-export function inspectAllTabQueues(): QueueTabSnapshot[] {
-  const out: QueueTabSnapshot[] = [];
-  for (const [tabId, state] of tabs) {
-    out.push(snapshotTab(tabId, state));
-  }
-  return out;
-}
-
-/** Diagnostic — number of tabs with pending or held locks. */
-export function activeLockedTabCount(): number {
-  return tabs.size;
-}
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-export function _resetTabQueueForTests(): void {
-  tabs.clear();
-  nextTicket = 1;
-}
-
 export interface QueueEntryTestSnapshot {
   ticket: number;
   clientId: string | undefined;
@@ -352,43 +69,176 @@ export interface QueueEntryTestSnapshot {
   startedAt: number | undefined;
 }
 
+interface PendingTicket {
+  tabId: number;
+  timeoutMs: number;
+  timer: number;
+  resolve: (result: AcquireResult) => void;
+  reject: (error: Error) => void;
+}
+
+const pendingTickets = new Map<number, PendingTicket>();
+
+/**
+ * Acquires a Rust-owned queue slot. JavaScript owns only the waiting Promise,
+ * timeout handle, and release callback keyed by Rust ticket.
+ */
+export async function acquireTabLock(tabId: number, opts: AcquireOptions = {}): Promise<Release> {
+  const result = await acquireTabLockWithMeta(tabId, opts);
+  return result.release;
+}
+
+export function acquireTabLockWithMeta(
+  tabId: number,
+  opts: AcquireOptions = {},
+): Promise<AcquireResult> {
+  const state = getBrowserStateForClientPolicy();
+  const requestedTimeoutMs = normalizedTimeout(opts.timeoutMs);
+  const admittedAt = Date.now();
+  const admission = state.admitTabLock(tabId, opts.clientId, requestedTimeoutMs, admittedAt);
+  if (admission.kind === 'rejected') return Promise.reject(toToolError(admission.error));
+  if (admission.kind === 'granted') {
+    return Promise.resolve(grantedResult(tabId, admission.grant));
+  }
+
+  const deferred = Promise.withResolvers<AcquireResult>();
+  const timeoutMs = requestedTimeoutMs ?? state.defaultTabLockTimeout();
+  const delayMs = Math.max(0, admission.ticket.deadlineAt - Date.now());
+  const timer = setTimeout(() => {
+    const pending = pendingTickets.get(admission.ticket.ticket);
+    if (!pending) return;
+    applyTransition(
+      state.timeoutTabLock(tabId, admission.ticket.ticket, Date.now(), pending.timeoutMs),
+    );
+  }, delayMs) as unknown as number;
+  pendingTickets.set(admission.ticket.ticket, {
+    tabId,
+    timeoutMs,
+    timer,
+    resolve: deferred.resolve,
+    reject: deferred.reject,
+  });
+  return deferred.promise;
+}
+
+export async function withTabLock<T>(
+  tabId: number,
+  fn: () => Promise<T>,
+  opts?: AcquireOptions,
+): Promise<T> {
+  const release = await acquireTabLock(tabId, opts);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+export function inspectTabQueue(tabId: number): QueueTabSnapshot | null {
+  return getBrowserStateForClientPolicy().inspectTabQueue(tabId, Date.now());
+}
+
+export function inspectAllTabQueues(): QueueTabSnapshot[] {
+  return getBrowserStateForClientPolicy().inspectAllTabQueues(Date.now());
+}
+
+/** Diagnostic — number of tabs with pending or held locks. */
+export function activeLockedTabCount(): number {
+  return getBrowserStateForClientPolicy().activeLockedTabCount();
+}
+
+export function _resetTabQueueForTests(): void {
+  for (const pending of pendingTickets.values()) clearTimeout(pending.timer);
+  pendingTickets.clear();
+  try {
+    getBrowserStateForClientPolicy()._resetQueuesForTest();
+  } catch {
+    // The state handle has not been initialized in this test realm.
+  }
+}
+
 export function _snapshotTabQueueForTests(tabId: number): QueueEntryTestSnapshot[] {
-  const state = tabs.get(tabId);
-  if (!state) return [];
-  return state.entries.map((e) => ({
-    ticket: e.ticket,
-    clientId: e.clientId,
-    enqueuedAt: e.enqueuedAt,
-    startedAt: e.startedAt,
-  }));
+  return getBrowserStateForClientPolicy()
+    ._queueEntriesForTest(tabId)
+    .map((entry) => ({
+      ticket: entry.ticket,
+      clientId: entry.clientId ?? undefined,
+      enqueuedAt: entry.enqueuedAt,
+      startedAt: entry.startedAt ?? undefined,
+    }));
 }
 
 export function _advanceMeanHoldForTests(tabId: number, ms: number): void {
-  const state = getState(tabId);
-  state.meanHoldMs = ms;
+  getBrowserStateForClientPolicy()._setQueueMeanHoldForTest(tabId, ms);
 }
 
-// ---------------------------------------------------------------------------
-// chrome.tabs.onRemoved — cancel every waiter for a closing tab
-// ---------------------------------------------------------------------------
+function normalizedTimeout(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) return 0;
+  return Math.trunc(value);
+}
 
-if (typeof chrome !== 'undefined' && chrome.tabs?.onRemoved) {
-  chrome.tabs.onRemoved.addListener((closedTabId) => {
-    const state = tabs.get(closedTabId);
-    if (!state) return;
-    tabs.delete(closedTabId);
-    for (const entry of state.entries) {
-      if (entry.settled) continue;
-      entry.settled = true;
-      entry.cancel(
-        new ToolError(
-          ToolErrorCode.TAB_CLOSED,
-          `Tab ${closedTabId} closed while ${
-            typeof entry.startedAt === 'number' ? 'holding' : 'waiting for'
-          } the tab queue`,
-          { tabId: closedTabId },
-        ),
-      );
-    }
+function grantedResult(
+  tabId: number,
+  grant: { ticket: number; queuedAtPosition: number; waitedMs: number },
+): AcquireResult {
+  return {
+    release: releaseFor(tabId, grant.ticket),
+    queuedAtPosition: grant.queuedAtPosition,
+    waitedMs: grant.waitedMs,
+  };
+}
+
+function releaseFor(tabId: number, ticket: number): Release {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    applyTransition(getBrowserStateForClientPolicy().releaseTabLock(tabId, ticket, Date.now()));
+  };
+}
+
+function applyTransition(transition: {
+  promoted: { ticket: number; queuedAtPosition: number; waitedMs: number } | null;
+  cancelled: Array<{
+    ticket: number;
+    error: { code: string; message: string; details: unknown };
+  }>;
+}): void {
+  for (const cancelled of transition.cancelled) {
+    const pending = pendingTickets.get(cancelled.ticket);
+    if (!pending) continue;
+    pendingTickets.delete(cancelled.ticket);
+    clearTimeout(pending.timer);
+    pending.reject(toToolError(cancelled.error));
+  }
+  if (!transition.promoted) return;
+  const pending = pendingTickets.get(transition.promoted.ticket);
+  if (!pending) return;
+  pendingTickets.delete(transition.promoted.ticket);
+  clearTimeout(pending.timer);
+  pending.resolve(grantedResult(pending.tabId, transition.promoted));
+}
+
+function toToolError(error: { code: string; message: string; details: unknown }): ToolError {
+  const code =
+    error.code === 'QUEUE_FULL'
+      ? ToolErrorCode.QUEUE_FULL
+      : error.code === 'TAB_LOCK_TIMEOUT'
+        ? ToolErrorCode.TAB_LOCK_TIMEOUT
+        : error.code === 'TAB_CLOSED'
+          ? ToolErrorCode.TAB_CLOSED
+          : ToolErrorCode.UNKNOWN;
+  return new ToolError(code, error.message, error.details as Record<string, unknown>);
+}
+
+// Register synchronously; state work follows the shared initialization barrier.
+try {
+  chrome.tabs?.onRemoved?.addListener((closedTabId) => {
+    void ensureClientStateReady()
+      .then(() => applyTransition(getBrowserStateForClientPolicy().closeTabQueue(closedTabId)))
+      .catch(() => undefined);
   });
+} catch {
+  // Non-extension test context.
 }

@@ -3,11 +3,10 @@ import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 import {
-  ALIAS_REGEX,
   getClientState,
+  isValidTabAlias,
   setAliasForClient,
 } from '../../utils/client-state';
-
 interface AliasTabParams {
   /** Tab to alias. Defaults to the caller's `activeTabId`. */
   tabId?: number;
@@ -51,9 +50,9 @@ class AliasTabTool extends BaseBrowserToolExecutor {
     }
 
     const alias = typeof args?.alias === 'string' ? args.alias.trim() : '';
-    if (!alias || !ALIAS_REGEX.test(alias)) {
+    if (!alias || !isValidTabAlias(alias)) {
       return createErrorResponse(
-        `Parameter [alias] must match ${ALIAS_REGEX.toString()} (lowercase, 1–32 chars, starts with a letter).`,
+        'Parameter [alias] must match /^[a-z][a-z0-9_-]{0,31}$/ (lowercase, 1–32 chars, starts with a letter).',
         ToolErrorCode.INVALID_ARGS,
         { arg: 'alias' },
       );

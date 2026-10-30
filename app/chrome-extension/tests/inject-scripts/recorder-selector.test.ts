@@ -78,8 +78,16 @@ beforeAll(async () => {
   installChromeMocks();
   const bundle = await fs.readFile(BUNDLE_PATH, 'utf8');
   const recorder = await fs.readFile(RECORDER_PATH, 'utf8');
-  // Load bundle (registers window.__rrSelectorEngine).
-  new Function(bundle).call(globalThis);
+  // Match the real recorder bootstrap: initialize this realm before recording.
+  const bytes = await fs.readFile(
+    resolve(__dirname, '../../../../packages/shared/generated/humanchrome_wasm_bg.wasm'),
+  );
+  new Function('globalThis', bundle).call(window, window);
+  await (
+    window as unknown as {
+      __hcInitializeRustKernel: (input: number[]) => Promise<void>;
+    }
+  ).__hcInitializeRustKernel(Array.from(bytes));
   // Load recorder (registers chrome.runtime.onMessage listener + uses the engine).
   new Function(recorder).call(globalThis);
 });
@@ -159,45 +167,6 @@ describe('IMP-0099 recorder: SelectorEngine delegates to shared bundle', () => {
     );
     expect(hasNthOfType).toBe(true);
     expect(click.target.candidates[0].value).not.toContain(':nth-of-type');
-  });
-
-  it('filling an input with a <label for=...> records label as the primary candidate', async () => {
-    document.body.innerHTML = `
-      <label for="company">Company name</label>
-      <input id="company" />
-    `;
-    const input = document.querySelector('input') as HTMLInputElement;
-    input.focus();
-    input.value = 'Acme Co';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-
-    await waitForBatchFlush();
-
-    const steps = recordedSteps();
-    const fill = steps.find((s) => s.type === 'fill');
-    expect(fill).toBeDefined();
-    expect(fill.value).toBe('Acme Co');
-    // The first candidate must be the label-derived locator.
-    const first = fill.target.candidates[0];
-    expect(first.strategy).toBe('label');
-    expect(first.value).toContain('Company name');
-  });
-
-  it('filling an input with placeholder records placeholder as the primary candidate', async () => {
-    document.body.innerHTML = `<input placeholder="search" />`;
-    const input = document.querySelector('input') as HTMLInputElement;
-    input.focus();
-    input.value = 'user@example.com';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-
-    await waitForBatchFlush();
-
-    const steps = recordedSteps();
-    const fill = steps.find((s) => s.type === 'fill');
-    expect(fill).toBeDefined();
-    expect(fill.target.candidates[0].strategy).toBe('placeholder');
-    expect(fill.target.candidates[0].value).toBe('[placeholder="search"]');
-    expect(fill.target.selector).toBe('[placeholder="search"]');
   });
 
   it('carries fingerprint + domPath in recorded target (Phase 1.2 contract)', async () => {

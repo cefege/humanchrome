@@ -1,14 +1,15 @@
-import { STEP_TYPES, TOOL_NAMES } from 'humanchrome-shared';
+import {
+  legacyDefaultSuccessorEdgeIndex,
+  legacyExecutionPlan,
+  legacyLabeledEdgeIndex,
+  legacyNextEdgeIndex,
+  STEP_TYPES,
+  TOOL_NAMES,
+} from 'humanchrome-shared';
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { handleCallTool } from '@/entrypoints/background/tools';
 import type { Edge, Flow, NodeBase, RunLogEntry, RunResult, Step } from '../types';
-import {
-  mapDagNodeToStep,
-  topoOrder,
-  ensureTab,
-  expandTemplatesDeep,
-  defaultEdgesOnly,
-} from '../rr-utils';
+import { mapDagNodeToStep, ensureTab, expandTemplatesDeep } from '../rr-utils';
 import type { ExecCtx } from '../nodes';
 import { RunLogger } from './logging/run-logger';
 import { PluginManager } from './plugins/manager';
@@ -229,10 +230,11 @@ class ExecutionOrchestrator {
       const hasDag0 = Array.isArray(this.flow.nodes) && (this.flow.nodes?.length || 0) > 0;
       const nodes0: NodeBase[] = hasDag0 ? this.flow.nodes || [] : [];
       const edges0: Edge[] = hasDag0 ? this.flow.edges || [] : [];
-      const defaultEdges0 = hasDag0 ? defaultEdgesOnly(edges0) : [];
-      const order0 = hasDag0 ? topoOrder(nodes0, defaultEdges0) : [];
-      const steps0: Step[] = hasDag0 ? order0.map((n) => mapDagNodeToStep(n)) : [];
-      const nav = steps0.find((s) => s.type === STEP_TYPES.NAVIGATE);
+      const order0 = hasDag0
+        ? legacyExecutionPlan(nodes0, edges0).orderedNodeIndexes.map((index) => nodes0[index])
+        : [];
+      const steps0: Step[] = hasDag0 ? order0.map((node) => mapDagNodeToStep(node)) : [];
+      const nav = steps0.find((step) => step.type === STEP_TYPES.NAVIGATE);
       if (nav && nav.type === STEP_TYPES.NAVIGATE)
         derivedStartUrl = expandTemplatesDeep(nav.url, this.vars);
     } catch {
@@ -272,7 +274,7 @@ class ExecutionOrchestrator {
     try {
       const u = ensured?.url || '';
       if (/^(https?:|file:)/i.test(u))
-        await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+        await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId: ensured.tabId } });
     } catch {
       // ignore: preloading read_page is best-effort
     }
@@ -431,35 +433,28 @@ class ExecutionOrchestrator {
     }
     const nodes: NodeBase[] = (this.flow.nodes || []) as NodeBase[];
     const edges: Edge[] = (this.flow.edges || []) as Edge[];
-    // Validate DAG for potential cycles on full edge set
-    try {
-      if (this.hasCycle(nodes, edges)) {
-        this.prepareError = {
-          runId: this.runId,
-          success: false,
-          summary: { total: 0, success: 0, failed: 0, tookMs: 0 },
-          url: null,
-          outputs: null,
-          logs: [
-            {
-              stepId: LOG_STEP_IDS.DAG_CYCLE,
-              status: 'failed',
-              message:
-                'Flow DAG contains a cycle. Please break the cycle or add explicit labels/branches to avoid infinite loops.',
-            },
-          ],
-          screenshots: { onFailure: null },
-          paused: false,
-        };
-        return;
-      }
-    } catch {
-      // ignore: cycle detection guard
+    const graphPlan = legacyExecutionPlan(nodes, edges);
+    if (graphPlan.hasCycle) {
+      this.prepareError = {
+        runId: this.runId,
+        success: false,
+        summary: { total: 0, success: 0, failed: 0, tookMs: 0 },
+        url: null,
+        outputs: null,
+        logs: [
+          {
+            stepId: LOG_STEP_IDS.DAG_CYCLE,
+            status: 'failed',
+            message:
+              'Flow DAG contains a cycle. Please break the cycle or add explicit labels/branches to avoid infinite loops.',
+          },
+        ],
+        screenshots: { onFailure: null },
+        paused: false,
+      };
+      return;
     }
-    const defaultEdges = defaultEdgesOnly(edges);
-    const order = topoOrder(nodes, defaultEdges);
-    // Filter out trigger nodes - they are configuration nodes, not executable steps
-    this.steps = order.filter((n) => n.type !== STEP_TYPES.TRIGGER).map((n) => mapDagNodeToStep(n));
+    this.steps = graphPlan.executableNodeIndexes.map((index) => mapDagNodeToStep(nodes[index]));
     // initialize runners
     this.subflowRunner = new SubflowRunner({
       runId: this.runId,
@@ -476,31 +471,6 @@ class ExecutionOrchestrator {
       runSubflowById: (id, ctx) => this.subflowRunner.runSubflowById(id, ctx, () => this.paused),
       isPaused: () => this.paused,
     });
-  }
-
-  // Basic cycle detection using DFS coloring on the full edge set
-  private hasCycle(
-    nodes: Array<{ id: string }>,
-    edges: Array<{ from: string; to: string }>,
-  ): boolean {
-    const adj = new Map<string, string[]>();
-    for (const n of nodes) adj.set(n.id, []);
-    for (const e of edges) {
-      if (!adj.has(e.from)) adj.set(e.from, []);
-      adj.get(e.from)!.push(e.to);
-    }
-    const color = new Map<string, number>(); // 0=unvisited,1=visiting,2=done
-    const visit = (u: string): boolean => {
-      const c = color.get(u) || 0;
-      if (c === 1) return true; // back-edge
-      if (c === 2) return false;
-      color.set(u, 1);
-      for (const v of adj.get(u) || []) if (visit(v)) return true;
-      color.set(u, 2);
-      return false;
-    };
-    for (const n of nodes) if ((color.get(n.id) || 0) === 0 && visit(n.id)) return true;
-    return false;
   }
 
   private async traverseDag(): Promise<RunResult> {
@@ -523,39 +493,13 @@ class ExecutionOrchestrator {
     const nodes: NodeBase[] = this.flow.nodes || [];
     const edges: Edge[] = this.flow.edges || [];
     const id2node = new Map(nodes.map((n) => [n.id, n] as const));
-    const outEdges = new Map<string, Array<Edge>>();
-    for (const e of edges) {
-      if (!outEdges.has(e.from)) outEdges.set(e.from, []);
-      outEdges.get(e.from)!.push(e);
-    }
-    const indeg = new Map<string, number>(nodes.map((n) => [n.id, 0] as const));
-    for (const e of edges) indeg.set(e.to, (indeg.get(e.to) || 0) + 1);
-    // Find start node: prefer non-trigger nodes with indeg=0
-    // Trigger nodes are configuration nodes and should be skipped
-    const findFirstExecutableRoot = (): string | undefined => {
-      // First try to find a non-trigger root node
-      const executableRoot = nodes.find(
-        (n) => (indeg.get(n.id) || 0) === 0 && n.type !== STEP_TYPES.TRIGGER,
-      );
-      if (executableRoot) return executableRoot.id;
-
-      // If all roots are triggers, find one and follow default edge to first executable
-      const triggerRoot = nodes.find((n) => (indeg.get(n.id) || 0) === 0);
-      if (triggerRoot) {
-        const defaultEdge = (outEdges.get(triggerRoot.id) || []).find(
-          (e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT,
-        );
-        if (defaultEdge) return defaultEdge.to;
-      }
-
-      // Fallback to first node
-      return nodes[0]?.id;
-    };
-
+    const graphPlan = legacyExecutionPlan(nodes, edges);
     let currentId: string | undefined =
       this.options.startNodeId && id2node.has(this.options.startNodeId)
         ? this.options.startNodeId
-        : findFirstExecutableRoot();
+        : graphPlan.startNodeIndex === null
+          ? undefined
+          : nodes[graphPlan.startNodeIndex]?.id;
     let guard = 0;
 
     // Create execution context with tabId from ensureTab
@@ -594,9 +538,8 @@ class ExecutionOrchestrator {
         try {
           await this.logger.overlayAppend(`⏭ skip trigger (${node.id})`);
         } catch {}
-        const defaultEdge = (outEdges.get(currentId) || []).find(
-          (e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT,
-        );
+        const edgeIndex = legacyDefaultSuccessorEdgeIndex(edges, currentId);
+        const defaultEdge = edgeIndex === undefined ? undefined : edges[edgeIndex];
         if (defaultEdge) {
           currentId = defaultEdge.to;
           continue;
@@ -632,14 +575,17 @@ class ExecutionOrchestrator {
       }
       if (r.status === 'failed') {
         this.failed++;
-        const oes = (outEdges.get(currentId) || []) as Edge[];
-        const errEdge = oes.find((edg) => edg.label === ENGINE_CONSTANTS.EDGE_LABELS.ON_ERROR);
+        const edgeIndex = legacyLabeledEdgeIndex(
+          edges,
+          currentId,
+          ENGINE_CONSTANTS.EDGE_LABELS.ON_ERROR,
+        );
+        const errEdge = edgeIndex === undefined ? undefined : edges[edgeIndex];
         if (errEdge) {
           currentId = errEdge.to;
           continue;
-        } else {
-          break;
         }
+        break;
       }
       if (r.control) {
         const control = r.control;
@@ -649,7 +595,7 @@ class ExecutionOrchestrator {
           break;
         }
         const suggested = r.nextLabel ? String(r.nextLabel) : ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT;
-        const next = await this.advanceToNext(currentId, step, suggested, id2node, outEdges);
+        const next = await this.advanceToNext(currentId, step, suggested, id2node, edges);
         if (!next) break;
         currentId = next;
         continue;
@@ -657,7 +603,7 @@ class ExecutionOrchestrator {
       // choose next by label
       {
         const suggested = r.nextLabel ? String(r.nextLabel) : ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT;
-        const next = await this.advanceToNext(currentId, step, suggested, id2node, outEdges);
+        const next = await this.advanceToNext(currentId, step, suggested, id2node, edges);
         if (!next) break;
         currentId = next;
       }
@@ -687,16 +633,17 @@ class ExecutionOrchestrator {
     };
   }
 
-  // Advance to next node by suggested label, with overlay/logging and fallback to default edge.
+  // Advance through Rust-owned label/default selection while retaining browser-owned edge resources.
   private async advanceToNext(
     currentId: string,
     step: Step,
     suggested: string,
     id2node: Map<string, NodeBase>,
-    outEdges: Map<string, Array<Edge>>,
+    edges: Edge[],
   ): Promise<string | undefined> {
     const nextLabel = await this.chooseNextLabel(step, suggested);
-    const nextId = this.findNextNodeId(currentId, outEdges, nextLabel);
+    const edgeIndex = legacyNextEdgeIndex(edges, currentId, nextLabel);
+    const nextId = edgeIndex === undefined ? undefined : edges[edgeIndex]?.to;
     if (nextId) {
       try {
         await this.logger.overlayAppend(
@@ -705,9 +652,9 @@ class ExecutionOrchestrator {
       } catch {}
       return nextId;
     }
-    const labels = (outEdges.get(currentId) || []).map((e) =>
-      String(e.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT),
-    );
+    const labels = edges
+      .filter((edge) => edge.from === currentId)
+      .map((edge) => String(edge.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT));
     this.logger.push({
       stepId: step.id,
       status: 'warning',
@@ -737,18 +684,6 @@ class ExecutionOrchestrator {
     }
   }
 
-  // From current node and label, pick next nodeId using outEdges; prefers labeled edge then default
-  private findNextNodeId(
-    currentId: string,
-    outEdges: Map<string, Array<Edge>>,
-    nextLabel: string,
-  ): string | undefined {
-    const oes = (outEdges.get(currentId) || []) as Edge[];
-    const edge =
-      oes.find((e) => String(e.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT) === nextLabel) ||
-      oes.find((e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT);
-    return edge ? edge.to : undefined;
-  }
 
   private evalCondition(cond: any): boolean {
     try {

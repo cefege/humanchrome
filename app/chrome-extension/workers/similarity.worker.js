@@ -1,6 +1,6 @@
 /* eslint-disable */
-// js/similarity.worker.js
-importScripts('../libs/ort.min.js'); // adjust path to match your file layout
+// Bundled through similarity.worker.entry.ts so this runtime remains in the dedicated worker.
+import ort from '../public/libs/ort.min.js';
 
 // Worker globals
 let session = null;
@@ -39,14 +39,12 @@ function configureOrtEnv(numThreads = 1, executionProviders = ['wasm']) {
     ort.env.wasm.proxy = false; // proxy is not needed inside a worker
     ort.env.logLevel = 'warning'; // 'verbose', 'info', 'warning', 'error', 'fatal'
 
-    // Per-file wasmPaths: keep CPU-SIMD local, redirect JSEP (WebGPU) to CDN.
-    // The local CPU loader/wasm live at /workers/ (web_accessible_resources).
+    // ORT 1.22 accepts {mjs, wasm}, not a filename-to-URL map. Keep executable JS
+    // local and retain the matching, version-pinned JSEP binary download.
     const localBase = new URL('./', self.location.href).href;
     ort.env.wasm.wasmPaths = {
-      'ort-wasm-simd-threaded.mjs': localBase + 'ort-wasm-simd-threaded.mjs',
-      'ort-wasm-simd-threaded.wasm': localBase + 'ort-wasm-simd-threaded.wasm',
-      'ort-wasm-simd-threaded.jsep.mjs': ORT_CDN_BASE + 'ort-wasm-simd-threaded.jsep.mjs',
-      'ort-wasm-simd-threaded.jsep.wasm': ORT_CDN_BASE + 'ort-wasm-simd-threaded.jsep.wasm',
+      mjs: localBase + 'ort-wasm-simd-threaded.jsep.mjs',
+      wasm: ORT_CDN_BASE + 'ort-wasm-simd-threaded.jsep.wasm',
     };
 
     ortEnvConfigured = true;

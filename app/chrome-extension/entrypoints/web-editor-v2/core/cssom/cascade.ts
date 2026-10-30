@@ -12,7 +12,11 @@
  * Pure functions over typed candidates — no DOM, no CSSOM access.
  */
 import type { DeclStatus, Specificity } from '../cssom-styles-collector';
-import { compareSpecificity } from './specificity-parser';
+import {
+  compareEditorCascade,
+  compareEditorSourceOrder,
+  computeEditorCascadeOverrides,
+} from 'humanchrome-shared';
 
 /**
  * A flattened declaration with the full information needed to participate
@@ -35,35 +39,28 @@ export function compareSourceOrder(
   a: readonly [number, number, number],
   b: readonly [number, number, number],
 ): number {
-  if (a[0] !== b[0]) return a[0] > b[0] ? 1 : -1;
-  if (a[1] !== b[1]) return a[1] > b[1] ? 1 : -1;
-  if (a[2] !== b[2]) return a[2] > b[2] ? 1 : -1;
-  return 0;
+  return compareEditorSourceOrder(a, b);
 }
 
 export function compareCascade(a: DeclCandidate, b: DeclCandidate): number {
-  if (a.important !== b.important) return a.important ? 1 : -1;
-  const spec = compareSpecificity(a.specificity, b.specificity);
-  if (spec !== 0) return spec;
-  return compareSourceOrder(a.sourceOrder, b.sourceOrder);
+  return compareEditorCascade(a, b);
 }
 
 export function computeOverrides(candidates: readonly DeclCandidate[]): {
   winners: Map<string, DeclCandidate>;
   declStatus: Map<string, DeclStatus>;
 } {
-  const winners = new Map<string, DeclCandidate>();
-
-  for (const cand of candidates) {
-    for (const longhand of cand.affects) {
-      const cur = winners.get(longhand);
-      if (!cur || compareCascade(cand, cur) > 0) winners.set(longhand, cand);
-    }
-  }
-
-  const declStatus = new Map<string, DeclStatus>();
-  for (const cand of candidates) declStatus.set(cand.id, 'overridden');
-  for (const [, winner] of winners) declStatus.set(winner.id, 'active');
-
+  const plan = computeEditorCascadeOverrides(candidates.map((candidate) => ({
+    id: candidate.id,
+    important: candidate.important,
+    specificity: candidate.specificity,
+    sourceOrder: candidate.sourceOrder,
+    affects: candidate.affects,
+  })));
+  const winners = new Map(plan.winners.map(([property, index]) => [property, candidates[index]]));
+  const declStatus = new Map<string, DeclStatus>(
+    candidates.map((candidate) => [candidate.id, 'overridden']),
+  );
+  for (const id of plan.activeIds) declStatus.set(id, 'active');
   return { winners, declStatus };
 }

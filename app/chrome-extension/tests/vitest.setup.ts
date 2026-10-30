@@ -4,6 +4,17 @@
  */
 
 import { vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { initializeRustBindings } from 'humanchrome-shared';
+import { _seedRustKernelBytesForTest } from '../shared/rust-kernel';
+import type * as ClientStateModule from '../entrypoints/background/utils/client-state';
+
+const kernelBytes = await readFile(
+  resolve(import.meta.dirname, '../../../packages/shared/generated/humanchrome_wasm_bg.wasm'),
+);
+_seedRustKernelBytesForTest(kernelBytes);
+await initializeRustBindings(kernelBytes);
 
 // Provide IndexedDB globals (jsdom doesn't include them)
 import 'fake-indexeddb/auto';
@@ -71,3 +82,8 @@ if (typeof globalThis.chrome === 'undefined') {
     },
   };
 }
+
+const clientState = await vi.importActual<typeof ClientStateModule>(
+  '../entrypoints/background/utils/client-state',
+);
+await clientState.ensureClientStateReady();

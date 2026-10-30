@@ -8,24 +8,13 @@
 
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES } from 'humanchrome-shared';
+import { semanticPolicy, TOOL_NAMES } from 'humanchrome-shared';
 import { ERROR_MESSAGES } from '@/common/constants';
 import { indexerRpc } from '@/utils/indexer-rpc';
-import type { SearchResult } from '@/utils/vector-database';
 import { withSuggestedNext } from './_common';
 
 // Result rows name tabs the LLM might want to focus or navigate to.
 const SEARCH_TABS_NEXT = ['chrome_switch_tab', 'chrome_navigate', 'chrome_read_page'] as const;
-
-interface VectorSearchResult {
-  tabId: number;
-  url: string;
-  title: string;
-  semanticScore: number;
-  matchedSnippet: string;
-  chunkSource: string;
-  timestamp: number;
-}
 
 /**
  * Tool for vectorized search of tab content using semantic similarity.
@@ -71,14 +60,9 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
         return createErrorResponse('Failed to initialize vector search engine');
       }
 
-      // Execute vector search, get more results for deduplication.
-      const searchResults = await indexerRpc.searchContent(query, 50);
-
-      const vectorSearchResults = this.convertSearchResults(searchResults);
-      const deduplicatedResults = this.deduplicateByTab(vectorSearchResults);
-      const topResults = deduplicatedResults
-        .sort((a, b) => b.semanticScore - a.semanticScore)
-        .slice(0, 10);
+      // The offscreen semantic index owns top-50 candidate retrieval, per-tab collapse,
+      // stable ranking, snippet extraction, and the top-ten response cap.
+      const topResults = await indexerRpc.searchContent(query);
 
       const stats = await indexerRpc.getStats();
 
@@ -129,58 +113,7 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
     }
   }
 
-  /** Convert offscreen `SearchResult` -> tool-shape result. */
-  private convertSearchResults(searchResults: SearchResult[]): VectorSearchResult[] {
-    return searchResults.map((result) => ({
-      tabId: result.document.tabId,
-      url: result.document.url,
-      title: result.document.title,
-      semanticScore: result.similarity,
-      matchedSnippet: this.extractSnippet(result.document.chunk.text),
-      chunkSource: result.document.chunk.source,
-      timestamp: result.document.timestamp,
-    }));
-  }
 
-  /** Keep only the top-scoring fragment per tab. */
-  private deduplicateByTab(results: VectorSearchResult[]): VectorSearchResult[] {
-    const tabMap = new Map<number, VectorSearchResult>();
-
-    for (const result of results) {
-      const existing = tabMap.get(result.tabId);
-      if (!existing || result.semanticScore > existing.semanticScore) {
-        tabMap.set(result.tabId, result);
-      }
-    }
-
-    return Array.from(tabMap.values());
-  }
-
-  /** Pick a readable preview snippet, preferring sentence boundaries. */
-  private extractSnippet(text: string, maxLength: number = 200): string {
-    if (text.length <= maxLength) return text;
-
-    const truncated = text.substring(0, maxLength);
-    const lastSentenceEnd = Math.max(
-      truncated.lastIndexOf('.'),
-      truncated.lastIndexOf('!'),
-      truncated.lastIndexOf('?'),
-      truncated.lastIndexOf('。'),
-      truncated.lastIndexOf('!'),
-      truncated.lastIndexOf('?'),
-    );
-
-    if (lastSentenceEnd > maxLength * 0.7) {
-      return truncated.substring(0, lastSentenceEnd + 1);
-    }
-
-    const lastSpaceIndex = truncated.lastIndexOf(' ');
-    if (lastSpaceIndex > maxLength * 0.8) {
-      return truncated.substring(0, lastSpaceIndex) + '...';
-    }
-
-    return truncated + '...';
-  }
 
   public async getIndexStats() {
     try {
@@ -210,13 +143,7 @@ class VectorSearchTabsContentTool extends BaseBrowserToolExecutor {
       }
 
       const validTabs = allTabs.filter(
-        (tab) =>
-          tab.id &&
-          tab.url &&
-          !tab.url.startsWith('chrome://') &&
-          !tab.url.startsWith('chrome-extension://') &&
-          !tab.url.startsWith('edge://') &&
-          !tab.url.startsWith('about:'),
+        (tab) => Boolean(tab.id && tab.url && semanticPolicy.isSemanticRebuildIndexableUrl(tab.url)),
       );
 
       await Promise.allSettled(

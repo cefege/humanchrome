@@ -434,6 +434,8 @@
         and asserts <code>#combobox-selected</code> reads "LangGraph". If a future regression
         re-introduces the synthetic-click code path, the assertion fails because the click never
         bound the state.
+        The runner also keeps this tab backgrounded while a shared debugger session is held.
+        Selection must commit without activating the tab.
       </p>
       <div class="row">
         <input
@@ -533,6 +535,67 @@
           });
         })();
       </script>
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="rust-recorder-workflow">
+      <h2>Rust policy live proof — recorder and workflow</h2>
+      <p>
+        The recorder scenario starts recording and immediately clicks the first button, then replays
+        the persisted flow. The workflow scenario reaches its button through a V3 variable branch.
+      </p>
+      <div class="row">
+        <button id="rr-recorder-target" type="button">
+          Record and replay click
+        </button>
+        <output id="rr-recorder-count">0</output>
+      </div>
+      <div class="row">
+        <button id="rr-workflow-target" data-testid="rr-workflow-target" type="button">
+          V3 workflow branch click
+        </button>
+        <output id="rr-workflow-count">0</output>
+      </div>
+      <iframe
+        id="rr-csp-frame"
+        title="Restrictive CSP recorder frame"
+        srcdoc="<!doctype html><meta http-equiv='Content-Security-Policy' content=&quot;default-src 'none'; style-src 'unsafe-inline'&quot;><button id='rr-csp-target' data-testid='rr-csp-target' type='button'>CSP frame target</button>"
+      ></iframe>
+      <script>
+        (() => {
+          const increment = (buttonId, outputId) => {
+            const button = document.getElementById(buttonId);
+            const output = document.getElementById(outputId);
+            button?.addEventListener('click', () => {
+              output.textContent = String(Number(output.textContent || '0') + 1);
+            });
+          };
+          increment('rr-recorder-target', 'rr-recorder-count');
+          increment('rr-workflow-target', 'rr-workflow-count');
+        })();
+      </script>
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="rust-6-editor">
+      <h2>Rust-6 — Web Editor V2 surface</h2>
+      <p>
+        The Rust-6 editor matrix row foregrounds an owned fixture tab, opens Web Editor V2 through
+        the runtime toggle, selects this button with a real pointer click, and changes its opacity
+        through the visible Properties panel.
+      </p>
+      <button
+        id="rust-editor-target"
+        type="button"
+        style="min-width: 240px; min-height: 64px; border: 2px solid #38598b; background: #cfe8ff"
+      >
+        Select me in Web Editor V2
+      </button>
+      <p>
+        Expected: the selected target is <code>button#rust-editor-target</code>; entering
+        <code>0.42</code> in Properties → Appearance → Opacity creates
+        <code>style.opacity === "0.42"</code>.
+      </p>
     </section>
 
     <script>

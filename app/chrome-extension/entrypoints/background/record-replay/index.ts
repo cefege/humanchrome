@@ -21,6 +21,8 @@ import { listTriggers, saveTrigger, deleteTrigger, type FlowTrigger } from './tr
 import { runFlow } from './flow-runner';
 import { RecorderManager } from './recording/recorder-manager';
 import { recordingSession } from './recording/session-manager';
+import { ensureRustKernel } from '@/shared/rust-kernel';
+import { workflowPolicy } from 'humanchrome-shared';
 // Browser/content listeners are initialized via RecorderManager.init
 
 // design note: background listener for record & replay; delegates recording to dedicated modules
@@ -61,10 +63,12 @@ async function rescheduleAlarms() {
 // legacy injection helpers removed — use recording/content-injection when needed
 
 async function startRecording(meta?: Partial<Flow>): Promise<{ success: boolean; error?: string }> {
+  await ensureRustKernel();
   return await RecorderManager.start(meta);
 }
 
 async function stopRecording(): Promise<{ success: boolean; flow?: Flow; error?: string }> {
+  await ensureRustKernel();
   return await RecorderManager.stop();
 }
 
@@ -336,6 +340,7 @@ export function initRecordReplayListeners() {
         }
       } catch {}
       const triggers = await listTriggers();
+      await ensureRustKernel();
       const list = triggers.filter((x) => x.type === 'url' && x.enabled !== false) as any[];
       for (const t of list) {
         if (matchUrl(url, (t as any).match || [])) {
@@ -369,16 +374,7 @@ function matchUrl(
   u: string,
   rules: Array<{ kind: 'url' | 'domain' | 'path'; value: string }>,
 ): boolean {
-  try {
-    const url = new URL(u);
-    for (const r of rules || []) {
-      const v = String(r.value || '');
-      if (r.kind === 'url' && u.startsWith(v)) return true;
-      if (r.kind === 'domain' && url.hostname.includes(v)) return true;
-      if (r.kind === 'path' && url.pathname.startsWith(v)) return true;
-    }
-  } catch {}
-  return false;
+  return workflowPolicy.workflowLegacyUrlMatches(rules, u);
 }
 
 // Track context menu IDs created by record-replay to avoid removing other menus

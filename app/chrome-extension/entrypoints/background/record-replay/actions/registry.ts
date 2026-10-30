@@ -3,6 +3,7 @@
  * Dynamic register/unregister, before/after hooks, retry+timeout, type-safe.
  */
 
+import { replayPolicy, workflowPolicy } from 'humanchrome-shared';
 import type {
   Action,
   ActionError,
@@ -22,8 +23,6 @@ import type {
   SelectorCandidate,
   TimeoutPolicy,
   ValidationResult,
-  VariablePathSegment,
-  VariablePointer,
   VariableStore,
 } from './types';
 
@@ -133,163 +132,31 @@ function sleep(ms: number): Promise<void> {
 // Resolvable resolvers
 // ================================
 
-function isVariablePointer(value: unknown): value is VariablePointer {
-  if (!isRecord(value)) return false;
-  if (typeof value.name !== 'string' || value.name.length === 0) return false;
-  if (value.path === undefined) return true;
-  if (!Array.isArray(value.path)) return false;
-  return value.path.every((s) => typeof s === 'string' || typeof s === 'number');
-}
-
-function isVarValue(
-  value: unknown,
-): value is { kind: 'var'; ref: VariablePointer; default?: unknown } {
-  if (!isRecord(value)) return false;
-  if (value.kind !== 'var') return false;
-  return isVariablePointer(value.ref);
-}
-
-function isExprValue(value: unknown): value is { kind: 'expr'; default?: unknown } {
-  if (!isRecord(value)) return false;
-  if (value.kind !== 'expr') return false;
-  return 'expr' in value;
-}
-
-function isStringTemplate(value: unknown): value is { kind: 'template'; parts: unknown[] } {
-  if (!isRecord(value)) return false;
-  if (value.kind !== 'template') return false;
-  return Array.isArray(value.parts) && value.parts.length > 0;
-}
-
-function readByPath(
-  value: JsonValue,
-  path?: ReadonlyArray<VariablePathSegment>,
-): JsonValue | undefined {
-  if (!path || path.length === 0) return value;
-  let cur: JsonValue | undefined = value;
-  for (const seg of path) {
-    if (cur === undefined || cur === null) return undefined;
-    if (typeof seg === 'number') {
-      if (!Array.isArray(cur)) return undefined;
-      cur = cur[seg] as JsonValue | undefined;
-      continue;
-    }
-    if (typeof seg === 'string') {
-      if (!isRecord(cur)) return undefined;
-      cur = (cur as Record<string, unknown>)[seg] as JsonValue | undefined;
-      continue;
-    }
-    return undefined;
-  }
-  return cur;
-}
-
 export function tryResolveJson(
   value: Resolvable<JsonValue>,
   vars: VariableStore,
 ): { ok: true; value: JsonValue } | { ok: false; error: string } {
-  if (isVarValue(value)) {
-    const ref = value.ref;
-    const root = vars[ref.name];
-    const resolved = root === undefined ? undefined : readByPath(root, ref.path);
-    if (resolved !== undefined) return { ok: true, value: resolved };
-    if ('default' in value) return { ok: true, value: (value.default ?? null) as JsonValue };
-    return { ok: true, value: null };
-  }
-  if (isExprValue(value)) {
-    if ('default' in value) return { ok: true, value: (value.default ?? null) as JsonValue };
-    return { ok: false, error: 'Expression value is not supported by the default resolver' };
-  }
-  return { ok: true, value };
-}
-
-function formatInserted(value: JsonValue, format?: 'text' | 'json' | 'urlEncoded'): string {
-  if (format === 'json') return JSON.stringify(value);
-  const text = value === null ? '' : typeof value === 'string' ? value : String(value);
-  if (format === 'urlEncoded') return encodeURIComponent(text);
-  return text;
+  return replayPolicy.replayResolveJson<JsonValue>(
+    value,
+    vars as unknown as Record<string, unknown>,
+  );
 }
 
 export function tryResolveString(
   value: Resolvable<string>,
   vars: VariableStore,
 ): { ok: true; value: string } | { ok: false; error: string } {
-  if (typeof value === 'string') return { ok: true, value };
-  if (isVarValue(value)) {
-    const ref = value.ref;
-    const root = vars[ref.name];
-    const resolved = root === undefined ? undefined : readByPath(root, ref.path);
-    if (resolved !== undefined && resolved !== null) return { ok: true, value: String(resolved) };
-    if ('default' in value && typeof value.default === 'string')
-      return { ok: true, value: value.default };
-    return { ok: true, value: '' };
-  }
-  if (isStringTemplate(value)) {
-    const parts = value.parts;
-    let out = '';
-    for (const p of parts) {
-      if (!isRecord(p) || typeof p.kind !== 'string')
-        return { ok: false, error: 'Invalid template part' };
-      if (p.kind === 'text') {
-        if (typeof p.value !== 'string') return { ok: false, error: 'Invalid template text part' };
-        out += p.value;
-        continue;
-      }
-      if (p.kind === 'insert') {
-        const resolved = tryResolveJson(p.value as Resolvable<JsonValue>, vars);
-        if (!resolved.ok) return { ok: false, error: resolved.error };
-        out += formatInserted(
-          resolved.value,
-          (p.format as 'text' | 'json' | 'urlEncoded' | undefined) ?? 'text',
-        );
-        continue;
-      }
-      return {
-        ok: false,
-        error: `Unknown template part kind: ${String((p as { kind: string }).kind)}`,
-      };
-    }
-    return { ok: true, value: out };
-  }
-  if (isExprValue(value)) {
-    if ('default' in value && typeof value.default === 'string')
-      return { ok: true, value: value.default };
-    return { ok: false, error: 'Expression value is not supported by the default resolver' };
-  }
-  return { ok: false, error: 'Unsupported resolvable string value' };
+  return replayPolicy.replayResolveString(value, vars as unknown as Record<string, unknown>);
 }
 
 export function tryResolveNumber(
   value: Resolvable<number>,
   vars: VariableStore,
 ): { ok: true; value: number } | { ok: false; error: string } {
-  if (typeof value === 'number' && Number.isFinite(value)) return { ok: true, value };
-  if (isVarValue(value)) {
-    const ref = value.ref;
-    const root = vars[ref.name];
-    const resolved = root === undefined ? undefined : readByPath(root, ref.path);
-    if (typeof resolved === 'number' && Number.isFinite(resolved))
-      return { ok: true, value: resolved };
-    if (typeof resolved === 'string' && resolved.trim() !== '') {
-      const n = Number(resolved);
-      if (Number.isFinite(n)) return { ok: true, value: n };
-    }
-    if ('default' in value && typeof value.default === 'number' && Number.isFinite(value.default))
-      return { ok: true, value: value.default };
-    return { ok: false, error: `Variable "${ref.name}" is not a finite number` };
-  }
-  if (isExprValue(value)) {
-    if ('default' in value && typeof value.default === 'number' && Number.isFinite(value.default))
-      return { ok: true, value: value.default };
-    return { ok: false, error: 'Expression value is not supported by the default resolver' };
-  }
-  return { ok: false, error: 'Unsupported resolvable number value' };
+  return replayPolicy.replayResolveNumber(value, vars as unknown as Record<string, unknown>);
 }
 
-/**
- * Resolve a generic JSON value (alias for tryResolveJson)
- * Useful for script/http handlers that work with arbitrary JSON
- */
+/** Resolve a generic JSON value for script/http handlers through the Rust resolver. */
 export const tryResolveValue = tryResolveJson;
 
 // ================================
@@ -297,26 +164,16 @@ export const tryResolveValue = tryResolveJson;
 // ================================
 
 function shouldRetry(policy: RetryPolicy | undefined, error: ActionError | undefined): boolean {
-  if (!policy) return false;
-  if (policy.retries <= 0) return false;
-  if (!error) return false;
-  if (error.code === 'VALIDATION_ERROR') return false;
-  if (policy.retryOn && policy.retryOn.length > 0) return policy.retryOn.includes(error.code);
-  return true;
+  return replayPolicy.replayShouldRetryAction(
+    policy !== undefined,
+    policy?.retries ?? 0,
+    error?.code,
+    policy?.retryOn,
+  );
 }
 
 function computeRetryDelayMs(policy: RetryPolicy, retryIndex: number): number {
-  const base = Math.max(0, Math.floor(policy.intervalMs));
-  const backoff = policy.backoff ?? 'none';
-
-  let delay = base;
-  if (backoff === 'linear') delay = base * (retryIndex + 1);
-  if (backoff === 'exp') delay = base * Math.pow(2, retryIndex);
-
-  const capped =
-    policy.maxIntervalMs !== undefined ? Math.min(delay, Math.max(0, policy.maxIntervalMs)) : delay;
-  if ((policy.jitter ?? 'none') === 'full') return Math.floor(Math.random() * capped);
-  return capped;
+  return workflowPolicy.workflowLegacyRetryDelay(policy, retryIndex, Math.random());
 }
 
 async function runWithTimeout<T>(
@@ -331,7 +188,7 @@ async function runWithTimeout<T>(
     }
   }
 
-  const ms = Math.max(0, Math.floor(timeoutMs));
+  const ms = replayPolicy.replayTimeoutMs(timeoutMs);
   if (ms === 0) return { ok: false, error: { code: 'TIMEOUT', message: 'Timeout reached' } };
 
   return await new Promise((resolve) => {
@@ -475,7 +332,7 @@ export class ActionRegistry {
 
     const retryPolicy = action.policy?.retry;
     const timeoutPolicy = action.policy?.timeout;
-    const maxAttempts = 1 + Math.max(0, Math.floor(retryPolicy?.retries ?? 0));
+    const maxAttempts = replayPolicy.replayActionMaxAttempts(retryPolicy?.retries ?? 0);
 
     const actionDeadline =
       timeoutPolicy && timeoutPolicy.ms > 0 && (timeoutPolicy.scope ?? 'attempt') === 'action'

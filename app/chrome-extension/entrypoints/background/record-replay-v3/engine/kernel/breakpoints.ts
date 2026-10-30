@@ -1,80 +1,63 @@
+import { runPolicy } from 'humanchrome-shared';
 import type { NodeId, RunId } from '../../domain/ids';
-import type { Breakpoint, DebuggerState } from '../../domain/debug';
+import type { Breakpoint } from '../../domain/debug';
 
+/** Synchronous host facade over the Rust-owned breakpoint state for one active run. */
 export class BreakpointManager {
-  private breakpoints = new Map<NodeId, Breakpoint>();
-  private stepMode: 'none' | 'stepOver' = 'none';
+  private readonly state: runPolicy.RustRunBreakpointState;
 
   constructor(initialBreakpoints?: NodeId[]) {
-    if (initialBreakpoints) {
-      for (const nodeId of initialBreakpoints) {
-        this.add(nodeId);
-      }
-    }
+    this.state = new runPolicy.RustRunBreakpointState(initialBreakpoints);
   }
 
   add(nodeId: NodeId): void {
-    this.breakpoints.set(nodeId, { nodeId, enabled: true });
+    this.state.add(nodeId);
   }
 
   remove(nodeId: NodeId): void {
-    this.breakpoints.delete(nodeId);
+    this.state.remove(nodeId);
   }
 
   /** Replace all breakpoints with the given list. */
   setAll(nodeIds: NodeId[]): void {
-    this.breakpoints.clear();
-    for (const nodeId of nodeIds) {
-      this.add(nodeId);
-    }
+    this.state.setAll(nodeIds);
   }
 
   enable(nodeId: NodeId): void {
-    const bp = this.breakpoints.get(nodeId);
-    if (bp) {
-      bp.enabled = true;
-    }
+    this.state.enable(nodeId);
   }
 
   disable(nodeId: NodeId): void {
-    const bp = this.breakpoints.get(nodeId);
-    if (bp) {
-      bp.enabled = false;
-    }
+    this.state.disable(nodeId);
   }
 
   hasBreakpoint(nodeId: NodeId): boolean {
-    const bp = this.breakpoints.get(nodeId);
-    return bp?.enabled ?? false;
+    return this.state.hasBreakpoint(nodeId);
   }
 
   /** Pause when the node has a breakpoint or step-over is active. */
   shouldPauseAt(nodeId: NodeId): boolean {
-    if (this.stepMode === 'stepOver') {
-      return true;
-    }
-    return this.hasBreakpoint(nodeId);
+    return this.state.shouldPauseAt(nodeId);
   }
 
   getAll(): Breakpoint[] {
-    return Array.from(this.breakpoints.values());
+    return this.state.getAll();
   }
 
   getEnabled(): Breakpoint[] {
-    return this.getAll().filter((bp) => bp.enabled);
+    return this.state.getEnabled();
   }
 
   setStepMode(mode: 'none' | 'stepOver'): void {
-    this.stepMode = mode;
+    this.state.setStepMode(mode);
   }
 
   getStepMode(): 'none' | 'stepOver' {
-    return this.stepMode;
+    return this.state.getStepMode();
   }
 
   clear(): void {
-    this.breakpoints.clear();
-    this.stepMode = 'none';
+    this.state.clear();
   }
 }
 

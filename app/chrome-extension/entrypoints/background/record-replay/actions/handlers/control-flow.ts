@@ -11,14 +11,9 @@
  * These handlers return control directives that tell the Scheduler how to proceed.
  */
 
-import {
-  failed,
-  invalid,
-  ok,
-  tryResolveNumber,
-  tryResolveString,
-  tryResolveValue,
-} from '../registry';
+import { replayPolicy } from 'humanchrome-shared';
+
+import { failed, invalid, ok, tryResolveNumber, tryResolveString } from '../registry';
 import type {
   ActionHandler,
   Condition,
@@ -26,7 +21,6 @@ import type {
   EdgeLabel,
   VariableStore,
 } from '../types';
-
 /** Default max iterations for while loops */
 const DEFAULT_MAX_ITERATIONS = 1000;
 
@@ -35,89 +29,14 @@ const DEFAULT_MAX_ITERATIONS = 1000;
 // ================================
 
 /**
- * Evaluate a condition against variables
+ * Evaluates legacy conditions through Rust while narrow JavaScript intrinsics retain authored
+ * string, numeric, and opaque-identity semantics.
  */
 function evaluateCondition(condition: Condition, vars: VariableStore): boolean {
-  switch (condition.kind) {
-    case 'expr': {
-      // Expression evaluation not supported in default resolver
-      // Return false for safety
-      return false;
-    }
-
-    case 'compare': {
-      const leftResult = tryResolveValue(condition.left, vars);
-      const rightResult = tryResolveValue(condition.right, vars);
-
-      if (!leftResult.ok || !rightResult.ok) return false;
-
-      const left = leftResult.value;
-      const right = rightResult.value;
-
-      switch (condition.op) {
-        case 'eq':
-          return left === right;
-        case 'eqi':
-          return String(left).toLowerCase() === String(right).toLowerCase();
-        case 'neq':
-          return left !== right;
-        case 'gt':
-          return Number(left) > Number(right);
-        case 'gte':
-          return Number(left) >= Number(right);
-        case 'lt':
-          return Number(left) < Number(right);
-        case 'lte':
-          return Number(left) <= Number(right);
-        case 'contains':
-          return String(left).includes(String(right));
-        case 'containsI':
-          return String(left).toLowerCase().includes(String(right).toLowerCase());
-        case 'notContains':
-          return !String(left).includes(String(right));
-        case 'notContainsI':
-          return !String(left).toLowerCase().includes(String(right).toLowerCase());
-        case 'startsWith':
-          return String(left).startsWith(String(right));
-        case 'endsWith':
-          return String(left).endsWith(String(right));
-        case 'regex': {
-          try {
-            const regex = new RegExp(String(right));
-            return regex.test(String(left));
-          } catch {
-            return false;
-          }
-        }
-        default:
-          return false;
-      }
-    }
-
-    case 'truthy': {
-      const result = tryResolveValue(condition.value, vars);
-      if (!result.ok) return false;
-      return Boolean(result.value);
-    }
-
-    case 'falsy': {
-      const result = tryResolveValue(condition.value, vars);
-      if (!result.ok) return true;
-      return !result.value;
-    }
-
-    case 'not':
-      return !evaluateCondition(condition.condition, vars);
-
-    case 'and':
-      return condition.conditions.every((c) => evaluateCondition(c, vars));
-
-    case 'or':
-      return condition.conditions.some((c) => evaluateCondition(c, vars));
-
-    default:
-      return false;
-  }
+  return replayPolicy.replayEvaluateCondition(
+    condition,
+    vars as unknown as Record<string, unknown>,
+  );
 }
 
 // ================================

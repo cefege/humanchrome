@@ -19,12 +19,14 @@ import {
   _advanceMeanHoldForTests,
 } from '@/entrypoints/background/utils/tab-queue';
 import { MAX_TAB_QUEUE_DEPTH } from '@/entrypoints/background/utils/timeouts';
+import { ensureClientStateReady } from '@/entrypoints/background/utils/client-state';
 
-beforeEach(() => {
+beforeEach(async () => {
   _resetTabQueueForTests();
   (globalThis.chrome as any) = {
     tabs: { onRemoved: { addListener: () => undefined } },
   };
+  await ensureClientStateReady();
 });
 
 afterEach(() => {
@@ -224,6 +226,8 @@ describe('tabs.onRemoved cleanup', () => {
       },
     };
     const mod = await import('@/entrypoints/background/utils/tab-queue');
+    const freshClientState = await import('@/entrypoints/background/utils/client-state');
+    await freshClientState.ensureClientStateReady();
     mod._resetTabQueueForTests();
     const head = await mod.acquireTabLock(20, { clientId: 'alice' });
     const w1 = mod.acquireTabLock(20, { clientId: 'bob' });

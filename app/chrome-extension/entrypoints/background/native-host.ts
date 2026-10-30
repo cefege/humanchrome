@@ -10,7 +10,7 @@ import { handleCallTool } from './tools';
 import { listPublished, getFlow } from './record-replay/flow-store';
 import { acquireKeepalive } from './keepalive-manager';
 import { debugLog } from './utils/debug-log';
-import { loadPersistedClientState, releaseClient, getClientState } from './utils/client-state';
+import { ensureClientStateReady, releaseClient, getClientState } from './utils/client-state';
 import { releaseDialogDefaultsForTabs } from './tools/browser/dialog';
 import { releaseLocatorHandlersForTabs } from './tools/browser/locator-handler';
 
@@ -431,6 +431,23 @@ export function connectNativeHost(port: number = NATIVE_HOST.DEFAULT_PORT): bool
         return;
       }
       const message = parsed.data as any;
+      try {
+        await ensureClientStateReady();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        log.error('browser policy initialization failed', { data: { err: reason } });
+        if (message.requestId) {
+          nativePort?.postMessage({
+            responseToRequestId: message.requestId,
+            payload: {
+              status: 'error',
+              message: ERROR_MESSAGES.TOOL_EXECUTION_FAILED,
+              error: reason,
+            },
+          });
+        }
+        return;
+      }
       if (message.type === NativeMessageType.PROCESS_DATA && message.requestId) {
         const requestId = message.requestId;
         const requestPayload = message.payload;
@@ -727,7 +744,7 @@ export const initNativeHostListener = () => {
   // Restore per-client ownership map from chrome.storage.session so a SW
   // restart doesn't reset every client's owned-tab set. Tabs that no
   // longer exist are dropped during the cross-check.
-  void loadPersistedClientState().catch((err) => {
+  void ensureClientStateReady().catch((err) => {
     log.warn('client-state restore failed', {
       data: { err: err instanceof Error ? err.message : String(err) },
     });

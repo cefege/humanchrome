@@ -1,6 +1,6 @@
 import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
-import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
+import { browserMetadataPolicy, TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { getCurrentRequestContext } from '../../utils/request-context';
 import { getClientState } from '../../utils/client-state';
 
@@ -89,19 +89,15 @@ class OwnedTabsTool extends BaseBrowserToolExecutor {
       });
     }
 
-    // Sort by windowId then tabId for stable UI rendering.
-    rows.sort((a, b) => {
-      const wa = a.windowId ?? 0;
-      const wb = b.windowId ?? 0;
-      if (wa !== wb) return wa - wb;
-      return a.tabId - b.tabId;
-    });
+    const orderedRows = browserMetadataPolicy
+      .stableOwnedTabOrder(rows)
+      .map((index) => rows[index]!);
 
     const body: OwnedTabsResponse = {
       success: true,
       clientId,
-      count: rows.length,
-      ownedTabs: rows,
+      count: orderedRows.length,
+      ownedTabs: orderedRows,
       activeTabId: state?.activeTabId,
       lastWindowId: state?.lastWindowId,
     };

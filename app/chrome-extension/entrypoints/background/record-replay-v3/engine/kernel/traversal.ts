@@ -1,92 +1,41 @@
+import { workflowPolicy } from 'humanchrome-shared';
 import type { NodeId, EdgeLabel } from '../../domain/ids';
-import type { FlowV3, EdgeV3 } from '../../domain/flow';
-import { EDGE_LABELS } from '../../domain/ids';
+import type { FlowV3, EdgeV3, NodeV3 } from '../../domain/flow';
 import { RR_ERROR_CODES, createRRError, type RRError } from '../../domain/errors';
 
 export type ValidateFlowDAGResult = { ok: true } | { ok: false; errors: RRError[] };
+export type WorkflowTraversalContext = workflowPolicy.RustWorkflowContext;
+
+/** Creates one indexed Rust workflow context for a flow execution or editor operation. */
+export function createWorkflowTraversalContext(
+  flow: FlowV3,
+  variables: Record<string, workflowPolicy.JsonValue> = {},
+): WorkflowTraversalContext {
+  return new workflowPolicy.RustWorkflowContext(flow, variables);
+}
+
+function validationResult(context: WorkflowTraversalContext): ValidateFlowDAGResult {
+  const validation = context.validateDag();
+  if (validation.ok) return { ok: true };
+  return {
+    ok: false,
+    errors: validation.errors.map((error) =>
+      createRRError(
+        error.code === 'DAG_CYCLE' ? RR_ERROR_CODES.DAG_CYCLE : RR_ERROR_CODES.DAG_INVALID,
+        error.message,
+      ),
+    ),
+  };
+}
 
 export function validateFlowDAG(flow: FlowV3): ValidateFlowDAGResult {
-  const errors: RRError[] = [];
-  const nodeIds = new Set(flow.nodes.map((n) => n.id));
-
-  if (!nodeIds.has(flow.entryNodeId)) {
-    errors.push(
-      createRRError(
-        RR_ERROR_CODES.DAG_INVALID,
-        `Entry node "${flow.entryNodeId}" does not exist in flow`,
-      ),
-    );
-  }
-
-  for (const edge of flow.edges) {
-    if (!nodeIds.has(edge.from)) {
-      errors.push(
-        createRRError(
-          RR_ERROR_CODES.DAG_INVALID,
-          `Edge "${edge.id}" references non-existent source node "${edge.from}"`,
-        ),
-      );
-    }
-    if (!nodeIds.has(edge.to)) {
-      errors.push(
-        createRRError(
-          RR_ERROR_CODES.DAG_INVALID,
-          `Edge "${edge.id}" references non-existent target node "${edge.to}"`,
-        ),
-      );
-    }
-  }
-
-  const cycle = detectCycle(flow);
-  if (cycle) {
-    errors.push(
-      createRRError(RR_ERROR_CODES.DAG_CYCLE, `Cycle detected in flow: ${cycle.join(' -> ')}`),
-    );
-  }
-
-  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+  return validationResult(createWorkflowTraversalContext(flow));
 }
 
 /** Returns the offending cycle path, or null when the DAG is acyclic. */
 export function detectCycle(flow: FlowV3): NodeId[] | null {
-  const adjacency = buildAdjacencyMap(flow);
-  const visited = new Set<NodeId>();
-  const recursionStack = new Set<NodeId>();
-  const path: NodeId[] = [];
-
-  function dfs(nodeId: NodeId): boolean {
-    visited.add(nodeId);
-    recursionStack.add(nodeId);
-    path.push(nodeId);
-
-    const neighbors = adjacency.get(nodeId) || [];
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        if (dfs(neighbor)) {
-          return true;
-        }
-      } else if (recursionStack.has(neighbor)) {
-        const cycleStart = path.indexOf(neighbor);
-        path.push(neighbor);
-        path.splice(0, cycleStart);
-        return true;
-      }
-    }
-
-    path.pop();
-    recursionStack.delete(nodeId);
-    return false;
-  }
-
-  for (const node of flow.nodes) {
-    if (!visited.has(node.id)) {
-      if (dfs(node.id)) {
-        return path;
-      }
-    }
-  }
-
-  return null;
+  const cycle = createWorkflowTraversalContext(flow).detectCycle();
+  return cycle === null ? null : (cycle as NodeId[]);
 }
 
 /**
@@ -98,82 +47,64 @@ export function findNextNode(
   currentNodeId: NodeId,
   label?: EdgeLabel,
 ): NodeId | null {
-  const outEdges = flow.edges.filter((e) => e.from === currentNodeId);
-
-  if (outEdges.length === 0) {
-    return null;
-  }
-
-  if (label) {
-    const matchedEdge = outEdges.find((e) => e.label === label);
-    if (matchedEdge) {
-      return matchedEdge.to;
-    }
-  }
-
-  const defaultEdge = outEdges.find(
-    (e) => e.label === EDGE_LABELS.DEFAULT || e.label === undefined,
-  );
-  if (defaultEdge) {
-    return defaultEdge.to;
-  }
-
-  if (outEdges.length === 1) {
-    return outEdges[0].to;
-  }
-
-  return null;
+  const nextNodeId = createWorkflowTraversalContext(flow).nextNode(currentNodeId, label);
+  return nextNodeId === undefined ? null : (nextNodeId as NodeId);
 }
 
+/** Chooses the next node through an existing reusable Rust workflow context. */
+export function findNextNodeInContext(
+  context: WorkflowTraversalContext,
+  currentNodeId: NodeId,
+  label?: EdgeLabel,
+): NodeId | null {
+  const nextNodeId = context.nextNode(currentNodeId, label);
+  return nextNodeId === undefined ? null : (nextNodeId as NodeId);
+}
+
+
+/** Returns the original node object selected through the indexed Rust workflow context. */
+export function findNodeInContext(
+  flow: FlowV3,
+  context: WorkflowTraversalContext,
+  nodeId: NodeId,
+): NodeV3 | undefined {
+  const index = context.nodeIndex(nodeId);
+  return index === undefined ? undefined : flow.nodes[index];
+}
 export function findEdgeByLabel(
   flow: FlowV3,
   fromNodeId: NodeId,
   label: EdgeLabel,
 ): EdgeV3 | undefined {
-  return flow.edges.find((e) => e.from === fromNodeId && e.label === label);
+  const context = createWorkflowTraversalContext(flow);
+  const index = context.edgeIndexByLabel(fromNodeId, label);
+  return index === undefined ? undefined : flow.edges[index];
+}
+
+export function findEdgeByLabelInContext(
+  flow: FlowV3,
+  context: WorkflowTraversalContext,
+  fromNodeId: NodeId,
+  label: EdgeLabel,
+): EdgeV3 | undefined {
+  const index = context.edgeIndexByLabel(fromNodeId, label);
+  return index === undefined ? undefined : flow.edges[index];
 }
 
 export function getOutEdges(flow: FlowV3, nodeId: NodeId): EdgeV3[] {
-  return flow.edges.filter((e) => e.from === nodeId);
+  return createWorkflowTraversalContext(flow)
+    .outEdgeIndexes(nodeId)
+    .map((index) => flow.edges[index]);
 }
 
 export function getInEdges(flow: FlowV3, nodeId: NodeId): EdgeV3[] {
-  return flow.edges.filter((e) => e.to === nodeId);
-}
-
-function buildAdjacencyMap(flow: FlowV3): Map<NodeId, NodeId[]> {
-  const map = new Map<NodeId, NodeId[]>();
-
-  for (const node of flow.nodes) {
-    map.set(node.id, []);
-  }
-
-  for (const edge of flow.edges) {
-    const neighbors = map.get(edge.from);
-    if (neighbors) {
-      neighbors.push(edge.to);
-    }
-  }
-
-  return map;
+  return createWorkflowTraversalContext(flow)
+    .inEdgeIndexes(nodeId)
+    .map((index) => flow.edges[index]);
 }
 
 export function getReachableNodes(flow: FlowV3): Set<NodeId> {
-  const reachable = new Set<NodeId>();
-  const adjacency = buildAdjacencyMap(flow);
-
-  function dfs(nodeId: NodeId): void {
-    if (reachable.has(nodeId)) return;
-    reachable.add(nodeId);
-
-    const neighbors = adjacency.get(nodeId) || [];
-    for (const neighbor of neighbors) {
-      dfs(neighbor);
-    }
-  }
-
-  dfs(flow.entryNodeId);
-  return reachable;
+  return new Set(createWorkflowTraversalContext(flow).reachableNodeIds() as NodeId[]);
 }
 
 export function isNodeReachable(flow: FlowV3, nodeId: NodeId): boolean {

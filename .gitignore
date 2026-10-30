@@ -56,3 +56,6 @@ tools_optimize.md
 .claude/loop-state.local.json.tmp
 .claude/loop-final-summary.md
 chrome/
+
+# Rust workspace artifacts
+/target/

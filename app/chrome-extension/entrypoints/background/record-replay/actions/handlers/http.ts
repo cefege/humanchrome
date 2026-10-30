@@ -12,6 +12,7 @@
  */
 
 import { failed, invalid, ok, tryResolveString, tryResolveValue } from '../registry';
+import { workflowPolicy } from 'humanchrome-shared';
 import type {
   ActionHandler,
   Assignments,
@@ -143,37 +144,7 @@ function isStatusOk(status: number, okStatus: HttpOkStatus | undefined): boolean
 }
 
 /**
- * Get value from result using dot/bracket path notation
- */
-function getValueByPath(obj: unknown, path: string): JsonValue | undefined {
-  if (!path || typeof obj !== 'object' || obj === null) {
-    return obj as JsonValue;
-  }
-
-  const segments: Array<string | number> = [];
-  const pathRegex = /([^.[\]]+)|\[(\d+)\]/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = pathRegex.exec(path)) !== null) {
-    if (match[1]) {
-      segments.push(match[1]);
-    } else if (match[2]) {
-      segments.push(parseInt(match[2], 10));
-    }
-  }
-
-  let current: unknown = obj;
-  for (const segment of segments) {
-    if (current === null || current === undefined) return undefined;
-    if (typeof current !== 'object') return undefined;
-    current = (current as Record<string | number, unknown>)[segment];
-  }
-
-  return current as JsonValue;
-}
-
-/**
- * Apply assignments from response to variables
+ * Apply assignments from response to variables.
  */
 function applyAssignments(
   response: HttpResponse,
@@ -181,7 +152,7 @@ function applyAssignments(
   vars: VariableStore,
 ): void {
   for (const [varName, path] of Object.entries(assignments)) {
-    const value = getValueByPath(response, path);
+    const value = workflowPolicy.workflowLegacyHandlerLookup<JsonValue>(response, path);
     if (value !== undefined) {
       vars[varName] = value;
     }

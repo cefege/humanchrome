@@ -1,8 +1,14 @@
 import type { Flow, RunRecord, NodeBase, Edge } from './types';
-import { stepsToDAG, type RRNode, type RREdge } from 'humanchrome-shared';
+import {
+  legacyFlowNormalizationPlan,
+  stepsToDAG,
+  type RRNode,
+  type RREdge,
+} from 'humanchrome-shared';
 import { NODE_TYPES } from '@/common/node-types';
 import { BACKGROUND_MESSAGE_TYPES } from '@/common/message-types';
 import { IndexedDbStorage, ensureMigratedFromLocal } from './storage/indexeddb-manager';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 
 // Design note: IndexedDB-backed store for flows and run records.
 // Includes lazy migration from chrome.storage.local for backwards compatibility.
@@ -32,13 +38,6 @@ function toEdge(edge: RREdge): Edge {
   };
 }
 
-/**
- * Filter edges to only keep those whose from/to both exist in nodeIds.
- * Prevents topoOrder crash when edges reference non-existent nodes.
- */
-function filterValidEdges(edges: Edge[], nodeIds: Set<string>): Edge[] {
-  return edges.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));
-}
 
 // =============================================================================
 // UI Notification
@@ -92,52 +91,26 @@ function stripStepsForSave(flow: Flow): Flow {
   return rest as Flow;
 }
 
-/**
- * Normalize flow before saving: ensure nodes/edges exist for scheduler compatibility.
- * Only generates DAG from steps if nodes are missing or empty.
- * Preserves existing nodes/edges to avoid overwriting user edits.
- *
- * Also validates edges: removes edges referencing non-existent nodes to prevent
- * runtime errors in scheduler's topoOrder calculation.
- */
 function normalizeFlowForSave(flow: Flow): Flow {
   const hasNodes = Array.isArray(flow.nodes) && flow.nodes.length > 0;
-  if (hasNodes) {
-    // Validate edges even when nodes exist (e.g., imported flows may have invalid edges)
-    const nodeIds = new Set(flow.nodes!.map((n) => n.id));
-    if (Array.isArray(flow.edges) && flow.edges.length > 0) {
-      const validEdges = filterValidEdges(flow.edges, nodeIds);
-      if (validEdges.length !== flow.edges.length) {
-        // Some edges were invalid, return cleaned flow
-        return { ...flow, edges: validEdges };
-      }
+  const hasSteps = Array.isArray(flow.steps) && flow.steps.length > 0;
+  const generatedDag = !hasNodes && hasSteps ? stepsToDAG(flow.steps!) : undefined;
+  const projectedNodes = hasNodes ? flow.nodes! : generatedDag?.nodes ?? [];
+  const sourceEdges = Array.isArray(flow.edges) ? flow.edges : [];
+  const plan = legacyFlowNormalizationPlan(hasNodes, hasSteps, projectedNodes, sourceEdges);
+  const validEdges = plan.validEdgeIndexes.map((index) => sourceEdges[index]);
+
+  if (!plan.convertSteps) {
+    if (hasNodes && validEdges.length !== sourceEdges.length) {
+      return { ...flow, edges: validEdges };
     }
     return flow;
   }
 
-  // No nodes - generate from steps
-  if (!Array.isArray(flow.steps) || flow.steps.length === 0) {
-    return flow;
-  }
-
-  const dag = stepsToDAG(flow.steps);
-  if (dag.nodes.length === 0) {
-    return flow;
-  }
-
-  const nodes: NodeBase[] = dag.nodes.map(toNodeBase);
-  const nodeIds = new Set(nodes.map((n) => n.id));
-
-  // Validate existing edges: only keep if from/to both exist in new nodes
-  // Otherwise fall back to generated chain edges
-  let edges: Edge[];
-  if (Array.isArray(flow.edges) && flow.edges.length > 0) {
-    const validEdges = filterValidEdges(flow.edges, nodeIds);
-    edges = validEdges.length > 0 ? validEdges : dag.edges.map(toEdge);
-  } else {
-    edges = dag.edges.map(toEdge);
-  }
-
+  const nodes = generatedDag!.nodes.map(toNodeBase);
+  const edges = plan.useGeneratedEdges
+    ? generatedDag!.edges.map(toEdge)
+    : validEdges;
   return {
     ...flow,
     nodes,
@@ -184,6 +157,7 @@ async function lazyNormalize(flow: Flow): Promise<Flow> {
 }
 
 export async function listFlows(): Promise<Flow[]> {
+  await ensureRustKernel();
   await ensureMigratedFromLocal();
   const flows = await IndexedDbStorage.flows.list();
   // Check if any flows need normalization
@@ -206,6 +180,7 @@ export async function listFlows(): Promise<Flow[]> {
 }
 
 export async function getFlow(flowId: string): Promise<Flow | undefined> {
+  await ensureRustKernel();
   await ensureMigratedFromLocal();
   const flow = await IndexedDbStorage.flows.get(flowId);
   if (!flow) return undefined;
@@ -218,6 +193,7 @@ export async function getFlow(flowId: string): Promise<Flow | undefined> {
 }
 
 export async function saveFlow(flow: Flow, options?: { notify?: boolean }): Promise<void> {
+  await ensureRustKernel();
   await ensureMigratedFromLocal();
   // 1. Normalize: generate nodes/edges from steps if missing
   // 2. Strip: remove deprecated steps field before persist
@@ -320,6 +296,7 @@ export async function exportAllFlows(): Promise<string> {
  * Flows are normalized on save (steps → nodes if needed).
  */
 export async function importFlowFromJson(json: string): Promise<Flow[]> {
+  await ensureRustKernel();
   await ensureMigratedFromLocal();
   const parsed = JSON.parse(json);
 

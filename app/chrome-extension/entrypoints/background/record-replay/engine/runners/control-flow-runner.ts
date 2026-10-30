@@ -1,5 +1,6 @@
 // control-flow-runner.ts — foreach / while orchestration
 
+import { replayPolicy } from 'humanchrome-shared';
 import type { ExecCtx } from '../../nodes';
 import { RunLogger } from '../logging/run-logger';
 
@@ -16,14 +17,20 @@ export class ControlFlowRunner {
 
   async run(control: any, ctx: ExecCtx): Promise<'ok' | 'paused'> {
     if (control?.kind === 'foreach') {
-      const list = Array.isArray(this.env.vars[control.listVar])
-        ? (this.env.vars[control.listVar] as any[])
+      const plan = replayPolicy.replayForeachPlan({
+        listVar: control.listVar,
+        itemVar: control.itemVar,
+        subflowId: control.subflowId,
+        concurrency: Number(control.concurrency ?? 1),
+      });
+      const list = Array.isArray(this.env.vars[plan.listVar])
+        ? (this.env.vars[plan.listVar] as any[])
         : [];
-      const concurrency = Math.max(1, Math.min(16, Number(control.concurrency ?? 1)));
+      const concurrency = plan.concurrency;
       if (concurrency <= 1) {
         for (const it of list) {
-          this.env.vars[control.itemVar] = it;
-          await this.env.runSubflowById(control.subflowId, ctx);
+          this.env.vars[plan.itemVar] = it;
+          await this.env.runSubflowById(plan.subflowId, ctx);
           if (this.env.isPaused()) return 'paused';
         }
         return this.env.isPaused() ? 'paused' : 'ok';
@@ -35,8 +42,8 @@ export class ControlFlowRunner {
           const cur = idx++;
           const it = list[cur];
           const childCtx: ExecCtx = { ...ctx, vars: { ...this.env.vars } };
-          childCtx.vars[control.itemVar] = it;
-          await this.env.runSubflowById(control.subflowId, childCtx);
+          childCtx.vars[plan.itemVar] = it;
+          await this.env.runSubflowById(plan.subflowId, childCtx);
           if (this.env.isPaused()) return;
         }
       };
@@ -45,9 +52,14 @@ export class ControlFlowRunner {
       return this.env.isPaused() ? 'paused' : 'ok';
     }
     if (control?.kind === 'while') {
+      const plan = replayPolicy.replayWhilePlan({
+        hasCondition: !!control.condition,
+        subflowId: control.subflowId,
+        maxIterations: Number(control.maxIterations ?? 100),
+      });
       let i = 0;
-      while (i < control.maxIterations && this.env.evalCondition(control.condition)) {
-        await this.env.runSubflowById(control.subflowId, ctx);
+      while (i < plan.maxIterations && this.env.evalCondition(control.condition)) {
+        await this.env.runSubflowById(plan.subflowId, ctx);
         if (this.env.isPaused()) return 'paused';
         i++;
       }

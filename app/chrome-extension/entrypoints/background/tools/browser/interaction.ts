@@ -69,7 +69,7 @@ class ClickTool extends BaseBrowserToolExecutor {
       coordinates,
       waitForNavigation = false,
       timeoutMs = TIMEOUTS.DEFAULT_WAIT * 5,
-      frameId,
+      frameId = 0,
       button,
       bubbles,
       cancelable,
@@ -108,11 +108,18 @@ class ClickTool extends BaseBrowserToolExecutor {
         // which click-helper reaches through for strict-mode multi-match detection.
         // Without it the helper falls through to a single document.querySelector and
         // silently picks the first of N matches, defeating IMP-0098's safety guard.
-        this.injectContentScript(tab.id, [
-          'inject-scripts/accessibility-tree-helper.js',
-          'inject-scripts/actionability.js',
-          'inject-scripts/click-helper.js',
-        ]),
+        this.injectContentScript(
+          tab.id,
+          [
+            'inject-scripts/accessibility-tree-helper.js',
+            'inject-scripts/actionability.js',
+            'inject-scripts/click-helper.js',
+          ],
+          false,
+          'ISOLATED',
+          false,
+          [frameId],
+        ),
       ]);
 
       // IMP-0137: confirm actionability.js actually installed window.__actionability
@@ -201,10 +208,7 @@ class ClickTool extends BaseBrowserToolExecutor {
       };
       let result: ClickHelperResponse;
       try {
-        result =
-          typeof frameId === 'number'
-            ? await chrome.tabs.sendMessage(tab.id, clickMessage, { frameId })
-            : await chrome.tabs.sendMessage(tab.id, clickMessage);
+        result = await chrome.tabs.sendMessage(tab.id, clickMessage, { frameId });
       } catch (err) {
         return createErrorResponseFromThrown(err);
       }

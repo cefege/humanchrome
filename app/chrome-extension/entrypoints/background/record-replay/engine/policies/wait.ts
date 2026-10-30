@@ -14,7 +14,7 @@ export async function ensureReadPageIfWeb() {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const url = tabs?.[0]?.url || '';
     if (/^(https?:|file:)/i.test(url)) {
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId: tabs[0].id } });
     }
   } catch {}
 }

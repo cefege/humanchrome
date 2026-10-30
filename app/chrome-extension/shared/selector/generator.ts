@@ -2,8 +2,8 @@
  * Selector Generator - produces multiple candidate selectors for a DOM element.
  */
 
+import { selectorPolicy } from 'humanchrome-shared';
 import type {
-  NonEmptyArray,
   NormalizedSelectorGenerationOptions,
   SelectorCandidate,
   SelectorGenerationOptions,
@@ -12,96 +12,20 @@ import type {
   SelectorTarget,
   ExtendedSelectorTarget,
 } from './types';
-import { compareSelectorCandidates, withStability } from './stability';
 import { DEFAULT_SELECTOR_STRATEGIES } from './strategies';
 import { computeDomPath } from './dom-path';
 import { computeFingerprint } from './fingerprint';
 
-const DEFAULT_MAX_CANDIDATES = 8;
-const DEFAULT_TEXT_MAX_LENGTH = 64;
-
-const DEFAULT_TEXT_TAGS = ['button', 'a', 'summary'] as const;
-
-const DEFAULT_TESTID_ATTRS = [
-  'data-testid',
-  'data-test-id',
-  'data-testId',
-  'data-test',
-  'data-qa',
-  'data-cy',
-  'name',
-  'title',
-  'alt',
-] as const;
-
-function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
 export function normalizeSelectorGenerationOptions(
   options: SelectorGenerationOptions | undefined,
 ): NormalizedSelectorGenerationOptions {
-  return {
-    maxCandidates: clampInt(options?.maxCandidates ?? DEFAULT_MAX_CANDIDATES, 1, 50),
-    includeText: options?.includeText ?? true,
-    includeAria: options?.includeAria ?? true,
-    includeCssUnique: options?.includeCssUnique ?? true,
-    includeCssPath: options?.includeCssPath ?? true,
-    testIdAttributes: options?.testIdAttributes ?? DEFAULT_TESTID_ATTRS,
-    textMaxLength: clampInt(options?.textMaxLength ?? DEFAULT_TEXT_MAX_LENGTH, 1, 256),
-    textTags: options?.textTags ?? DEFAULT_TEXT_TAGS,
-  };
+  return selectorPolicy.normalizeRustSelectorOptions(options);
 }
 
-/**
- * Uses native CSS.escape when available; otherwise falls back to a spec-inspired polyfill.
- */
+/** Uses native CSS.escape when available, otherwise the Rust-owned compatibility fallback. */
 export function cssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
-
-  const str = String(value);
-  const len = str.length;
-  if (len === 0) return '';
-
-  let result = '';
-  const firstCodeUnit = str.charCodeAt(0);
-
-  for (let i = 0; i < len; i++) {
-    const codeUnit = str.charCodeAt(i);
-
-    if (codeUnit === 0x0000) {
-      result += '\uFFFD';
-      continue;
-    }
-
-    if (
-      (codeUnit >= 0x0001 && codeUnit <= 0x001f) ||
-      codeUnit === 0x007f ||
-      (i === 0 && codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
-      (i === 1 && codeUnit >= 0x0030 && codeUnit <= 0x0039 && firstCodeUnit === 0x002d)
-    ) {
-      result += `\\${codeUnit.toString(16)} `;
-      continue;
-    }
-
-    if (i === 0 && len === 1 && codeUnit === 0x002d) {
-      result += `\\${str.charAt(i)}`;
-      continue;
-    }
-
-    const isAsciiAlnum =
-      (codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
-      (codeUnit >= 0x0041 && codeUnit <= 0x005a) ||
-      (codeUnit >= 0x0061 && codeUnit <= 0x007a);
-
-    const isSafe = isAsciiAlnum || codeUnit === 0x002d || codeUnit === 0x005f;
-
-    if (isSafe) result += str.charAt(i);
-    else result += `\\${str.charAt(i)}`;
-  }
-
-  return result;
+  return selectorPolicy.rustCssEscapeFallback(value);
 }
 
 function getQueryRoot(element: Element): ParentNode {
@@ -127,16 +51,6 @@ function isUnique(root: ParentNode, selector: string): boolean {
   }
 }
 
-function candidateKey(c: SelectorCandidate): string {
-  switch (c.type) {
-    case 'text':
-      return `text:${c.value}:${c.tagNameHint ?? ''}:${c.match ?? ''}`;
-    case 'aria':
-      return `aria:${c.role ?? ''}:${c.name ?? ''}:${c.value}`;
-    default:
-      return `${c.type}:${c.value}`;
-  }
-}
 
 export interface GenerateSelectorTargetOptions extends SelectorGenerationOptions {
   root?: ParentNode;
@@ -177,54 +91,11 @@ export function generateSelectorTarget(
     }
   }
 
-  // Dedupe (keep first occurrence)
-  const seen = new Set<string>();
-  const deduped: SelectorCandidate[] = [];
-  for (const c of raw) {
-    const key = candidateKey(c);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(withStability(c));
-  }
-
-  // If strategies produced nothing (shouldn't happen), create a minimal fallback.
-  if (deduped.length === 0) {
-    const fallback: SelectorCandidate = withStability({
-      type: 'css',
-      value: 'body',
-      source: 'generated',
-      strategy: 'fallback',
-    });
-    const candidates: NonEmptyArray<SelectorCandidate> = [fallback];
-    return {
-      selector: fallback.value,
-      candidates,
-      tagName: element.tagName?.toLowerCase?.() ?? undefined,
-    };
-  }
-
-  // Sort and truncate
-  const sorted = [...deduped].sort(compareSelectorCandidates).slice(0, normalized.maxCandidates);
-
-  // IMP-0099 contract: `candidates[0]` is the highest-priority candidate by
-  // weight+stability (Playwright-style ladder: testid > role+name > label >
-  // placeholder > alt > title > text > css-unique > anchor-relpath > css-path).
-  // `selector` is set to the BEST CSS/attr candidate so the locator's
-  // fast-path still has a CSS string to query — even when candidates[0] is a
-  // text/aria locator that needs the helper's text-mode resolution. When no
-  // CSS/attr candidate exists, fall back to candidates[0].value (which the
-  // helper still attempts as CSS, fails gracefully, then the candidate loop
-  // handles it via the appropriate type-aware branch).
-  const cssOrAttrPrimary = sorted.find((c) => c.type === 'css' || c.type === 'attr');
-  const selectorValue = (cssOrAttrPrimary ?? sorted[0]).value;
-
-  const tagName = element.tagName?.toLowerCase?.() ?? undefined;
-
-  return {
-    selector: selectorValue,
-    candidates: sorted as NonEmptyArray<SelectorCandidate>,
-    tagName,
-  };
+  return selectorPolicy.rankSelectorCandidates(
+    raw,
+    options,
+    element.tagName?.toLowerCase?.() ?? undefined,
+  ) as SelectorTarget;
 }
 
 // =============================================================================

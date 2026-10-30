@@ -4,14 +4,14 @@ Thanks for considering a contribution. This file covers how to set up the repo, 
 
 ## Setup
 
-Prerequisites: Node 20+, pnpm, Chrome (or Chromium), Git. Optional: Rust + wasm-pack if you're touching the SIMD math package.
+Prerequisites: Node 24+, pnpm 10, Chrome (or Chromium), Git, and the pinned
+Rust toolchain from `rust-toolchain.toml` with `wasm32-unknown-unknown`. The
+SIMD package also needs wasm-pack.
 
 ```bash
 git clone https://github.com/cefege/humanchrome.git
 cd humanchrome
 pnpm install
-pnpm build:shared
-pnpm build:native
 pnpm build:extension
 ```
 
@@ -21,7 +21,36 @@ Load the extension in Chrome:
 2. Click "Load unpacked" and choose `app/chrome-extension/.output/chrome-mv3/`.
 3. Click the extension icon, then **Connect**.
 
-For day-to-day development, run `pnpm dev` from the repo root. It rebuilds the shared package first, then runs all packages in watch mode.
+For day-to-day extension development, run `pnpm dev` from the repo root. It
+rebuilds the shared package before starting the extension watcher.
+
+### Rust native candidate gate
+
+The source native runtime is Rust. Activating it as an installed default remains
+a separate release gate: build and verify native candidates in isolated state,
+and do not register a checkout binary against a daily Chrome profile. Extension
+build commands may synchronize browser output through their postbuild hook, so
+run them only where that staging update is intended.
+
+Contract data remains authored in `packages/shared/src`; do not edit
+`packages/shared/generated/rust-contract.json` or the descriptor snapshot to
+hide drift.
+
+```bash
+pnpm build:contracts
+node packages/shared/scripts/export-rust-contract.mjs --check
+pnpm build:native
+pnpm build:browser
+cargo test --locked --workspace
+node scripts/verify-rust-transition.mjs --suite contracts
+node scripts/verify-rust-transition.mjs --coverage
+```
+
+`HC_TEST_NATIVE_BIN=/absolute/path/to/humanchrome-nativehost` selects a
+candidate for `app/native-server/smoke-test.mjs`, the daemon-relay verifier,
+and the isolated Chrome matrix. These hooks isolate candidate verification;
+they do not activate an installed runtime.
+
 
 ## What's welcome
 

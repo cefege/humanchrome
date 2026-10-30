@@ -22,6 +22,12 @@ import type {
   TokenResolutionMethod,
 } from './types';
 
+import {
+  extractEditorCssVarNames,
+  formatEditorCssVar,
+  parseEditorCssVar,
+} from 'humanchrome-shared';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -104,82 +110,15 @@ export function createTokenResolver(options: TokenResolverOptions = {}): TokenRe
   // ===========================================================================
 
   function formatCssVar(name: CssVarName, fallback?: string): string {
-    const fb = typeof fallback === 'string' ? fallback.trim() : '';
-    return fb ? `var(${name}, ${fb})` : `var(${name})`;
+    return formatEditorCssVar(name, fallback);
   }
 
   function parseCssVar(value: string): CssVarReference | null {
-    const raw = String(value ?? '').trim();
-    // Case-insensitive var() prefix check
-    if (!raw.toLowerCase().startsWith('var(')) return null;
-
-    // Find matching closing parenthesis
-    let depth = 0;
-    let endIndex = -1;
-
-    for (let i = 0; i < raw.length; i++) {
-      const ch = raw[i]!;
-      if (ch === '(') {
-        depth++;
-      } else if (ch === ')') {
-        depth--;
-        if (depth === 0) {
-          endIndex = i;
-          break;
-        }
-      }
-    }
-
-    // Strict mode: closing paren must be the last character (standalone var() expression)
-    // This rejects values like "var(--x))" or "var(--x) foo"
-    if (endIndex < 0 || endIndex !== raw.length - 1) return null;
-
-    // Extract content between var( and )
-    const inner = raw.slice(4, endIndex).trim();
-    if (!inner) return null;
-
-    // Find top-level comma (not inside nested parentheses)
-    let commaIndex = -1;
-    depth = 0;
-
-    for (let i = 0; i < inner.length; i++) {
-      const ch = inner[i]!;
-      if (ch === '(') {
-        depth++;
-      } else if (ch === ')') {
-        depth = Math.max(0, depth - 1);
-      } else if (ch === ',' && depth === 0) {
-        commaIndex = i;
-        break;
-      }
-    }
-
-    const nameStr = (commaIndex >= 0 ? inner.slice(0, commaIndex) : inner).trim();
-    const fallbackStr = commaIndex >= 0 ? inner.slice(commaIndex + 1).trim() : '';
-
-    if (!nameStr.startsWith('--')) return null;
-
-    const name = nameStr as CssVarName;
-    return fallbackStr ? { name, fallback: fallbackStr } : { name };
+    return parseEditorCssVar(String(value ?? '')) as CssVarReference | null;
   }
 
   function extractCssVarNames(value: string): CssVarName[] {
-    const results: CssVarName[] = [];
-    const str = String(value ?? '');
-
-    // Match var(--name patterns
-    // Note: This regex extracts the name up to the first comma, closing paren, or whitespace
-    const regex = /var\(\s*(--[\w-]+)/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(str))) {
-      const name = match[1]?.trim();
-      if (name?.startsWith('--')) {
-        results.push(name as CssVarName);
-      }
-    }
-
-    return results;
+    return extractEditorCssVarNames(String(value ?? '')) as CssVarName[];
   }
 
   // ===========================================================================

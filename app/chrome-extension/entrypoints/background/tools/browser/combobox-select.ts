@@ -184,58 +184,73 @@ class ComboboxSelectTool extends BaseBrowserToolExecutor {
       let probeMiss: { reason: 'timeout' | 'no_match'; message: string } | null = null;
 
       await cdpSessionManager.withSession(tabId, OWNER, async () => {
-        await cdpClick(tabId!, point.x, point.y);
+        // Borrowed debugger sessions do not focus background renderers for us.
+        // Emulate focus without activating the tab or stealing the user's window.
+        await cdpSessionManager.sendCommand(tabId!, 'Emulation.setFocusEmulationEnabled', {
+          enabled: true,
+        });
+        try {
+          await cdpClick(tabId!, point.x, point.y);
 
-        if (clearFirst) {
-          await sendSelectAll(tabId!);
-          await sendNamedKey(tabId!, 'Delete');
-          // Belt-and-braces clear: Ctrl+A + Delete can no-op if focus
-          // didn't fully land. forceClearShim reads input.value and force-
-          // sets it via the React-friendly native property descriptor.
-          await chrome.scripting.executeScript({
-            target,
-            world: 'ISOLATED',
-            func: forceClearShim,
-            args: [shimSelector, shimRef],
+          if (clearFirst) {
+            await sendSelectAll(tabId!);
+            await sendNamedKey(tabId!, 'Delete');
+            // Belt-and-braces clear: Ctrl+A + Delete can no-op if focus
+            // didn't fully land. forceClearShim reads input.value and force-
+            // sets it via the React-friendly native property descriptor.
+            await chrome.scripting.executeScript({
+              target,
+              world: 'ISOLATED',
+              func: forceClearShim,
+              args: [shimSelector, shimRef],
+            });
+          }
+
+          for (const ch of Array.from(args.query)) {
+            await sendChar(tabId!, ch);
+            typedCount += 1;
+            const delay =
+              perKey + (jitter > 0 ? Math.floor((Math.random() - 0.5) * 2 * jitter) : 0);
+            if (delay > 0) await sleep(delay);
+          }
+
+          const probe = await pollForOptions({
+            tabId: tabId!,
+            frameId: args.frameId,
+            optionSelector,
+            matchText,
+            matchMode,
+            timeoutMs: waitForOptionsMs,
+          });
+          if (!probe.ok) {
+            probeMiss = { reason: probe.reason, message: probe.message };
+            return;
+          }
+          optionCount = probe.count;
+          selectedIndex = probe.targetIndex;
+          selectedText = probe.targetText;
+
+          // ArrowDown + Enter to commit. Skip the sleep after the LAST
+          // ArrowDown — Enter doesn't need the highlight animation to settle.
+          const downPresses = clamp(selectedIndex + 1, 1, MAX_ARROW_DOWN);
+          for (let i = 0; i < downPresses; i += 1) {
+            await sendNamedKey(tabId!, 'ArrowDown');
+            arrowDownCount += 1;
+            if (perKey > 0 && i < downPresses - 1) await sleep(Math.min(perKey, 80));
+          }
+          await sendNamedKey(tabId!, 'Enter');
+        } finally {
+          await cdpSessionManager.sendCommand(tabId!, 'Emulation.setFocusEmulationEnabled', {
+            enabled: false,
           });
         }
-
-        for (const ch of Array.from(args.query)) {
-          await sendChar(tabId!, ch);
-          typedCount += 1;
-          const delay = perKey + (jitter > 0 ? Math.floor((Math.random() - 0.5) * 2 * jitter) : 0);
-          if (delay > 0) await sleep(delay);
-        }
-
-        const probe = await pollForOptions({
-          tabId: tabId!,
-          frameId: args.frameId,
-          optionSelector,
-          matchText,
-          matchMode,
-          timeoutMs: waitForOptionsMs,
-        });
-        if (!probe.ok) {
-          probeMiss = { reason: probe.reason, message: probe.message };
-          return;
-        }
-        optionCount = probe.count;
-        selectedIndex = probe.targetIndex;
-        selectedText = probe.targetText;
-
-        // ArrowDown + Enter to commit. Skip the sleep after the LAST
-        // ArrowDown — Enter doesn't need the highlight animation to settle.
-        const downPresses = clamp(selectedIndex + 1, 1, MAX_ARROW_DOWN);
-        for (let i = 0; i < downPresses; i += 1) {
-          await sendNamedKey(tabId!, 'ArrowDown');
-          arrowDownCount += 1;
-          if (perKey > 0 && i < downPresses - 1) await sleep(Math.min(perKey, 80));
-        }
-        await sendNamedKey(tabId!, 'Enter');
       });
 
       if (probeMiss !== null) {
-        const { reason, message } = probeMiss as { reason: 'timeout' | 'no_match'; message: string };
+        const { reason, message } = probeMiss as {
+          reason: 'timeout' | 'no_match';
+          message: string;
+        };
         const code = reason === 'timeout' ? ToolErrorCode.TIMEOUT : ToolErrorCode.UNKNOWN;
         return createErrorResponse(message, code, {
           tabId,
@@ -500,7 +515,10 @@ function readComboboxOptions(optionSelector: string): ProbeResult {
  * `descriptor.set.call(input, '')` + a synthetic `input` event is the
  * canonical "clear a controlled input from outside" pattern.
  */
-function forceClearShim(selector: string | null, ref: string | null): { ok: boolean; before?: string; after?: string; forced?: boolean } {
+function forceClearShim(
+  selector: string | null,
+  ref: string | null,
+): { ok: boolean; before?: string; after?: string; forced?: boolean } {
   try {
     let el: Element | null = null;
     if (ref) {
@@ -517,9 +535,7 @@ function forceClearShim(selector: string | null, ref: string | null): { ok: bool
       return { ok: true, before, after: '', forced: false };
     }
     const proto =
-      input.tagName === 'TEXTAREA'
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
+      input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && typeof desc.set === 'function') {
       desc.set.call(input, '');

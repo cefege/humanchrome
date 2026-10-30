@@ -42,6 +42,7 @@
  * IMP-0098 deliberately doesn't implement the full role-cascade rules.
  */
 
+import { selectorPolicy } from 'humanchrome-shared';
 import type { SelectorCandidate, SelectorStrategy, NameExactMode } from '../types';
 import { computeAccessibleName, matchesAccessibleName } from '../accessible-name';
 
@@ -274,70 +275,12 @@ export const roleStrategy: SelectorStrategy & {
 // =============================================================================
 
 /**
- * Parse a `role[name="...",exact=true]` selector value into its parts.
- *
- * Accepts:
- *   "button"                                — role only
- *   "button[name=\"Submit\"]"               — role + name (contains by default)
- *   "button[name=\"Submit\",exact=true]"    — role + exact name match
- *
- * The format mirrors the structured form emitted by `generate()`.
+ * Parse a `role[name="...",exact=true]` selector value through the shared Rust policy kernel.
  */
 export function parseRoleSelector(value: string): {
   role?: string;
   name?: string;
   exact?: boolean;
 } {
-  const v = String(value || '').trim();
-  if (!v) return {};
-  // Quick path — bare role.
-  const bare = v.match(/^[a-zA-Z][a-zA-Z0-9_-]*$/);
-  if (bare) return { role: v.toLowerCase() };
-
-  const match = v.match(/^([a-zA-Z][a-zA-Z0-9_-]*)\s*\[\s*(.+?)\s*\]$/);
-  if (!match) return {};
-  const role = match[1].toLowerCase();
-  const body = match[2];
-
-  // Split on commas not inside quotes.
-  const tokens: string[] = [];
-  let cur = '';
-  let depth = 0;
-  let inStr: '"' | "'" | null = null;
-  for (const ch of body) {
-    if (inStr) {
-      cur += ch;
-      if (ch === inStr) inStr = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inStr = ch;
-      cur += ch;
-      continue;
-    }
-    if (ch === ',' && depth === 0) {
-      tokens.push(cur);
-      cur = '';
-      continue;
-    }
-    if (ch === '[' || ch === '(') depth++;
-    if (ch === ']' || ch === ')') depth--;
-    cur += ch;
-  }
-  if (cur) tokens.push(cur);
-
-  let name: string | undefined;
-  let exact: boolean | undefined;
-  for (const tok of tokens) {
-    const eq = tok.indexOf('=');
-    if (eq === -1) continue;
-    const k = tok.slice(0, eq).trim().toLowerCase();
-    let raw = tok.slice(eq + 1).trim();
-    if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-      raw = raw.slice(1, -1);
-    }
-    if (k === 'name') name = raw;
-    if (k === 'exact') exact = raw === 'true' || raw === '1';
-  }
-  return { role, name, exact };
+  return selectorPolicy.parseRustRoleSelector(value);
 }

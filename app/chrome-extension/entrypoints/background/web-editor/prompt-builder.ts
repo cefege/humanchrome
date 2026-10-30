@@ -14,7 +14,7 @@
  */
 
 import type { ElementChangeSummary } from '@/common/web-editor-types';
-import type { WebEditorApplyPayload } from './normalizers';
+import type { EditorApplyPayload as WebEditorApplyPayload } from 'humanchrome-shared';
 
 /**
  * Build a batch prompt for multiple element changes.

@@ -9,11 +9,10 @@
  * fall through to the globally-active tab and silently scribble over each
  * other.
  *
- * This module keeps a small `Map<clientId, ClientState>` so each MCP session
- * has its own owned-tab set. The dispatcher (`tools/index.ts`) uses
- * `resolveOwnedTabIdForClient` to pick a target tab before invoking the
- * tool — for mutating tools we never fall back to the global active tab;
- * instead the dispatcher auto-spawns a fresh tab the client owns.
+ * A single Rust-owned `BrowserState` keeps each MCP session's owned-tab set.
+ * This module is only its Chrome/storage/timer adapter; the dispatcher asks
+ * Rust to plan targets, including fresh background-tab creation for mutating
+ * calls that have no usable owned tab.
  *
  * Ownership rules:
  *   - A client owns a tab if it opened the tab (auto-claim on create) or
@@ -32,105 +31,74 @@
  * the same clientId at the bridge) reclaims its previous owned set.
  */
 
+import { browserPolicy } from 'humanchrome-shared';
 import { debugLog } from './debug-log';
+import { ensureRustKernel } from '@/shared/rust-kernel';
+
+let readiness: Promise<void> | undefined;
+let kernelReady = false;
+let browserState: browserPolicy.RustBrowserState | undefined;
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+const STORAGE_KEY = 'humanchrome:ownership';
+const PERSIST_DEBOUNCE_MS = 50;
 
 export type PacingProfile = 'off' | 'human' | 'careful' | 'fast';
-
-interface PacingState {
+export interface PacingState {
   profile: PacingProfile;
-  /** Inclusive lower bound on gap between mutating dispatches (ms). */
   minGapMs: number;
-  /** Random extra gap added to minGapMs, in [0, jitterMs] (ms). */
   jitterMs: number;
-  /** Wall clock of the last dispatch the throttle let through. */
   lastDispatchAt: number;
 }
 
-interface ClientState {
-  /** Tabs this client opened or explicitly claimed. */
+/**
+ * A caller-facing snapshot of Rust-owned client state. Collections are rebuilt
+ * on demand and must never be retained as mutable state.
+ */
+export interface ClientState {
   ownedTabs: Set<number>;
-  /** Last tab this client acted on (must be in `ownedTabs`). */
   activeTabId?: number;
-  /** Most-recently-acted window for this client. */
   lastWindowId?: number;
   lastSeenAt: number;
   pacing?: PacingState;
-  /**
-   * IMP-0169: named handles for owned tabs. Map<alias, tabId>. Aliases
-   * are per-client (alice's 'checkout' is not bob's), validated against
-   * the regex `^[a-z][a-z0-9_-]{0,31}$`, and self-evict when the
-   * underlying tab closes or the client releases. Reusing an alias on
-   * the same client overwrites the prior mapping and returns the
-   * previous tabId so the LLM caller sees the change.
-   */
   aliases?: Map<string, number>;
 }
 
-/**
- * Profile presets. `off` is current behavior (no throttle). `human` mimics a
- * person clicking around; `careful` adds a wide jitter band for sites that
- * detect rhythm (LinkedIn, Instagram); `fast` keeps tab-lock serialization
- * but adds no extra wait — useful when the agent is exercising read-mostly
- * surfaces.
- */
-const PROFILE_DEFAULTS: Record<
-  Exclude<PacingProfile, 'off'>,
-  { minGapMs: number; jitterMs: number }
-> = {
-  human: { minGapMs: 600, jitterMs: 600 },
-  careful: { minGapMs: 1500, jitterMs: 1500 },
-  fast: { minGapMs: 0, jitterMs: 0 },
-};
-
-const STATE = new Map<string, ClientState>();
+/** One startup barrier: tool calls cannot race kernel loading or ownership restoration. */
+export function ensureClientStateReady(): Promise<void> {
+  readiness ??= ensureRustKernel().then(() => {
+    kernelReady = true;
+    getBrowserState();
+    return loadPersistedClientState();
+  });
+  return readiness;
+}
 
 /**
- * Drop client entries we haven't heard from in a while so dead sessions
- * don't pin tab ids forever. This is a safety net for the case where a
- * bridge disconnect signal is dropped (native-host crash, etc.).
+ * Returns the sole Rust policy object after its owning realm has initialized.
+ * Synchronous wrapper APIs intentionally remain synchronous; async entry
+ * points must await `ensureClientStateReady` before using them.
  */
-const STALE_AFTER_MS = 30 * 60 * 1000; // 30 min
+export function getBrowserStateForClientPolicy(): browserPolicy.RustBrowserState {
+  return getBrowserState();
+}
 
-/** Key for the persisted ownership snapshot in chrome.storage.session. */
-const STORAGE_KEY = 'humanchrome:ownership';
-
-/** Debounce window for storage.session writes. */
-const PERSIST_DEBOUNCE_MS = 50;
-
-function gc(now: number): void {
-  for (const [id, s] of STATE) {
-    if (now - s.lastSeenAt > STALE_AFTER_MS) STATE.delete(id);
+function getBrowserState(): browserPolicy.RustBrowserState {
+  if (!browserState) {
+    if (!kernelReady) {
+      throw new Error('Client state is not ready; await ensureClientStateReady() first.');
+    }
+    browserState = new browserPolicy.RustBrowserState();
   }
+  return browserState;
 }
 
-function ensureState(clientId: string, now: number): ClientState {
-  let s = STATE.get(clientId);
-  if (!s) {
-    s = { ownedTabs: new Set<number>(), lastSeenAt: now };
-    STATE.set(clientId, s);
-  }
-  return s;
+function now(): number {
+  return Date.now();
 }
 
-// =============================================================================
-// Persistence to chrome.storage.session
-// =============================================================================
-
-interface PersistedClientEntry {
-  ownedTabIds: number[];
-  activeTabId?: number;
-  lastWindowId?: number;
-  lastSeenAt: number;
-  /** IMP-0169: alias→tabId map serialized as a plain object for storage.session. */
-  aliases?: Record<string, number>;
-}
-
-type PersistedSnapshot = Record<string, PersistedClientEntry>;
-
-let persistTimer: ReturnType<typeof setTimeout> | undefined;
-
-function schedulePersist(): void {
-  if (persistTimer) return;
+function schedulePersistIfDirty(): void {
+  if (!getBrowserState().persistenceDirty || persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = undefined;
     void persistNow();
@@ -138,23 +106,12 @@ function schedulePersist(): void {
 }
 
 async function persistNow(): Promise<void> {
+  const state = getBrowserState();
+  if (!state.persistenceDirty) return;
   if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
-  const snapshot: PersistedSnapshot = {};
-  for (const [clientId, s] of STATE) {
-    // Don't persist UI-synthetic ids — they don't survive Chrome restart
-    // meaningfully and they're cheap to recreate. Don't persist anonymous
-    // UUID clientIds either (they can't reconnect).
-    if (s.ownedTabs.size === 0) continue;
-    snapshot[clientId] = {
-      ownedTabIds: Array.from(s.ownedTabs),
-      activeTabId: s.activeTabId,
-      lastWindowId: s.lastWindowId,
-      lastSeenAt: s.lastSeenAt,
-      ...(s.aliases && s.aliases.size > 0 ? { aliases: Object.fromEntries(s.aliases) } : {}),
-    };
-  }
   try {
-    await chrome.storage.session.set({ [STORAGE_KEY]: snapshot });
+    await chrome.storage.session.set({ [STORAGE_KEY]: state.ownershipSnapshot() });
+    state.markPersisted();
   } catch (err) {
     debugLog.warn('client-state persist failed', {
       data: { err: err instanceof Error ? err.message : String(err) },
@@ -163,187 +120,78 @@ async function persistNow(): Promise<void> {
 }
 
 /**
- * Restore the ownership map from chrome.storage.session. Called once at
- * SW boot from native-host.ts. Cross-checks every tabId against
- * `chrome.tabs.query({})` — tabs that no longer exist are dropped.
+ * Restores Rust-owned ownership state from the storage effect adapter.
+ * Pacing intentionally remains ephemeral across service-worker restart.
  */
 export async function loadPersistedClientState(): Promise<void> {
   if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
-  let raw: PersistedSnapshot | undefined;
+  let snapshot: Record<string, unknown> | undefined;
   try {
     const got = await chrome.storage.session.get(STORAGE_KEY);
-    raw = got?.[STORAGE_KEY] as PersistedSnapshot | undefined;
+    const raw = got?.[STORAGE_KEY];
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      snapshot = raw as Record<string, unknown>;
+    }
   } catch {
     return;
   }
-  if (!raw || typeof raw !== 'object') return;
+  if (!snapshot) return;
 
-  let aliveTabIds = new Set<number>();
+  let aliveTabIds: number[] | null = [];
   try {
     const tabs = await chrome.tabs.query({});
-    aliveTabIds = new Set(
-      tabs.map((t) => t.id).filter((id): id is number => typeof id === 'number'),
-    );
+    aliveTabIds = tabs
+      .map((tab) => tab.id)
+      .filter((tabId): tabId is number => typeof tabId === 'number');
   } catch {
-    // Best-effort — if we can't enumerate tabs, trust the snapshot. The
-    // first `onRemoved` will reconcile.
+    // `null` preserves the existing best-effort "trust storage" behavior.
+    aliveTabIds = null;
   }
 
-  const now = Date.now();
-  for (const [clientId, entry] of Object.entries(raw)) {
-    if (!entry || !Array.isArray(entry.ownedTabIds)) continue;
-    const liveTabIds = entry.ownedTabIds.filter(
-      (id) => typeof id === 'number' && (aliveTabIds.size === 0 || aliveTabIds.has(id)),
-    );
-    if (liveTabIds.length === 0) continue;
-    // IMP-0169: rebuild alias map, dropping aliases whose tab no longer
-    // exists in the live owned set. Persisted as Record<string, number>;
-    // deserialized as Map for runtime use.
-    let aliases: Map<string, number> | undefined;
-    if (entry.aliases && typeof entry.aliases === 'object') {
-      aliases = new Map<string, number>();
-      for (const [alias, tabId] of Object.entries(entry.aliases)) {
-        if (typeof tabId === 'number' && liveTabIds.includes(tabId)) {
-          aliases.set(alias, tabId);
-        }
-      }
-      if (aliases.size === 0) aliases = undefined;
-    }
-    const s: ClientState = {
-      ownedTabs: new Set(liveTabIds),
-      activeTabId:
-        typeof entry.activeTabId === 'number' && liveTabIds.includes(entry.activeTabId)
-          ? entry.activeTabId
-          : undefined,
-      lastWindowId: typeof entry.lastWindowId === 'number' ? entry.lastWindowId : undefined,
-      lastSeenAt: typeof entry.lastSeenAt === 'number' ? entry.lastSeenAt : now,
-      ...(aliases ? { aliases } : {}),
-    };
-    STATE.set(clientId, s);
-  }
-  debugLog.info('client-state restored', {
-    data: { clients: STATE.size },
-  });
+  const report = getBrowserState().restoreOwnership(
+    snapshot as browserPolicy.OwnershipSnapshot,
+    aliveTabIds,
+    now(),
+  );
+  debugLog.info('client-state restored', { data: { clients: report.restoredClients } });
 }
-
-// =============================================================================
-// Pacing (unchanged behavior, same public surface)
-// =============================================================================
 
 export function setClientPacing(
   clientId: string | undefined,
   profile: PacingProfile,
   overrides?: { minGapMs?: number; jitterMs?: number },
 ): PacingState | undefined {
-  if (!clientId) return undefined;
-  const now = Date.now();
-  const existing = ensureState(clientId, now);
-  if (profile === 'off') {
-    delete existing.pacing;
-  } else {
-    const defaults = PROFILE_DEFAULTS[profile];
-    existing.pacing = {
-      profile,
-      minGapMs: overrides?.minGapMs ?? defaults.minGapMs,
-      jitterMs: overrides?.jitterMs ?? defaults.jitterMs,
-      lastDispatchAt: 0,
-    };
-  }
-  existing.lastSeenAt = now;
-  return existing.pacing ? { ...existing.pacing } : undefined;
+  return getBrowserState().setPacing(clientId, profile, overrides, now()) ?? undefined;
 }
 
 export function getClientPacing(clientId: string | undefined): PacingState | undefined {
-  if (!clientId) return undefined;
-  return STATE.get(clientId)?.pacing;
+  return getBrowserState().pacing(clientId) ?? undefined;
 }
 
-/**
- * Compute and consume the next throttle delay for `clientId`. Returns the
- * number of ms the caller should sleep before dispatching, and updates
- * `lastDispatchAt` to (now + delay) so back-to-back calls compound.
- */
+/** Computes pacing with explicit host clock and entropy. */
 export function consumePacingDelay(clientId: string | undefined): number {
-  if (!clientId) return 0;
-  const state = STATE.get(clientId);
-  const pacing = state?.pacing;
-  if (!state || !pacing) return 0;
-  const now = Date.now();
-  const elapsed = now - pacing.lastDispatchAt;
-  const target = pacing.minGapMs + Math.floor(Math.random() * (pacing.jitterMs + 1));
-  const delay = Math.max(0, target - elapsed);
-  pacing.lastDispatchAt = now + delay;
-  state.lastSeenAt = now;
-  return delay;
+  return getBrowserState().consumePacingDelay(clientId, now(), Math.random());
 }
 
-// =============================================================================
-// Ownership API
-// =============================================================================
-
-/**
- * Add `tabId` to `clientId`'s owned set and make it the active tab. If
- * another client owned the tab, transfer ownership and return the previous
- * owner — caller (e.g. `browser_claim_tab`) decides what to do with that
- * information. When `windowId` is provided it's recorded too.
- */
 export function claimTabForClient(
   clientId: string | undefined,
   tabId: number,
   windowId?: number,
 ): string | null {
-  if (!clientId || typeof tabId !== 'number' || !Number.isFinite(tabId)) return null;
-  const now = Date.now();
-  gc(now);
-  let previousOwner: string | null = null;
-  for (const [otherId, otherState] of STATE) {
-    if (otherId === clientId) continue;
-    if (otherState.ownedTabs.delete(tabId)) {
-      previousOwner = otherId;
-      if (otherState.activeTabId === tabId) otherState.activeTabId = undefined;
-    }
-  }
-  const state = ensureState(clientId, now);
-  state.ownedTabs.add(tabId);
-  state.activeTabId = tabId;
-  if (typeof windowId === 'number') state.lastWindowId = windowId;
-  state.lastSeenAt = now;
-  schedulePersist();
-  return previousOwner;
+  if (!clientId || !Number.isFinite(tabId)) return null;
+  const previous = getBrowserState().claimTab(clientId, tabId, windowId, now());
+  schedulePersistIfDirty();
+  return previous;
 }
 
-/**
- * Drop `tabId` from `clientId`'s owned set. No-op if the client didn't
- * own it.
- */
 export function releaseTabFromClient(clientId: string | undefined, tabId: number): void {
-  if (!clientId) return;
-  const state = STATE.get(clientId);
-  if (!state) return;
-  if (state.ownedTabs.delete(tabId)) {
-    if (state.activeTabId === tabId) state.activeTabId = undefined;
-    schedulePersist();
-  }
+  if (getBrowserState().releaseTab(clientId, tabId)) schedulePersistIfDirty();
 }
 
-/**
- * Find the clientId currently owning `tabId`, or `null` if the tab is
- * unowned. Returns the first match; ownership is exclusive so there
- * should be at most one.
- */
 export function findTabOwner(tabId: number): string | null {
-  for (const [clientId, state] of STATE) {
-    if (state.ownedTabs.has(tabId)) return clientId;
-  }
-  return null;
+  return getBrowserState().tabOwner(tabId);
 }
 
-/**
- * Subscribers notified after `releaseClient` clears a client's owned set.
- * Used by `owned-registry.ts` (IMP-0158) so per-client state stored outside
- * `ClientState` (inject-script registry, CDP owner tags, recorder sessions,
- * etc.) can drop its entries when the client disconnects.
- */
 const clientReleasedSubscribers = new Set<(clientId: string) => void>();
 
 export function subscribeOnClientReleased(cb: (clientId: string) => void): () => void {
@@ -351,258 +199,121 @@ export function subscribeOnClientReleased(cb: (clientId: string) => void): () =>
   return () => clientReleasedSubscribers.delete(cb);
 }
 
-/**
- * Release every tab owned by `clientId` back to the unowned pool. The
- * client entry itself stays (with `lastSeenAt` updated) so a reconnect
- * under the same sessionName can re-establish from the persisted snapshot.
- *
- * Does NOT close the tabs — the user keeps the browser session intact.
- */
 export function releaseClient(clientId: string | undefined): number {
-  if (!clientId) return 0;
-  const state = STATE.get(clientId);
-  if (!state) return 0;
-  const released = state.ownedTabs.size;
-  state.ownedTabs.clear();
-  state.activeTabId = undefined;
-  // IMP-0169: aliases are client-scoped — they go away with the client.
-  state.aliases = undefined;
-  state.lastSeenAt = Date.now();
-  schedulePersist();
-  for (const cb of clientReleasedSubscribers) {
-    try {
-      cb(clientId);
-    } catch {
-      // subscribers must not break ownership eviction
+  const existed = clientId !== undefined && getBrowserState().clientSnapshot(clientId) !== null;
+  const released = getBrowserState().releaseClient(clientId, now());
+  if (existed && clientId) {
+    schedulePersistIfDirty();
+    for (const cb of clientReleasedSubscribers) {
+      try {
+        cb(clientId);
+      } catch {
+        // Release observers must not interfere with ownership state.
+      }
     }
   }
   return released;
 }
 
 export interface ResolveOptions {
-  /** When true (read-only tools), allow resolution to any tab regardless of ownership. */
   isRead?: boolean;
 }
 
 export interface ResolveResult {
-  /** Resolved tab id, or undefined if none could be picked. */
   tabId?: number;
-  /**
-   * Set when an explicit `tabId` was rejected because another client owns it.
-   * The dispatcher converts this into a `TAB_NOT_OWNED` ToolError.
-   */
   conflict?: { tabId: number; owner: string };
-  /**
-   * IMP-0170: set when the caller passed `tabAlias` but the alias is
-   * either unknown or points at a tab the client no longer owns. The
-   * dispatcher converts this into a `TAB_NOT_FOUND` ToolError with
-   * `details.reason ∈ {'unknown-alias', 'tab-closed'}`.
-   */
   aliasMiss?: { alias: string; reason: 'unknown-alias' | 'tab-closed' };
-  /**
-   * IMP-0170: set when the caller passed BOTH `tabId` and `tabAlias`.
-   * The two are mutually exclusive — dispatcher converts to
-   * `INVALID_ARGS`.
-   */
   conflictingArgs?: { tabId: number; alias: string };
 }
 
-/**
- * Pick a target tab for a call.
- *
- * Priority:
- *   1. Explicit `tabId` from the caller.
- *      - For mutating tools: must be unowned (auto-claim) or already owned by
- *        the calling client. Otherwise returns `conflict`.
- *      - For read-only tools: always accepted; ownership unchanged.
- *   2. Client's `activeTabId` (if still in `ownedTabs`).
- *   3. Most recently added entry in `ownedTabs`.
- *   4. `undefined` — caller (dispatcher) decides whether to auto-spawn.
- *
- * Closed tabs are evicted reactively via `chrome.tabs.onRemoved` below,
- * so we don't pay an IPC per call to validate the cached id.
- */
 export function resolveOwnedTabIdForClient(
   clientId: string | undefined,
   explicitTabId?: number,
   opts: ResolveOptions = {},
 ): ResolveResult {
-  if (typeof explicitTabId === 'number') {
-    if (opts.isRead) return { tabId: explicitTabId };
-    const owner = findTabOwner(explicitTabId);
-    if (owner && owner !== clientId) {
-      return { conflict: { tabId: explicitTabId, owner } };
-    }
-    // Unowned or owned by us — auto-claim/refresh.
-    if (clientId) claimTabForClient(clientId, explicitTabId);
-    return { tabId: explicitTabId };
-  }
-  if (!clientId) return {};
-  const state = STATE.get(clientId);
-  if (!state) return {};
-  if (typeof state.activeTabId === 'number' && state.ownedTabs.has(state.activeTabId)) {
-    return { tabId: state.activeTabId };
-  }
-  // Pick the most-recently-inserted owned tab as a fallback. Set insertion
-  // order is preserved in JavaScript, so the last `add` wins.
-  let last: number | undefined;
-  for (const id of state.ownedTabs) last = id;
-  if (last !== undefined) return { tabId: last };
-  // Owned set is empty. Clear a stale activeTabId that wasn't evicted by
-  // onRemoved (e.g. the SW was sleeping when the tab closed and the event
-  // was missed). Prevents a stale id from leaking into future liveness probes.
-  if (state.activeTabId !== undefined) {
-    state.activeTabId = undefined;
-    schedulePersist();
-  }
-  return {};
+  const resolved = getBrowserState().resolveOwnedTab(
+    clientId,
+    explicitTabId,
+    opts.isRead ? 'read' : 'mutate',
+    now(),
+  );
+  schedulePersistIfDirty();
+  return resolutionSnapshot(resolved);
 }
 
-/**
- * Record a tab/window touched by this client. Used by the dispatcher after
- * a successful tool call to keep `activeTabId` / `lastWindowId` fresh. If
- * the tab isn't already owned, it's claimed.
- */
 export function recordClientTab(
   clientId: string | undefined,
   tabId: number,
   windowId?: number,
 ): void {
-  if (!clientId || typeof tabId !== 'number' || !Number.isFinite(tabId)) return;
-  claimTabForClient(clientId, tabId, windowId);
+  if (!clientId || !Number.isFinite(tabId)) return;
+  getBrowserState().recordClientTab(clientId, tabId, windowId, now());
+  schedulePersistIfDirty();
 }
 
 export function recordClientWindow(clientId: string | undefined, windowId: number): void {
-  if (!clientId || typeof windowId !== 'number') return;
-  const now = Date.now();
-  const existing = ensureState(clientId, now);
-  existing.lastWindowId = windowId;
-  existing.lastSeenAt = now;
-  schedulePersist();
+  if (!clientId || !Number.isFinite(windowId)) return;
+  getBrowserState().recordClientWindow(clientId, windowId, now());
+  schedulePersistIfDirty();
 }
 
-/**
- * Pick a windowId for the calling client. Explicit caller-supplied id wins;
- * otherwise the client's `lastWindowId` recency hint; otherwise `undefined`
- * (caller falls back to Chrome's last-focused selection).
- *
- * Synchronous — liveness of the returned windowId is verified by callers
- * that act on it (and by `chrome.windows.onRemoved`).
- */
 export function resolveOwnedWindowIdForClient(
   clientId: string | undefined,
   explicitWindowId?: number,
 ): number | undefined {
-  if (typeof explicitWindowId === 'number' && Number.isFinite(explicitWindowId)) {
-    return explicitWindowId;
-  }
-  if (!clientId) return undefined;
-  const state = STATE.get(clientId);
-  return state?.lastWindowId;
+  return getBrowserState().resolveOwnedWindow(clientId, explicitWindowId) ?? undefined;
 }
 
-/**
- * Clear a stale `lastWindowId` for a single client. Called by the dispatcher
- * when an auto-spawn probe (`chrome.windows.get`) discovers the recorded
- * window has died between the last touch and now.
- */
 export function clearLastWindowForClient(clientId: string | undefined, windowId: number): void {
-  if (!clientId) return;
-  const state = STATE.get(clientId);
-  if (!state) return;
-  if (state.lastWindowId === windowId) {
-    state.lastWindowId = undefined;
-    schedulePersist();
-  }
+  if (getBrowserState().clearLastWindow(clientId, windowId)) schedulePersistIfDirty();
 }
 
-/**
- * Read-only accessor for diagnostics and `chrome_get_windows_and_tabs`.
- */
+/** Returns an immutable Rust snapshot converted into the legacy collection view. */
 export function getClientState(clientId: string | undefined): ClientState | undefined {
-  if (!clientId) return undefined;
-  return STATE.get(clientId);
+  const snapshot = getBrowserState().clientSnapshot(clientId);
+  return snapshot ? clientSnapshot(snapshot) : undefined;
 }
-
-// =============================================================================
-// IMP-0169: tab aliases — named handles for the caller's owned tabs
-// =============================================================================
-
-/**
- * Validation per the plan: starts with a lowercase letter, then up to
- * 31 chars of [a-z0-9_-]. Total cap 32. Schema-validated by
- * `browser_alias_tab` so the LLM gets a clear error message before
- * the alias lands in state.
- */
-export const ALIAS_REGEX = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export interface AliasResolveResult {
-  /** Resolved tab id for the alias, if known and still owned. */
   tabId?: number;
-  /** Reason the alias didn't resolve: 'unknown-alias' or 'tab-closed'. */
   reason?: 'unknown-alias' | 'tab-closed';
 }
 
-/**
- * Set or overwrite an alias for a client-owned tab. Returns the prior
- * tabId for this alias (or undefined). Callers are responsible for
- * validating the alias against `ALIAS_REGEX` first (the
- * `browser_alias_tab` tool does this) and for confirming `tabId` is in
- * the client's owned set (the dispatcher's ownership gate does this).
- */
+export function isValidTabAlias(alias: string): boolean {
+  return getBrowserState().isValidAlias(alias);
+}
+
 export function setAliasForClient(
   clientId: string | undefined,
   alias: string,
   tabId: number,
 ): { previousTabId?: number } {
-  if (!clientId) return {};
-  const state = ensureState(clientId, Date.now());
-  if (!state.aliases) state.aliases = new Map<string, number>();
-  const previousTabId = state.aliases.get(alias);
-  state.aliases.set(alias, tabId);
-  schedulePersist();
-  return previousTabId !== undefined ? { previousTabId } : {};
+  const previousTabId = getBrowserState().setAlias(clientId, alias, tabId, now());
+  schedulePersistIfDirty();
+  return previousTabId === null ? {} : { previousTabId };
 }
 
-/**
- * Look up a tab by alias. Returns `{tabId}` on hit, `{reason}` on miss.
- * `tab-closed` fires if the alias was set but the underlying tab has
- * since been evicted from `ownedTabs` (closed or released) without the
- * alias being cleaned up — defensive in case `onRemoved` missed an
- * event in test contexts.
- */
 export function resolveAliasForClient(
   clientId: string | undefined,
   alias: string,
 ): AliasResolveResult {
-  if (!clientId) return { reason: 'unknown-alias' };
-  const state = STATE.get(clientId);
-  if (!state || !state.aliases) return { reason: 'unknown-alias' };
-  const tabId = state.aliases.get(alias);
-  if (typeof tabId !== 'number') return { reason: 'unknown-alias' };
-  if (!state.ownedTabs.has(tabId)) {
-    // Defensive cleanup — onRemoved should have caught this, but the
-    // alias points at a tab the client no longer owns. Drop it and
-    // report tab-closed so the caller can re-alias.
-    state.aliases.delete(alias);
-    if (state.aliases.size === 0) state.aliases = undefined;
-    schedulePersist();
-    return { reason: 'tab-closed' };
+  const resolved = getBrowserState().resolveAlias(clientId, alias);
+  if (typeof resolved.tabId === 'number') return { tabId: resolved.tabId };
+  if (resolved.error) {
+    schedulePersistIfDirty();
+    return { reason: resolved.error.reason };
   }
-  return { tabId };
+  return { reason: 'unknown-alias' };
 }
 
-/** Snapshot the alias→tabId map for a client (for `chrome_owned_tabs`). */
 export function listAliasesForClient(clientId: string | undefined): Record<string, number> {
-  if (!clientId) return {};
-  const state = STATE.get(clientId);
-  if (!state || !state.aliases) return {};
-  return Object.fromEntries(state.aliases);
+  return getBrowserState().aliases(clientId);
 }
 
 /** Test helper. Not exported via the barrel intentionally. */
 export function _resetClientStateForTests(): void {
-  STATE.clear();
+  readiness = undefined;
+  browserState = undefined;
   clientReleasedSubscribers.clear();
   if (persistTimer) {
     clearTimeout(persistTimer);
@@ -610,95 +321,75 @@ export function _resetClientStateForTests(): void {
   }
 }
 
-/**
- * Test helper — runs the same eviction logic the `chrome.tabs.onRemoved`
- * listener registered at module load runs. Used by tests that can't
- * exercise the listener directly (it's registered against the chrome
- * mock present at module load, not the per-test mock).
- */
 export function _handleTabRemovedForTests(tabId: number): void {
-  let touched = false;
-  for (const s of STATE.values()) {
-    if (s.ownedTabs.delete(tabId)) touched = true;
-    if (s.activeTabId === tabId) {
-      s.activeTabId = undefined;
-      touched = true;
-    }
-    if (s.aliases) {
-      for (const [alias, t] of s.aliases) {
-        if (t === tabId) {
-          s.aliases.delete(alias);
-          touched = true;
-        }
-      }
-      if (s.aliases.size === 0) s.aliases = undefined;
-    }
-  }
-  if (touched) schedulePersist();
+  if (getBrowserState().handleTabRemoved(tabId)) schedulePersistIfDirty();
 }
 
-/**
- * Test helper — runs the same eviction logic the `chrome.windows.onRemoved`
- * listener registered at module load runs. Per-tab evictions happen via the
- * companion `chrome.tabs.onRemoved` path; this helper only nulls the
- * `lastWindowId` hint so the next auto-spawn doesn't pass a dead windowId.
- */
 export function _handleWindowRemovedForTests(windowId: number): void {
-  let touched = false;
-  for (const s of STATE.values()) {
-    if (s.lastWindowId === windowId) {
-      s.lastWindowId = undefined;
-      touched = true;
-    }
-  }
-  if (touched) schedulePersist();
+  if (getBrowserState().handleWindowRemoved(windowId)) schedulePersistIfDirty();
 }
 
-// =============================================================================
-// chrome.tabs.onRemoved — evict closed tabs from every client's owned set
-// =============================================================================
+function clientSnapshot(snapshot: browserPolicy.ClientStateSnapshot): ClientState {
+  return {
+    ownedTabs: new Set(snapshot.ownedTabIds),
+    activeTabId: snapshot.activeTabId,
+    lastWindowId: snapshot.lastWindowId,
+    lastSeenAt: snapshot.lastSeenAt,
+    pacing: snapshot.pacing,
+    aliases: snapshot.aliases ? new Map(Object.entries(snapshot.aliases)) : undefined,
+  };
+}
 
+function resolutionSnapshot(resolved: {
+  tabId?: number;
+  error?: { code: string; details: unknown };
+}): ResolveResult {
+  if (typeof resolved.tabId === 'number') return { tabId: resolved.tabId };
+  const details = resolved.error?.details as Record<string, unknown> | undefined;
+  switch (resolved.error?.code) {
+    case 'TAB_NOT_OWNED':
+      return {
+        conflict: {
+          tabId: details?.tabId as number,
+          owner: details?.owner as string,
+        },
+      };
+    case 'TAB_NOT_FOUND':
+      return {
+        aliasMiss: {
+          alias: details?.alias as string,
+          reason: details?.reason as 'unknown-alias' | 'tab-closed',
+        },
+      };
+    case 'INVALID_ARGS':
+      return {
+        conflictingArgs: {
+          tabId: details?.tabId as number,
+          alias: details?.alias as string,
+        },
+      };
+    default:
+      return {};
+  }
+}
+
+// Register listeners synchronously; callback policy work waits for restoration.
 try {
   chrome.tabs?.onRemoved?.addListener((closedTabId) => {
-    let touched = false;
-    for (const s of STATE.values()) {
-      if (s.ownedTabs.delete(closedTabId)) touched = true;
-      if (s.activeTabId === closedTabId) {
-        s.activeTabId = undefined;
-        touched = true;
-      }
-      // IMP-0169: drop any alias mapping to the closed tab.
-      if (s.aliases) {
-        for (const [alias, tabId] of s.aliases) {
-          if (tabId === closedTabId) {
-            s.aliases.delete(alias);
-            touched = true;
-          }
-        }
-        if (s.aliases.size === 0) s.aliases = undefined;
-      }
-    }
-    if (touched) schedulePersist();
+    void ensureClientStateReady()
+      .then(() => _handleTabRemovedForTests(closedTabId))
+      .catch(() => undefined);
   });
 } catch {
-  // non-extension test context — listener is best-effort
+  // Non-extension test context.
 }
-
-// =============================================================================
-// chrome.windows.onRemoved — null stale lastWindowId hints when a window dies
-// =============================================================================
 
 try {
   chrome.windows?.onRemoved?.addListener((closedWindowId) => {
-    let touched = false;
-    for (const s of STATE.values()) {
-      if (s.lastWindowId === closedWindowId) {
-        s.lastWindowId = undefined;
-        touched = true;
-      }
-    }
-    if (touched) schedulePersist();
+    void ensureClientStateReady()
+      .then(() => _handleWindowRemovedForTests(closedWindowId))
+      .catch(() => undefined);
   });
 } catch {
-  // non-extension test context — listener is best-effort
+  // Non-extension test context.
 }

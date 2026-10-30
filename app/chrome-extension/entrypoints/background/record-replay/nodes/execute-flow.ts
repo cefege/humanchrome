@@ -1,6 +1,7 @@
 import type { Step } from '../types';
 import type { StepExecuteFlow } from '../legacy-types';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
+import { legacyExecutionPlan } from 'humanchrome-shared';
 
 interface ClickStepAfter {
   waitForNavigation?: boolean;
@@ -27,8 +28,7 @@ export const executeFlowNode: NodeRuntime<StepExecuteFlow> = {
       await runFlow(flow, { args: step.args || {}, returnLogs: false });
       return {} as ExecResult;
     }
-    const { defaultEdgesOnly, topoOrder, mapDagNodeToStep, waitForNetworkIdle, waitForNavigation } =
-      await import('../rr-utils');
+    const { mapDagNodeToStep, waitForNetworkIdle, waitForNavigation } = await import('../rr-utils');
     const vars = ctx.vars;
     if (step.args && typeof step.args === 'object') Object.assign(vars, step.args);
 
@@ -40,11 +40,10 @@ export const executeFlowNode: NodeRuntime<StepExecuteFlow> = {
         'Flow has no DAG nodes. Linear steps are no longer supported. Please migrate this flow to nodes/edges.',
       );
     }
-    const defaultEdges = defaultEdgesOnly(edges as Parameters<typeof defaultEdgesOnly>[0]);
-    const order = topoOrder(
-      nodes as Parameters<typeof topoOrder>[0],
-      defaultEdges as Parameters<typeof topoOrder>[1],
-    );
+    const order = legacyExecutionPlan(
+      nodes as Parameters<typeof legacyExecutionPlan>[0],
+      edges as Parameters<typeof legacyExecutionPlan>[1],
+    ).orderedNodeIndexes.map((index) => nodes[index]);
     const stepsToRun: Step[] = order.map((n) =>
       mapDagNodeToStep(n as Parameters<typeof mapDagNodeToStep>[0]),
     ) as Step[];

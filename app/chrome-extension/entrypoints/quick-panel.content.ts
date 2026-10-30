@@ -14,6 +14,7 @@
  */
 
 import { createQuickPanelController, type QuickPanelController } from '@/shared/quick-panel';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -49,28 +50,34 @@ export default defineContentScript({
 
       if (msg?.action === 'toggle_quick_panel') {
         console.log('[QuickPanelContentScript] Received toggle_quick_panel message');
-        try {
-          const ctrl = ensureController();
-          ctrl.toggle();
-          const visible = ctrl.isVisible();
-          console.log('[QuickPanelContentScript] Toggle completed, visible:', visible);
-          sendResponse({ success: true, visible });
-        } catch (err) {
-          console.error('[QuickPanelContentScript] Toggle error:', err);
-          sendResponse({ success: false, error: String(err) });
-        }
+        void (async () => {
+          try {
+            await ensureRustKernel();
+            const ctrl = ensureController();
+            ctrl.toggle();
+            const visible = ctrl.isVisible();
+            console.log('[QuickPanelContentScript] Toggle completed, visible:', visible);
+            sendResponse({ success: true, visible });
+          } catch (err) {
+            console.error('[QuickPanelContentScript] Toggle error:', err);
+            sendResponse({ success: false, error: String(err) });
+          }
+        })();
         return true; // Async response
       }
 
       if (msg?.action === 'show_quick_panel') {
-        try {
-          const ctrl = ensureController();
-          ctrl.show();
-          sendResponse({ success: true });
-        } catch (err) {
-          console.error('[QuickPanelContentScript] Show error:', err);
-          sendResponse({ success: false, error: String(err) });
-        }
+        void (async () => {
+          try {
+            await ensureRustKernel();
+            const ctrl = ensureController();
+            ctrl.show();
+            sendResponse({ success: true });
+          } catch (err) {
+            console.error('[QuickPanelContentScript] Show error:', err);
+            sendResponse({ success: false, error: String(err) });
+          }
+        })();
         return true;
       }
 

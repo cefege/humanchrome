@@ -72,33 +72,48 @@ export async function ensureContextMenu(): Promise<void> {
   }
 }
 
+async function awaitEditorRustReady(tabId: number): Promise<void> {
+  if (!USE_WEB_EDITOR_V2) return;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      const realm = globalThis as typeof globalThis & { __hcRustReady?: Promise<void> };
+      if (!realm.__hcRustReady) {
+        throw new Error('Web editor Rust policy kernel was not initialized');
+      }
+      await realm.__hcRustReady;
+    },
+    world: 'ISOLATED',
+  });
+}
+
 /**
  * Ensure the web editor script (v1 or v2) is injected into `tabId`.
  *
  * Pings the version-specific PING action first; if a `pong` comes back,
- * an instance is already running so we no-op. Otherwise we inject the
- * script in ISOLATED world. A failed inject is logged but not thrown —
- * some pages (chrome://, web store, PDF viewers) reject scripting and
- * the toggle path will surface a sensible UI error downstream.
+ * waits for the injected realm's Rust kernel before returning. Otherwise it
+ * injects the script in ISOLATED world and waits for the same readiness
+ * promise. Pages that reject scripting surface the existing toggle failure.
  */
 async function ensureEditorInjected(tabId: number): Promise<void> {
   const scriptPath = USE_WEB_EDITOR_V2 ? V2_SCRIPT_PATH : V1_SCRIPT_PATH;
   const actions = getActions();
 
-  // Try to ping existing instance using version-specific action
+  let alreadyInjected = false;
   try {
     const pong: { status?: string; version?: number } = await chrome.tabs.sendMessage(
       tabId,
       { action: actions.PING },
       { frameId: 0 },
     );
-
-    if (pong?.status === 'pong') {
-      // Already injected with correct version
-      return;
-    }
+    alreadyInjected = pong?.status === 'pong';
   } catch {
-    // No existing instance, fallthrough to inject
+    // No existing instance, fall through to injection.
+  }
+
+  if (alreadyInjected) {
+    await awaitEditorRustReady(tabId);
+    return;
   }
 
   // Inject the script
@@ -108,9 +123,11 @@ async function ensureEditorInjected(tabId: number): Promise<void> {
       files: [scriptPath],
       world: 'ISOLATED',
     });
+    await awaitEditorRustReady(tabId);
     console.log(`${LOG_PREFIX} Script injected successfully`);
   } catch (error) {
     console.warn(`${LOG_PREFIX} Failed to inject editor script:`, error);
+    throw error;
   }
 }
 
@@ -169,10 +186,10 @@ async function sendPropsAgentCleanup(tabId: number): Promise<void> {
  * failure (the caller treats this as "unknown").
  */
 export async function toggleEditorInTab(tabId: number): Promise<{ active?: boolean }> {
-  await ensureEditorInjected(tabId);
   const actions = getActions();
 
   try {
+    await ensureEditorInjected(tabId);
     const resp: { active?: boolean } = await chrome.tabs.sendMessage(
       tabId,
       { action: actions.TOGGLE },

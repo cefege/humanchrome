@@ -56,3 +56,49 @@ export const placeholderStrategy: SelectorStrategy & {
     return resolveByPlaceholder(scope, value, extras?.exact);
   },
 };
+
+/**
+ * Recorder-only DOM extraction compatible with the frozen eight-strategy
+ * selector engine. Candidate ranking, deduplication, and weights remain Rust-owned.
+ */
+export const recorderPlaceholderStrategy: SelectorStrategy = {
+  id: 'placeholder',
+
+  generate(ctx) {
+    const { element, helpers } = ctx;
+    const tag = (element.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') return [];
+
+    const raw = element.getAttribute('placeholder');
+    const placeholder = raw ? raw.trim() : '';
+    if (!placeholder) return [];
+
+    const escaped = helpers.cssEscape(placeholder);
+    const attrOnly = `[placeholder="${escaped}"]`;
+    const withTag = `${tag}[placeholder="${escaped}"]`;
+
+    if (helpers.isUnique(attrOnly)) {
+      return [
+        {
+          type: 'attr',
+          value: attrOnly,
+          source: 'generated',
+          strategy: 'placeholder',
+        },
+      ];
+    }
+
+    if (helpers.isUnique(withTag)) {
+      return [
+        {
+          type: 'attr',
+          value: withTag,
+          source: 'generated',
+          strategy: 'placeholder',
+        },
+      ];
+    }
+
+    return [];
+  },
+};

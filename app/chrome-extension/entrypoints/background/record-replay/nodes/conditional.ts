@@ -1,3 +1,4 @@
+import { replayPolicy } from 'humanchrome-shared';
 import type { StepIf } from '../legacy-types';
 import type { ExecCtx, ExecResult, NodeRuntime } from './types';
 
@@ -16,8 +17,8 @@ export const ifNode: NodeRuntime<StepIf> = {
   validate: (step: StepIf) => {
     const ext = step as StepIf & IfBranchesShape;
     const hasBranches = Array.isArray(ext.branches) && ext.branches.length > 0;
-    const ok = hasBranches || !!step.condition;
-    return ok ? { ok } : { ok, errors: ['Missing condition or branch'] };
+    const error = replayPolicy.replayValidateIf(hasBranches, !!step.condition);
+    return error ? { ok: false, errors: [error] } : { ok: true };
   },
   run: async (ctx: ExecCtx, step: StepIf) => {
     const ext = step as StepIf & IfBranchesShape;
@@ -36,13 +37,20 @@ export const ifNode: NodeRuntime<StepIf> = {
           return false;
         }
       };
-      for (const br of ext.branches) {
-        if (br?.expr && evalExpr(String(br.expr))) {
-          return { nextLabel: String(br.label || `case:${br.id || 'match'}`) } as ExecResult;
-        }
-      }
-      if ('else' in ext) return { nextLabel: String(ext.else || 'default') } as ExecResult;
-      return { nextLabel: 'default' } as ExecResult;
+      const labels = ext.branches.map((branch) =>
+        String(branch?.label || `case:${branch?.id || 'match'}`),
+      );
+      const matchingIndex = ext.branches.findIndex(
+        (branch) => !!branch?.expr && evalExpr(String(branch.expr)),
+      );
+      return {
+        nextLabel: replayPolicy.replayIfBranchLabel(
+          labels,
+          matchingIndex < 0 ? undefined : matchingIndex,
+          'else' in ext,
+          String(ext.else || 'default'),
+        ),
+      } as ExecResult;
     }
     // legacy condition: { var/equals | expression }
     try {
@@ -62,9 +70,13 @@ export const ifNode: NodeRuntime<StepIf> = {
         if ('equals' in cond) result = String(v) === String(cond.equals);
         else result = !!v;
       }
-      return { nextLabel: result ? 'true' : 'false' } as ExecResult;
+      return {
+        nextLabel: replayPolicy.replayIfBranchLabel(['false', 'true'], result ? 1 : 0, false, 'default'),
+      } as ExecResult;
     } catch {
-      return { nextLabel: 'false' } as ExecResult;
+      return {
+        nextLabel: replayPolicy.replayIfBranchLabel(['false'], 0, false, 'default'),
+      } as ExecResult;
     }
   },
 };

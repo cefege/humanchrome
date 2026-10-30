@@ -1,7 +1,8 @@
 import { createApp } from 'vue';
 import App from './App.vue';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 
 // Tailwind first, then custom tokens
 import '../styles/tailwind.css';
 
-createApp(App).mount('#app');
+void ensureRustKernel().then(() => createApp(App).mount('#app'));

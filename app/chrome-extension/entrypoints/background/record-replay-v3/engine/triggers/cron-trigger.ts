@@ -9,12 +9,10 @@
  *
  * Timezone:
  * - Accepts IANA timezones (e.g. "UTC", "Asia/Shanghai").
- * - Validated via `Intl.DateTimeFormat(..., { timeZone })`.
- *
- * Cron parsing:
- * - Delegated to an external library (recommended: `cron-parser`) to avoid DST edge cases.
- * - Falls back to a minimal built-in parser if library not available.
+ * - Rust owns grammar, validation, and next-fire search; Date/Intl remains a narrow host observer.
  */
+
+import { runPolicy } from 'humanchrome-shared';
 
 import type { UnixMillis } from '../../domain/json';
 import type { TriggerId } from '../../domain/ids';
@@ -52,37 +50,28 @@ const ALARM_PREFIX = 'rr_v3_cron_';
 
 // ==================== Utilities ====================
 
-/**
- * Normalize cron expression
- */
+/** Normalizes through the narrow String callback while Rust owns empty/grammar policy. */
 function normalizeCronExpression(value: unknown): string {
-  const raw = typeof value === 'string' ? value : String(value ?? '');
-  const normalized = raw.trim().replace(/\s+/g, ' ');
-  if (!normalized) {
-    throw new Error('cron must be a non-empty string');
-  }
-  return normalized;
+  return runPolicy.normalizeRunCron(value, (input) => {
+    const raw = typeof input === 'string' ? input : String(input ?? '');
+    return raw.trim().replace(/\s+/g, ' ');
+  });
 }
 
-/**
- * Validate and normalize timezone
- */
+/** Validates through the narrow Intl callback while Rust owns absence/type/error policy. */
 function normalizeTimezone(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string') {
-    throw new Error('timezone must be a string');
-  }
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  try {
-    // Throws RangeError for invalid IANA timezones
-    new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).format(new Date(0));
-  } catch {
-    throw new Error(`Invalid timezone: "${trimmed}"`);
-  }
-
-  return trimmed;
+  return runPolicy.normalizeRunCronTimezone(
+    value,
+    (timezone) => timezone.trim(),
+    (timezone) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date(0));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
 }
 
 /**
@@ -102,95 +91,31 @@ function parseTriggerIdFromAlarmName(name: string): TriggerId | null {
 }
 
 /**
- * Simple cron expression parser (minimal subset)
- * Supports: minute hour day-of-month month day-of-week
- * Values: numbers, * (any), intervals (e.g., * /5)
- *
- * For production use with complex cron expressions, install 'cron-parser'.
+ * Host Date observation for the local-time branch. Rust owns field matching and search order.
  */
-function parseSimpleCron(cron: string): {
-  minute: number[];
-  hour: number[];
-  dayOfMonth: number[];
-  month: number[];
-  dayOfWeek: number[];
-} {
-  const parts = cron.split(' ');
-  if (parts.length !== 5) {
-    throw new Error(`Invalid cron expression: expected 5 fields, got ${parts.length}`);
-  }
-
-  function parseField(field: string, min: number, max: number): number[] {
-    const values: number[] = [];
-
-    for (const part of field.split(',')) {
-      if (part === '*') {
-        for (let i = min; i <= max; i++) values.push(i);
-      } else if (part.includes('/')) {
-        const [range, stepStr] = part.split('/');
-        const step = parseInt(stepStr, 10);
-        // Guard against infinite loop: step must be positive
-        if (!Number.isFinite(step) || step < 1) {
-          throw new Error(`Invalid step in cron field: "${part}" (step must be >= 1)`);
-        }
-        const start = range === '*' ? min : parseInt(range, 10);
-        if (!Number.isFinite(start) || start < min || start > max) {
-          throw new Error(`Invalid range start in cron field: "${part}"`);
-        }
-        for (let i = start; i <= max; i += step) values.push(i);
-      } else if (part.includes('-')) {
-        const [startStr, endStr] = part.split('-');
-        const start = parseInt(startStr, 10);
-        const end = parseInt(endStr, 10);
-        if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
-          throw new Error(`Invalid range in cron field: "${part}"`);
-        }
-        for (let i = start; i <= end; i++) values.push(i);
-      } else {
-        const num = parseInt(part, 10);
-        if (!Number.isFinite(num)) {
-          throw new Error(`Invalid number in cron field: "${part}"`);
-        }
-        values.push(num);
-      }
-    }
-
-    // Validate all values are within bounds
-    for (const v of values) {
-      if (v < min || v > max) {
-        throw new Error(`Cron field value ${v} out of range [${min}, ${max}]`);
-      }
-    }
-
-    return [...new Set(values)].sort((a, b) => a - b);
-  }
-
+function observeLocalCandidate(
+  fromMs: UnixMillis,
+  dayOffset: number,
+  hour: number,
+  minute: number,
+): runPolicy.CronClockParts {
+  const candidate = new Date(fromMs + 1000);
+  candidate.setDate(candidate.getDate() + dayOffset);
+  candidate.setHours(hour, minute, 0, 0);
   return {
-    minute: parseField(parts[0], 0, 59),
-    hour: parseField(parts[1], 0, 23),
-    dayOfMonth: parseField(parts[2], 1, 31),
-    month: parseField(parts[3], 1, 12),
-    dayOfWeek: parseField(parts[4], 0, 6),
+    timestampMs: candidate.getTime(),
+    year: candidate.getFullYear(),
+    month: candidate.getMonth() + 1,
+    day: candidate.getDate(),
+    hour: candidate.getHours(),
+    minute: candidate.getMinutes(),
+    dayOfWeek: candidate.getDay(),
   };
 }
 
-// ==================== Timezone Utilities ====================
-
-interface ZonedTimeParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  dayOfWeek: number;
-}
-
-// Cache DateTimeFormat instances per timezone for performance
+// Cache DateTimeFormat instances per timezone for the narrow Intl observation boundary.
 const dtfCache = new Map<string, Intl.DateTimeFormat>();
 
-/**
- * Get or create cached DateTimeFormat for a timezone
- */
 function getDateTimeFormat(timezone: string): Intl.DateTimeFormat {
   let dtf = dtfCache.get(timezone);
   if (!dtf) {
@@ -209,7 +134,6 @@ function getDateTimeFormat(timezone: string): Intl.DateTimeFormat {
   return dtf;
 }
 
-// Map weekday string to number (0=Sunday)
 const WEEKDAY_MAP: Record<string, number> = {
   Sun: 0,
   Mon: 1,
@@ -220,20 +144,14 @@ const WEEKDAY_MAP: Record<string, number> = {
   Sat: 6,
 };
 
-/**
- * Get time parts in a specific timezone using Intl.DateTimeFormat
- */
-function getZonedTimeParts(utcMs: UnixMillis, timezone: string): ZonedTimeParts {
-  const dtf = getDateTimeFormat(timezone);
-  const parts = dtf.formatToParts(new Date(utcMs));
+/** Host Intl observation for the zoned branch; no cron decision lives here. */
+function observeZonedParts(utcMs: UnixMillis, timezone: string): runPolicy.CronClockParts {
+  const parts = getDateTimeFormat(timezone).formatToParts(new Date(utcMs));
   const map: Record<string, string> = Object.create(null);
-  for (const p of parts) {
-    if (p.type !== 'literal') map[p.type] = p.value;
+  for (const part of parts) {
+    if (part.type !== 'literal') map[part.type] = part.value;
   }
-
-  // Handle edge case: some environments emit "24" for midnight
   const rawHour = Number(map.hour);
-
   return {
     year: Number(map.year),
     month: Number(map.month),
@@ -244,152 +162,14 @@ function getZonedTimeParts(utcMs: UnixMillis, timezone: string): ZonedTimeParts 
   };
 }
 
-/**
- * Calculate timezone offset in milliseconds at a given UTC timestamp
- * Positive offset means timezone is ahead of UTC (e.g., Asia/Shanghai = +8h = +28800000ms)
- */
-function getTimezoneOffsetMs(utcMs: UnixMillis, timezone: string): number {
-  const z = getZonedTimeParts(utcMs, timezone);
-  const asUtc = Date.UTC(z.year, z.month - 1, z.day, z.hour, z.minute, 0);
-  return asUtc - utcMs;
-}
-
-/**
- * Convert zoned datetime to UTC milliseconds
- * Uses iterative refinement to handle DST transitions
- */
-function zonedToUtcMs(
-  zoned: { year: number; month: number; day: number; hour: number; minute: number },
-  timezone: string,
-): UnixMillis {
-  // Start with the zoned time interpreted as UTC
-  const baseUtc = Date.UTC(zoned.year, zoned.month - 1, zoned.day, zoned.hour, zoned.minute, 0);
-
-  // Iteratively solve: utcMs = baseUtc - offset(utcMs)
-  let utcMs = baseUtc;
-  for (let i = 0; i < 3; i++) {
-    const offsetMs = getTimezoneOffsetMs(utcMs, timezone);
-    const next = baseUtc - offsetMs;
-    if (next === utcMs) break;
-    utcMs = next;
-  }
-  return utcMs;
-}
-
-// ==================== Cron Computation ====================
-
-/**
- * Compute next fire time using built-in simple parser (local timezone)
- */
-function computeNextFireAtMsLocal(
-  parsed: ReturnType<typeof parseSimpleCron>,
-  fromMs: UnixMillis,
-): UnixMillis {
-  const baseDate = new Date(fromMs + 1000); // Add 1 second to ensure next occurrence
-
-  for (let dayOffset = 0; dayOffset < 366; dayOffset++) {
-    for (const hour of parsed.hour) {
-      for (const minute of parsed.minute) {
-        const candidate = new Date(baseDate);
-        candidate.setDate(candidate.getDate() + dayOffset);
-        candidate.setHours(hour, minute, 0, 0);
-
-        if (candidate.getTime() <= fromMs) continue;
-
-        const month = candidate.getMonth() + 1;
-        const dayOfMonth = candidate.getDate();
-        const dayOfWeek = candidate.getDay();
-
-        if (!parsed.month.includes(month)) continue;
-        if (!parsed.dayOfMonth.includes(dayOfMonth) && !parsed.dayOfWeek.includes(dayOfWeek))
-          continue;
-
-        return candidate.getTime();
-      }
-    }
-  }
-
-  throw new Error('Failed to compute next cron fire time within 1 year');
-}
-
-/**
- * Compute next fire time in a specific timezone
- */
-function computeNextFireAtMsZoned(
-  parsed: ReturnType<typeof parseSimpleCron>,
-  fromMs: UnixMillis,
-  timezone: string,
-): UnixMillis {
-  const baseZoned = getZonedTimeParts(fromMs + 1000, timezone);
-  const dayCursor = new Date(Date.UTC(baseZoned.year, baseZoned.month - 1, baseZoned.day));
-
-  for (let dayOffset = 0; dayOffset < 366; dayOffset++) {
-    if (dayOffset > 0) dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
-
-    const year = dayCursor.getUTCFullYear();
-    const month = dayCursor.getUTCMonth() + 1;
-    const dayOfMonth = dayCursor.getUTCDate();
-    const dayOfWeek = dayCursor.getUTCDay();
-
-    if (!parsed.month.includes(month)) continue;
-    if (!parsed.dayOfMonth.includes(dayOfMonth) && !parsed.dayOfWeek.includes(dayOfWeek)) continue;
-
-    for (const hour of parsed.hour) {
-      for (const minute of parsed.minute) {
-        const candidateUtcMs = zonedToUtcMs(
-          { year, month, day: dayOfMonth, hour, minute },
-          timezone,
-        );
-
-        if (candidateUtcMs <= fromMs) continue;
-
-        // Validate conversion didn't drift (DST gaps/ambiguity can cause skipped times)
-        const candidateZoned = getZonedTimeParts(candidateUtcMs, timezone);
-        if (
-          candidateZoned.year !== year ||
-          candidateZoned.month !== month ||
-          candidateZoned.day !== dayOfMonth ||
-          candidateZoned.hour !== hour ||
-          candidateZoned.minute !== minute
-        ) {
-          continue; // Skip DST gap times
-        }
-
-        return candidateUtcMs;
-      }
-    }
-  }
-
-  throw new Error('Failed to compute next cron fire time within 1 year');
-}
-
-/**
- * Compute next fire time using built-in simple parser
- */
-function computeNextFireAtMsSimple(input: {
-  cron: string;
-  timezone?: string;
-  fromMs: UnixMillis;
-}): UnixMillis {
-  const parsed = parseSimpleCron(input.cron);
-
-  if (input.timezone) {
-    return computeNextFireAtMsZoned(parsed, input.fromMs, input.timezone);
-  }
-
-  return computeNextFireAtMsLocal(parsed, input.fromMs);
-}
-
-/**
- * Default compute next fire time function
- * Uses simple built-in parser
- */
 function defaultComputeNextFireAtMs(input: {
   cron: string;
   timezone?: string;
   fromMs: UnixMillis;
 }): UnixMillis {
-  return computeNextFireAtMsSimple(input);
+  return input.timezone
+    ? runPolicy.nextRunCronZoned(input.cron, input.timezone, input.fromMs, observeZonedParts)
+    : runPolicy.nextRunCronLocal(input.cron, input.fromMs, observeLocalCandidate);
 }
 
 // ==================== Handler Implementation ====================

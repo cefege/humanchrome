@@ -1,7 +1,7 @@
 # Logging
 
 HumanChrome ships a unified, correlation-id-aware logging system across both
-halves of the system: the native bridge (Node, pino) and the Chrome
+halves of the system: the Rust native bridge (`tracing`) and the Chrome
 extension (service worker + sidepanel + tools, in-house structured logger).
 Every log entry carries the same `requestId` so a single tool call can be
 traced from the AI client all the way to the inject-script and back.
@@ -35,12 +35,12 @@ Both halves share the same level vocabulary:
 
 ## Environment variables
 
-### Bridge (`app/native-server`)
+### Native runtime (`crates/humanchrome-native`)
 
 - `HUMANCHROME_LOG_LEVEL` — one of `trace|debug|info|warn|error|fatal`.
   Defaults to `info`. Falls back to legacy `MCP_LOG_LEVEL` if unset.
-- `NODE_ENV` — when not `production`, logs are pretty-printed via
-  `pino-pretty` if stderr is a TTY. Otherwise NDJSON.
+- Native host records are newline-delimited JSON on stderr. Native Messaging
+  stdout is reserved exclusively for framed protocol messages.
 
 ### Extension
 
@@ -50,17 +50,16 @@ Both halves share the same level vocabulary:
 
 ## Where logs land
 
-| Origin                      | Destination                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bridge (humanchrome-bridge) | `process.stderr` of the bridge Node process. macOS users running the bridge from a wrapper script typically see this in `~/Library/Logs/humanchrome-bridge/bridge.log` (depends on the wrapper). When launched directly by Chrome via Native Messaging, stderr is captured by Chrome — see `chrome://policy` and the Native Messaging troubleshooting docs. |
-| Extension SW + sidepanel    | DevTools console (live) **and** `chrome.storage.local` ring buffer (`__humanchrome_log_v2`, ~5 MB cap, newest-first oldest-dropped). Inspect via `chrome_debug_dump` or by opening the SW DevTools and running `chrome.storage.local.get('__humanchrome_log_v2', console.log)`.                                                                             |
-| Inject scripts              | If they post a result back to the SW with `_humanchromeRequestId`, the SW-side handler logs them with that requestId — so they show up in the same ring buffer.                                                                                                                                                                                             |
+| Origin | Destination |
+| --- | --- |
+| Bridge (`humanchrome-nativehost`) | Native `tracing` records go to stderr as newline-delimited JSON. Chrome captures stderr for a Native Messaging host; an installed launcher may redirect that stream to its platform log location. |
+| Extension SW + sidepanel | DevTools console (live) **and** `chrome.storage.local` ring buffer (`__humanchrome_log_v2`, ~5 MB cap, newest-first oldest-dropped). Inspect via `chrome_debug_dump` or by opening the SW DevTools and running `chrome.storage.local.get('__humanchrome_log_v2', console.log)`. |
+| Inject scripts | If they post a result back to the SW with `_humanchromeRequestId`, the SW-side handler logs them with that requestId — so they show up in the same ring buffer. |
 
-> **Why stderr for the bridge?** Chrome Native Messaging frames messages
-> over **stdin/stdout** with a 4-byte length prefix. Anything written to
-> stdout corrupts the wire and the host gets killed. The pino logger in
-> `app/native-server/src/util/logger.ts` is hard-pinned to stderr; do not
-> change the destination.
+> **Why stderr for the native host?** Chrome Native Messaging frames messages
+> over **stdin/stdout** with a 4-byte length prefix. Anything written to stdout
+> corrupts the wire and the host gets killed. Keep Rust `tracing` output on
+> stderr.
 
 ## Reading the extension ring buffer
 
@@ -125,26 +124,21 @@ Both halves redact any object key matching (case-insensitive):
 - `apiKey`
 - `set-cookie`
 
-Bridge: pino's `redact` paths cover those keys at root and on `headers.*`,
-plus wildcards. Censor value is the literal string `[REDACTED]`.
+Native runtime: `tracing` fields are redacted before the JSON record is written
+to stderr. The existing bridge-level paths cover credential-shaped keys; adapter
+subprocess protocol output remains private and never shares the Native Messaging
+stdout channel.
 
 Extension: a recursive walker rewrites matched keys before the entry hits
 the buffer or the console mirror.
 
 ## Adding new context fields
 
-### Bridge
+### Native runtime
 
-```ts
-import { withContext } from './util/logger';
-
-const log = withContext({ component: 'my-thing', sessionId, requestId });
-log.info({ durationMs: 42 }, 'did the thing');
-log.warn({ err: e.message }, 'soft failure');
-```
-
-The first argument is the structured object, the second the message —
-this is the standard pino call shape.
+Use structured `tracing` fields, preserving `requestId`, `clientId`, `tool`, and
+`tabId` when they are available. Never log credentials or write diagnostics to
+Native Messaging stdout.
 
 ### Extension
 
@@ -162,14 +156,13 @@ the manifest). Anything else goes into `data`.
 
 ## Correlation id flow
 
-```
 MCP client
    │  (call_tool)
    ▼
-bridge / dispatch.ts        ← logs `{ requestId, tool, clientId }`
+Rust bridge / dispatch        ← logs `{ requestId, tool, clientId }`
    │  native-messaging envelope (carries `requestId`, `clientId`)
    ▼
-extension SW / tools/index.ts  ← logs same `requestId` + sets context for sub-calls
+extension SW / tools/index.ts ← logs same `requestId` + sets context for sub-calls
    │  chrome.tabs.sendMessage with `_humanchromeRequestId` tag
    ▼
 inject script (e.g. click-helper.js)
@@ -180,16 +173,13 @@ chrome_debug_dump can now stitch the whole timeline.
 
 ## Operational tips
 
-- When debugging a flaky tool, first set both halves to `debug`:
-  - bridge: `HUMANCHROME_LOG_LEVEL=debug` then restart the Native Host
-    (in Chrome: open `chrome://extensions` → toggle off/on, or click
-    the extension Disconnect/Connect button).
+- When debugging a flaky tool, set both halves to `debug`:
+  - native runtime: start the isolated native process with
+    `HUMANCHROME_LOG_LEVEL=debug`;
   - extension: from a SW DevTools console run
-    `chrome.storage.local.set({ 'humanchrome:logLevel': 'debug' })` then
-    reload the extension.
-- The bridge's logger uses **synchronous** pino destination under
-  `NODE_ENV=test` / `JEST_WORKER_ID` so jest hooks don't hang. Production
-  uses async to keep the hot path off the event loop.
+    `chrome.storage.local.set({ 'humanchrome:logLevel': 'debug' })`.
+- Rust structured logging remains on stderr in every mode; Native Messaging
+  stdout is protocol-only.
 - The extension ring buffer trims oldest entries when the serialized JSON
   exceeds ~5 MB. For long-running diagnostic sessions, periodically
   `chrome_debug_dump` with `clear: true` after you've captured the slice

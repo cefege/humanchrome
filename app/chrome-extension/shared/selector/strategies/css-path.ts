@@ -1,20 +1,12 @@
 /**
- * CSS Path Strategy - generates a full CSS path using nth-of-type
+ * CSS Path Strategy - generates a full CSS path using nth-of-type.
  *
- * This is the structural last-resort. It always produces a selector, but the
- * nth-of-type ladder is the most brittle locator we can emit (re-ordering a
- * sibling node breaks it). The negative weight pushes it below every other
- * strategy in the priority ladder so it is only chosen when nothing else
- * yields a candidate.
+ * This is the structural last-resort. Rust assigns its generated-candidate
+ * priority after this DOM strategy collects the path.
  */
 
 import type { SelectorCandidate, SelectorStrategy } from '../types';
 
-/**
- * Weight penalty: rank below anchor-relpath (-10) and text (-20).
- * css-path is the absolute last resort.
- */
-const CSS_PATH_STRATEGY_WEIGHT = -30;
 
 export const cssPathStrategy: SelectorStrategy = {
   id: 'css-path',
@@ -55,7 +47,6 @@ export const cssPathStrategy: SelectorStrategy = {
       {
         type: 'css',
         value: selector,
-        weight: CSS_PATH_STRATEGY_WEIGHT,
         source: 'generated',
         strategy: 'css-path',
       },

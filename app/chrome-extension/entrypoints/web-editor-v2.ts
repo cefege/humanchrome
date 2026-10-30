@@ -19,6 +19,8 @@
  * Build output: .output/chrome-mv3/web-editor-v2.js
  */
 
+import { RUST_KERNEL_ID } from 'humanchrome-shared';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 import { WEB_EDITOR_V2_LOG_PREFIX } from './web-editor-v2/constants';
 import { createWebEditorV2 } from './web-editor-v2/core/editor';
 import { installMessageListener } from './web-editor-v2/core/message-listener';
@@ -36,12 +38,21 @@ export default defineUnlistedScript(() => {
     return;
   }
 
-  // Create and expose the API
+  const realm = globalThis as typeof globalThis & {
+    __hcRustReady?: Promise<void>;
+    __hcRustKernelId?: string;
+  };
+  const rustReady =
+    realm.__hcRustKernelId === RUST_KERNEL_ID && realm.__hcRustReady
+      ? realm.__hcRustReady
+      : (realm.__hcRustReady = ensureRustKernel());
+  realm.__hcRustKernelId = RUST_KERNEL_ID;
+
+  // Create and expose the API before registering the listener. The listener is
+  // synchronous to register, while Rust-dependent commands await `rustReady`.
   const api = createWebEditorV2();
   window.__MCP_WEB_EDITOR_V2__ = api;
-
-  // Install message listener for background communication
-  installMessageListener(api);
+  installMessageListener(api, rustReady);
 
   console.log(`${WEB_EDITOR_V2_LOG_PREFIX} Installed successfully`);
 });

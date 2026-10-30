@@ -1,7 +1,6 @@
+import { runPolicy, workflowPolicy } from 'humanchrome-shared';
 import type { NodeId, RunId } from '../../domain/ids';
-import { EDGE_LABELS } from '../../domain/ids';
 import type { FlowV3, NodeV3 } from '../../domain/flow';
-import { findNodeById } from '../../domain/flow';
 import type {
   PauseReason,
   RunEvent,
@@ -12,8 +11,7 @@ import type {
 import { RUN_SCHEMA_VERSION } from '../../domain/events';
 import type { JsonObject, JsonValue } from '../../domain/json';
 import { RR_ERROR_CODES, createRRError, type RRError } from '../../domain/errors';
-import type { NodePolicy, RetryPolicy } from '../../domain/policy';
-import { mergeNodePolicy } from '../../domain/policy';
+import { mergeNodePolicy, type NodePolicy, type RetryPolicy } from '../../domain/policy';
 
 import type { EventsBus } from '../transport/events-bus';
 import type { StoragePort } from '../storage/storage-port';
@@ -24,7 +22,13 @@ import type { NodeExecutionContext, NodeExecutionResult, VarsPatchOp } from '../
 import type { ArtifactService } from './artifacts';
 import { createNotImplementedArtifactService } from './artifacts';
 import { getBreakpointRegistry, type BreakpointManager } from './breakpoints';
-import { findEdgeByLabel, findNextNode, validateFlowDAG } from './traversal';
+import {
+  createWorkflowTraversalContext,
+  findNodeInContext,
+  findEdgeByLabelInContext,
+  findNextNodeInContext,
+  type WorkflowTraversalContext,
+} from './traversal';
 import type { RunResult } from './kernel';
 
 // ==================== Types ====================
@@ -124,25 +128,7 @@ async function withTimeout<T>(
 }
 
 function computeRetryDelayMs(policy: RetryPolicy, attempt: number): number {
-  const base = Math.max(0, policy.intervalMs);
-  let delay = base;
-  const backoff = policy.backoff ?? 'none';
-
-  if (backoff === 'linear') {
-    delay = base * attempt;
-  } else if (backoff === 'exp') {
-    delay = base * Math.pow(2, Math.max(0, attempt - 1));
-  }
-
-  if (policy.maxIntervalMs !== undefined) {
-    delay = Math.min(delay, Math.max(0, policy.maxIntervalMs));
-  }
-
-  if (policy.jitter === 'full') {
-    delay = Math.floor(Math.random() * (delay + 1));
-  }
-
-  return Math.max(0, Math.floor(delay));
+  return workflowPolicy.workflowRetryDelay(policy, attempt, Math.random());
 }
 
 function applyVarsPatch(vars: Record<string, JsonValue>, patch: VarsPatchOp[]): void {
@@ -244,6 +230,7 @@ class StorageBackedRunRunner implements RunRunner {
   private readonly env: RunnerEnv;
   private readonly queue = new SerialQueue();
   private readonly breakpoints: BreakpointManager;
+  private readonly traversal: WorkflowTraversalContext;
 
   private startPromise: Promise<RunResult> | null = null;
   private outputs: JsonObject = {};
@@ -265,6 +252,8 @@ class StorageBackedRunRunner implements RunRunner {
     };
 
     this.breakpoints = getBreakpointRegistry().getOrCreate(runId, config.debug?.breakpoints);
+
+    this.traversal = createWorkflowTraversalContext(config.flow, this.state.vars);
   }
 
   onEvent(listener: (event: RunEvent) => void): Unsubscribe {
@@ -316,6 +305,7 @@ class StorageBackedRunRunner implements RunRunner {
 
   setVar(name: string, value: JsonValue): void {
     this.state.vars[name] = value;
+    this.traversal.applyVariableOperations([{ op: 'set', name, value }]);
 
     // Best-effort: emit vars.patch event
     void this.queue
@@ -434,7 +424,7 @@ class StorageBackedRunRunner implements RunRunner {
     await this.ensureRunRecord(startNodeId, startedAt);
 
     // Validate DAG
-    const validation = validateFlowDAG(flow);
+    const validation = this.traversal.validateDag();
     if (!validation.ok) {
       const error =
         validation.errors[0] ?? createRRError(RR_ERROR_CODES.DAG_INVALID, 'Invalid DAG');
@@ -475,7 +465,7 @@ class StorageBackedRunRunner implements RunRunner {
       await this.waitIfPaused();
       if (this.state.canceled) break;
 
-      const node = findNodeById(flow, currentNodeId);
+      const node = findNodeInContext(flow, this.traversal, currentNodeId);
       if (!node) {
         const error = createRRError(
           RR_ERROR_CODES.DAG_INVALID,
@@ -494,7 +484,7 @@ class StorageBackedRunRunner implements RunRunner {
             reason: 'disabled',
           } as RunEventInput),
         );
-        currentNodeId = findNextNode(flow, node.id);
+        currentNodeId = findNextNodeInContext(this.traversal, node.id);
         continue;
       }
 
@@ -572,6 +562,7 @@ class StorageBackedRunRunner implements RunRunner {
         // Apply vars patch
         if (exec.varsPatch && exec.varsPatch.length > 0) {
           applyVarsPatch(this.state.vars, exec.varsPatch);
+          this.traversal.applyVariableOperations(exec.varsPatch);
           await this.queue.run(() =>
             this.env.events.append({
               runId: this.runId,
@@ -602,7 +593,7 @@ class StorageBackedRunRunner implements RunRunner {
         }
 
         const label = exec.next?.kind === 'edgeLabel' ? exec.next.label : undefined;
-        return { nextNodeId: findNextNode(flow, node.id, label) };
+        return { nextNodeId: findNextNodeInContext(this.traversal, node.id, label) };
       }
 
       // Handle failure
@@ -645,14 +636,16 @@ class StorageBackedRunRunner implements RunRunner {
       }
 
       if (decision.kind === 'continue') {
-        return { nextNodeId: findNextNode(flow, node.id) };
+        return { nextNodeId: findNextNodeInContext(this.traversal, node.id) };
       }
 
       if (decision.kind === 'goto') {
         if (decision.target.kind === 'node') {
           return { nextNodeId: decision.target.nodeId };
         }
-        return { nextNodeId: findNextNode(flow, node.id, decision.target.label) };
+        return {
+          nextNodeId: findNextNodeInContext(this.traversal, node.id, decision.target.label),
+        };
       }
 
       return { terminal: 'failed', error };
@@ -673,32 +666,19 @@ class StorageBackedRunRunner implements RunRunner {
     policy: NodePolicy,
     _error: RRError,
   ): OnErrorDecision {
-    const configured = policy.onError;
-
-    // Default: if there's an ON_ERROR edge, use it
-    if (!configured) {
-      const onErrorEdge = findEdgeByLabel(flow, node.id, EDGE_LABELS.ON_ERROR);
-      if (onErrorEdge) {
-        return { kind: 'goto', target: { kind: 'edgeLabel', label: EDGE_LABELS.ON_ERROR } };
-      }
-      return { kind: 'stop' };
+    const onErrorEdge = findEdgeByLabelInContext(flow, this.traversal, node.id, 'onError');
+    const plan = runPolicy.planRunError(policy as unknown as runPolicy.JsonValue, Boolean(onErrorEdge));
+    if (plan.kind === 'stop' || plan.kind === 'continue') {
+      return plan;
+    }
+    if (plan.kind === 'goto') {
+      return plan;
     }
 
-    if (configured.kind === 'stop') return { kind: 'stop' };
-    if (configured.kind === 'continue') return { kind: 'continue' };
-    if (configured.kind === 'goto') {
-      return {
-        kind: 'goto',
-        target: configured.target as
-          | { kind: 'edgeLabel'; label: string }
-          | { kind: 'node'; nodeId: NodeId },
-      };
-    }
-
-    // retry
     const base: RetryPolicy = policy.retry ?? { retries: 1, intervalMs: 0 };
-    const retryPolicy: RetryPolicy = configured.override
-      ? { ...base, ...configured.override }
+    const override = policy.onError?.kind === 'retry' ? policy.onError.override : undefined;
+    const retryPolicy: RetryPolicy = plan.hasOverride && override
+      ? { ...base, ...override }
       : base;
     return { kind: 'retry', retryPolicy };
   }

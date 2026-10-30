@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import { NativeMessageType } from 'humanchrome-shared';
 import App from './App.vue';
+import { ensureRustKernel } from '@/shared/rust-kernel';
 
 // Tailwind first, then custom tokens
 import '../styles/tailwind.css';
@@ -16,7 +17,7 @@ import { preloadAgentTheme } from './composables';
 async function init(): Promise<void> {
   // Preload theme from storage and apply to document
   // This happens before Vue mounts, preventing theme flash
-  await preloadAgentTheme();
+  await Promise.all([preloadAgentTheme(), ensureRustKernel()]);
 
   // Trigger ensure native connection (fire-and-forget, don't block UI mounting)
   void chrome.runtime.sendMessage({ type: NativeMessageType.ENSURE_NATIVE }).catch(() => {

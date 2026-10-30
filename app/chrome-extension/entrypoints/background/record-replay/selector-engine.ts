@@ -1,5 +1,7 @@
 import { TOOL_MESSAGE_TYPES } from '@/common/message-types';
 import { TargetLocator, SelectorCandidate } from './types';
+import { selectorPolicy } from 'humanchrome-shared';
+
 
 // design note: minimal selector engine that tries ref then candidates
 
@@ -10,17 +12,25 @@ export interface LocatedElement {
   frameId?: number;
 }
 
-// Helper: decide whether selector is a composite cross-frame selector
+// Composite syntax and candidate ordering are portable policy owned by Rust.
 function isCompositeSelector(sel: string): boolean {
-  return typeof sel === 'string' && sel.includes('|>');
+  return selectorPolicy.isRustCompositeSelector(sel);
 }
 
-// Helper: typed wrapper for chrome.tabs.sendMessage with optional frameId
-async function sendToTab(tabId: number, message: any, frameId?: number): Promise<any> {
-  if (typeof frameId === 'number') {
-    return await chrome.tabs.sendMessage(tabId, message, { frameId });
-  }
-  return await chrome.tabs.sendMessage(tabId, message);
+interface SelectorResponse {
+  success: boolean;
+  ref?: string;
+  center?: { x: number; y: number };
+  href?: string;
+}
+
+// Unscoped selectors start in the main frame; composite selectors bridge from there.
+async function sendToTab(
+  tabId: number,
+  message: unknown,
+  frameId = 0,
+): Promise<SelectorResponse> {
+  return chrome.tabs.sendMessage<unknown, SelectorResponse>(tabId, message, { frameId });
 }
 
 // Helper: ensure ref for a selector, handling composite selectors and mapping frameId
@@ -75,43 +85,20 @@ export async function locateElement(
     if (ensured) return { ...ensured, resolvedBy: 'css' };
   }
 
-  // 1) Non-text candidates first for stability (css/attr/aria/xpath)
-  const nonText = (target.candidates || []).filter((c) => c.type !== 'text');
+  // Rank the complete recorded batch once in Rust, retaining content-script transport in JS.
+  const ranked = selectorPolicy.sortSelectorCandidateEntries(
+    (target.candidates || []) as unknown as Parameters<
+      typeof selectorPolicy.sortSelectorCandidateEntries
+    >[0],
+  ).map(({ candidate }) => candidate as unknown as SelectorCandidate);
+  const nonText = ranked.filter((candidate) => candidate.type !== 'text');
   for (const c of nonText) {
     try {
       if (c.type === 'css' || c.type === 'attr') {
         const ensured = await ensureRefForSelector(tabId, String(c.value || ''), frameId);
         if (ensured) return { ...ensured, resolvedBy: c.type };
       } else if (c.type === 'aria') {
-        // Minimal ARIA role+name parser like: "button[name=Submit]" or "textbox[name=Username]"
-        const v = String(c.value || '').trim();
-        const m = v.match(/^(\w+)\s*\[\s*name\s*=\s*([^\]]+)\]$/);
-        const role = m ? m[1] : '';
-        const name = m ? m[2] : '';
-        const cleanName = name.replace(/^['"]|['"]$/g, '');
-        const ariaSelectors: string[] = [];
-        if (role === 'textbox') {
-          ariaSelectors.push(
-            `[role="textbox"][aria-label=${JSON.stringify(cleanName)}]`,
-            `input[aria-label=${JSON.stringify(cleanName)}]`,
-            `textarea[aria-label=${JSON.stringify(cleanName)}]`,
-          );
-        } else if (role === 'button') {
-          ariaSelectors.push(
-            `[role="button"][aria-label=${JSON.stringify(cleanName)}]`,
-            `button[aria-label=${JSON.stringify(cleanName)}]`,
-          );
-        } else if (role === 'link') {
-          ariaSelectors.push(
-            `[role="link"][aria-label=${JSON.stringify(cleanName)}]`,
-            `a[aria-label=${JSON.stringify(cleanName)}]`,
-          );
-        }
-        if (!ariaSelectors.length && role) {
-          ariaSelectors.push(
-            `[role=${JSON.stringify(role)}][aria-label=${JSON.stringify(cleanName)}]`,
-          );
-        }
+        const ariaSelectors = selectorPolicy.legacyAriaSelectors(String(c.value || '').trim());
         for (const sel of ariaSelectors) {
           const ensured = await sendToTab(
             tabId,
@@ -141,8 +128,7 @@ export async function locateElement(
       // continue to next candidate
     }
   }
-  // 2) Human-intent fallback: text-based search as last resort
-  const textCands = (target.candidates || []).filter((c) => c.type === 'text');
+  const textCands = ranked.filter((candidate) => candidate.type === 'text');
   const tagName = ((target as any)?.tag || '').toString();
   for (const c of textCands) {
     try {

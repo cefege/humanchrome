@@ -33,6 +33,8 @@ async function loadTool(): Promise<
   typeof import('@/entrypoints/background/tools/browser/file-upload')
 > {
   vi.resetModules();
+  const { ensureClientStateReady } = await import('@/entrypoints/background/utils/client-state');
+  await ensureClientStateReady();
   return await import('@/entrypoints/background/tools/browser/file-upload');
 }
 

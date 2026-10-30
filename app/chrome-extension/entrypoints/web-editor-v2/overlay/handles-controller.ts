@@ -12,6 +12,10 @@
  */
 
 import {
+  createEditorSnapState,
+  type EditorSnapState,
+} from 'humanchrome-shared';
+import {
   WEB_EDITOR_V2_DISTANCE_LABEL_MIN_PX,
   WEB_EDITOR_V2_LOG_PREFIX,
   WEB_EDITOR_V2_SNAP_HYSTERESIS_PX,
@@ -20,12 +24,7 @@ import {
 import {
   collectSiblingAnchors,
   collectViewportAnchors,
-  computeDistanceLabels,
-  computeResizeSnap,
   mergeAnchors,
-  type SnapAnchors,
-  type SnapLockX,
-  type SnapLockY,
 } from '../core/snap-engine';
 import type { PositionTracker } from '../core/position-tracker';
 import type { MultiStyleTransactionHandle, TransactionManager } from '../core/transaction-manager';
@@ -111,12 +110,8 @@ interface ResizeSession {
   // Snap state (Phase 4.2)
   // ===========================================================================
 
-  /** Pre-collected anchors for this gesture (siblings + viewport) */
-  anchors: SnapAnchors | null;
-  /** Active X-axis snap lock (for hysteresis) */
-  lockX: SnapLockX | null;
-  /** Active Y-axis snap lock (for hysteresis) */
-  lockY: SnapLockY | null;
+  /** Rust-owned anchors and hysteresis locks for this resize gesture. */
+  snapState: EditorSnapState | null;
   /** Whether guides were drawn last frame (for change detection) */
   hadGuidesLastFrame: boolean;
   /** Whether distance labels were drawn last frame (for change detection) */
@@ -615,15 +610,17 @@ export function createHandlesController(options: HandlesControllerOptions): Hand
       }
       s.tx = startedTx;
 
-      // Collect snap anchors once when gesture becomes active (Phase 4.2)
-      // This avoids per-frame layout thrashing from reading sibling rects
+      // Collect DOM anchors once, then retain them with hysteresis in Rust for every frame.
+      // This avoids both layout thrashing and repeated cross-realm anchor serialization.
       try {
         const siblingAnchors = collectSiblingAnchors(s.target);
         const viewportAnchors = collectViewportAnchors();
-        s.anchors = mergeAnchors(siblingAnchors, viewportAnchors);
+        const snapState = createEditorSnapState();
+        snapState.setTargets(mergeAnchors(siblingAnchors, viewportAnchors));
+        s.snapState = snapState;
       } catch {
-        // Snap will be disabled if anchor collection fails
-        s.anchors = null;
+        // Snapping remains disabled if DOM collection or kernel access fails.
+        s.snapState = null;
       }
     }
 
@@ -667,11 +664,15 @@ export function createHandlesController(options: HandlesControllerOptions): Hand
 
     // Apply snapping if anchors are available (Phase 4.2)
     let finalRect = proposedRect;
-    if (s.anchors) {
+    if (s.snapState) {
       const hasEast = dirHasEast(s.dir);
       const hasSouth = dirHasSouth(s.dir);
+      const viewport = {
+        width: window.innerWidth || 1,
+        height: window.innerHeight || 1,
+      };
 
-      const snapResult = computeResizeSnap({
+      const snapResult = s.snapState.compute({
         rect: proposedRect,
         resize: {
           hasWest: s.hasWest,
@@ -679,33 +680,19 @@ export function createHandlesController(options: HandlesControllerOptions): Hand
           hasNorth: s.hasNorth,
           hasSouth,
         },
-        anchors: s.anchors,
         thresholdPx: WEB_EDITOR_V2_SNAP_THRESHOLD_PX,
         hysteresisPx: WEB_EDITOR_V2_SNAP_HYSTERESIS_PX,
         minSizePx: MIN_BORDER_BOX_SIZE_PX,
-        lockX: s.lockX,
-        lockY: s.lockY,
-        viewport: {
-          width: window.innerWidth || 1,
-          height: window.innerHeight || 1,
-        },
+        viewport,
       });
 
-      // Update lock state for hysteresis
-      s.lockX = snapResult.lockX;
-      s.lockY = snapResult.lockY;
       finalRect = snapResult.snappedRect;
 
-      // Compute distance labels (Phase 4.3)
-      const distanceLabels = computeDistanceLabels({
+      // Locks remain in the Rust gesture state, avoiding their object round trip each frame.
+      const distanceLabels = s.snapState.distanceLabels({
         rect: finalRect,
-        lockX: s.lockX,
-        lockY: s.lockY,
         minGapPx: WEB_EDITOR_V2_DISTANCE_LABEL_MIN_PX,
-        viewport: {
-          width: window.innerWidth || 1,
-          height: window.innerHeight || 1,
-        },
+        viewport,
       });
 
       // Draw guide lines and distance labels (only update if state changed)
@@ -934,10 +921,8 @@ export function createHandlesController(options: HandlesControllerOptions): Hand
       affectsHeight,
       hasWest,
       hasNorth,
-      // Snap state (Phase 4.2 & 4.3) - initialized to null, populated after threshold
-      anchors: null,
-      lockX: null,
-      lockY: null,
+      // Rust-owned snap state is created only once DOM anchors are available.
+      snapState: null,
       hadGuidesLastFrame: false,
       hadDistanceLabelsLastFrame: false,
       startClientX: event.clientX,

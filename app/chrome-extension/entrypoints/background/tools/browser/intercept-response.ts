@@ -2,7 +2,7 @@ import { createErrorResponse, ToolResult } from '@/common/tool-handler';
 import { BaseBrowserToolExecutor } from '../base-browser';
 import { TOOL_NAMES, ToolErrorCode } from 'humanchrome-shared';
 import { cdpSessionManager } from '@/utils/cdp-session-manager';
-import { truncateString, type TruncateUnit } from '@/utils/truncate';
+import { outputPolicy } from 'humanchrome-shared';
 import { MAX_RESPONSE_BODY_BYTES } from '../../utils/timeouts';
 
 /**
@@ -88,7 +88,7 @@ interface CompletedMatch extends PendingMatch {
     originalSize: number;
     limit: number;
     rawAvailable: boolean;
-    unit: TruncateUnit;
+    unit: outputPolicy.TruncateUnit;
   };
 }
 
@@ -152,7 +152,7 @@ function shapeBody(
   body: unknown;
   responseBodyTruncation?: CompletedMatch['responseBodyTruncation'];
 } {
-  const cap = truncateString(rawBody || '', MAX_RESPONSE_BODY_BYTES);
+  const cap = outputPolicy.truncateString(rawBody || '', MAX_RESPONSE_BODY_BYTES);
   if (cap.truncated) {
     return {
       base64Encoded,

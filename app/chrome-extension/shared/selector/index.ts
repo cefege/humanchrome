@@ -90,9 +90,6 @@ export {
 export {
   computeDomPath,
   locateByDomPath,
-  compareDomPaths,
-  isAncestorPath,
-  getRelativePath,
   type DomPath,
 } from './dom-path';
 

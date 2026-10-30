@@ -6,6 +6,12 @@
  * isn't part of the dependency graph just to ask "does this property
  * inherit?". Custom properties (--foo) always inherit per the CSS spec.
  */
+import { isEditorInheritableProperty } from 'humanchrome-shared';
+
+/**
+ * Compatibility metadata for callers that inspect the curated set directly.
+ * The runtime decision is owned by the Rust policy kernel.
+ */
 
 export const INHERITED_PROPERTIES = new Set<string>([
   // Color & appearance
@@ -125,9 +131,7 @@ export const INHERITED_PROPERTIES = new Set<string>([
   'marker-end',
 ]);
 
+/** Tests whether a CSSOM property follows the editor's inherited-style path. */
 export function isInheritableProperty(property: string): boolean {
-  const p = String(property || '').trim();
-  if (!p) return false;
-  if (p.startsWith('--')) return true;
-  return INHERITED_PROPERTIES.has(p.toLowerCase());
+  return isEditorInheritableProperty(property);
 }

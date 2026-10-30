@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Humanchrome semantic policy fixture</title>
+    <style>
+      body {
+        max-width: 54rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #172033;
+        font: 18px/1.6 system-ui, sans-serif;
+      }
+      article {
+        border: 1px solid #cad2e0;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+      }
+      .topic {
+        color: #415a77;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <article id="semantic-fixture-document" data-document="">
+      <p class="topic" id="semantic-topic"></p>
+      <h1 id="semantic-title"></h1>
+      <div id="semantic-copy"></div>
+    </article>
+    <script>
+      // Deterministic, sufficiently long real-page documents. The E2E scenario indexes these
+      // through the production content-script, Transformers/ONNX, and HNSW paths.
+      const documents = {
+        astronomy: {
+          title: 'Astronomy telescope exoplanet transit stellar spectrum field notes',
+          topic: 'Astronomy, telescopes, exoplanets, and stellar spectra',
+          paragraphs: [
+            'Astronomers at the mountain observatory align the telescope mirror before each exoplanet transit. The spectrograph separates starlight into a spectrum, allowing researchers to measure an atmosphere around a distant planet. A calm night, precise calibration lamps, and repeated observations keep the transit light curve reliable.',
+            'The observatory team compares telescope images with a catalog of galaxies, nebulae, and variable stars. When a planet crosses its star, the telescope records a small dip in brightness. Astronomical software removes cloud noise, tracks the star across the sky, and reports a candidate exoplanet only after several matching transits.',
+            'A radio telescope listens for faint emission while the optical telescope studies stellar color. The astronomer uses a reference spectrum to distinguish a cool red dwarf from a hot blue star. These field notes describe orbital periods, stellar spectra, telescope focus, and the evidence required before announcing an exoplanet discovery.',
+          ],
+        },
+        baking: {
+          title: 'Sourdough bakery bread fermentation starter journal',
+          topic: 'Bread baking, sourdough starter, and fermentation',
+          paragraphs: [
+            'The bakery feeds a sourdough starter with flour and water before sunrise. Wild yeast and lactic bacteria ferment the dough, producing bubbles, acidity, and the aroma of fresh bread. The baker watches temperature, hydration, and the strength of the starter before folding the dough for a long fermentation.',
+            'After bulk fermentation, the baker shapes each loaf and places it in a proofing basket. A hot oven and steam create an open crumb and a crisp crust. This bread journal records sourdough timing, yeast activity, flour choices, dough elasticity, oven heat, and the small adjustments that make a reliable country loaf.',
+            'A mature sourdough culture makes bread rise slowly, unlike a quick commercial yeast dough. The bakery tests fermentation by pressing the dough and observing whether it springs back. Careful scoring lets the loaf expand in the oven while the fermented flavor develops through the cool overnight proof.',
+          ],
+        },
+        ocean: {
+          title: 'Marine biology reef survey',
+          topic: 'Ocean ecology, coral reefs, and marine biology',
+          paragraphs: [
+            'Marine biologists survey a coral reef by counting fish, mapping coral colonies, and recording seawater temperature. A reef supports algae, crustaceans, turtles, and schools of fish. Divers photograph bleaching patterns so the ocean ecology team can compare healthy coral with stressed coral after warm water events.',
+            'The marine biology crew collects a small seawater sample near the reef and studies plankton under a microscope. Coral polyps depend on symbiotic algae, so changes in sunlight and temperature can affect the whole marine ecosystem. The survey log combines reef maps, fish observations, and ocean current measurements.',
+            'At low tide, researchers inspect tide pools for sea stars and juvenile fish. The reef monitoring program uses repeated marine surveys to understand biodiversity, coral recovery, and the effect of pollution on coastal ocean habitats.',
+          ],
+        },
+      };
+
+      const key = new URLSearchParams(location.search).get('document') || 'astronomy';
+      const entry = documents[key] || documents.astronomy;
+      document.title = entry.title;
+      document.getElementById('semantic-fixture-document').dataset.document = key;
+      document.getElementById('semantic-topic').textContent = entry.topic;
+      document.getElementById('semantic-title').textContent = entry.title;
+      const copy = document.getElementById('semantic-copy');
+      // Repetition creates enough independently embedded chunks to force a persisted HNSW sync,
+      // while retaining three semantically distinct fixed documents.
+      for (let repeat = 0; repeat < 3; repeat += 1) {
+        for (const paragraph of entry.paragraphs) {
+          const p = document.createElement('p');
+          p.textContent = paragraph;
+          copy.appendChild(p);
+        }
+      }
+    </script>
+  </body>
+</html>

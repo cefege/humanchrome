@@ -11,6 +11,8 @@
  * factories, injecting the shared fireCallback.
  */
 
+import { runPolicy } from 'humanchrome-shared';
+
 import type { UnixMillis } from '../../domain/json';
 import type { RunId, TriggerId } from '../../domain/ids';
 import type { TriggerFireContext, TriggerKind, TriggerSpec } from '../../domain/triggers';
@@ -64,40 +66,15 @@ export interface TriggerManager {
   getState(): TriggerManagerState;
 }
 
-function normalizeNonNegativeInt(value: unknown, fallback: number, fieldName: string): number {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${fieldName} must be a finite number`);
-  }
-  return Math.max(0, Math.floor(value));
-}
-
-function normalizePositiveInt(value: unknown, fieldName: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${fieldName} must be a finite number`);
-  }
-  const intValue = Math.floor(value);
-  if (intValue < 1) {
-    throw new Error(`${fieldName} must be >= 1`);
-  }
-  return intValue;
-}
 
 export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
   const logger = deps.logger ?? console;
   const now = deps.now ?? (() => Date.now());
 
-  const cooldownMs = normalizeNonNegativeInt(deps.storm?.cooldownMs, 0, 'storm.cooldownMs');
-  const maxQueued =
-    deps.storm?.maxQueued === undefined || deps.storm?.maxQueued === null
-      ? undefined
-      : normalizePositiveInt(deps.storm.maxQueued, 'storm.maxQueued');
+  const admission = new runPolicy.RustTriggerAdmissionState(deps.storm);
 
+  // The host retains trigger specs only to construct enqueue effects. Rust owns eligibility.
   const installed = new Map<TriggerId, TriggerSpec>();
-  const lastFireAt = new Map<TriggerId, UnixMillis>();
-  let started = false;
-  let inFlightEnqueues = 0;
-
   // Refresh re-entry guard: collapse concurrent calls into one in-flight run.
   let refreshPromise: Promise<void> | null = null;
   let pendingRefresh = false;
@@ -138,51 +115,25 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
     context: { sourceTabId?: number; sourceUrl?: string },
     options?: { throwOnDrop?: boolean },
   ): Promise<EnqueueRunResult | null> {
-    if (!started) {
+    const t = now();
+    const queuedCount =
+      admission.isStarted() && admission.hasQueueCap()
+        ? (await deps.storage.queue.list('queued')).length
+        : 0;
+    const decision = admission.admit(triggerId, t, queuedCount);
+    if (decision.kind === 'drop') {
+      logger.debug(`[TriggerManager] ${decision.message}`);
       if (options?.throwOnDrop) {
-        throw new Error('TriggerManager is not started');
+        throw new Error(decision.message);
       }
       return null;
     }
 
     const trigger = installed.get(triggerId);
     if (!trigger) {
-      if (options?.throwOnDrop) {
-        throw new Error(`Trigger "${triggerId}" is not installed`);
-      }
-      return null;
+      admission.finish(decision.ticket, false);
+      throw new Error(`Trigger "${triggerId}" is not installed`);
     }
-
-    const t = now();
-
-    const prevLastFireAt = lastFireAt.get(triggerId);
-    if (cooldownMs > 0 && prevLastFireAt !== undefined && t - prevLastFireAt < cooldownMs) {
-      logger.debug(`[TriggerManager] Dropping trigger "${triggerId}" (cooldown ${cooldownMs}ms)`);
-      if (options?.throwOnDrop) {
-        throw new Error(`Trigger "${triggerId}" dropped (cooldown ${cooldownMs}ms)`);
-      }
-      return null;
-    }
-
-    // maxQueued check runs before cooldown is bumped so a maxQueued drop does
-    // not also consume the cooldown window.
-    if (maxQueued !== undefined) {
-      const queued = await deps.storage.queue.list('queued');
-      if (queued.length + inFlightEnqueues >= maxQueued) {
-        logger.warn(
-          `[TriggerManager] Dropping trigger "${triggerId}" (queued=${queued.length}, inFlight=${inFlightEnqueues}, maxQueued=${maxQueued})`,
-        );
-        if (options?.throwOnDrop) {
-          throw new Error(`Trigger "${triggerId}" dropped (maxQueued=${maxQueued})`);
-        }
-        return null;
-      }
-    }
-
-    if (cooldownMs > 0) {
-      lastFireAt.set(triggerId, t);
-    }
-
     const triggerContext: TriggerFireContext = {
       triggerId: trigger.id,
       kind: trigger.kind,
@@ -191,7 +142,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       sourceUrl: context.sourceUrl,
     };
 
-    inFlightEnqueues += 1;
     try {
       const result = await enqueueRun(
         {
@@ -207,25 +157,16 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
           trigger: triggerContext,
         },
       );
+      admission.finish(decision.ticket, true);
       return result;
     } catch (e) {
-      // Roll back the cooldown stamp so a failed enqueue does not silence
-      // the next legitimate fire.
-      if (cooldownMs > 0) {
-        if (prevLastFireAt === undefined) {
-          lastFireAt.delete(triggerId);
-        } else {
-          lastFireAt.set(triggerId, prevLastFireAt);
-        }
-      }
+      admission.finish(decision.ticket, false);
       const msg = e instanceof Error ? e.message : String(e);
       logger.error(`[TriggerManager] enqueueRun failed for trigger "${triggerId}":`, e);
       if (options?.throwOnDrop) {
         throw new Error(`enqueueRun failed for trigger "${triggerId}": ${msg}`);
       }
       return null;
-    } finally {
-      inFlightEnqueues -= 1;
     }
   }
 
@@ -242,7 +183,7 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
 
   async function doRefresh(): Promise<void> {
     const triggers = await deps.storage.triggers.list();
-    if (!started) return;
+    if (!admission.isStarted()) return;
 
     // Uninstall everything then re-install: simpler and consistent. Failures
     // in one handler do not block the rest.
@@ -254,9 +195,10 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       }
     }
     installed.clear();
+    admission.clearInstalled();
 
     for (const trigger of triggers) {
-      if (!started) return;
+      if (!admission.isStarted()) return;
       if (!trigger.enabled) continue;
 
       const handler = handlers.get(trigger.kind);
@@ -268,6 +210,7 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       try {
         await handler.install(trigger as Parameters<typeof handler.install>[0]);
         installed.set(trigger.id, trigger);
+        admission.install(trigger.id);
       } catch (e) {
         logger.error(`[TriggerManager] Failed to install trigger "${trigger.id}":`, e);
       }
@@ -275,14 +218,14 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
   }
 
   async function refresh(): Promise<void> {
-    if (!started) {
+    if (!admission.isStarted()) {
       throw new Error('TriggerManager is not started');
     }
 
     pendingRefresh = true;
     if (!refreshPromise) {
       refreshPromise = (async () => {
-        while (started && pendingRefresh) {
+        while (admission.isStarted() && pendingRefresh) {
           pendingRefresh = false;
           await doRefresh();
         }
@@ -295,15 +238,15 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
   }
 
   async function start(): Promise<void> {
-    if (started) return;
-    started = true;
+    if (admission.isStarted()) return;
+    admission.start();
     await refresh();
   }
 
   async function stop(): Promise<void> {
-    if (!started) return;
+    if (!admission.isStarted()) return;
 
-    started = false;
+    admission.stop();
     pendingRefresh = false;
 
     if (refreshPromise) {
@@ -322,7 +265,6 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
       }
     }
     installed.clear();
-    lastFireAt.clear();
   }
 
   async function dispose(): Promise<void> {
@@ -331,8 +273,8 @@ export function createTriggerManager(deps: TriggerManagerDeps): TriggerManager {
 
   function getState(): TriggerManagerState {
     return {
-      started,
-      installedTriggerIds: Array.from(installed.keys()),
+      started: admission.isStarted(),
+      installedTriggerIds: admission.installedIds() as TriggerId[],
     };
   }
 

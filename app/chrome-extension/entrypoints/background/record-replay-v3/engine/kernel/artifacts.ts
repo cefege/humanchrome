@@ -1,3 +1,4 @@
+import { runPolicy } from 'humanchrome-shared';
 import type { NodeId, RunId } from '../../domain/ids';
 import type { RRError } from '../../domain/errors';
 import { RR_ERROR_CODES, createRRError } from '../../domain/errors';
@@ -117,8 +118,7 @@ export interface ArtifactPolicyExecutor {
 export function createArtifactPolicyExecutor(service: ArtifactService): ArtifactPolicyExecutor {
   return {
     executeScreenshotPolicy: async (policy, context) => {
-      const shouldCapture = policy === 'always' || (policy === 'onFailure' && context.failed);
-
+      const shouldCapture = runPolicy.shouldCaptureRunScreenshot(policy, context.failed);
       if (!shouldCapture) {
         return { captured: false };
       }

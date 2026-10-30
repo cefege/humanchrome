@@ -21,6 +21,8 @@ import {
   type WebEditorCancelExecutionPayload,
   type WebEditorCancelExecutionResponse,
 } from '@/common/web-editor-types';
+import { ensureRustKernel } from '@/shared/rust-kernel';
+
 import { openAgentChatSidepanel } from '../utils/sidepanel';
 import { resolveBridgeBaseUrl } from '../bridge-endpoint';
 import {
@@ -270,8 +272,9 @@ export function registerWebEditorMessageRouter(): void {
 
       // Phase 1.5: Handle APPLY_BATCH from web-editor toolbar
       if (message?.type === BACKGROUND_MESSAGE_TYPES.WEB_EDITOR_APPLY_BATCH) {
-        const payload = normalizeApplyBatchPayload(message.payload);
         (async () => {
+          await ensureRustKernel();
+          const payload = normalizeApplyBatchPayload(message.payload);
           const senderTabId = (_sender as chrome.runtime.MessageSender)?.tab?.id;
           const senderWindowId = (_sender as chrome.runtime.MessageSender)?.tab?.windowId;
 
@@ -490,8 +493,9 @@ export function registerWebEditorMessageRouter(): void {
       }
 
       if (message?.type === BACKGROUND_MESSAGE_TYPES.WEB_EDITOR_APPLY) {
-        const payload = normalizeApplyPayload(message.payload);
         (async () => {
+          await ensureRustKernel();
+          const payload = normalizeApplyPayload(message.payload);
           const senderTabId = (_sender as chrome.runtime.MessageSender)?.tab?.id;
           const sessionId =
             typeof senderTabId === 'number' ? `web-editor-${senderTabId}` : 'web-editor';

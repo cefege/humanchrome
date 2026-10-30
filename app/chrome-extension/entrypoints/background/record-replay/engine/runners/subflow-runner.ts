@@ -1,6 +1,12 @@
 // subflow-runner.ts — execute a subflow (nodes/edges) using DAG traversal with branch support
 
-import { STEP_TYPES } from 'humanchrome-shared';
+import {
+  legacyDefaultSuccessorEdgeIndex,
+  legacyExecutionPlan,
+  legacyLabeledEdgeIndex,
+  legacyNextEdgeIndex,
+  STEP_TYPES,
+} from 'humanchrome-shared';
 import type { ExecCtx } from '../../nodes';
 import { RunLogger } from '../logging/run-logger';
 import { PluginManager } from '../plugins/manager';
@@ -43,40 +49,10 @@ export class SubflowRunner {
     const sNodes: NodeBase[] = sub.nodes;
     const sEdges: Edge[] = sub.edges || [];
 
-    // Build lookup maps
-    const id2node = new Map(sNodes.map((n) => [n.id, n] as const));
-    const outEdges = new Map<string, Edge[]>();
-    for (const e of sEdges) {
-      if (!outEdges.has(e.from)) outEdges.set(e.from, []);
-      outEdges.get(e.from)!.push(e);
-    }
-
-    // Calculate in-degrees to find root nodes
-    const indeg = new Map<string, number>(sNodes.map((n) => [n.id, 0] as const));
-    for (const e of sEdges) {
-      indeg.set(e.to, (indeg.get(e.to) || 0) + 1);
-    }
-
-    // Find start node: prefer non-trigger nodes with indeg=0
-    const findFirstExecutableRoot = (): string | undefined => {
-      const executableRoot = sNodes.find(
-        (n) => (indeg.get(n.id) || 0) === 0 && n.type !== STEP_TYPES.TRIGGER,
-      );
-      if (executableRoot) return executableRoot.id;
-
-      // If all roots are triggers, follow default edge to first executable
-      const triggerRoot = sNodes.find((n) => (indeg.get(n.id) || 0) === 0);
-      if (triggerRoot) {
-        const defaultEdge = (outEdges.get(triggerRoot.id) || []).find(
-          (e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT,
-        );
-        if (defaultEdge) return defaultEdge.to;
-      }
-
-      return sNodes[0]?.id;
-    };
-
-    let currentId: string | undefined = findFirstExecutableRoot();
+    const id2node = new Map(sNodes.map((node) => [node.id, node] as const));
+    const graphPlan = legacyExecutionPlan(sNodes, sEdges);
+    let currentId: string | undefined =
+      graphPlan.startNodeIndex === null ? undefined : sNodes[graphPlan.startNodeIndex]?.id;
     let guard = 0;
     const maxIterations = ENGINE_CONSTANTS.MAX_ITERATIONS;
 
@@ -98,11 +74,9 @@ export class SubflowRunner {
       const node = id2node.get(currentId);
       if (!node) break;
 
-      // Skip trigger nodes
       if (node.type === STEP_TYPES.TRIGGER) {
-        const defaultEdge = (outEdges.get(currentId) || []).find(
-          (e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT,
-        );
+        const edgeIndex = legacyDefaultSuccessorEdgeIndex(sEdges, currentId);
+        const defaultEdge = edgeIndex === undefined ? undefined : sEdges[edgeIndex];
         if (defaultEdge) {
           currentId = defaultEdge.to;
           continue;
@@ -116,10 +90,12 @@ export class SubflowRunner {
       if (r.status === 'paused' || pausedRef()) break;
 
       if (r.status === 'failed') {
-        // Try to find on_error edge
-        const errEdge = (outEdges.get(currentId) || []).find(
-          (e) => e.label === ENGINE_CONSTANTS.EDGE_LABELS.ON_ERROR,
+        const edgeIndex = legacyLabeledEdgeIndex(
+          sEdges,
+          currentId,
+          ENGINE_CONSTANTS.EDGE_LABELS.ON_ERROR,
         );
+        const errEdge = edgeIndex === undefined ? undefined : sEdges[edgeIndex];
         if (errEdge) {
           currentId = errEdge.to;
           continue;
@@ -127,19 +103,18 @@ export class SubflowRunner {
         break;
       }
 
-      // Determine next edge by label
       const suggestedLabel = r.nextLabel
         ? String(r.nextLabel)
         : ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT;
-      const oes = outEdges.get(currentId) || [];
-      const nextEdge =
-        oes.find((e) => (e.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT) === suggestedLabel) ||
-        oes.find((e) => !e.label || e.label === ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT);
+      const edgeIndex = legacyNextEdgeIndex(sEdges, currentId, suggestedLabel);
+      const nextEdge = edgeIndex === undefined ? undefined : sEdges[edgeIndex];
 
       if (!nextEdge) {
-        // Log warning if we expected a labeled edge but couldn't find it
-        if (r.nextLabel && oes.length > 0) {
-          const availableLabels = oes.map((e) => e.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT);
+        const outgoing = sEdges.filter((edge) => edge.from === currentId);
+        if (r.nextLabel && outgoing.length > 0) {
+          const availableLabels = outgoing.map(
+            (edge) => edge.label || ENGINE_CONSTANTS.EDGE_LABELS.DEFAULT,
+          );
           this.env.logger.push({
             stepId: step.id,
             status: 'warning',
