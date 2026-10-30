@@ -272,11 +272,21 @@ pub struct DispatchRequest {
     pub tab_liveness: TabLiveness,
 }
 
-/// Opaque liveness continuation bound to the exact tab selected before the host await.
+/// Opaque liveness continuation retaining the exact target and window hints selected before await.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DispatchContinuation {
     request: DispatchRequest,
     resolved_tab_id: TabId,
+    forwarded_window_id: Option<WindowId>,
+    auto_spawn_preferred_window_id: Option<WindowId>,
+}
+
+impl DispatchContinuation {
+    /// Returns the exact tab the host must probe before resuming this continuation.
+    #[must_use]
+    pub fn tab_id(&self) -> TabId {
+        self.resolved_tab_id
+    }
 }
 
 /// Details needed by the host to create a background tab exactly once.
@@ -475,6 +485,20 @@ pub struct QueueTabSnapshot {
     pub holder: Option<QueueHolderSnapshot>,
     /// Current waiters in execution order.
     pub waiters: Vec<QueueWaiterSnapshot>,
+}
+
+/// Internal queue entry view exposed only through the extension's test escape hatch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEntryTestSnapshot {
+    /// Monotonic queue ticket.
+    pub ticket: TicketId,
+    /// Owning fairness lane, if any.
+    pub client_id: Option<String>,
+    /// Host wall-clock time at admission.
+    pub enqueued_at: Millis,
+    /// Host wall-clock time at promotion, if promoted.
+    pub started_at: Option<Millis>,
 }
 
 #[derive(Clone, Debug)]
@@ -1089,17 +1113,22 @@ impl BrowserState {
             return DispatchPlan::Rejected { error };
         }
         if let Some(tab_id) = resolved.tab_id {
+            let forwarded_window_id = self.dispatch_forwarded_window(request);
+            let auto_spawn_preferred_window_id =
+                self.resolve_owned_window(request.target.client_id.as_deref(), None);
             return match request.tab_liveness {
                 TabLiveness::Unprobed => DispatchPlan::NeedsLivenessProbe {
                     continuation: DispatchContinuation {
                         request: request.clone(),
                         resolved_tab_id: tab_id,
+                        forwarded_window_id,
+                        auto_spawn_preferred_window_id,
                     },
                 },
-                liveness => self.finish_dispatch(request, Some(tab_id), liveness),
+                liveness => self.finish_dispatch(request, Some(tab_id), liveness, None),
             };
         }
-        self.finish_dispatch(request, None, request.tab_liveness)
+        self.finish_dispatch(request, None, request.tab_liveness, None)
     }
 
     /// Completes a liveness continuation without re-resolving the client's active tab.
@@ -1113,6 +1142,10 @@ impl BrowserState {
             &continuation.request,
             Some(continuation.resolved_tab_id),
             liveness,
+            Some((
+                continuation.forwarded_window_id,
+                continuation.auto_spawn_preferred_window_id,
+            )),
         )
     }
 
@@ -1121,6 +1154,7 @@ impl BrowserState {
         request: &DispatchRequest,
         resolved_tab_id: Option<TabId>,
         liveness: TabLiveness,
+        preserved_window_hints: Option<(Option<WindowId>, Option<WindowId>)>,
     ) -> DispatchPlan {
         let tab_id = match (resolved_tab_id, liveness) {
             (Some(tab_id), TabLiveness::Missing) => {
@@ -1129,22 +1163,20 @@ impl BrowserState {
             }
             (tab_id, _) => tab_id,
         };
-        let forwarded_window_id = if request.window_targeting == WindowTargeting::ExplicitOnly {
-            request.explicit_window_id
-        } else {
-            self.resolve_owned_window(
-                request.target.client_id.as_deref(),
-                request.explicit_window_id,
-            )
-        };
+        let (forwarded_window_id, auto_spawn_preferred_window_id) = preserved_window_hints
+            .unwrap_or_else(|| {
+                (
+                    self.dispatch_forwarded_window(request),
+                    self.resolve_owned_window(request.target.client_id.as_deref(), None),
+                )
+            });
         let auto_spawn = (tab_id.is_none()
             && request.target.access == TargetAccess::Mutate
             && request.auto_spawn_policy == AutoSpawnPolicy::Enabled
             && request.target.client_id.is_some()
             && request.url_targeting == UrlTargeting::Absent)
-            .then(|| AutoSpawnRequest {
-                preferred_window_id: self
-                    .resolve_owned_window(request.target.client_id.as_deref(), None),
+            .then_some(AutoSpawnRequest {
+                preferred_window_id: auto_spawn_preferred_window_id,
             });
         let forwarded_tab_id = if request.url_targeting == UrlTargeting::Provided
             && request.target.explicit_tab_id.is_none()
@@ -1160,6 +1192,17 @@ impl BrowserState {
                 forwarded_window_id,
                 auto_spawn,
             },
+        }
+    }
+
+    fn dispatch_forwarded_window(&self, request: &DispatchRequest) -> Option<WindowId> {
+        if request.window_targeting == WindowTargeting::ExplicitOnly {
+            request.explicit_window_id
+        } else {
+            self.resolve_owned_window(
+                request.target.client_id.as_deref(),
+                request.explicit_window_id,
+            )
         }
     }
 
@@ -1316,6 +1359,34 @@ impl BrowserState {
     #[must_use]
     pub fn active_locked_tab_count(&self) -> usize {
         self.queues.len()
+    }
+
+    /// Clears queue policy state for the extension's existing test reset hook.
+    pub fn _reset_queues_for_test(&mut self) {
+        self.queues.clear();
+        self.next_ticket = 1;
+    }
+
+    /// Sets a queue's hold-time estimator for deterministic extension tests.
+    pub fn _set_queue_mean_hold_for_test(&mut self, tab_id: TabId, mean_hold_ms: Millis) {
+        self.queues.entry(tab_id).or_default().mean_hold_ms = mean_hold_ms as f64;
+    }
+
+    /// Snapshots raw queue entry timing for the extension's existing test hook.
+    #[must_use]
+    pub fn _queue_entries_for_test(&self, tab_id: TabId) -> Vec<QueueEntryTestSnapshot> {
+        self.queues.get(&tab_id).map_or_else(Vec::new, |state| {
+            state
+                .entries
+                .iter()
+                .map(|entry| QueueEntryTestSnapshot {
+                    ticket: entry.ticket,
+                    client_id: entry.client_id.clone(),
+                    enqueued_at: entry.enqueued_at,
+                    started_at: entry.started_at,
+                })
+                .collect()
+        })
     }
 
     fn ensure_client(&mut self, client_id: &str, now: Millis) -> &mut ClientRecord {
@@ -1533,15 +1604,17 @@ mod tests {
     }
 
     #[test]
-    fn liveness_continuation_keeps_its_original_tab_when_active_tab_changes() {
+    fn liveness_continuation_keeps_its_original_tab_and_window_hints() {
         let mut state = BrowserState::new();
         state.claim_tab(Some("alice"), 10, Some(1), 0);
-        let continuation = match state.plan_dispatch(&mutating_request("alice"), 1) {
+        let mut request = mutating_request("alice");
+        request.auto_spawn_policy = AutoSpawnPolicy::Enabled;
+        let continuation = match state.plan_dispatch(&request, 1) {
             DispatchPlan::NeedsLivenessProbe { continuation } => continuation,
             plan => panic!("expected liveness continuation, got {plan:?}"),
         };
 
-        state.record_client_tab(Some("alice"), 20, Some(1), 2);
+        state.record_client_tab(Some("alice"), 20, Some(2), 2);
         let plan = state.resume_dispatch(continuation, TabLiveness::Missing);
 
         assert_eq!(state.tab_owner(10), None);
@@ -1551,6 +1624,10 @@ mod tests {
             DispatchPlan::Ready {
                 target: super::DispatchReady {
                     resolved_tab_id: None,
+                    forwarded_window_id: Some(1),
+                    auto_spawn: Some(super::AutoSpawnRequest {
+                        preferred_window_id: Some(1)
+                    }),
                     ..
                 }
             }

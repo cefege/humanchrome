@@ -99,18 +99,19 @@ impl WorkflowFlow {
             node_indexes.entry(node.id.clone()).or_insert(index);
             out_edge_indexes.entry(node.id.clone()).or_default();
             in_edge_indexes.entry(node.id.clone()).or_default();
-            adjacency.entry(node.id.clone()).or_default();
+            adjacency.insert(node.id.clone(), Vec::new());
         }
         for (index, edge) in edges.iter().enumerate() {
-            if let Some(out) = out_edge_indexes.get_mut(&edge.from) {
-                out.push(index);
-                adjacency
-                    .entry(edge.from.clone())
-                    .or_default()
-                    .push(edge.to.clone());
-            }
-            if let Some(input) = in_edge_indexes.get_mut(&edge.to) {
-                input.push(index);
+            out_edge_indexes
+                .entry(edge.from.clone())
+                .or_default()
+                .push(index);
+            in_edge_indexes
+                .entry(edge.to.clone())
+                .or_default()
+                .push(index);
+            if let Some(neighbors) = adjacency.get_mut(&edge.from) {
+                neighbors.push(edge.to.clone());
             }
         }
 
@@ -124,6 +125,37 @@ impl WorkflowFlow {
             in_edge_indexes,
             adjacency,
         }
+    }
+
+    /// Returns outgoing edge positions in authored order for host identity-preserving projection.
+    pub fn out_edge_indices(&self, node_id: &str) -> impl Iterator<Item = usize> + '_ {
+        self.out_edge_indexes
+            .get(node_id)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+
+    /// Returns incoming edge positions in authored order for host identity-preserving projection.
+    pub fn in_edge_indices(&self, node_id: &str) -> impl Iterator<Item = usize> + '_ {
+        self.in_edge_indexes
+            .get(node_id)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+
+    /// Returns the first authored edge position carrying `label`.
+    #[must_use]
+    pub fn edge_index_by_label(&self, node_id: &str, label: &str) -> Option<usize> {
+        self.out_edge_indices(node_id)
+            .find(|&index| self.edges[index].label.as_deref() == Some(label))
+    }
+
+    /// Returns the first authored node position for `id`.
+    #[must_use]
+    pub fn node_index(&self, id: &str) -> Option<usize> {
+        self.node_indexes.get(id).copied()
     }
 
     /// Returns the first authored node for an id, matching V3 `Array.find` lookup semantics.
@@ -265,6 +297,30 @@ impl WorkflowFlow {
         let mut reachable = HashSet::new();
         self.visit_reachable(&self.entry_node_id, &mut reachable);
         reachable
+    }
+
+    /// Returns reachable node ids in the JavaScript depth-first insertion order.
+    #[must_use]
+    pub fn reachable_node_ids_in_dfs_order(&self) -> Vec<String> {
+        let mut visited = HashSet::new();
+        let mut ordered = Vec::new();
+        self.visit_reachable_in_order(&self.entry_node_id, &mut visited, &mut ordered);
+        ordered
+    }
+
+    fn visit_reachable_in_order(
+        &self,
+        node_id: &str,
+        visited: &mut HashSet<String>,
+        ordered: &mut Vec<String>,
+    ) {
+        if !visited.insert(node_id.to_owned()) {
+            return;
+        }
+        ordered.push(node_id.to_owned());
+        for neighbor in self.adjacency.get(node_id).into_iter().flatten() {
+            self.visit_reachable_in_order(neighbor, visited, ordered);
+        }
     }
 
     fn visit_reachable(&self, node_id: &str, reachable: &mut HashSet<String>) {
@@ -1270,6 +1326,33 @@ fn hostname_matches_domain(
     strings.ends_with(&hostname, &suffix)
 }
 
+/// Matches legacy trigger rules without applying V3 normalization or domain-boundary rules.
+///
+/// Legacy `domain` rules intentionally use raw `hostname.includes`, and both URL and pathname
+/// rules use raw prefix matching.
+#[must_use]
+pub fn legacy_url_matches(rules: &[UrlMatchRule], raw_url: &JsString, parsed: &UrlParts) -> bool {
+    let hostname = JsString::from_string(&parsed.hostname);
+    let pathname = JsString::from_string(&parsed.pathname);
+    rules.iter().any(|rule| match rule.kind {
+        UrlMatchKind::Url => js_string_starts_with(raw_url, &rule.value),
+        UrlMatchKind::Domain => js_string_includes(&hostname, &rule.value),
+        UrlMatchKind::Path => js_string_starts_with(&pathname, &rule.value),
+    })
+}
+
+fn js_string_starts_with(value: &JsString, prefix: &JsString) -> bool {
+    let value: Vec<u16> = value.utf16_units().collect();
+    let prefix: Vec<u16> = prefix.utf16_units().collect();
+    value.starts_with(&prefix)
+}
+
+fn js_string_includes(value: &JsString, needle: &JsString) -> bool {
+    let value: Vec<u16> = value.utf16_units().collect();
+    let needle: Vec<u16> = needle.utf16_units().collect();
+    needle.is_empty() || value.windows(needle.len()).any(|window| window == needle)
+}
+
 /// Retry backoff kinds used by V3 runner policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetryBackoff {
@@ -1321,6 +1404,180 @@ pub fn compute_retry_delay_ms(policy: RetryPolicy, attempt: f64, random_sample: 
         delay = (random_sample * (delay + 1.0)).floor();
     }
     delay.max(0.0).floor()
+}
+
+/// Retry timing policy retained for the legacy action registry.
+///
+/// This deliberately remains separate from [`RetryPolicy`]: legacy retries are zero-based,
+/// floor the base interval before backoff, and use an exclusive full-jitter range.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LegacyRetryPolicy {
+    /// Base interval in milliseconds.
+    pub interval_ms: f64,
+    /// Optional interval cap.
+    pub max_interval_ms: Option<f64>,
+    /// Backoff curve.
+    pub backoff: RetryBackoff,
+    /// Jitter mode.
+    pub jitter: RetryJitter,
+}
+
+/// Computes the legacy registry retry delay from an explicit host random sample.
+#[must_use]
+pub fn compute_legacy_retry_delay_ms(
+    policy: LegacyRetryPolicy,
+    retry_index: f64,
+    random_sample: f64,
+) -> f64 {
+    let base = js_max(0.0, policy.interval_ms.floor());
+    let delay = match policy.backoff {
+        RetryBackoff::None => base,
+        RetryBackoff::Linear => base * (retry_index + 1.0),
+        RetryBackoff::Exponential => base * 2_f64.powf(retry_index),
+    };
+    let capped = policy
+        .max_interval_ms
+        .map_or(delay, |maximum| js_min(delay, js_max(0.0, maximum)));
+    if policy.jitter == RetryJitter::Full {
+        (random_sample * capped).floor()
+    } else {
+        capped
+    }
+}
+
+fn js_max(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        f64::NAN
+    } else {
+        left.max(right)
+    }
+}
+
+fn js_min(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        f64::NAN
+    } else {
+        left.min(right)
+    }
+}
+
+/// Parses a legacy assignment path after its numeric-bracket normalization.
+///
+/// The result intentionally preserves the original `path.replace(/\\[(\\d+)\\]/g, '.$1')`
+/// behavior rather than sharing V3 variable pointers.
+#[must_use]
+pub fn legacy_assign_path_segments(path: &JsString) -> Vec<JsString> {
+    let units: Vec<u16> = path.utf16_units().collect();
+    let mut normalized = Vec::with_capacity(units.len());
+    let mut index = 0;
+    while index < units.len() {
+        if units[index] == u16::from(b'[') {
+            let digits_start = index + 1;
+            let mut end = digits_start;
+            while end < units.len()
+                && units[end] >= u16::from(b'0')
+                && units[end] <= u16::from(b'9')
+            {
+                end += 1;
+            }
+            if end > digits_start && end < units.len() && units[end] == u16::from(b']') {
+                normalized.push(u16::from(b'.'));
+                normalized.extend_from_slice(&units[digits_start..end]);
+                index = end + 1;
+                continue;
+            }
+        }
+        normalized.push(units[index]);
+        index += 1;
+    }
+    normalized
+        .split(|unit| *unit == u16::from(b'.'))
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| JsString::from_utf16_units(segment.to_vec()))
+        .collect()
+}
+
+/// Parses the action-handler dot/bracket grammar without converting path text through JSON.
+#[must_use]
+pub fn legacy_handler_path_segments(path: &JsString) -> Vec<JsString> {
+    let units: Vec<u16> = path.utf16_units().collect();
+    let mut segments = Vec::new();
+    let mut index = 0;
+    while index < units.len() {
+        if units[index] != u16::from(b'.')
+            && units[index] != u16::from(b'[')
+            && units[index] != u16::from(b']')
+        {
+            let start = index;
+            while index < units.len()
+                && units[index] != u16::from(b'.')
+                && units[index] != u16::from(b'[')
+                && units[index] != u16::from(b']')
+            {
+                index += 1;
+            }
+            segments.push(JsString::from_utf16_units(units[start..index].to_vec()));
+            continue;
+        }
+        if units[index] == u16::from(b'[') {
+            let digits_start = index + 1;
+            let mut end = digits_start;
+            while end < units.len()
+                && units[end] >= u16::from(b'0')
+                && units[end] <= u16::from(b'9')
+            {
+                end += 1;
+            }
+            if end > digits_start && end < units.len() && units[end] == u16::from(b']') {
+                segments.push(JsString::from_utf16_units(
+                    units[digits_start..end].to_vec(),
+                ));
+                index = end + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    segments
+}
+
+/// Expands legacy `{name}` placeholders using host-owned variable lookup and string coercion.
+///
+/// The callback supplies real JavaScript nullish and `String` semantics without allowing host
+/// code to choose traversal or replacement matching policy.
+pub fn expand_legacy_braces<E>(
+    template: &JsString,
+    mut replacement: impl FnMut(&JsString) -> Result<JsString, E>,
+) -> Result<JsString, E> {
+    let units: Vec<u16> = template.utf16_units().collect();
+    let mut output = JsString::from_string("");
+    let mut copied_to = 0;
+    let mut index = 0;
+    while index < units.len() {
+        if units[index] != u16::from(b'{') {
+            index += 1;
+            continue;
+        }
+        let key_start = index + 1;
+        let mut end = key_start;
+        while end < units.len() && units[end] != u16::from(b'}') {
+            end += 1;
+        }
+        if end == key_start || end == units.len() {
+            index += 1;
+            continue;
+        }
+        output.push_js_string(&JsString::from_utf16_units(
+            units[copied_to..index].to_vec(),
+        ));
+        output.push_js_string(&replacement(&JsString::from_utf16_units(
+            units[key_start..end].to_vec(),
+        ))?);
+        index = end + 1;
+        copied_to = index;
+    }
+    output.push_js_string(&JsString::from_utf16_units(units[copied_to..].to_vec()));
+    Ok(output)
 }
 
 /// A variable path segment used by structured resolution.

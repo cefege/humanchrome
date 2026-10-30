@@ -983,8 +983,11 @@ name = "humanchrome-wasm"
 version = "1.2.0"
 dependencies = [
  "humanchrome-core",
+ "indexmap",
+ "js-sys",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "wasm-bindgen",
 ]
 

@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::arguments::JsString;
+
 use humanchrome_contracts::CONTRACT;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Number, Value};
@@ -113,12 +115,18 @@ pub fn rr_step_types() -> &'static Map<String, Value> {
         .expect("generated graph contract must contain record/replay step types")
 }
 
-fn rr_step_type(key: &str) -> &'static str {
-    graph_constant("rrStepTypes", key)
+fn graph_step_type(key: &str) -> &'static str {
+    graph_constant("stepTypes", key)
 }
 
 fn edge_label(key: &str) -> &'static str {
     graph_constant("edgeLabels", key)
+}
+
+/// Returns the generated legacy linear-edge label without mirroring it at browser boundaries.
+#[must_use]
+pub fn legacy_default_edge_label() -> &'static str {
+    edge_label("DEFAULT")
 }
 
 fn is_truthy(value: &Value) -> bool {
@@ -290,11 +298,99 @@ pub fn topo_order<'source>(
     }
 }
 
+/// Orders source positions without serializing caller-owned node metadata.
+///
+/// This is the identity-preserving browser projection of [`topo_order`]. Duplicate identifiers
+/// retain the original algorithm's final-id lookup behavior because each returned reference is
+/// translated back to its source position only after ordering completes.
+///
+/// # Errors
+///
+/// Returns [`GraphError`] when an edge has no source node.
+pub fn topo_order_indices(nodes: &[RRNode], edges: &[RREdge]) -> Result<Vec<usize>, GraphError> {
+    topo_order(nodes, edges).map(|ordered| {
+        ordered
+            .into_iter()
+            .map(|node| {
+                nodes
+                    .iter()
+                    .position(|candidate| std::ptr::eq(candidate, node))
+                    .expect("topological references originate from source nodes")
+            })
+            .collect()
+    })
+}
+
+/// Orders browser graph source positions without lossy UTF-16 identifier conversion.
+///
+/// The browser binding uses this form because JavaScript identifiers may contain unpaired
+/// surrogate units. It otherwise follows the legacy Kahn traversal and cycle fallback exactly.
+///
+/// # Errors
+///
+/// Returns [`GraphError`] when an edge source is absent.
+pub fn topo_order_indices_js_strings(
+    nodes: &[JsString],
+    edges: &[(JsString, JsString)],
+) -> Result<Vec<usize>, GraphError> {
+    let mut node_by_id = HashMap::with_capacity(nodes.len());
+    let mut indegree = HashMap::with_capacity(nodes.len() + edges.len());
+    let mut nexts = HashMap::with_capacity(nodes.len());
+
+    for (index, node) in nodes.iter().enumerate() {
+        node_by_id.insert(node, index);
+        indegree.insert(node, 0_i64);
+        nexts.entry(node).or_insert_with(Vec::new);
+    }
+    for (_, target) in edges {
+        *indegree.entry(target).or_insert(0) += 1;
+    }
+    for (source, target) in edges {
+        let Some(destinations) = nexts.get_mut(source) else {
+            return Err(GraphError {
+                from: source.to_string_lossy(),
+            });
+        };
+        destinations.push(target);
+    }
+
+    let mut ready: Vec<&JsString> = nodes
+        .iter()
+        .filter(|node| indegree.get(*node).copied().unwrap_or(0) == 0)
+        .collect();
+    let mut next_ready = 0;
+    let mut ordered = Vec::with_capacity(nodes.len());
+
+    while let Some(id) = ready.get(next_ready).copied() {
+        next_ready += 1;
+        let Some(&node_index) = node_by_id.get(id) else {
+            continue;
+        };
+        ordered.push(node_index);
+        for &target in nexts
+            .get(id)
+            .expect("node identifiers initialize adjacency lists")
+        {
+            let target_indegree = indegree.entry(target).or_insert(0);
+            *target_indegree -= 1;
+            if *target_indegree == 0 {
+                ready.push(target);
+            }
+        }
+    }
+
+    if ordered.len() == nodes.len() {
+        Ok(ordered)
+    } else {
+        Ok((0..nodes.len()).collect())
+    }
+}
+
 /// Converts a Flow V2 node into its legacy linear-step JSON representation.
 #[must_use]
 pub fn map_node_to_step(node: &RRNode) -> Value {
     let config = node.config.value();
-    if node.r#type == rr_step_type("DELAY") {
+    if node.r#type == graph_step_type("DELAY") {
         let sleep = nullish_config_property(config, "sleep")
             .or_else(|| nullish_config_property(config, "ms"))
             .unwrap_or_else(|| Value::Number(Number::from(1_000)));
@@ -303,7 +399,7 @@ pub fn map_node_to_step(node: &RRNode) -> Value {
             (String::from("id"), Value::String(node.id.clone())),
             (
                 String::from("type"),
-                Value::String(rr_step_type("WAIT").to_owned()),
+                Value::String(graph_step_type("WAIT").to_owned()),
             ),
             (
                 String::from("condition"),
@@ -380,7 +476,7 @@ pub fn steps_to_nodes(steps: &[Value]) -> Vec<RRNode> {
                 .and_then(|object| object.get("type"))
                 .and_then(Value::as_str)
                 .filter(|step_type| !step_type.is_empty())
-                .map_or_else(|| rr_step_type("SCRIPT").to_owned(), ToOwned::to_owned);
+                .map_or_else(|| graph_step_type("SCRIPT").to_owned(), ToOwned::to_owned);
             RRNode {
                 id,
                 r#type,
@@ -408,6 +504,506 @@ pub fn steps_to_dag(steps: &[Value]) -> Dag {
     Dag { nodes, edges }
 }
 
+/// A lossless graph node projection supplied by a browser host.
+///
+/// The projection deliberately excludes configuration and UI objects so graph policy never
+/// serializes caller-owned resources.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyNodeProjection {
+    /// Caller-owned source position.
+    pub index: usize,
+    /// Node identifier using JavaScript UTF-16 equality.
+    pub id: JsString,
+    /// Node type using JavaScript UTF-16 equality.
+    pub r#type: JsString,
+}
+
+/// A lossless graph edge projection supplied by a browser host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyEdgeProjection {
+    /// Caller-owned source position.
+    pub index: usize,
+    /// Edge source identifier.
+    pub from: JsString,
+    /// Edge target identifier.
+    pub to: JsString,
+    /// The edge label when it is a string.
+    pub label: Option<JsString>,
+    /// Whether JavaScript's legacy default-edge predicate accepted this edge.
+    pub is_default: bool,
+}
+
+/// A finite or non-finite number after the host's `Number` intrinsic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LegacyNumber {
+    /// A finite JavaScript number.
+    Finite(f64),
+    /// JavaScript `NaN`.
+    Nan,
+    /// JavaScript positive infinity.
+    PositiveInfinity,
+    /// JavaScript negative infinity.
+    NegativeInfinity,
+}
+
+/// Describes one selected delay property after the host's JavaScript coercion.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LegacyDelayProperty {
+    /// `false` represents `null` or `undefined` and is skipped by `??`.
+    pub is_nullish: bool,
+    /// The `Number` result when the property is not nullish.
+    pub number: LegacyNumber,
+}
+
+/// A Rust-owned patch for one legacy step projection.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyStepPlan {
+    /// The caller-provided node identifier.
+    pub id: JsString,
+    /// The emitted legacy step type.
+    pub r#type: JsString,
+    /// `true` when the host must build a `condition.sleep` wait step.
+    pub is_delay: bool,
+    /// The normalized sleep value for delay steps.
+    pub sleep: Option<LegacyNumber>,
+    /// Properties whose original host values must be replaced with `{ candidates: [] }`.
+    pub normalized_properties: Vec<&'static str>,
+}
+
+/// The legacy scheduler's complete graph decision snapshot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyExecutionPlan {
+    /// Whether full-edge DFS finds a back edge.
+    pub has_cycle: bool,
+    /// Source positions of edges matching the default-edge predicate.
+    pub default_edge_indexes: Vec<usize>,
+    /// Legacy Kahn order over only default edges, with its original cycle fallback.
+    pub ordered_node_indexes: Vec<usize>,
+    /// Ordered, non-trigger nodes used to project scheduler steps.
+    pub executable_node_indexes: Vec<usize>,
+    /// Scheduler root choice, including trigger-default-edge fallback.
+    pub start_node_index: Option<usize>,
+}
+
+/// Returns the ordered legacy default-edge projection without host configuration objects.
+///
+/// # Errors
+///
+/// Returns [`GraphError`] when a selected default edge has no source node.
+pub fn legacy_execution_plan(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Result<LegacyExecutionPlan, GraphError> {
+    let default_edges = edges
+        .iter()
+        .filter(|edge| edge.is_default)
+        .cloned()
+        .collect::<Vec<_>>();
+    let default_edge_indexes = default_edges.iter().map(|edge| edge.index).collect();
+    let ordered_node_indexes = legacy_topo_order_projection(nodes, &default_edges)?;
+    let executable_node_indexes = ordered_node_indexes
+        .iter()
+        .copied()
+        .filter(|index| {
+            nodes
+                .get(*index)
+                .is_some_and(|node| !node.r#type.equals_str(graph_step_type("TRIGGER")))
+        })
+        .collect();
+    let start_node_index = legacy_start_node(nodes, edges);
+
+    Ok(LegacyExecutionPlan {
+        has_cycle: legacy_has_cycle(nodes, edges),
+        default_edge_indexes,
+        ordered_node_indexes,
+        executable_node_indexes,
+        start_node_index,
+    })
+}
+
+/// Orders nodes for legacy linear-step projection, retaining source order when there are no edges.
+///
+/// # Errors
+///
+/// Returns [`GraphError`] when a nonempty edge list has no source node.
+pub fn legacy_nodes_to_step_indexes(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Result<Vec<usize>, GraphError> {
+    if edges.is_empty() {
+        return Ok(nodes.iter().map(|node| node.index).collect());
+    }
+    legacy_topo_order_projection(nodes, edges)
+}
+
+/// Selects the legacy builder's executable default-path node order.
+///
+/// Trigger nodes and edges originating from them are excluded before the historical Kahn
+/// traversal, matching the builder's linear-step projection rather than scheduler traversal.
+///
+/// # Errors
+///
+/// Returns [`GraphError`] when a retained edge has no executable source node.
+pub fn legacy_builder_step_indexes(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Result<Vec<usize>, GraphError> {
+    let executable_nodes = nodes
+        .iter()
+        .filter(|node| !node.r#type.equals_str(graph_step_type("TRIGGER")))
+        .cloned()
+        .collect::<Vec<_>>();
+    let executable_edges = edges
+        .iter()
+        .filter(|edge| edge.is_default && executable_nodes.iter().any(|node| node.id == edge.from))
+        .cloned()
+        .collect::<Vec<_>>();
+    legacy_topo_order_projection(&executable_nodes, &executable_edges)
+}
+
+/// Selects the first legacy edge with an exactly matching string label.
+#[must_use]
+pub fn legacy_labeled_edge_index(
+    edges: &[LegacyEdgeProjection],
+    current_id: &JsString,
+    label: &JsString,
+) -> Option<usize> {
+    edges
+        .iter()
+        .find(|edge| {
+            edge.from == *current_id && edge.label.as_ref().is_some_and(|value| value == label)
+        })
+        .map(|edge| edge.index)
+}
+
+/// Selects the next legacy scheduler edge, preferring a matching string label then default.
+#[must_use]
+pub fn legacy_next_edge_index(
+    edges: &[LegacyEdgeProjection],
+    current_id: &JsString,
+    label: &JsString,
+) -> Option<usize> {
+    edges
+        .iter()
+        .find(|edge| {
+            edge.from == *current_id && edge.label.as_ref().is_some_and(|value| value == label)
+        })
+        .or_else(|| {
+            edges
+                .iter()
+                .find(|edge| edge.from == *current_id && edge.is_default)
+        })
+        .map(|edge| edge.index)
+}
+
+/// Selects a trigger node's first default successor in source-edge order.
+#[must_use]
+pub fn legacy_default_successor_index(
+    edges: &[LegacyEdgeProjection],
+    current_id: &JsString,
+) -> Option<usize> {
+    edges
+        .iter()
+        .find(|edge| edge.from == *current_id && edge.is_default)
+        .map(|edge| edge.index)
+}
+
+/// Selects the target-like properties that legacy conversion normalizes.
+///
+/// The host supplies only JavaScript intrinsic observations: truthiness and whether the original
+/// value is an object. Rust owns the resulting structural policy.
+#[must_use]
+pub fn legacy_normalized_properties(
+    properties: &[(&'static str, bool, bool)],
+) -> Vec<&'static str> {
+    properties
+        .iter()
+        .filter_map(|(name, truthy, is_object)| (*truthy && !*is_object).then_some(*name))
+        .collect()
+}
+
+/// Builds a step patch while retaining browser-owned configuration objects at the adapter.
+#[must_use]
+pub fn legacy_node_to_step_plan(
+    id: JsString,
+    node_type: JsString,
+    normalized_properties: Vec<&'static str>,
+    sleep: Option<LegacyDelayProperty>,
+    ms: Option<LegacyDelayProperty>,
+) -> LegacyStepPlan {
+    if node_type.equals_str(graph_step_type("DELAY")) {
+        let selected = match legacy_delay_source(
+            sleep.is_none_or(|value| value.is_nullish),
+            ms.is_none_or(|value| value.is_nullish),
+        ) {
+            LegacyDelaySource::Sleep => sleep.expect("selected sleep is non-nullish").number,
+            LegacyDelaySource::Ms => ms.expect("selected ms is non-nullish").number,
+            LegacyDelaySource::Default => LegacyNumber::Finite(1_000.0),
+        };
+        let sleep = legacy_normalize_delay(selected);
+        return LegacyStepPlan {
+            id,
+            r#type: JsString::from(graph_step_type("WAIT")),
+            is_delay: true,
+            sleep: Some(sleep),
+            normalized_properties: Vec::new(),
+        };
+    }
+
+    LegacyStepPlan {
+        id,
+        r#type: node_type,
+        is_delay: false,
+        sleep: None,
+        normalized_properties,
+    }
+}
+
+/// Identifies which legacy delay property JavaScript must coerce through `Number`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LegacyDelaySource {
+    /// Use `config.sleep`.
+    Sleep,
+    /// Use `config.ms`.
+    Ms,
+    /// Neither property was non-nullish; use the historical 1000ms default.
+    Default,
+}
+
+/// Selects the first non-nullish legacy delay property without invoking host coercion.
+#[must_use]
+pub const fn legacy_delay_source(sleep_is_nullish: bool, ms_is_nullish: bool) -> LegacyDelaySource {
+    if !sleep_is_nullish {
+        LegacyDelaySource::Sleep
+    } else if !ms_is_nullish {
+        LegacyDelaySource::Ms
+    } else {
+        LegacyDelaySource::Default
+    }
+}
+
+/// Applies legacy delay clamping after the host invokes JavaScript's `Number` exactly once.
+#[must_use]
+pub fn legacy_normalize_delay(number: LegacyNumber) -> LegacyNumber {
+    match number {
+        LegacyNumber::Nan | LegacyNumber::PositiveInfinity => number,
+        LegacyNumber::NegativeInfinity => LegacyNumber::Finite(0.0),
+        LegacyNumber::Finite(value) => LegacyNumber::Finite(value.max(0.0)),
+    }
+}
+
+/// Returns the default identifier and type decisions for linear legacy steps.
+#[must_use]
+pub fn legacy_steps_to_node_plans(
+    steps: &[(Option<JsString>, Option<JsString>)],
+) -> Vec<(JsString, JsString)> {
+    steps
+        .iter()
+        .enumerate()
+        .map(|(index, (id, step_type))| {
+            (
+                id.clone()
+                    .filter(|id| id.utf16_len() > 0)
+                    .unwrap_or_else(|| JsString::from(format!("n_{index}"))),
+                step_type
+                    .clone()
+                    .filter(|step_type| step_type.utf16_len() > 0)
+                    .unwrap_or_else(|| JsString::from(graph_step_type("SCRIPT"))),
+            )
+        })
+        .collect()
+}
+
+/// The legacy flow-store normalization decision, excluding IndexedDB and host object copying.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyFlowNormalizationPlan {
+    /// Whether legacy linear steps must become graph nodes.
+    pub convert_steps: bool,
+    /// Existing edge source positions whose endpoints remain valid.
+    pub valid_edge_indexes: Vec<usize>,
+    /// Whether the generated sequential chain replaces existing edges.
+    pub use_generated_edges: bool,
+}
+
+/// Selects legacy flow normalization behavior without inspecting browser-owned configurations.
+#[must_use]
+pub fn legacy_flow_normalization_plan(
+    has_nodes: bool,
+    has_steps: bool,
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> LegacyFlowNormalizationPlan {
+    let valid_edge_indexes = legacy_valid_edge_indexes(nodes, edges);
+    let convert_steps = !has_nodes && has_steps;
+    let use_generated_edges = convert_steps && (edges.is_empty() || valid_edge_indexes.is_empty());
+    LegacyFlowNormalizationPlan {
+        convert_steps,
+        valid_edge_indexes,
+        use_generated_edges,
+    }
+}
+
+/// Generates the sequential legacy DAG edges with their source-order identifiers.
+#[must_use]
+pub fn legacy_sequential_edges(
+    nodes: &[LegacyNodeProjection],
+) -> Vec<(JsString, JsString, JsString)> {
+    nodes
+        .windows(2)
+        .enumerate()
+        .map(|(index, pair)| {
+            let mut id = JsString::from(format!("e_{index}_"));
+            id.push_js_string(&pair[0].id);
+            id.push_str("_");
+            id.push_js_string(&pair[1].id);
+            (id, pair[0].id.clone(), pair[1].id.clone())
+        })
+        .collect()
+}
+
+/// Retains only edges whose source and destination are both present in the node projection.
+#[must_use]
+pub fn legacy_valid_edge_indexes(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Vec<usize> {
+    edges
+        .iter()
+        .filter(|edge| {
+            nodes.iter().any(|node| node.id == edge.from)
+                && nodes.iter().any(|node| node.id == edge.to)
+        })
+        .map(|edge| edge.index)
+        .collect()
+}
+
+fn legacy_topo_order_projection(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Result<Vec<usize>, GraphError> {
+    let mut node_by_id = HashMap::with_capacity(nodes.len());
+    let mut indegree = HashMap::with_capacity(nodes.len() + edges.len());
+    let mut nexts = HashMap::with_capacity(nodes.len());
+    for node in nodes {
+        node_by_id.insert(&node.id, node.index);
+        indegree.insert(&node.id, 0_i64);
+        nexts.entry(&node.id).or_insert_with(Vec::new);
+    }
+    for edge in edges {
+        *indegree.entry(&edge.to).or_insert(0) += 1;
+    }
+    for edge in edges {
+        let Some(destinations) = nexts.get_mut(&edge.from) else {
+            return Err(GraphError {
+                from: edge.from.to_string_lossy(),
+            });
+        };
+        destinations.push(&edge.to);
+    }
+
+    let mut ready = nodes
+        .iter()
+        .filter(|node| indegree.get(&node.id).copied().unwrap_or(0) == 0)
+        .map(|node| &node.id)
+        .collect::<Vec<_>>();
+    let mut next_ready = 0;
+    let mut ordered = Vec::with_capacity(nodes.len());
+    while let Some(id) = ready.get(next_ready).copied() {
+        next_ready += 1;
+        let Some(&index) = node_by_id.get(id) else {
+            continue;
+        };
+        ordered.push(index);
+        for target in nexts
+            .get(id)
+            .expect("node identifiers initialize adjacency lists")
+        {
+            let target_indegree = indegree.entry(*target).or_insert(0);
+            *target_indegree -= 1;
+            if *target_indegree == 0 {
+                ready.push(target);
+            }
+        }
+    }
+    (ordered.len() == nodes.len())
+        .then_some(ordered)
+        .ok_or_else(|| GraphError {
+            from: String::new(),
+        })
+        .or_else(|_| Ok(nodes.iter().map(|node| node.index).collect()))
+}
+
+fn legacy_has_cycle(nodes: &[LegacyNodeProjection], edges: &[LegacyEdgeProjection]) -> bool {
+    let mut adjacency = HashMap::with_capacity(nodes.len() + edges.len());
+    for node in nodes {
+        adjacency.insert(&node.id, Vec::new());
+    }
+    for edge in edges {
+        adjacency
+            .entry(&edge.from)
+            .or_insert_with(Vec::new)
+            .push(&edge.to);
+    }
+    let mut colors = HashMap::with_capacity(adjacency.len());
+    fn visit<'source>(
+        id: &'source JsString,
+        adjacency: &HashMap<&'source JsString, Vec<&'source JsString>>,
+        colors: &mut HashMap<&'source JsString, u8>,
+    ) -> bool {
+        match colors.get(id).copied().unwrap_or(0) {
+            1 => return true,
+            2 => return false,
+            _ => {}
+        }
+        colors.insert(id, 1);
+        if adjacency.get(id).is_some_and(|destinations| {
+            destinations
+                .iter()
+                .any(|target| visit(target, adjacency, colors))
+        }) {
+            return true;
+        }
+        colors.insert(id, 2);
+        false
+    }
+
+    nodes.iter().any(|node| {
+        colors.get(&node.id).copied().unwrap_or(0) == 0 && visit(&node.id, &adjacency, &mut colors)
+    })
+}
+
+fn legacy_start_node(
+    nodes: &[LegacyNodeProjection],
+    edges: &[LegacyEdgeProjection],
+) -> Option<usize> {
+    let mut indegree = HashMap::with_capacity(nodes.len() + edges.len());
+    for node in nodes {
+        indegree.insert(&node.id, 0_i64);
+    }
+    for edge in edges {
+        *indegree.entry(&edge.to).or_insert(0) += 1;
+    }
+    if let Some(node) = nodes.iter().find(|node| {
+        indegree.get(&node.id).copied().unwrap_or(0) == 0
+            && !node.r#type.equals_str(graph_step_type("TRIGGER"))
+    }) {
+        return Some(node.index);
+    }
+    let trigger_root = nodes
+        .iter()
+        .find(|node| indegree.get(&node.id).copied().unwrap_or(0) == 0);
+    if let Some(root) = trigger_root
+        && let Some(edge) = edges
+            .iter()
+            .find(|edge| edge.from == root.id && edge.is_default)
+    {
+        return nodes
+            .iter()
+            .find(|node| node.id == edge.to)
+            .map(|node| node.index);
+    }
+    nodes.first().map(|node| node.index)
+}
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -603,5 +1199,34 @@ mod tests {
             serde_json::to_value(explicit_null).expect("serializable node"),
             json!({ "id": "a", "type": "click", "config": null })
         );
+    }
+
+    #[test]
+    fn legacy_dag_trigger_routes_without_becoming_an_executable_step() {
+        let nodes = [("start", "trigger"), ("fill", "fill"), ("finish", "script")]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (id, kind))| super::LegacyNodeProjection {
+                index,
+                id: id.into(),
+                r#type: kind.into(),
+            })
+            .collect::<Vec<_>>();
+        let edges = [("start", "fill"), ("fill", "finish")]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (from, to))| super::LegacyEdgeProjection {
+                index,
+                from: from.into(),
+                to: to.into(),
+                label: Some("default".into()),
+                is_default: true,
+            })
+            .collect::<Vec<_>>();
+
+        let plan = super::legacy_execution_plan(&nodes, &edges).expect("valid legacy DAG");
+        assert_eq!(plan.ordered_node_indexes, [0, 1, 2]);
+        assert_eq!(plan.executable_node_indexes, [1, 2]);
+        assert_eq!(plan.start_node_index, Some(1));
     }
 }

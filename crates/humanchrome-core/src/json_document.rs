@@ -306,6 +306,19 @@ impl JsonDocument {
         }
     }
 
+    /// Takes a root string without copying its UTF-8 or lossless UTF-16 storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original document when its root is not a string.
+    pub fn into_string_value(self) -> Result<JsString, Self> {
+        match self.storage {
+            DocumentStorage::Normal(Value::String(value)) => Ok(JsString::from_owned_string(value)),
+            DocumentStorage::Lossless(JsonNode::String(value)) => Ok(value),
+            storage => Err(Self { storage }),
+        }
+    }
+
     /// Returns whether the root is an object.
     #[must_use]
     pub fn is_object(&self) -> bool {

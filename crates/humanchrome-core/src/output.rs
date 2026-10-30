@@ -18,10 +18,112 @@ pub struct OutputBudgetOptions {
     pub budget_bytes: Option<usize>,
 }
 
-/// Applies the MCP dispatcher output cap, consuming `result` where possible.
+/// One text replacement in a dispatcher result. Other fields remain owned by the host.
+#[derive(Debug, serde::Serialize)]
+pub struct OutputTextPatch {
+    pub index: usize,
+    pub text: String,
+}
+
+/// Dispatcher metadata retains JavaScript numeric limits, including non-finite values.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DispatcherTruncation {
+    pub truncated: bool,
+    pub original_size: usize,
+    pub limit: f64,
+    pub unit: &'static str,
+    pub hint: &'static str,
+}
+
+/// A pure mutation plan: images and opaque result metadata never cross the WASM boundary.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputBudgetPlan {
+    pub single_text: bool,
+    pub patches: Vec<OutputTextPatch>,
+    pub truncation: DispatcherTruncation,
+}
+
+/// Plans dispatcher truncation from TextEncoder-compatible UTF-8 text.
 ///
-/// The policy counts text blocks only, bypasses raw and error results, never
-/// cuts image data, and preserves the distinct per-tool truncation envelope.
+/// The iterator is borrowed and replayable; ordinary under-budget results allocate nothing.
+#[must_use]
+pub fn plan_output_budget<'a>(
+    content_length: usize,
+    text_blocks: impl Iterator<Item = (usize, &'a str)> + Clone,
+    budget_bytes: Option<f64>,
+) -> Option<OutputBudgetPlan> {
+    let (count, original_size) = text_blocks
+        .clone()
+        .fold((0_usize, 0_usize), |(count, bytes), (_, text)| {
+            (count + 1, bytes + text.len())
+        });
+    let budget = javascript_max(
+        MINIMUM_DISPATCHER_BUDGET_BYTES as f64,
+        budget_bytes.unwrap_or(DEFAULT_OUTPUT_BUDGET_BYTES as f64),
+    );
+    if count == 0 || original_size as f64 <= budget {
+        return None;
+    }
+    let head_budget = javascript_max(
+        MINIMUM_DISPATCHER_BUDGET_BYTES as f64,
+        budget - DISPATCHER_HEADROOM_BYTES as f64,
+    );
+    let single_text = count == 1 && content_length == 1;
+    let patches = if single_text {
+        let (index, text) = text_blocks
+            .into_iter()
+            .next()
+            .expect("one text block exists");
+        let head = truncate_utf8_replacing_partial(text, head_budget as usize);
+        let limit = crate::json::number_to_string(budget);
+        vec![OutputTextPatch {
+            index,
+            text: format!(
+                "{head}\n\n[Result truncated by dispatcher: originalSize={original_size} bytes, limit={limit} bytes. Pass raw=true to bypass.]"
+            ),
+        }]
+    } else {
+        let per_block_budget = javascript_max(512.0, (head_budget / count as f64).floor());
+        let limit = crate::json::number_to_string(per_block_budget);
+        text_blocks
+            .filter_map(|(index, text)| {
+                if text.len() as f64 <= per_block_budget {
+                    return None;
+                }
+                let head = truncate_utf8_replacing_partial(text, per_block_budget as usize);
+                Some(OutputTextPatch {
+                    index,
+                    text: format!(
+                        "{head}\n\n[Block truncated by dispatcher: per-block limit={limit} bytes.]"
+                    ),
+                })
+            })
+            .collect()
+    };
+    Some(OutputBudgetPlan {
+        single_text,
+        patches,
+        truncation: DispatcherTruncation {
+            truncated: true,
+            original_size,
+            limit: budget,
+            unit: "bytes",
+            hint: "set raw=true to opt out",
+        },
+    })
+}
+
+fn javascript_max(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        f64::NAN
+    } else {
+        left.max(right)
+    }
+}
+
+/// Applies the same dispatcher plan to native JSON values, consuming untouched data.
 #[must_use]
 pub fn enforce_output_budget(mut result: Value, options: OutputBudgetOptions) -> Value {
     if options.raw || js_truthy(result.get("isError")) {
@@ -30,57 +132,36 @@ pub fn enforce_output_budget(mut result: Value, options: OutputBudgetOptions) ->
     let Some(content) = result.get("content").and_then(Value::as_array) else {
         return result;
     };
-
-    let mut text_blocks = Vec::new();
-    let mut total_text_bytes = 0_usize;
-    for (index, block) in content.iter().enumerate() {
-        let Some(object) = block.as_object() else {
-            continue;
-        };
-        if object.get("type").and_then(Value::as_str) != Some("text") {
-            continue;
+    let text_blocks = content.iter().enumerate().filter_map(|(index, block)| {
+        if block.get("type").and_then(Value::as_str) != Some("text") {
+            return None;
         }
-        let Some(text) = object.get("text").and_then(Value::as_str) else {
-            continue;
-        };
-        let bytes = text.len();
-        text_blocks.push((index, bytes));
-        total_text_bytes += bytes;
-    }
-    if text_blocks.is_empty() {
+        block
+            .get("text")
+            .and_then(Value::as_str)
+            .map(|text| (index, text))
+    });
+    let Some(plan) = plan_output_budget(
+        content.len(),
+        text_blocks,
+        options.budget_bytes.map(|budget| budget as f64),
+    ) else {
         return result;
-    }
-
-    let budget = options
-        .budget_bytes
-        .unwrap_or(DEFAULT_OUTPUT_BUDGET_BYTES)
-        .max(MINIMUM_DISPATCHER_BUDGET_BYTES);
-    if total_text_bytes <= budget {
-        return result;
-    }
-
-    let head_budget = budget
-        .saturating_sub(DISPATCHER_HEADROOM_BYTES)
-        .max(MINIMUM_DISPATCHER_BUDGET_BYTES);
-    let truncation = dispatcher_truncation(total_text_bytes, budget);
-    let is_single_text_result = text_blocks.len() == 1 && content.len() == 1;
+    };
+    let truncation = dispatcher_truncation(
+        plan.truncation.original_size,
+        plan.truncation.limit as usize,
+    );
     let result_object = result
         .as_object_mut()
-        .expect("content array implies result is a JSON object");
-
-    if is_single_text_result {
-        let original = result_object
-            .get("content")
-            .and_then(Value::as_array)
-            .and_then(|content| content.first())
-            .and_then(Value::as_object)
-            .and_then(|block| block.get("text"))
-            .and_then(Value::as_str)
-            .expect("measured text block remains available");
-        let text = format!(
-            "{}\n\n[Result truncated by dispatcher: originalSize={total_text_bytes} bytes, limit={budget} bytes. Pass raw=true to bypass.]",
-            truncate_utf8_replacing_partial(original, head_budget)
-        );
+        .expect("content belongs to an object");
+    if plan.single_text {
+        let text = plan
+            .patches
+            .into_iter()
+            .next()
+            .expect("single text patch exists")
+            .text;
         result_object.insert(
             "content".to_owned(),
             Value::Array(vec![Value::Object(Map::from_iter([
@@ -88,30 +169,17 @@ pub fn enforce_output_budget(mut result: Value, options: OutputBudgetOptions) ->
                 ("text".to_owned(), Value::String(text)),
             ]))]),
         );
-        result_object.insert("truncation".to_owned(), truncation);
-        return result;
-    }
-
-    let per_block_budget = (head_budget / text_blocks.len()).max(512);
-    let content = result_object
-        .get_mut("content")
-        .and_then(Value::as_array_mut)
-        .expect("content array remains available");
-    for (index, measured_bytes) in text_blocks {
-        if measured_bytes <= per_block_budget {
-            continue;
+    } else {
+        let content = result_object
+            .get_mut("content")
+            .and_then(Value::as_array_mut)
+            .expect("content array remains available");
+        for patch in plan.patches {
+            content[patch.index]
+                .as_object_mut()
+                .expect("text block is an object")
+                .insert("text".to_owned(), Value::String(patch.text));
         }
-        let Some(block) = content.get_mut(index).and_then(Value::as_object_mut) else {
-            continue;
-        };
-        let Some(text) = block.get("text").and_then(Value::as_str) else {
-            continue;
-        };
-        let text = format!(
-            "{}\n\n[Block truncated by dispatcher: per-block limit={per_block_budget} bytes.]",
-            truncate_utf8_replacing_partial(text, per_block_budget)
-        );
-        block.insert("text".to_owned(), Value::String(text));
     }
     result_object.insert("truncation".to_owned(), truncation);
     result
@@ -152,7 +220,11 @@ fn truncate_utf8_replacing_partial(value: &str, max_bytes: usize) -> String {
     if bytes.len() <= max_bytes {
         return value.to_owned();
     }
-    String::from_utf8_lossy(&bytes[..max_bytes]).into_owned()
+    let mut decoded = String::from_utf8_lossy(&bytes[..max_bytes]).into_owned();
+    if decoded.starts_with('\u{feff}') {
+        decoded.drain(..'\u{feff}'.len_utf8());
+    }
+    decoded
 }
 
 /// Unit labels used by tool-specific truncation callers.
@@ -178,9 +250,21 @@ pub enum TruncateMode {
     Raw,
 }
 
+impl TruncateMode {
+    /// Decodes the tool envelope's existing mode spelling.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "raw" => Self::Raw,
+            _ => Self::Preview,
+        }
+    }
+}
+
 /// Stable per-tool truncation envelope.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TruncateEnvelope<T> {
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TruncateEnvelope<T, Limit = usize> {
     /// Bounded or original data.
     pub data: T,
     /// Whether data was shortened.
@@ -188,9 +272,76 @@ pub struct TruncateEnvelope<T> {
     /// Original byte or item count.
     pub original_size: usize,
     /// Byte or item cap supplied by the caller.
-    pub limit: usize,
+    pub limit: Limit,
     /// Whether retrying with raw mode can return more data.
     pub raw_available: bool,
+}
+
+/// Consumes lossless JavaScript text and preserves fractional/non-finite tool limits.
+#[must_use]
+pub fn truncate_owned_string(
+    text: JsString,
+    max_bytes: f64,
+    mode: TruncateMode,
+) -> TruncateEnvelope<JsString, f64> {
+    let original_size = text.text_encoder_len();
+    let truncated = !(mode == TruncateMode::Raw || original_size as f64 <= max_bytes);
+    let data = if truncated {
+        text.into_text_encoder_prefix(max_bytes as usize)
+    } else {
+        text
+    };
+    TruncateEnvelope {
+        data,
+        truncated,
+        original_size,
+        limit: max_bytes,
+        raw_available: truncated,
+    }
+}
+
+/// Plans JavaScript array slicing without transferring or cloning array resources.
+#[must_use]
+pub fn truncate_array_plan(
+    original_size: usize,
+    max_items: f64,
+    mode: TruncateMode,
+) -> TruncateEnvelope<usize, f64> {
+    let truncated = !(mode == TruncateMode::Raw || original_size as f64 <= max_items);
+    let retained = if !truncated {
+        original_size
+    } else {
+        let relative = max_items.trunc();
+        if relative.is_nan() {
+            0
+        } else if relative < 0.0 {
+            (original_size as f64 + relative).max(0.0) as usize
+        } else {
+            relative.min(original_size as f64) as usize
+        }
+    };
+    TruncateEnvelope {
+        data: retained,
+        truncated,
+        original_size,
+        limit: max_items,
+        raw_available: truncated,
+    }
+}
+
+fn native_string_envelope(
+    text: JsString,
+    max_bytes: usize,
+    mode: TruncateMode,
+) -> TruncateEnvelope<JsString> {
+    let envelope = truncate_owned_string(text, max_bytes as f64, mode);
+    TruncateEnvelope {
+        data: envelope.data,
+        truncated: envelope.truncated,
+        original_size: envelope.original_size,
+        limit: max_bytes,
+        raw_available: envelope.raw_available,
+    }
 }
 
 /// Caps a string using JavaScript UTF-16 slicing and TextEncoder byte accounting.
@@ -203,24 +354,7 @@ pub fn truncate_string(
     max_bytes: usize,
     mode: TruncateMode,
 ) -> TruncateEnvelope<JsString> {
-    let original_size = text.len();
-    if mode == TruncateMode::Raw || original_size <= max_bytes {
-        return TruncateEnvelope {
-            data: JsString::from_string(text),
-            truncated: false,
-            original_size,
-            limit: max_bytes,
-            raw_available: false,
-        };
-    }
-
-    TruncateEnvelope {
-        data: JsString::text_encoder_prefix(text, max_bytes),
-        truncated: true,
-        original_size,
-        limit: max_bytes,
-        raw_available: true,
-    }
+    native_string_envelope(JsString::from_string(text), max_bytes, mode)
 }
 
 /// Caps an array by item count, consuming it in raw and already-small cases.
@@ -230,10 +364,11 @@ pub fn truncate_array<T>(
     max_items: usize,
     mode: TruncateMode,
 ) -> TruncateEnvelope<Vec<T>> {
-    let original_size = values.len();
-    let truncated = mode == TruncateMode::Preview && original_size > max_items;
+    let plan = truncate_array_plan(values.len(), max_items as f64, mode);
+    let original_size = plan.original_size;
+    let truncated = plan.truncated;
     if truncated {
-        values.truncate(max_items);
+        values.truncate(plan.data);
     }
     TruncateEnvelope {
         data: values,
@@ -251,8 +386,11 @@ pub fn truncate_json(
     max_bytes: usize,
     mode: TruncateMode,
 ) -> TruncateEnvelope<JsString> {
-    let text = crate::json::stringify(value);
-    truncate_string(&text, max_bytes, mode)
+    native_string_envelope(
+        JsString::from_owned_string(crate::json::stringify(value)),
+        max_bytes,
+        mode,
+    )
 }
 
 /// Resolves a tool's `raw?: boolean` argument into a truncation mode.
@@ -382,5 +520,73 @@ mod tests {
         let json_raw = truncate_json(&json!({"payload":"abcdef"}), 8, TruncateMode::Raw);
         assert!(!json_raw.truncated);
         assert!(!json_raw.raw_available);
+    }
+    #[test]
+    fn dispatcher_decodes_a_truncated_leading_bom_like_text_decoder() {
+        let output = enforce_output_budget(
+            json!({"content":[{"type":"text","text":format!("\u{feff}{}", "x".repeat(2000))}]}),
+            OutputBudgetOptions {
+                raw: false,
+                budget_bytes: Some(1024),
+            },
+        );
+        let expected_head = "x".repeat(1021);
+        assert_eq!(
+            output["content"][0]["text"]
+                .as_str()
+                .expect("text")
+                .split("\n\n")
+                .next(),
+            Some(expected_head.as_str()),
+        );
+        assert_eq!(output["truncation"]["originalSize"], json!(2003));
+    }
+
+    #[test]
+    fn browser_dispatcher_plan_preserves_fractional_and_nan_limits() {
+        let text = "x".repeat(4000);
+        let plan = super::plan_output_budget(1, std::iter::once((0, text.as_str())), Some(2048.5))
+            .expect("oversized text");
+        assert_eq!(plan.truncation.limit, 2048.5);
+        let expected_head = "x".repeat(1792);
+        assert_eq!(
+            plan.patches[0].text.split("\n\n").next(),
+            Some(expected_head.as_str())
+        );
+        let plan =
+            super::plan_output_budget(1, std::iter::once((0, text.as_str())), Some(f64::NAN))
+                .expect("NaN does not satisfy the under-budget comparison");
+        assert!(plan.truncation.limit.is_nan());
+        assert_eq!(plan.patches[0].text.split("\n\n").next(), Some(""));
+    }
+
+    #[test]
+    fn tool_string_prefix_preserves_existing_and_new_lone_surrogates() {
+        let text = crate::arguments::JsString::from_utf16_units(vec![0xd800, 0x78, 0xd83d, 0xde00]);
+        for (limit, expected) in [
+            (2.0, vec![]),
+            (3.0, vec![0xd800]),
+            (4.0, vec![0xd800, 0x78]),
+            (7.0, vec![0xd800, 0x78, 0xd83d]),
+            (8.0, vec![0xd800, 0x78, 0xd83d, 0xde00]),
+        ] {
+            let envelope = super::truncate_owned_string(text.clone(), limit, TruncateMode::Preview);
+            assert_eq!(envelope.data.utf16_units().collect::<Vec<_>>(), expected);
+            assert_eq!(envelope.original_size, 8);
+            assert_eq!(envelope.truncated, limit < 8.0);
+        }
+    }
+
+    #[test]
+    fn tool_array_plan_uses_javascript_relative_end_and_nan_comparisons() {
+        for (limit, retained) in [(-0.25, 0), (-1.25, 2), (2.5, 2), (f64::NAN, 0)] {
+            let plan = super::truncate_array_plan(3, limit, TruncateMode::Preview);
+            assert_eq!(plan.data, retained);
+            assert!(plan.truncated);
+        }
+        let raw = super::truncate_array_plan(3, f64::NAN, TruncateMode::Raw);
+        assert_eq!(raw.data, 3);
+        assert!(!raw.truncated);
+        assert!(super::truncate_array_plan(0, f64::NAN, TruncateMode::Preview).truncated);
     }
 }

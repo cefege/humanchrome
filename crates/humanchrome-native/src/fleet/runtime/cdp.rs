@@ -17,14 +17,14 @@ use std::os::windows::io::OwnedHandle;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+#[cfg(unix)]
+use tokio::process::Child;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, oneshot},
     task::JoinHandle,
     time,
 };
-#[cfg(unix)]
-use tokio::process::Child;
 
 use super::error::FleetRuntimeError;
 
@@ -245,7 +245,6 @@ pub struct ChromeProcess {
     // Retain the job (drop first, terminating descendants) and process until this owner drops.
     _windows_handles: [OwnedHandle; 2],
 }
-
 
 impl ChromeProcess {
     /// Waits for and reaps this owned Unix child without holding up the async executor.
@@ -726,7 +725,10 @@ pub fn spawn_with_cdp_pipe(
         // SAFETY: launch_windows_process returned two validated, uniquely owned handles.
         // OwnedHandle supplies thread-safe RAII ownership without asserting raw pointers Send.
         _windows_handles: unsafe {
-            [OwnedHandle::from_raw_handle(job), OwnedHandle::from_raw_handle(process)]
+            [
+                OwnedHandle::from_raw_handle(job),
+                OwnedHandle::from_raw_handle(process),
+            ]
         },
     })
 }

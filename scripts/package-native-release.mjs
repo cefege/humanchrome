@@ -142,7 +142,7 @@ export async function copyCoreRelease(stageRoot, binDir, target) {
     if (!target.includes('windows')) await chmod(destination, 0o755);
   }
 
-  const configSource = join(ROOT, 'app/native-server/src/mcp/stdio-config.json');
+  const configSource = join(ROOT, 'app/native-server/contracts/stdio-config.json');
   await requireFile(configSource, 'stdio configuration');
   await mkdir(join(stageRoot, 'mcp'), { recursive: true });
   await copyFile(configSource, join(stageRoot, 'mcp/stdio-config.json'));

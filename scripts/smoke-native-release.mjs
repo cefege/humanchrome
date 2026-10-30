@@ -128,7 +128,7 @@ async function assertArchiveLayout(releaseRoot) {
     fail('native archive mcp directory must contain only stdio-config.json');
   }
   const packagedConfig = await readFile(join(releaseRoot, 'mcp/stdio-config.json'), 'utf8');
-  const sourceConfig = await readFile(join(ROOT, 'app/native-server/src/mcp/stdio-config.json'), 'utf8');
+  const sourceConfig = await readFile(join(ROOT, 'app/native-server/contracts/stdio-config.json'), 'utf8');
   if (packagedConfig !== sourceConfig) fail('packaged stdio configuration differs from the source contract');
   const licenses = join(releaseRoot, 'licenses');
   const licenseEntries = await readdir(licenses, { withFileTypes: true });

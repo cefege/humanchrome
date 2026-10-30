@@ -169,26 +169,54 @@ impl JsString {
         }
     }
 
-    /// Builds the longest JavaScript UTF-16 prefix whose TextEncoder output fits `max_bytes`.
+    /// Consumes the string and retains the longest UTF-16 prefix fitting TextEncoder's byte cap.
     #[must_use]
-    pub fn text_encoder_prefix(value: &str, max_bytes: usize) -> Self {
-        let mut units = Vec::with_capacity(max_bytes.min(value.len()));
-        let mut bytes = 0;
-        for character in value.chars() {
-            let mut encoded = [0_u16; 2];
-            let encoded = character.encode_utf16(&mut encoded);
-            let character_bytes = character.len_utf8();
-            if bytes + character_bytes <= max_bytes {
-                units.extend_from_slice(encoded);
-                bytes += character_bytes;
-                continue;
+    pub fn into_text_encoder_prefix(self, max_bytes: usize) -> Self {
+        match self.storage {
+            JsStringStorage::Utf8(mut value) => {
+                let mut end = 0;
+                let mut unit_count = 0;
+                for (index, character) in value.char_indices() {
+                    let next = index + character.len_utf8();
+                    if next <= max_bytes {
+                        end = next;
+                        unit_count += character.len_utf16();
+                        continue;
+                    }
+                    if character.len_utf16() == 2 && index + 3 <= max_bytes {
+                        let mut units = Vec::with_capacity(unit_count + 1);
+                        units.extend(value[..index].encode_utf16());
+                        let mut pair = [0; 2];
+                        units.push(character.encode_utf16(&mut pair)[0]);
+                        return Self::from_utf16_units(units);
+                    }
+                    break;
+                }
+                value.truncate(end);
+                Self::from_owned_string(value)
             }
-            if encoded.len() == 2 && bytes + 3 <= max_bytes {
-                units.push(encoded[0]);
+            JsStringStorage::Utf16(mut units) => {
+                let mut bytes = 0;
+                let mut end = 0;
+                let mut previous_high = false;
+                for (index, &unit) in units.iter().enumerate() {
+                    let cost = match unit {
+                        0xdc00..=0xdfff if previous_high => 1,
+                        0..=0x7f => 1,
+                        0x80..=0x7ff => 2,
+                        _ => 3,
+                    };
+                    if bytes + cost > max_bytes {
+                        break;
+                    }
+                    bytes += cost;
+                    end = index + 1;
+                    previous_high = matches!(unit, 0xd800..=0xdbff);
+                }
+                units.truncate(end);
+                Self::from_utf16_units(units)
             }
-            break;
         }
-        Self::from_utf16_units(units)
     }
 
     /// Converts to Rust text when the units contain no unpaired surrogate.
@@ -499,7 +527,7 @@ impl ReceivedValue {
 /// Candidates are borrowed so callers can combine static and dynamic catalogs without copying
 /// every name before ranking.
 #[must_use]
-pub(crate) fn did_you_mean_lossless<'candidate>(
+pub fn did_you_mean_lossless<'candidate>(
     received: &JsString,
     candidates: impl IntoIterator<Item = &'candidate str>,
     max_distance: usize,
@@ -608,7 +636,7 @@ pub fn truncate_received(value: &Value) -> ReceivedValue {
 
 /// Truncates a JavaScript string without replacing unpaired UTF-16 code units.
 #[must_use]
-pub(crate) fn truncate_received_lossless(value: &JsString) -> ReceivedValue {
+pub fn truncate_received_lossless(value: &JsString) -> ReceivedValue {
     value.as_utf8().map_or_else(
         || truncate_received_string(value.clone()),
         truncate_received_utf8,

@@ -11,6 +11,17 @@ pub const TAB_SEARCH_CANDIDATE_LIMIT: usize = 50;
 /// The maximum number of tab results returned by the browser tool.
 pub const TAB_SEARCH_RESULT_LIMIT: usize = 10;
 
+/// Chooses the HNSW request count before tab collapse, preserving JavaScript numeric semantics.
+#[must_use]
+pub fn ann_candidate_count(requested: Option<f64>) -> f64 {
+    let requested = requested.unwrap_or(TAB_SEARCH_CANDIDATE_LIMIT as f64);
+    if requested.is_nan() {
+        requested
+    } else {
+        requested.max(TAB_SEARCH_CANDIDATE_LIMIT as f64)
+    }
+}
+
 /// Controls whether a page title becomes its own embedding chunk.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TitleInclusion {
@@ -1809,5 +1820,17 @@ mod tests {
         assert_eq!(size.vectors, 1536);
         assert_eq!(size.index_structure, 524);
         assert_eq!(size.total, 2144);
+    }
+
+    #[test]
+    fn ann_request_count_preserves_the_pre_dedup_limit_and_numeric_edges() {
+        assert_eq!(super::ann_candidate_count(None), 50.0);
+        assert_eq!(super::ann_candidate_count(Some(10.0)), 50.0);
+        assert_eq!(super::ann_candidate_count(Some(75.5)), 75.5);
+        assert!(super::ann_candidate_count(Some(f64::NAN)).is_nan());
+        assert_eq!(
+            super::ann_candidate_count(Some(f64::INFINITY)),
+            f64::INFINITY
+        );
     }
 }

@@ -1,19 +1,46 @@
 //! Portable selector ranking, parsing, and fingerprint policy for browser adapters.
 //!
-//! DOM traversal, accessibility inspection, CSS escaping, and element lookup remain in the
-//! browser host. This module operates on complete candidate batches so ordering never crosses
-//! the host boundary once per comparison.
+//! DOM traversal, accessibility inspection, native CSS escaping, and element lookup remain in the
+//! browser host. Compatibility fallback escaping and selection policy remain here. This module
+//! operates on complete candidate batches so ordering never crosses the host boundary once per
+//! comparison.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use crate::arguments::JsString;
 
+mod legacy_aria;
+pub use legacy_aria::legacy_aria_selectors;
+
 const COMPOSITE_SEPARATOR: [u16; 2] = [b'|' as u16, b'>' as u16];
 const DEFAULT_MAX_CANDIDATES: f64 = 8.0;
 const DEFAULT_TEXT_MAX_LENGTH: f64 = 64.0;
 const FINGERPRINT_TEXT_MAX_LENGTH: usize = 32;
 const FINGERPRINT_MAX_CLASSES: usize = 8;
+
+const DEFAULT_EDITOR_LOCATOR_MAX_CANDIDATES: f64 = 5.0;
+const EDITOR_LOCATOR_MAX_CLASS_COMBO_DEPTH: usize = 3;
+const EDITOR_LOCATOR_MAX_CLASS_COUNT: usize = 24;
+const EDITOR_LOCATOR_MAX_ANCHOR_DEPTH: usize = 20;
+const EDITOR_LOCATOR_DATA_ATTRIBUTES: [&str; 9] = [
+    "data-testid",
+    "data-test-id",
+    "data-test",
+    "data-qa",
+    "data-cy",
+    "name",
+    "title",
+    "alt",
+    "aria-label",
+];
+const EDITOR_LOCATOR_ANCHOR_ATTRIBUTES: [&str; 5] = [
+    "data-testid",
+    "data-test-id",
+    "data-test",
+    "data-qa",
+    "data-cy",
+];
 
 /// The selector kinds understood by the browser locator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -145,6 +172,45 @@ impl SelectorCandidate {
     }
 }
 
+/// Compatibility escaping modes for browser hosts without native `CSS.escape`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CssEscapeFallbackMode {
+    /// The spec-inspired identifier escaping used by selector generation.
+    Identifier,
+    /// The historical quote-and-backslash-only escaping used by test-id lookup.
+    TestIdAttributeValue,
+}
+
+/// DOM collection settings for the web editor locator adapter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorLocatorCollectionPolicy {
+    /// Default number of locator candidates retained by the editor.
+    pub default_max_candidates: usize,
+    /// Ordered attributes inspected for direct element selectors.
+    pub data_attributes: Vec<JsString>,
+    /// Ordered attributes inspected when finding an ancestor anchor.
+    pub anchor_attributes: Vec<JsString>,
+    /// Maximum class combination size attempted by the DOM adapter.
+    pub max_class_combo_depth: usize,
+    /// Maximum raw classes considered by the DOM adapter.
+    pub max_selector_class_count: usize,
+    /// Maximum ancestors inspected by the DOM adapter.
+    pub max_anchor_depth: usize,
+}
+
+/// Policy plan for one web-editor locator collection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorLocatorPlan {
+    /// Complete collection settings for the DOM adapter.
+    pub collection: EditorLocatorCollectionPolicy,
+    /// Maximum candidates retained in the final locator.
+    pub max_candidates: usize,
+    /// Maximum direct id/data/class candidates retained before fallbacks.
+    pub head_limit: usize,
+    /// Whether the DOM adapter should inspect ancestor anchors.
+    pub collect_anchor: bool,
+}
+
 /// The two pieces of an iframe composite selector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompositeSelectorParts {
@@ -272,6 +338,94 @@ pub fn normalize_selector_generation_options(
             256,
         ),
         text_tags: options.text_tags.unwrap_or_else(default_text_tags),
+    }
+}
+
+/// Produces one complete web-editor collection plan without DOM access.
+#[must_use]
+pub fn editor_locator_plan(
+    max_candidates: Option<f64>,
+    anchor_available: bool,
+) -> EditorLocatorPlan {
+    let max_candidates = normalize_editor_locator_max_candidates(max_candidates);
+    let tail_reserved = 1 + usize::from(anchor_available);
+    EditorLocatorPlan {
+        collection: EditorLocatorCollectionPolicy {
+            default_max_candidates: DEFAULT_EDITOR_LOCATOR_MAX_CANDIDATES as usize,
+            data_attributes: EDITOR_LOCATOR_DATA_ATTRIBUTES
+                .into_iter()
+                .map(JsString::from)
+                .collect(),
+            anchor_attributes: EDITOR_LOCATOR_ANCHOR_ATTRIBUTES
+                .into_iter()
+                .map(JsString::from)
+                .collect(),
+            max_class_combo_depth: EDITOR_LOCATOR_MAX_CLASS_COMBO_DEPTH,
+            max_selector_class_count: EDITOR_LOCATOR_MAX_CLASS_COUNT,
+            max_anchor_depth: EDITOR_LOCATOR_MAX_ANCHOR_DEPTH,
+        },
+        max_candidates,
+        head_limit: max_candidates.saturating_sub(tail_reserved).max(1),
+        collect_anchor: max_candidates >= DEFAULT_EDITOR_LOCATOR_MAX_CANDIDATES as usize,
+    }
+}
+
+/// Returns the eligible raw class indexes for the editor's DOM adapter.
+#[must_use]
+pub fn editor_locator_class_indexes(classes: &[JsString]) -> Vec<usize> {
+    classes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, class)| is_editor_class_name(class).then_some(index))
+        .take(EDITOR_LOCATOR_MAX_CLASS_COUNT)
+        .collect()
+}
+
+/// Selects a web-editor locator's direct and fallback selector candidates.
+#[must_use]
+pub fn select_editor_locator_candidates(
+    head_candidates: Vec<JsString>,
+    path_candidate: Option<JsString>,
+    anchor_candidate: Option<JsString>,
+    max_candidates: Option<f64>,
+) -> Vec<JsString> {
+    let plan = editor_locator_plan(max_candidates, anchor_candidate.is_some());
+    let mut selected = Vec::with_capacity(plan.max_candidates.min(head_candidates.len() + 2));
+    let mut seen = HashSet::with_capacity(head_candidates.len() + 2);
+    for candidate in head_candidates {
+        if selected.len() >= plan.head_limit {
+            break;
+        }
+        push_trimmed_unique(&mut selected, &mut seen, candidate);
+    }
+    if selected.len() < plan.max_candidates
+        && let Some(path_candidate) = path_candidate
+    {
+        push_trimmed_unique(&mut selected, &mut seen, path_candidate);
+    }
+    if selected.len() < plan.max_candidates
+        && let Some(anchor_candidate) = anchor_candidate
+    {
+        push_trimmed_unique(&mut selected, &mut seen, anchor_candidate);
+    }
+    selected
+}
+
+/// Escapes a browser string with the selected historical compatibility behavior.
+#[must_use]
+pub fn css_escape_fallback(value: &JsString, mode: CssEscapeFallbackMode) -> JsString {
+    match mode {
+        CssEscapeFallbackMode::Identifier => css_escape_identifier(value),
+        CssEscapeFallbackMode::TestIdAttributeValue => {
+            let mut output = Vec::with_capacity(value.utf16_len());
+            for unit in value.utf16_units() {
+                if unit == b'"' as u16 || unit == b'\\' as u16 {
+                    output.push(b'\\' as u16);
+                }
+                output.push(unit);
+            }
+            js_from_units(output)
+        }
     }
 }
 
@@ -432,14 +586,30 @@ pub fn with_stability(mut candidate: SelectorCandidate) -> SelectorCandidate {
     candidate
 }
 
+/// Attaches missing stability scores and stably orders a complete candidate batch.
+///
+/// Unlike [`rank_candidates`], this preserves duplicate candidates, sources, and batch length for
+/// locator callers that only need the legacy re-sort of persisted candidate lists.
+#[must_use]
+pub fn sort_selector_candidates(mut candidates: Vec<SelectorCandidate>) -> Vec<SelectorCandidate> {
+    for candidate in &mut candidates {
+        apply_builtin_candidate_weight(candidate);
+        if candidate.stability.is_none() {
+            candidate.stability = Some(compute_selector_stability(candidate));
+        }
+    }
+    candidates.sort_by(|a, b| ordering_from_compare(compare_selector_candidates(a, b)));
+    candidates
+}
+
 /// Returns the JavaScript comparator number used by existing stable candidate sorts.
 ///
 /// A NaN result represents JavaScript's "equal for sort" behavior. Use
 /// [`rank_candidates`] rather than interpreting that result directly.
 #[must_use]
 pub fn compare_selector_candidates(a: &SelectorCandidate, b: &SelectorCandidate) -> f64 {
-    let a_weight = a.weight.unwrap_or(0.0);
-    let b_weight = b.weight.unwrap_or(0.0);
+    let a_weight = effective_candidate_weight(a);
+    let b_weight = effective_candidate_weight(b);
     if a_weight != b_weight {
         return b_weight - a_weight;
     }
@@ -463,6 +633,50 @@ pub fn compare_selector_candidates(a: &SelectorCandidate, b: &SelectorCandidate)
     }
 
     a.value.utf16_len() as f64 - b.value.utf16_len() as f64
+}
+
+fn effective_candidate_weight(candidate: &SelectorCandidate) -> f64 {
+    candidate
+        .weight
+        .or_else(|| builtin_candidate_weight(candidate))
+        .unwrap_or(0.0)
+}
+
+fn apply_builtin_candidate_weight(candidate: &mut SelectorCandidate) {
+    if candidate.weight.is_none() {
+        candidate.weight = builtin_candidate_weight(candidate);
+    }
+}
+
+fn builtin_candidate_weight(candidate: &SelectorCandidate) -> Option<f64> {
+    if candidate.source != Some(SelectorCandidateSource::Generated) {
+        return None;
+    }
+    match candidate.strategy.as_ref().and_then(JsString::as_utf8) {
+        Some("testid") => Some(test_id_candidate_weight(&candidate.value)),
+        Some("aria") => Some(40.0),
+        Some("text") => Some(10.0),
+        Some("anchor-relpath") => Some(-10.0),
+        Some("css-path") => Some(-30.0),
+        _ => None,
+    }
+}
+
+fn test_id_candidate_weight(value: &JsString) -> f64 {
+    let value = units(value);
+    let Some(attribute_start) = value.iter().position(|unit| *unit == b'[' as u16) else {
+        return 50.0;
+    };
+    let attribute = &value[attribute_start + 1..];
+    if starts_with_ascii(attribute, b"alt=") {
+        20.0
+    } else if starts_with_ascii(attribute, b"title=") {
+        18.0
+    } else if starts_with_ascii(attribute, b"name=") {
+        15.0
+    } else {
+        50.0
+    }
 }
 
 /// Produces the exact JavaScript deduplication key for a candidate.
@@ -538,9 +752,10 @@ pub fn rank_candidates(
         if candidate.source.is_none() {
             candidate.source = Some(SelectorCandidateSource::Generated);
         }
-        candidates.push(with_stability(candidate));
+        candidates.push(candidate);
     }
 
+    let mut candidates = sort_selector_candidates(candidates);
     if candidates.is_empty() {
         let mut fallback = SelectorCandidate::new(SelectorType::Css, JsString::from("body"));
         fallback.source = Some(SelectorCandidateSource::Generated);
@@ -553,7 +768,6 @@ pub fn rank_candidates(
         };
     }
 
-    candidates.sort_by(|a, b| ordering_from_compare(compare_selector_candidates(a, b)));
     candidates.truncate(options.max_candidates);
     let selector = candidates
         .iter()
@@ -1256,6 +1470,17 @@ fn clamp_int(value: f64, min: usize, max: usize) -> usize {
     value.floor().clamp(min as f64, max as f64) as usize
 }
 
+fn normalize_editor_locator_max_candidates(value: Option<f64>) -> usize {
+    let value = value.unwrap_or(DEFAULT_EDITOR_LOCATOR_MAX_CANDIDATES);
+    if value == f64::INFINITY {
+        return usize::MAX;
+    }
+    if !value.is_finite() {
+        return 1;
+    }
+    value.max(1.0).floor().min(usize::MAX as f64) as usize
+}
+
 fn clamp01(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
@@ -1546,6 +1771,81 @@ fn contains_token_prefixed_by(value: &[u16], token: u8) -> bool {
         }
     }
     false
+}
+
+fn is_editor_class_name(value: &JsString) -> bool {
+    let mut units = value.utf16_units();
+    let Some(first) = units.next() else {
+        return false;
+    };
+    if !(is_ascii_alpha(first) || first == b'_' as u16) {
+        return false;
+    }
+    units.all(|unit| {
+        is_ascii_alpha(unit) || is_ascii_digit(unit) || unit == b'_' as u16 || unit == b'-' as u16
+    })
+}
+
+fn push_trimmed_unique(
+    selected: &mut Vec<JsString>,
+    seen: &mut HashSet<JsString>,
+    candidate: JsString,
+) {
+    let candidate = trim_js_string(&candidate);
+    if !units(&candidate).is_empty() && seen.insert(candidate.clone()) {
+        selected.push(candidate);
+    }
+}
+
+fn css_escape_identifier(value: &JsString) -> JsString {
+    let units = units(value);
+    if units.is_empty() {
+        return JsString::from("");
+    }
+    let first = units[0];
+    let length = units.len();
+    let mut output = Vec::with_capacity(length);
+    for (index, unit) in units.into_iter().enumerate() {
+        if unit == 0 {
+            output.push(0xfffd);
+        } else if (1..=0x1f).contains(&unit)
+            || unit == 0x7f
+            || (index == 0 && is_ascii_digit(unit))
+            || (index == 1 && is_ascii_digit(unit) && first == b'-' as u16)
+        {
+            output.push(b'\\' as u16);
+            push_ascii_hex(unit, &mut output);
+            output.push(b' ' as u16);
+        } else if index == 0 && length == 1 && unit == b'-' as u16 {
+            output.push(b'\\' as u16);
+            output.push(unit);
+        } else if is_ascii_alpha(unit)
+            || is_ascii_digit(unit)
+            || unit == b'-' as u16
+            || unit == b'_' as u16
+        {
+            output.push(unit);
+        } else {
+            output.push(b'\\' as u16);
+            output.push(unit);
+        }
+    }
+    js_from_units(output)
+}
+
+fn push_ascii_hex(value: u16, output: &mut Vec<u16>) {
+    let mut emitted = false;
+    for shift in [12, 8, 4, 0] {
+        let digit = (value >> shift) & 0x0f;
+        if digit != 0 || emitted || shift == 0 {
+            emitted = true;
+            output.push(if digit < 10 {
+                b'0' as u16 + digit
+            } else {
+                b'a' as u16 + (digit - 10)
+            });
+        }
+    }
 }
 
 fn normalize_fingerprint_text(value: &JsString, max_length: f64) -> Vec<u16> {
