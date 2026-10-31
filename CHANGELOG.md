@@ -78,6 +78,9 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- Automatic and explicit indexing of the same tab share one in-flight operation,
+  preventing duplicate vectors and writes continuing after an indexing caller
+  returns. Different tabs still index concurrently.
 - Workflow RPC registers synchronously during service-worker activation, waits
   for crash recovery before handling requests, and discards requests from clients
   disconnected during recovery rather than executing their mutations.

@@ -9,15 +9,15 @@ package and ONNX/HNSW engines remain. The pre-reversal source is preserved in
 
 ## Current Option A verification (2026-10-31)
 
-| Gate                                                                                    | Observed result                                                                                                                                    |
-| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 191 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
-| Shared and extension suites                                                             | 174 shared and 1,941 extension tests passed; one extension test skipped                                                                            |
-| TypeScript, generated contracts and source inventory                                    | Passed; 646 production files, 85 retained browser-policy boundaries, zero pending boundaries                                                       |
-| Owned Chrome for Testing                                                                | Chrome 156, explicit headless mode, `browser-hc-rt-GoFeWg.json`: 35/35 matrix rows and 17/17 tasks, including immediate workflow RPC on activation |
-| Extracted native core plus pinned optional-engine archives                              | Installation, upgrade, retained configuration, Node-absent core startup and actual trace smoke passed                                              |
-| Actual bundled Claude SDK and Codex                                                     | Local-only startup/activity/cancel/reap passed; Claude resume and invalid-resume clearing passed; no credentials or completed cloud-model response |
-| Hosted native and build gates                                                           | Run `41144837780` passed all four native platforms, actual companion archive smoke, bridge smoke, build/typecheck and extension packaging          |
+| Gate                                                                                    | Observed result                                                                                                                                                    |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 191 tests across 13 suites, one opt-in TLS test ignored                                                                                                    |
+| Shared and extension suites                                                             | 174 shared and 1,943 extension tests passed; one extension test skipped                                                                                            |
+| TypeScript, generated contracts and source inventory                                    | Passed; 646 production files, 85 retained browser-policy boundaries, zero pending boundaries                                                                       |
+| Owned Chrome for Testing                                                                | Chrome 156, explicit headless mode, `browser-hc-rt-zbp8uQ.json`: 35/35 matrix rows and 17/17 tasks; overlapping indexing preserves 20 unique chunks across restart |
+| Extracted native core plus pinned optional-engine archives                              | Installation, upgrade, retained configuration, Node-absent core startup and actual trace smoke passed                                                              |
+| Actual bundled Claude SDK and Codex                                                     | Local-only startup/activity/cancel/reap passed; Claude resume and invalid-resume clearing passed; no credentials or completed cloud-model response                 |
+| Hosted native and build gates                                                           | Run `41144837780` passed all four native platforms, actual companion archive smoke, bridge smoke, build/typecheck and extension packaging                          |
 
 The 35/35 + 17/17 result is an isolated owned-Chrome gate, not a probe of the
 daily-driver production profile or proof that its extension source has reloaded.

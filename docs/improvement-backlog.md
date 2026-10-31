@@ -126,6 +126,17 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Keep the owned renderer active, use the full pointer gesture, and provide an explicit real-Chrome headless mode for display-independent verification. Preserve headed mode, native input, screenshots and every existing assertion.
 - **Notes**: Real Chrome 156 headless verification `browser-hc-rt-GoFeWg.json` passes all 35 matrix rows and 17 task scenarios, including actual editor opacity/screenshot, workflow clicks and screenshot-region output. No assertion was relaxed. `HC_E2E_HEADLESS=1` explicitly isolates the compositor from the user's desktop; headed mode remains the default. Production launch settings are unchanged.
 
+### IMP-0216 · Concurrent automatic and explicit indexing duplicate a tab's vectors (bug) · score: 8
+
+- **Proposed by**: bug-scout · 2026-10-31 (hosted semantic restart verification)
+- **Status**: done
+- **Why**: `skipDuplicates` checks completed pages, not indexing already in flight. The two-second automatic navigation timer can overlap an explicit index request for the same tab, writing duplicate chunks and continuing to mutate the corpus after the explicit caller returns.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Hosted browser run `41150394815` completed workflow activation but failed the unchanged restart comparison: 29 persisted documents before restart, 30 afterward. A deterministic auto/manual overlap regression independently produced chunk keys `7:0,7:0,7:1,7:1` before the fix.
+- **Fix sketch**: Share one in-flight indexing promise per tab, removing it on completion. Keep unrelated tabs concurrent and preserve the existing indexing/error API; do not add sleeps or relax persisted-corpus equality.
+- **Notes**: Both concurrency cases, all 1,943 extension tests and TypeScript pass. Real Chrome 156 evidence `browser-hc-rt-zbp8uQ.json` passes 35/35 matrix rows and 17/17 tasks with deliberately overlapping real indexing RPCs. IndexedDB records 20 documents/20 unique chunk identities both before and after offscreen/worker recreation; exact search results also survive. Production remains on its separately verified installed build.
+
 ### IMP-0209 · Profile native-host descriptor remains on removed Node executable after versioned upgrade (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-10-30 (production Rust rollout)

@@ -36,6 +36,7 @@ export class ContentIndexer {
   private isInitializing = false;
   private initPromise: Promise<void> | null = null;
   private readonly options: Required<IndexingOptions>;
+  private readonly indexingTabs = new Map<number, Promise<void>>();
 
   constructor(
     private readonly getSemanticEngine: () => SemanticSimilarityEngine | null,
@@ -146,7 +147,19 @@ export class ContentIndexer {
   /**
    * Index content of specified tab
    */
-  public async indexTabContent(tabId: number): Promise<void> {
+  public indexTabContent(tabId: number): Promise<void> {
+    const pending = this.indexingTabs.get(tabId);
+    if (pending) return pending;
+
+    // Navigation auto-indexing and explicit RPCs must share one complete tab write.
+    const operation = this.indexTabContentOnce(tabId).finally(() => {
+      this.indexingTabs.delete(tabId);
+    });
+    this.indexingTabs.set(tabId, operation);
+    return operation;
+  }
+
+  private async indexTabContentOnce(tabId: number): Promise<void> {
     // Check if semantic engine is ready before attempting to index
     if (!this.isSemanticEngineReady() && !this.isSemanticEngineInitializing()) {
       console.log(

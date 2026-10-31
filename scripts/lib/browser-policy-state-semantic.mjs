@@ -200,6 +200,11 @@ async function persistenceEvidence(driver) {
                   recordPresent: value !== undefined,
                   recordWrapped: mapping !== value,
                   documentCount: Array.isArray(mapping?.documents) ? mapping.documents.length : null,
+                  uniqueChunkCount: Array.isArray(mapping?.documents)
+                    ? new Set(mapping.documents.map(([, document]) =>
+                        JSON.stringify([document.tabId, document.url, document.chunk.index]),
+                      )).size
+                    : null,
                   tabCount: Array.isArray(mapping?.tabDocuments) ? mapping.tabDocuments.length : null,
                   nextLabel: typeof mapping?.nextLabel === 'number' ? mapping.nextLabel : null,
                 };
@@ -381,8 +386,11 @@ export async function runSemanticScenario(driver) {
   );
 
   // These are direct production offscreen RPCs. No model, embedding, or ANN substitute is injected.
-  await phase('semantic scenario: index astronomy fixture', () =>
-    rpc(driver, OFFSCREEN.INDEX_TAB, { tabId: astronomy.tabId }, 75_000),
+  await phase('semantic scenario: overlapping astronomy index requests', () =>
+    Promise.all([
+      rpc(driver, OFFSCREEN.INDEX_TAB, { tabId: astronomy.tabId }, 75_000),
+      rpc(driver, OFFSCREEN.INDEX_TAB, { tabId: astronomy.tabId }, 75_000),
+    ]),
   );
   await phase('semantic scenario: index baking fixture', () =>
     rpc(driver, OFFSCREEN.INDEX_TAB, { tabId: baking.tabId }, 75_000),
@@ -400,6 +408,16 @@ export async function runSemanticScenario(driver) {
   assert.ok(
     stats?.totalTabs >= 2,
     `Indexer did not record both fixture tabs: ${json({ stats, persistence })}`,
+  );
+  assert.equal(
+    persistence.mappings?.documentCount,
+    stats.totalDocuments,
+    `Persisted mappings do not contain the completed corpus: ${json({ stats, persistence })}`,
+  );
+  assert.equal(
+    persistence.mappings.uniqueChunkCount,
+    stats.totalDocuments,
+    `Concurrent indexing duplicated persisted chunks: ${json(persistence)}`,
   );
 
   const astronomyResults = await phase('semantic scenario: search astronomy corpus', () =>

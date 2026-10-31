@@ -82,7 +82,7 @@ packaged extension and native bridge, not test-only policy exports:
 | `Rust-7a`       | Owned fixture tabs                              | Separate clients, cross-client mutation rejection, usable aliases, deterministic pacing and release without closing the tab. Alias refresh uses `refresh:true`; URL calls retain their existing tool-owned targeting exception.                                                                                                                                                                                                                                          |
 | `Rust-7b`       | `#rust-recorder-workflow`                       | First recorded interaction, initialized restrictive-CSP frame, exact generated-target comparison with the frozen original executable, persisted-target comparison and actual replayed counter change.                                                                                                                                                                                                                                                                    |
 | `Rust-7c`       | `#rust-recorder-workflow` and builder           | Variable branch, two retry attempts, cycle rejection, deterministic pause/resume/cancel, event ordering and actual V2 file import with coordinate/ID root choice and visible warnings.                                                                                                                                                                                                                                                                                   |
-| `Rust-7d`       | `rust-semantic-policy.html`                     | Genuine tokenizer/model loading and ONNX inference, HNSW indexing/ranking, finite scores, matching snippets and a persistable corpus. No replacement vectors or model are injected.                                                                                                                                                                                                                                                                                      |
+| `Rust-7d`       | `rust-semantic-policy.html`                     | Genuine tokenizer/model loading and ONNX inference, overlapping same-tab indexing RPCs, HNSW ranking, finite scores and matching snippets. Persisted mapping count must equal index stats and unique `(tabId, URL, chunk index)` count. No replacement vectors or model are injected.                                                                                                                                                                                    |
 | `Rust-6`        | Service-worker stop/start, not extension reload | Native HTTP stays available; the first workflow read sent during activation completes after crash recovery, ownership/aliases restore, pacing resets, workflow events/`nextSeq` survive, and HNSW results match after the offscreen document is explicitly closed and recreated. Cold reset before model readiness must reopen a zero-document/zero-tab index with `search:[]`. Missing prerequisites fail rather than becoming passing partial coverage.                |
 
 Owned Option A evidence includes keyed `browser-hc-rt-hziSan.json` and keyless
@@ -105,6 +105,14 @@ independent of the daily-driver desktop. The runner otherwise remains headed by
 default; both modes keep the same native bridge, extension, trusted input and
 assertions. Owned launches disable renderer background throttling/occlusion,
 and editor clicks include the pointer move used by production trusted clicks.
+
+The subsequent same-tab indexing fix is verified by
+`browser-hc-rt-zbp8uQ.json` and its task sidecar: 35/35 rows and 17/17 tasks in
+the same explicit Chrome 156 headless mode. Concurrent real indexing requests
+leave 20 documents and 20 unique chunk identities in IndexedDB, unchanged after
+offscreen/worker recreation with exact query-result equality. The original
+restart equality check remains; uniqueness and persisted-count checks add
+coverage rather than relaxing it.
 
 Performance references are observational, not acceptance gates or speed claims:
 `performance-extension-startup.json` records three same-backend source/current
