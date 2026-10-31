@@ -69,10 +69,7 @@ export function recommendModelForLanguage(
   _language: 'en' | 'zh' | 'multilingual' = 'multilingual',
   scenario: 'speed' | 'balanced' | 'quality' = 'balanced',
 ): ModelPreset {
-  if (scenario === 'quality') {
-    return 'multilingual-e5-base';
-  }
-  return 'multilingual-e5-small';
+  return scenario === 'quality' ? 'multilingual-e5-base' : 'multilingual-e5-small';
 }
 
 /** Recommend model based on device performance and usage scenario. */
@@ -85,10 +82,7 @@ export function recommendModelForDevice(
   if (deviceMemory < 4 || networkSpeed === 'slow' || prioritizeSpeed) {
     return 'multilingual-e5-small';
   }
-  if (deviceMemory >= 8 && !prioritizeSpeed) {
-    return 'multilingual-e5-base';
-  }
-  return 'multilingual-e5-small';
+  return deviceMemory >= 8 ? 'multilingual-e5-base' : 'multilingual-e5-small';
 }
 
 /** Get model size information (quantized version only). */

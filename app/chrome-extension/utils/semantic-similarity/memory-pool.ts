@@ -1,22 +1,12 @@
-/**
- * Float32Array recycler for the embedding engine (IMP-0019 slice 2).
- *
- * Per-token inference allocates a Float32Array of the model's dimension
- * (384 / 768 / 1024). At steady-state load that churns the GC; this pool
- * keeps a small per-size cache so repeated calls reuse buffers.
- *
- * Side-effect-free standalone class — no transformers, no engine state.
- * The engine module hands instances of this pool to its inference loop.
- */
+/** Float32Array recycler for the embedding engine. */
 export class EmbeddingMemoryPool {
-  private pools: Map<number, Float32Array[]> = new Map();
-  private maxPoolSize: number = 10;
+  private readonly pools = new Map<number, Float32Array[]>();
+  private readonly maxPoolSize = 10;
   private stats = { allocated: 0, reused: 0, released: 0 };
 
-  /** Get a (possibly recycled) Float32Array of the requested size. */
   getEmbedding(size: number): Float32Array {
     const pool = this.pools.get(size);
-    if (pool && pool.length > 0) {
+    if (pool?.length) {
       this.stats.reused++;
       return pool.pop()!;
     }
@@ -24,13 +14,9 @@ export class EmbeddingMemoryPool {
     return new Float32Array(size);
   }
 
-  /** Return a buffer to the pool (zero-filled for safety). */
   releaseEmbedding(embedding: Float32Array): void {
-    const size = embedding.length;
-    if (!this.pools.has(size)) {
-      this.pools.set(size, []);
-    }
-    const pool = this.pools.get(size)!;
+    const pool = this.pools.get(embedding.length) ?? [];
+    if (!this.pools.has(embedding.length)) this.pools.set(embedding.length, pool);
     if (pool.length < this.maxPoolSize) {
       embedding.fill(0);
       pool.push(embedding);
@@ -38,7 +24,7 @@ export class EmbeddingMemoryPool {
     }
   }
 
-  getStats() {
+  getStats(): { allocated: number; reused: number; released: number } {
     return { ...this.stats };
   }
 

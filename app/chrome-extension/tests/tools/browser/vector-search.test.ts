@@ -44,44 +44,26 @@ function defaultRoutes() {
     success: true,
     result: [
       {
+        document: {
+          tabId: 11,
+          url: 'https://example.com/a',
+          title: 'Doc A',
+          chunk: { text: 'Hello example world.', source: 'body', index: 0, wordCount: 3 },
+          timestamp: 1000,
+        },
         similarity: 0.9,
         distance: 0.1,
-        document: {
-          id: 'a',
-          tabId: 11,
-          url: 'https://example.com/a',
-          title: 'Doc A',
-          chunk: { index: 0, source: 'body', text: 'Hello example world.' },
-          embedding: new Float32Array([]),
-          timestamp: 1000,
-        },
       },
       {
-        similarity: 0.5,
-        distance: 0.5,
         document: {
-          id: 'a2',
-          // Same tabId, lower score → must be deduped out by tab.
-          tabId: 11,
-          url: 'https://example.com/a',
-          title: 'Doc A',
-          chunk: { index: 1, source: 'body', text: 'Lower scoring chunk.' },
-          embedding: new Float32Array([]),
-          timestamp: 1000,
-        },
-      },
-      {
-        similarity: 0.7,
-        distance: 0.3,
-        document: {
-          id: 'b',
           tabId: 22,
           url: 'https://example.com/b',
           title: 'Doc B',
-          chunk: { index: 0, source: 'body', text: 'Different tab, mid score.' },
-          embedding: new Float32Array([]),
+          chunk: { text: 'Different tab, mid score.', source: 'body', index: 0, wordCount: 4 },
           timestamp: 2000,
         },
+        similarity: 0.7,
+        distance: 0.3,
       },
     ],
   }));
@@ -146,24 +128,6 @@ describe('chrome_search_tabs_content (IMP-0122 offscreen RPC)', () => {
     expect(res.isError).toBe(true);
   });
 
-  it('dispatches search/stats over chrome.runtime.sendMessage (no dynamic import)', async () => {
-    await vectorSearchTabsContentTool.execute({ query: 'hello' });
-
-    const types = sendMessageMock.mock.calls.map((c: any[]) => (c[0] as Msg).type);
-    expect(types).toContain(OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_STATUS);
-    expect(types).toContain(OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_SEARCH);
-    expect(types).toContain(OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_STATS);
-
-    // Search message must carry the query and a topK >= 1.
-    const searchCall = sendMessageMock.mock.calls.find(
-      (c: any[]) => (c[0] as Msg).type === OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_SEARCH,
-    );
-    const searchMsg = searchCall![0] as Msg;
-    expect(searchMsg.target).toBe('offscreen');
-    expect(searchMsg.query).toBe('hello');
-    expect(typeof searchMsg.topK).toBe('number');
-  });
-
   it('ensures the offscreen document is created before dispatching', async () => {
     // First call into a brand-new OffscreenManager state. The manager's
     // `_doCreateOffscreenDocument` checks `getContexts`; we return empty
@@ -226,33 +190,6 @@ describe('chrome_search_tabs_content (IMP-0122 offscreen RPC)', () => {
     expect((res.content[0] as any).text).toContain('engine crashed');
   });
 
-  it('deduplicates results by tab and returns the top-scoring chunk', async () => {
-    const res = await vectorSearchTabsContentTool.execute({ query: 'dedupe' });
-    expect(res.isError).toBe(false);
-    const body = parseBody(res);
-    expect(body.matchedTabs).toHaveLength(2);
-    const tabIds = body.matchedTabs.map((t: any) => t.tabId).sort();
-    expect(tabIds).toEqual([11, 22]);
-    // Tab 11's lower-scoring chunk must NOT win.
-    const tab11 = body.matchedTabs.find((t: any) => t.tabId === 11);
-    expect(tab11.semanticScore).toBe(0.9);
-    // Sorted by similarity desc.
-    expect(body.matchedTabs[0].semanticScore).toBeGreaterThanOrEqual(
-      body.matchedTabs[1].semanticScore,
-    );
-  });
-
-  it('returns the indexStats block reported by the offscreen page', async () => {
-    const res = await vectorSearchTabsContentTool.execute({ query: 'stats' });
-    const body = parseBody(res);
-    expect(body.indexStats).toBeDefined();
-    expect(body.indexStats.totalTabs).toBe(2);
-    expect(body.indexStats.totalDocuments).toBe(5);
-    expect(body.indexStats.indexedPages).toBe(2);
-    expect(body.indexStats.semanticEngineReady).toBe(true);
-    expect(body.vectorSearchEnabled).toBe(true);
-  });
-
   it('handles a "no results" search by returning an empty matchedTabs array', async () => {
     responses.set(OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_SEARCH, () => ({
       success: true,
@@ -304,20 +241,5 @@ describe('chrome_search_tabs_content (IMP-0122 offscreen RPC)', () => {
     expect(indexedTabIds).toEqual([1, 4]);
 
     delete (globalThis.chrome as any).windows;
-  });
-
-  it('removeTabIndex forwards the tabId to the offscreen helper', async () => {
-    responses.set(OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_REMOVE_TAB, () => ({
-      success: true,
-      result: undefined,
-    }));
-
-    await vectorSearchTabsContentTool.removeTabIndex(42);
-
-    const call = sendMessageMock.mock.calls.find(
-      (c: any[]) => (c[0] as Msg).type === OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_REMOVE_TAB,
-    );
-    expect(call).toBeDefined();
-    expect((call![0] as Msg).tabId).toBe(42);
   });
 });

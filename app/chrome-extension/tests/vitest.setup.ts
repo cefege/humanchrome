@@ -4,7 +4,6 @@
  */
 
 import { vi } from 'vitest';
-
 // Provide IndexedDB globals (jsdom doesn't include them)
 import 'fake-indexeddb/auto';
 

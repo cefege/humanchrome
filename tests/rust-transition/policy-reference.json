@@ -1,0 +1,3326 @@
+[
+  {
+    "name": "session plain whitespace and separators",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": "  Acme API/foo\\bar:zap  "
+    },
+    "output": {
+      "value": "acme-api-foo-bar-zap"
+    }
+  },
+  {
+    "name": "session NFC and stripped characters",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": "CAFÉ@Team!"
+    },
+    "output": {
+      "value": "cafteam"
+    }
+  },
+  {
+    "name": "session reserved synthetic prefix",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": "__ui:popup"
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "session reserved name after normalization",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": " NULL "
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "session whitespace-only",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": " \t\n "
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "session cap removes trailing separator",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa--tail"
+    },
+    "output": {
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  {
+    "name": "session non-string",
+    "input": {
+      "op": "normalizeSessionName",
+      "value": 42
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "catalog resolves chrome short name",
+    "input": {
+      "op": "resolveToolName",
+      "name": "click_element"
+    },
+    "output": {
+      "value": "chrome_click_element"
+    }
+  },
+  {
+    "name": "catalog resolves browser short name",
+    "input": {
+      "op": "resolveToolName",
+      "name": "claim_tab"
+    },
+    "output": {
+      "value": "browser_claim_tab"
+    }
+  },
+  {
+    "name": "catalog resolves dynamic extra",
+    "input": {
+      "op": "resolveToolName",
+      "name": "checkout",
+      "extras": ["flow.checkout"]
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "catalog rejects unknown name",
+    "input": {
+      "op": "resolveToolName",
+      "name": "not_a_humanchrome_tool"
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "catalog suggests typo including dynamic extra",
+    "input": {
+      "op": "suggestToolName",
+      "name": "flo.chekout",
+      "extras": ["flow.checkout"]
+    },
+    "output": {
+      "value": "flow.checkout"
+    }
+  },
+  {
+    "name": "catalog known names ordered",
+    "input": {
+      "op": "knownToolNames"
+    },
+    "output": {
+      "value": [
+        "browser_alias_tab",
+        "browser_claim_tab",
+        "chrome_action_badge",
+        "chrome_alarms",
+        "chrome_assert",
+        "chrome_basic_auth",
+        "chrome_block_or_redirect",
+        "chrome_bookmark",
+        "chrome_clear_browsing_data",
+        "chrome_click_element",
+        "chrome_clipboard",
+        "chrome_close_tabs",
+        "chrome_combobox_select",
+        "chrome_computer",
+        "chrome_console",
+        "chrome_context_menu",
+        "chrome_cookies",
+        "chrome_diagnostics",
+        "chrome_download",
+        "chrome_drag_drop",
+        "chrome_emulate",
+        "chrome_fill_lwc",
+        "chrome_fill_or_select",
+        "chrome_focus",
+        "chrome_get_attributes",
+        "chrome_get_web_content",
+        "chrome_get_windows_and_tabs",
+        "chrome_gif_recorder",
+        "chrome_handle_dialog",
+        "chrome_handle_download",
+        "chrome_har_export",
+        "chrome_help",
+        "chrome_history",
+        "chrome_hover",
+        "chrome_identity",
+        "chrome_idle",
+        "chrome_intercept_response",
+        "chrome_javascript",
+        "chrome_keep_awake",
+        "chrome_keyboard",
+        "chrome_list_frames",
+        "chrome_locator_handler",
+        "chrome_mock_response",
+        "chrome_navigate",
+        "chrome_navigate_batch",
+        "chrome_network_capture",
+        "chrome_network_request",
+        "chrome_notifications",
+        "chrome_owned_tabs",
+        "chrome_pace",
+        "chrome_paste",
+        "chrome_performance_trace",
+        "chrome_print_to_pdf",
+        "chrome_proxy",
+        "chrome_read_page",
+        "chrome_request_element_selection",
+        "chrome_search_tabs_content",
+        "chrome_select_text",
+        "chrome_sessions",
+        "chrome_set_checked",
+        "chrome_set_extra_http_headers",
+        "chrome_storage",
+        "chrome_switch_tab",
+        "chrome_tab_groups",
+        "chrome_tab_lifecycle",
+        "chrome_type_into",
+        "chrome_typeahead_probe",
+        "chrome_upload_file",
+        "chrome_userscript",
+        "chrome_wait_for",
+        "chrome_web_vitals",
+        "chrome_window",
+        "record_replay_flow_delete",
+        "record_replay_flow_run",
+        "record_replay_list_published"
+      ]
+    }
+  },
+  {
+    "name": "catalog search rank click",
+    "input": {
+      "op": "searchTools",
+      "query": "click element"
+    },
+    "output": {
+      "value": [
+        {
+          "name": "chrome_click_element",
+          "summary": "Click by selector/ref/coordinates via CDP Input.dispatchMouseEvent (trusted; fires React onClick).",
+          "score": 43
+        },
+        {
+          "name": "chrome_request_element_selection",
+          "summary": "Request the user to manually select elements on the page as a human-in-the-loop fallback.",
+          "score": 26
+        }
+      ]
+    }
+  },
+  {
+    "name": "catalog search ignores noise",
+    "input": {
+      "op": "searchTools",
+      "query": "to is"
+    },
+    "output": {
+      "value": []
+    }
+  },
+  {
+    "name": "catalog help query limit",
+    "input": {
+      "op": "buildToolHelp",
+      "args": {
+        "query": "click",
+        "limit": 1
+      }
+    },
+    "output": {
+      "query": "click",
+      "matches": [
+        {
+          "name": "chrome_click_element",
+          "summary": "Click by selector/ref/coordinates via CDP Input.dispatchMouseEvent (trusted; fires React onClick).",
+          "score": 85
+        }
+      ]
+    }
+  },
+  {
+    "name": "catalog help unknown exact name",
+    "input": {
+      "op": "buildToolHelp",
+      "args": {
+        "name": "chrome_no_such_tool"
+      }
+    },
+    "output": {
+      "name": "chrome_no_such_tool",
+      "found": false
+    }
+  },
+  {
+    "name": "catalog help full index",
+    "input": {
+      "op": "buildToolHelp",
+      "args": {}
+    },
+    "output": {
+      "tools": [
+        {
+          "name": "browser_alias_tab",
+          "summary": "Bind a per-client alias to an owned tab so later calls can target it by name."
+        },
+        {
+          "name": "browser_claim_tab",
+          "summary": "Claim an unowned tab into the calling client's owned set so implicit tab-resolution can target it."
+        },
+        {
+          "name": "chrome_action_badge",
+          "summary": "Set or clear a small badge on the extension icon (text truncated to ~4 chars by Chrome)."
+        },
+        {
+          "name": "chrome_alarms",
+          "summary": "Schedule one-shot or repeating chrome.alarms callbacks; fires broadcast as alarm_fired runtime messages."
+        },
+        {
+          "name": "chrome_assert",
+          "summary": "Run one or more predicates against the page and return structured pass/fail; ok is AND of all predicates."
+        },
+        {
+          "name": "chrome_basic_auth",
+          "summary": "Autoresponder for HTTP Basic/Digest 401 prompts via CDP Fetch.continueWithAuth — chrome_handle_dialog cannot."
+        },
+        {
+          "name": "chrome_block_or_redirect",
+          "summary": "Block or redirect requests via declarativeNetRequest session rules (request-side)."
+        },
+        {
+          "name": "chrome_bookmark",
+          "summary": "Bookmarks CRUD via action enum."
+        },
+        {
+          "name": "chrome_clear_browsing_data",
+          "summary": "Wipe browsingData stores (cookies, cache, localStorage, history, etc.) via chrome.browsingData.remove."
+        },
+        {
+          "name": "chrome_click_element",
+          "summary": "Click by selector/ref/coordinates via CDP Input.dispatchMouseEvent (trusted; fires React onClick)."
+        },
+        {
+          "name": "chrome_clipboard",
+          "summary": "Read or write the system clipboard via the offscreen document (only context where navigator.clipboard works from a SW)."
+        },
+        {
+          "name": "chrome_close_tabs",
+          "summary": "Close tabs via action enum."
+        },
+        {
+          "name": "chrome_combobox_select",
+          "summary": "Trusted keyboard commit for React/Headless UI combobox: focus, type query, wait for [role=option], ArrowDown, Enter."
+        },
+        {
+          "name": "chrome_computer",
+          "summary": "Mouse/keyboard/screenshot omnibus by raw coordinates (computer-use API)."
+        },
+        {
+          "name": "chrome_console",
+          "summary": "Capture console output: snapshot mode (one-time ~2s wait) or buffer mode (persistent per-tab, instant read/clear)."
+        },
+        {
+          "name": "chrome_context_menu",
+          "summary": "Register transient right-click menu items via chrome.contextMenus; clicks emit context_menu_clicked events over the bridge."
+        },
+        {
+          "name": "chrome_cookies",
+          "summary": "Cookies CRUD via chrome.cookies."
+        },
+        {
+          "name": "chrome_diagnostics",
+          "summary": "Extension diagnostics via action enum."
+        },
+        {
+          "name": "chrome_download",
+          "summary": "List or cancel downloads via chrome.downloads."
+        },
+        {
+          "name": "chrome_drag_drop",
+          "summary": "Drag from one element to another by synthesizing the HTML5 DnD + Pointer-Event chain (pointerdown→dragstart→moves→drop→dragend)."
+        },
+        {
+          "name": "chrome_emulate",
+          "summary": "Per-tab CDP Emulation overrides + network throttling."
+        },
+        {
+          "name": "chrome_fill_lwc",
+          "summary": "Fill a Salesforce LWC control where chrome_fill_or_select/chrome_type_into don't persist — sets the @api value + native change event (what Save honors)."
+        },
+        {
+          "name": "chrome_fill_or_select",
+          "summary": "Set plain text inputs or <select> options via DOM .value + input/change events."
+        },
+        {
+          "name": "chrome_focus",
+          "summary": "Focus an element by selector or ref before keyboard input (chrome_paste, chrome_keyboard)."
+        },
+        {
+          "name": "chrome_get_attributes",
+          "summary": "Read DOM attributes, properties, and computed CSS by selector or ref."
+        },
+        {
+          "name": "chrome_get_web_content",
+          "summary": "Fetch a page's raw HTML, plain text, or reader-mode Markdown."
+        },
+        {
+          "name": "chrome_get_windows_and_tabs",
+          "summary": "List every open browser window and its tabs."
+        },
+        {
+          "name": "chrome_gif_recorder",
+          "summary": "Record a tab as an animated GIF."
+        },
+        {
+          "name": "chrome_handle_dialog",
+          "summary": "Handle JS alert/confirm/prompt dialogs via CDP."
+        },
+        {
+          "name": "chrome_handle_download",
+          "summary": "Wait for the next browser download (optionally matching filenameContains) and return its details."
+        },
+        {
+          "name": "chrome_har_export",
+          "summary": "Format chrome_network_capture buffers as HAR 1.2 JSON for DevTools/Charles/Playwright import."
+        },
+        {
+          "name": "chrome_help",
+          "summary": "Search or browse the tool catalog."
+        },
+        {
+          "name": "chrome_history",
+          "summary": "Search or delete browsing history via chrome.history."
+        },
+        {
+          "name": "chrome_hover",
+          "summary": "Programmatic mouse hover to trigger tooltips and dropdowns (mouseover→mouseenter→pointerenter with actionability)."
+        },
+        {
+          "name": "chrome_identity",
+          "summary": "OAuth2 + profile lookup via chrome.identity for calling Google APIs without browser consent flows."
+        },
+        {
+          "name": "chrome_idle",
+          "summary": "Query user idle state via chrome.idle.queryState (active|idle|locked) to back off intrusive ops or skip screenshots when locked."
+        },
+        {
+          "name": "chrome_intercept_response",
+          "summary": "Wait for the next network response matching urlPattern on a tab and return its parsed JSON body."
+        },
+        {
+          "name": "chrome_javascript",
+          "summary": "Execute JS via CDP Runtime.evaluate in a tab (one-shot, CSP-bypassing)."
+        },
+        {
+          "name": "chrome_keep_awake",
+          "summary": "Prevent system sleep during long runs via chrome.power.requestKeepAwake."
+        },
+        {
+          "name": "chrome_keyboard",
+          "summary": "Simulate keyboard input — single keys, chord (Cmd+S), or shortcut sequences via CDP Input.dispatchKeyEvent."
+        },
+        {
+          "name": "chrome_list_frames",
+          "summary": "List frames in a tab via chrome.webNavigation.getAllFrames as {frameId, parentFrameId, url, errorOccurred}; main doc is frameId:0."
+        },
+        {
+          "name": "chrome_locator_handler",
+          "summary": "Auto-dismiss sticky overlays (cookie banners, GDPR modals) that intercept clicks."
+        },
+        {
+          "name": "chrome_mock_response",
+          "summary": "Replace response bodies for matching URLs via CDP Fetch.fulfillRequest (response-side)."
+        },
+        {
+          "name": "chrome_navigate",
+          "summary": "Navigate to a URL, refresh, or go back/forward in history."
+        },
+        {
+          "name": "chrome_navigate_batch",
+          "summary": "Open many URLs at once and return their tabIds; tabs open backgrounded by default."
+        },
+        {
+          "name": "chrome_network_capture",
+          "summary": "Capture network traffic on a tab."
+        },
+        {
+          "name": "chrome_network_request",
+          "summary": "Send a network request from the browser carrying its cookies and origin context."
+        },
+        {
+          "name": "chrome_notifications",
+          "summary": "Push native OS notifications via chrome.notifications."
+        },
+        {
+          "name": "chrome_owned_tabs",
+          "summary": "Return tabs owned by the calling MCP client as {tabId, windowId, url, title, active, isPinnedActive}."
+        },
+        {
+          "name": "chrome_pace",
+          "summary": "Get or set per-MCP-client pacing."
+        },
+        {
+          "name": "chrome_paste",
+          "summary": "Focus element + dispatch ClipboardEvent + execCommand(\"paste\") to land text into rich-text editors (CKEditor, TinyMCE, Slate, contenteditable)."
+        },
+        {
+          "name": "chrome_performance_trace",
+          "summary": "Performance trace via action enum."
+        },
+        {
+          "name": "chrome_print_to_pdf",
+          "summary": "Save a tab as PDF via CDP Page.printToPDF."
+        },
+        {
+          "name": "chrome_proxy",
+          "summary": "Set/clear/inspect proxy config via chrome.proxy.settings."
+        },
+        {
+          "name": "chrome_read_page",
+          "summary": "Return an accessibility-tree snapshot."
+        },
+        {
+          "name": "chrome_request_element_selection",
+          "summary": "Request the user to manually select elements on the page as a human-in-the-loop fallback."
+        },
+        {
+          "name": "chrome_search_tabs_content",
+          "summary": "Semantic vector search across content of currently open tabs."
+        },
+        {
+          "name": "chrome_select_text",
+          "summary": "Select text inside an element via setSelectionRange (inputs) or DOM Range (everything else)."
+        },
+        {
+          "name": "chrome_sessions",
+          "summary": "Inspect and restore recently-closed tabs/windows via chrome.sessions."
+        },
+        {
+          "name": "chrome_set_checked",
+          "summary": "Idempotently set a checkbox or radio to a boolean state — re-clicks only if current state differs."
+        },
+        {
+          "name": "chrome_set_extra_http_headers",
+          "summary": "Inject extra HTTP request headers per tab via CDP Network.setExtraHTTPHeaders."
+        },
+        {
+          "name": "chrome_storage",
+          "summary": "Read/write/clear a tab's localStorage or sessionStorage via a MAIN-world shim."
+        },
+        {
+          "name": "chrome_switch_tab",
+          "summary": "Switch focus to a specific browser tab."
+        },
+        {
+          "name": "chrome_tab_groups",
+          "summary": "Manage Chrome tab groups (create/update/query/get/add_tabs/remove_tabs/move) for partitioning agent tabs from user tabs."
+        },
+        {
+          "name": "chrome_tab_lifecycle",
+          "summary": "Memory and audio controls: discard, mute, unmute, set_auto_discardable."
+        },
+        {
+          "name": "chrome_type_into",
+          "summary": "Type text into a focused element char-by-char with cadence (keydown/keypress/keyup)."
+        },
+        {
+          "name": "chrome_typeahead_probe",
+          "summary": "Diagnostic: types a sample char into a typeahead, reports every event (with isTrusted), every fetch, and final listbox state in one envelope."
+        },
+        {
+          "name": "chrome_upload_file",
+          "summary": "Upload files to a form's file input via CDP."
+        },
+        {
+          "name": "chrome_userscript",
+          "summary": "Persistent CSP-aware user scripts via chrome.userScripts."
+        },
+        {
+          "name": "chrome_wait_for",
+          "summary": "Wait for one of: element, network idle, response, JS expression, load state, or URL pattern."
+        },
+        {
+          "name": "chrome_web_vitals",
+          "summary": "Live Core Web Vitals collector via PerformanceObserver in MAIN world."
+        },
+        {
+          "name": "chrome_window",
+          "summary": "Manage Chrome windows via chrome.windows (create/focus/update/close)."
+        },
+        {
+          "name": "record_replay_flow_delete",
+          "summary": "Delete a recorded flow by ID; always unpublishes first so the dynamic flow.<slug> MCP tool disappears."
+        },
+        {
+          "name": "record_replay_flow_run",
+          "summary": "Run a recorded flow by ID with per-step outcomes."
+        },
+        {
+          "name": "record_replay_list_published",
+          "summary": "List recorded flows published as dynamic MCP tools."
+        }
+      ]
+    }
+  },
+  {
+    "name": "catalog dispatcher descriptor",
+    "input": {
+      "op": "buildDispatcherTool"
+    },
+    "output": {
+      "name": "humanchrome",
+      "description": "Dispatches any humanchrome browser-automation tool by name. Args validated server-side; on INVALID_ARGS the response carries `details.expected` (schema fragment) and `details.hint` (did-you-mean) so you can self-correct.\nCall as `{ name: \"<tool>\", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the output-size cap. Use `chrome_help({query})` to search the catalog, `chrome_help({})` for the full index, or `chrome_help({name})` for one tool.\nErrors: isError=true + JSON body `{\"error\":{\"code\":\"...\",\"message\":\"...\",\"details\":{...}}}`. Recovery by code: TAB_CLOSED→chrome_navigate to open a new tab; TAB_NOT_FOUND→chrome_get_windows_and_tabs then pass explicit tabId; TARGET_NAVIGATED_AWAY→chrome_read_page then retry with fresh refs; INJECTION_FAILED→fall back to chrome_javascript (CDP path bypasses CSP); CDP_BUSY→retry after 2s or fall back to chrome_inject_script for DOM ops;NOT_ACTIONABLE→check details.failures, scroll/dismiss overlay or pass force:true; TIMEOUT→retry with a larger timeoutMs arg; UNKNOWN→chrome_debug_dump to triage.\nCatalog (75 tools):\n- browser_alias_tab\n- browser_claim_tab\n- chrome_action_badge\n- chrome_alarms\n- chrome_assert\n- chrome_basic_auth\n- chrome_block_or_redirect\n- chrome_bookmark\n- chrome_clear_browsing_data\n- chrome_click_element\n- chrome_clipboard\n- chrome_close_tabs\n- chrome_combobox_select\n- chrome_computer\n- chrome_console\n- chrome_context_menu\n- chrome_cookies\n- chrome_diagnostics\n- chrome_download\n- chrome_drag_drop\n- chrome_emulate\n- chrome_fill_lwc\n- chrome_fill_or_select\n- chrome_focus\n- chrome_get_attributes\n- chrome_get_web_content\n- chrome_get_windows_and_tabs\n- chrome_gif_recorder\n- chrome_handle_dialog\n- chrome_handle_download\n- chrome_har_export\n- chrome_help\n- chrome_history\n- chrome_hover\n- chrome_identity\n- chrome_idle\n- chrome_intercept_response\n- chrome_javascript\n- chrome_keep_awake\n- chrome_keyboard\n- chrome_list_frames\n- chrome_locator_handler\n- chrome_mock_response\n- chrome_navigate\n- chrome_navigate_batch\n- chrome_network_capture\n- chrome_network_request\n- chrome_notifications\n- chrome_owned_tabs\n- chrome_pace\n- chrome_paste\n- chrome_performance_trace\n- chrome_print_to_pdf\n- chrome_proxy\n- chrome_read_page\n- chrome_request_element_selection\n- chrome_search_tabs_content\n- chrome_select_text\n- chrome_sessions\n- chrome_set_checked\n- chrome_set_extra_http_headers\n- chrome_storage\n- chrome_switch_tab\n- chrome_tab_groups\n- chrome_tab_lifecycle\n- chrome_type_into\n- chrome_typeahead_probe\n- chrome_upload_file\n- chrome_userscript\n- chrome_wait_for\n- chrome_web_vitals\n- chrome_window\n- record_replay_flow_delete\n- record_replay_flow_run\n- record_replay_list_published",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tool name from the catalog above."
+          },
+          "args": {
+            "type": "object",
+            "description": "Tool-specific arguments object. Shape varies by tool."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Bypass the dispatcher output-size cap for this call (default false). Use when you genuinely need the unbounded result."
+          },
+          "idemKey": {
+            "type": "string",
+            "description": "Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools."
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  {
+    "name": "catalog sunset replacement",
+    "input": {
+      "op": "findReplacementForSunsetTool",
+      "name": "chrome_get_cookies"
+    },
+    "output": {
+      "value": {
+        "name": "chrome_cookies",
+        "action": "get"
+      }
+    }
+  },
+  {
+    "name": "catalog no sunset replacement",
+    "input": {
+      "op": "findReplacementForSunsetTool",
+      "name": "chrome_click_element"
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "catalog custom tools resolve and rank",
+    "input": {
+      "op": "resolveToolName",
+      "name": "claim_tab",
+      "tools": [
+        {
+          "name": "chrome_click_element",
+          "description": "Click a visible page element. Supports CSS selectors.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "browser_claim_tab",
+          "description": "Claim a browser tab for a client.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "tabId": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "flow.checkout",
+          "description": "Run checkout flow safely. Handles payment confirmation.",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "output": {
+      "value": "browser_claim_tab"
+    }
+  },
+  {
+    "name": "catalog custom tools help descriptor",
+    "input": {
+      "op": "buildDispatcherTool",
+      "tools": [
+        {
+          "name": "chrome_click_element",
+          "description": "Click a visible page element. Supports CSS selectors.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "browser_claim_tab",
+          "description": "Claim a browser tab for a client.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "tabId": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "flow.checkout",
+          "description": "Run checkout flow safely. Handles payment confirmation.",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "output": {
+      "name": "humanchrome",
+      "description": "Dispatches any humanchrome browser-automation tool by name. Args validated server-side; on INVALID_ARGS the response carries `details.expected` (schema fragment) and `details.hint` (did-you-mean) so you can self-correct.\nCall as `{ name: \"<tool>\", args: { ... }, raw?: boolean }`. Set `raw: true` to bypass the output-size cap. Use `chrome_help({query})` to search the catalog, `chrome_help({})` for the full index, or `chrome_help({name})` for one tool.\nErrors: isError=true + JSON body `{\"error\":{\"code\":\"...\",\"message\":\"...\",\"details\":{...}}}`. Recovery by code: TAB_CLOSED→chrome_navigate to open a new tab; TAB_NOT_FOUND→chrome_get_windows_and_tabs then pass explicit tabId; TARGET_NAVIGATED_AWAY→chrome_read_page then retry with fresh refs; INJECTION_FAILED→fall back to chrome_javascript (CDP path bypasses CSP); CDP_BUSY→retry after 2s or fall back to chrome_inject_script for DOM ops;NOT_ACTIONABLE→check details.failures, scroll/dismiss overlay or pass force:true; TIMEOUT→retry with a larger timeoutMs arg; UNKNOWN→chrome_debug_dump to triage.\nCatalog (3 tools):\n- browser_claim_tab\n- chrome_click_element\n- flow.checkout",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tool name from the catalog above."
+          },
+          "args": {
+            "type": "object",
+            "description": "Tool-specific arguments object. Shape varies by tool."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Bypass the dispatcher output-size cap for this call (default false). Use when you genuinely need the unbounded result."
+          },
+          "idemKey": {
+            "type": "string",
+            "description": "Optional idempotency key (IMP-0183). Replaying the same idemKey within 30s returns the prior result with `_meta.idempotent_hit:true` instead of re-dispatching — safe for retries on state-changing tools."
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  {
+    "name": "catalog custom tools search",
+    "input": {
+      "op": "searchTools",
+      "query": "payment confirmation",
+      "tools": [
+        {
+          "name": "chrome_click_element",
+          "description": "Click a visible page element. Supports CSS selectors.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "browser_claim_tab",
+          "description": "Claim a browser tab for a client.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "tabId": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "flow.checkout",
+          "description": "Run checkout flow safely. Handles payment confirmation.",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "output": {
+      "value": [
+        {
+          "name": "flow.checkout",
+          "summary": "Run checkout flow safely.",
+          "score": 36
+        }
+      ]
+    }
+  },
+  {
+    "name": "invalid args did-you-mean case insensitive",
+    "input": {
+      "op": "didYouMean",
+      "value": "Strat",
+      "candidates": ["start", "stop"],
+      "maxDistance": 2
+    },
+    "output": {
+      "value": "start"
+    }
+  },
+  {
+    "name": "invalid args did-you-mean transposition not accepted",
+    "input": {
+      "op": "didYouMean",
+      "value": "statr",
+      "candidates": ["start", "stop"],
+      "maxDistance": 1
+    },
+    "output": {
+      "value": null
+    }
+  },
+  {
+    "name": "invalid args received exactly 200 UTF16 units",
+    "input": {
+      "op": "truncateReceived",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "output": {
+      "json": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\""
+    }
+  },
+  {
+    "name": "invalid args valid pair becomes lone surrogate at UTF16 boundary",
+    "input": {
+      "op": "truncateReceived",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀"
+    },
+    "output": {
+      "json": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\ud83d…\""
+    }
+  },
+  {
+    "name": "invalid args large array becomes JSON text",
+    "input": {
+      "op": "truncateReceived",
+      "value": [
+        {
+          "index": 0,
+          "label": "entry"
+        },
+        {
+          "index": 1,
+          "label": "entry"
+        },
+        {
+          "index": 2,
+          "label": "entry"
+        },
+        {
+          "index": 3,
+          "label": "entry"
+        },
+        {
+          "index": 4,
+          "label": "entry"
+        },
+        {
+          "index": 5,
+          "label": "entry"
+        },
+        {
+          "index": 6,
+          "label": "entry"
+        },
+        {
+          "index": 7,
+          "label": "entry"
+        },
+        {
+          "index": 8,
+          "label": "entry"
+        },
+        {
+          "index": 9,
+          "label": "entry"
+        },
+        {
+          "index": 10,
+          "label": "entry"
+        },
+        {
+          "index": 11,
+          "label": "entry"
+        },
+        {
+          "index": 12,
+          "label": "entry"
+        },
+        {
+          "index": 13,
+          "label": "entry"
+        },
+        {
+          "index": 14,
+          "label": "entry"
+        },
+        {
+          "index": 15,
+          "label": "entry"
+        },
+        {
+          "index": 16,
+          "label": "entry"
+        },
+        {
+          "index": 17,
+          "label": "entry"
+        },
+        {
+          "index": 18,
+          "label": "entry"
+        },
+        {
+          "index": 19,
+          "label": "entry"
+        },
+        {
+          "index": 20,
+          "label": "entry"
+        },
+        {
+          "index": 21,
+          "label": "entry"
+        },
+        {
+          "index": 22,
+          "label": "entry"
+        },
+        {
+          "index": 23,
+          "label": "entry"
+        },
+        {
+          "index": 24,
+          "label": "entry"
+        },
+        {
+          "index": 25,
+          "label": "entry"
+        },
+        {
+          "index": 26,
+          "label": "entry"
+        },
+        {
+          "index": 27,
+          "label": "entry"
+        },
+        {
+          "index": 28,
+          "label": "entry"
+        },
+        {
+          "index": 29,
+          "label": "entry"
+        },
+        {
+          "index": 30,
+          "label": "entry"
+        },
+        {
+          "index": 31,
+          "label": "entry"
+        },
+        {
+          "index": 32,
+          "label": "entry"
+        },
+        {
+          "index": 33,
+          "label": "entry"
+        },
+        {
+          "index": 34,
+          "label": "entry"
+        },
+        {
+          "index": 35,
+          "label": "entry"
+        },
+        {
+          "index": 36,
+          "label": "entry"
+        },
+        {
+          "index": 37,
+          "label": "entry"
+        },
+        {
+          "index": 38,
+          "label": "entry"
+        },
+        {
+          "index": 39,
+          "label": "entry"
+        },
+        {
+          "index": 40,
+          "label": "entry"
+        },
+        {
+          "index": 41,
+          "label": "entry"
+        },
+        {
+          "index": 42,
+          "label": "entry"
+        },
+        {
+          "index": 43,
+          "label": "entry"
+        },
+        {
+          "index": 44,
+          "label": "entry"
+        },
+        {
+          "index": 45,
+          "label": "entry"
+        },
+        {
+          "index": 46,
+          "label": "entry"
+        },
+        {
+          "index": 47,
+          "label": "entry"
+        },
+        {
+          "index": 48,
+          "label": "entry"
+        },
+        {
+          "index": 49,
+          "label": "entry"
+        },
+        {
+          "index": 50,
+          "label": "entry"
+        },
+        {
+          "index": 51,
+          "label": "entry"
+        },
+        {
+          "index": 52,
+          "label": "entry"
+        },
+        {
+          "index": 53,
+          "label": "entry"
+        },
+        {
+          "index": 54,
+          "label": "entry"
+        },
+        {
+          "index": 55,
+          "label": "entry"
+        },
+        {
+          "index": 56,
+          "label": "entry"
+        },
+        {
+          "index": 57,
+          "label": "entry"
+        },
+        {
+          "index": 58,
+          "label": "entry"
+        },
+        {
+          "index": 59,
+          "label": "entry"
+        },
+        {
+          "index": 60,
+          "label": "entry"
+        },
+        {
+          "index": 61,
+          "label": "entry"
+        },
+        {
+          "index": 62,
+          "label": "entry"
+        },
+        {
+          "index": 63,
+          "label": "entry"
+        },
+        {
+          "index": 64,
+          "label": "entry"
+        },
+        {
+          "index": 65,
+          "label": "entry"
+        },
+        {
+          "index": 66,
+          "label": "entry"
+        },
+        {
+          "index": 67,
+          "label": "entry"
+        },
+        {
+          "index": 68,
+          "label": "entry"
+        },
+        {
+          "index": 69,
+          "label": "entry"
+        },
+        {
+          "index": 70,
+          "label": "entry"
+        },
+        {
+          "index": 71,
+          "label": "entry"
+        },
+        {
+          "index": 72,
+          "label": "entry"
+        },
+        {
+          "index": 73,
+          "label": "entry"
+        },
+        {
+          "index": 74,
+          "label": "entry"
+        },
+        {
+          "index": 75,
+          "label": "entry"
+        },
+        {
+          "index": 76,
+          "label": "entry"
+        },
+        {
+          "index": 77,
+          "label": "entry"
+        },
+        {
+          "index": 78,
+          "label": "entry"
+        },
+        {
+          "index": 79,
+          "label": "entry"
+        },
+        {
+          "index": 80,
+          "label": "entry"
+        },
+        {
+          "index": 81,
+          "label": "entry"
+        },
+        {
+          "index": 82,
+          "label": "entry"
+        },
+        {
+          "index": 83,
+          "label": "entry"
+        },
+        {
+          "index": 84,
+          "label": "entry"
+        },
+        {
+          "index": 85,
+          "label": "entry"
+        },
+        {
+          "index": 86,
+          "label": "entry"
+        },
+        {
+          "index": 87,
+          "label": "entry"
+        },
+        {
+          "index": 88,
+          "label": "entry"
+        },
+        {
+          "index": 89,
+          "label": "entry"
+        },
+        {
+          "index": 90,
+          "label": "entry"
+        },
+        {
+          "index": 91,
+          "label": "entry"
+        },
+        {
+          "index": 92,
+          "label": "entry"
+        },
+        {
+          "index": 93,
+          "label": "entry"
+        },
+        {
+          "index": 94,
+          "label": "entry"
+        },
+        {
+          "index": 95,
+          "label": "entry"
+        },
+        {
+          "index": 96,
+          "label": "entry"
+        },
+        {
+          "index": 97,
+          "label": "entry"
+        },
+        {
+          "index": 98,
+          "label": "entry"
+        },
+        {
+          "index": 99,
+          "label": "entry"
+        },
+        {
+          "index": 100,
+          "label": "entry"
+        },
+        {
+          "index": 101,
+          "label": "entry"
+        },
+        {
+          "index": 102,
+          "label": "entry"
+        },
+        {
+          "index": 103,
+          "label": "entry"
+        },
+        {
+          "index": 104,
+          "label": "entry"
+        },
+        {
+          "index": 105,
+          "label": "entry"
+        },
+        {
+          "index": 106,
+          "label": "entry"
+        },
+        {
+          "index": 107,
+          "label": "entry"
+        },
+        {
+          "index": 108,
+          "label": "entry"
+        },
+        {
+          "index": 109,
+          "label": "entry"
+        },
+        {
+          "index": 110,
+          "label": "entry"
+        },
+        {
+          "index": 111,
+          "label": "entry"
+        },
+        {
+          "index": 112,
+          "label": "entry"
+        },
+        {
+          "index": 113,
+          "label": "entry"
+        },
+        {
+          "index": 114,
+          "label": "entry"
+        },
+        {
+          "index": 115,
+          "label": "entry"
+        },
+        {
+          "index": 116,
+          "label": "entry"
+        },
+        {
+          "index": 117,
+          "label": "entry"
+        },
+        {
+          "index": 118,
+          "label": "entry"
+        },
+        {
+          "index": 119,
+          "label": "entry"
+        },
+        {
+          "index": 120,
+          "label": "entry"
+        },
+        {
+          "index": 121,
+          "label": "entry"
+        },
+        {
+          "index": 122,
+          "label": "entry"
+        },
+        {
+          "index": 123,
+          "label": "entry"
+        },
+        {
+          "index": 124,
+          "label": "entry"
+        },
+        {
+          "index": 125,
+          "label": "entry"
+        },
+        {
+          "index": 126,
+          "label": "entry"
+        },
+        {
+          "index": 127,
+          "label": "entry"
+        },
+        {
+          "index": 128,
+          "label": "entry"
+        },
+        {
+          "index": 129,
+          "label": "entry"
+        },
+        {
+          "index": 130,
+          "label": "entry"
+        },
+        {
+          "index": 131,
+          "label": "entry"
+        },
+        {
+          "index": 132,
+          "label": "entry"
+        },
+        {
+          "index": 133,
+          "label": "entry"
+        },
+        {
+          "index": 134,
+          "label": "entry"
+        },
+        {
+          "index": 135,
+          "label": "entry"
+        },
+        {
+          "index": 136,
+          "label": "entry"
+        },
+        {
+          "index": 137,
+          "label": "entry"
+        },
+        {
+          "index": 138,
+          "label": "entry"
+        },
+        {
+          "index": 139,
+          "label": "entry"
+        },
+        {
+          "index": 140,
+          "label": "entry"
+        },
+        {
+          "index": 141,
+          "label": "entry"
+        },
+        {
+          "index": 142,
+          "label": "entry"
+        },
+        {
+          "index": 143,
+          "label": "entry"
+        },
+        {
+          "index": 144,
+          "label": "entry"
+        },
+        {
+          "index": 145,
+          "label": "entry"
+        },
+        {
+          "index": 146,
+          "label": "entry"
+        },
+        {
+          "index": 147,
+          "label": "entry"
+        },
+        {
+          "index": 148,
+          "label": "entry"
+        },
+        {
+          "index": 149,
+          "label": "entry"
+        }
+      ]
+    },
+    "output": {
+      "json": "\"[{\\\"index\\\":0,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":1,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":2,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":3,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":4,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":5,\\\"label\\\":\\\"entry\\\"},{\\\"index\\\":6,\\\"label\\\":\\\"entry\\\"},{\\\"i…\""
+    }
+  },
+  {
+    "name": "invalid args object details and suggestion",
+    "input": {
+      "op": "buildInvalidArgsDetails",
+      "arg": "action",
+      "received": "Strat",
+      "candidates": ["start", "stop"],
+      "extra": {
+        "matchCount": 2,
+        "sample": {
+          "nested": true
+        }
+      }
+    },
+    "output": {
+      "json": "{\"arg\":\"action\",\"received\":\"Strat\",\"expected\":{\"enum\":[\"start\",\"stop\"]},\"hint\":\"Did you mean \\\"start\\\"?\",\"matchCount\":2,\"sample\":{\"nested\":true}}"
+    }
+  },
+  {
+    "name": "invalid args explicit expected and hint",
+    "input": {
+      "op": "buildInvalidArgsDetails",
+      "arg": "mode",
+      "received": null,
+      "expected": {
+        "type": "string",
+        "enum": ["preview", "raw"]
+      },
+      "hint": "Pass preview or raw."
+    },
+    "output": {
+      "json": "{\"arg\":\"mode\",\"received\":null,\"expected\":{\"type\":\"string\",\"enum\":[\"preview\",\"raw\"]},\"hint\":\"Pass preview or raw.\"}"
+    }
+  },
+  {
+    "name": "invalid args extras override fields with integer-key ordering",
+    "input": {
+      "op": "buildInvalidArgsDetails",
+      "arg": "original",
+      "received": "bad",
+      "expected": ["one", "two"],
+      "extra": {
+        "2": "two",
+        "10": "ten",
+        "arg": "overridden",
+        "received": null,
+        "extra": true
+      }
+    },
+    "output": {
+      "json": "{\"2\":\"two\",\"10\":\"ten\",\"arg\":\"overridden\",\"received\":null,\"expected\":[\"one\",\"two\"],\"extra\":true}"
+    }
+  },
+  {
+    "name": "tool error JSON text preserves details ordering",
+    "input": {
+      "op": "serializeToolError",
+      "code": "INVALID_ARGS",
+      "message": "bad action",
+      "details": {
+        "arg": "action",
+        "expected": {
+          "enum": ["start", "stop"]
+        }
+      }
+    },
+    "output": {
+      "json": "{\"error\":{\"code\":\"INVALID_ARGS\",\"message\":\"bad action\",\"details\":{\"arg\":\"action\",\"expected\":{\"enum\":[\"start\",\"stop\"]}}}}"
+    }
+  },
+  {
+    "name": "output budget UTF8 partial replacement decode",
+    "input": {
+      "op": "enforceOutputBudget",
+      "options": {
+        "budgetBytes": 1024
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ]
+      }
+    },
+    "output": {
+      "content": [
+        {
+          "type": "text",
+          "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa�\n\n[Result truncated by dispatcher: originalSize=1927 bytes, limit=1024 bytes. Pass raw=true to bypass.]"
+        }
+      ],
+      "truncation": {
+        "truncated": true,
+        "originalSize": 1927,
+        "limit": 1024,
+        "unit": "bytes",
+        "hint": "set raw=true to opt out"
+      }
+    }
+  },
+  {
+    "name": "output budget raw bypass",
+    "input": {
+      "op": "enforceOutputBudget",
+      "options": {
+        "raw": true,
+        "budgetBytes": 1024
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ]
+      }
+    },
+    "output": {
+      "content": [
+        {
+          "type": "text",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ]
+    }
+  },
+  {
+    "name": "output budget error bypass",
+    "input": {
+      "op": "enforceOutputBudget",
+      "options": {
+        "budgetBytes": 1024
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "output": {
+      "content": [
+        {
+          "type": "text",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "isError": true
+    }
+  },
+  {
+    "name": "output budget preserves image and truncates text blocks",
+    "input": {
+      "op": "enforceOutputBudget",
+      "options": {
+        "budgetBytes": 1024
+      },
+      "result": {
+        "content": [
+          {
+            "type": "image",
+            "data": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "text",
+            "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "text",
+            "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+          }
+        ]
+      }
+    },
+    "output": {
+      "content": [
+        {
+          "type": "image",
+          "data": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mimeType": "image/png"
+        },
+        {
+          "type": "text",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n[Block truncated by dispatcher: per-block limit=512 bytes.]"
+        },
+        {
+          "type": "text",
+          "text": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n\n[Block truncated by dispatcher: per-block limit=512 bytes.]"
+        }
+      ],
+      "truncation": {
+        "truncated": true,
+        "originalSize": 4000,
+        "limit": 1024,
+        "unit": "bytes",
+        "hint": "set raw=true to opt out"
+      }
+    }
+  },
+  {
+    "name": "browser truncate string UTF8 character boundary",
+    "input": {
+      "op": "truncateString",
+      "value": "é😀z",
+      "limit": 5
+    },
+    "output": {
+      "json": "{\"data\":\"é\\ud83d\",\"truncated\":true,\"originalSize\":7,\"limit\":5,\"rawAvailable\":true}"
+    }
+  },
+  {
+    "name": "browser truncate string raw mode",
+    "input": {
+      "op": "truncateString",
+      "value": "é😀z",
+      "limit": 1,
+      "mode": "raw"
+    },
+    "output": {
+      "json": "{\"data\":\"é😀z\",\"truncated\":false,\"originalSize\":7,\"limit\":1,\"rawAvailable\":false}"
+    }
+  },
+  {
+    "name": "browser truncate JSON envelope",
+    "input": {
+      "op": "truncateJson",
+      "value": {
+        "label": "😀😀",
+        "nested": [1, 2]
+      },
+      "limit": 12
+    },
+    "output": {
+      "json": "{\"data\":\"{\\\"label\\\":\\\"\",\"truncated\":true,\"originalSize\":35,\"limit\":12,\"rawAvailable\":true}"
+    }
+  },
+  {
+    "name": "browser truncate array item envelope",
+    "input": {
+      "op": "truncateArray",
+      "value": [0, 1, 2, 3],
+      "limit": 2
+    },
+    "output": {
+      "data": [0, 1],
+      "truncated": true,
+      "originalSize": 4,
+      "limit": 2,
+      "rawAvailable": true
+    }
+  },
+  {
+    "name": "browser mode accepts only true",
+    "input": {
+      "op": "modeFromRaw",
+      "value": "true"
+    },
+    "output": {
+      "value": "preview"
+    }
+  },
+  {
+    "name": "browser mode true is raw",
+    "input": {
+      "op": "modeFromRaw",
+      "value": true
+    },
+    "output": {
+      "value": "raw"
+    }
+  },
+  {
+    "name": "graph maps delay negative clamp",
+    "input": {
+      "op": "mapNodeToStep",
+      "node": {
+        "id": "delay",
+        "type": "delay",
+        "config": {
+          "ms": -2
+        }
+      }
+    },
+    "output": {
+      "id": "delay",
+      "type": "wait",
+      "condition": {
+        "sleep": 0
+      }
+    }
+  },
+  {
+    "name": "graph maps delay NaN-like string",
+    "input": {
+      "op": "mapNodeToStep",
+      "node": {
+        "id": "delay-nan",
+        "type": "delay",
+        "config": {
+          "ms": "NaN"
+        }
+      }
+    },
+    "output": {
+      "id": "delay-nan",
+      "type": "wait",
+      "condition": {
+        "sleep": null
+      }
+    }
+  },
+  {
+    "name": "graph maps target fallback",
+    "input": {
+      "op": "mapNodeToStep",
+      "node": {
+        "id": "click",
+        "type": "click",
+        "config": {
+          "target": null
+        }
+      }
+    },
+    "output": {
+      "id": "click",
+      "type": "click",
+      "target": null
+    }
+  },
+  {
+    "name": "graph step config omits identifiers",
+    "input": {
+      "op": "mapStepToNodeConfig",
+      "step": {
+        "id": "s1",
+        "type": "click",
+        "target": null,
+        "value": ""
+      }
+    },
+    "output": {
+      "target": null,
+      "value": ""
+    }
+  },
+  {
+    "name": "graph steps assign ids and script type",
+    "input": {
+      "op": "stepsToNodes",
+      "steps": [
+        {
+          "id": "",
+          "type": ""
+        },
+        null,
+        {
+          "id": "same",
+          "type": "fill",
+          "value": "x"
+        }
+      ]
+    },
+    "output": [
+      {
+        "id": "n_0",
+        "type": "script",
+        "config": {}
+      },
+      {
+        "id": "n_1",
+        "type": "script",
+        "config": {}
+      },
+      {
+        "id": "same",
+        "type": "fill",
+        "config": {
+          "value": "x"
+        }
+      }
+    ]
+  },
+  {
+    "name": "graph DAG duplicate ids retain unique edge ids",
+    "input": {
+      "op": "stepsToDAG",
+      "steps": [
+        {
+          "id": "same",
+          "type": "click"
+        },
+        {
+          "id": "same",
+          "type": "fill"
+        }
+      ]
+    },
+    "output": {
+      "nodes": [
+        {
+          "id": "same",
+          "type": "click",
+          "config": {}
+        },
+        {
+          "id": "same",
+          "type": "fill",
+          "config": {}
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_0_same_same",
+          "from": "same",
+          "to": "same",
+          "label": "default"
+        }
+      ]
+    }
+  },
+  {
+    "name": "graph topo stable branching order",
+    "input": {
+      "op": "topoOrder",
+      "nodes": [
+        {
+          "id": "a",
+          "type": "click"
+        },
+        {
+          "id": "b",
+          "type": "fill"
+        },
+        {
+          "id": "c",
+          "type": "wait"
+        }
+      ],
+      "edges": [
+        {
+          "id": "ab",
+          "from": "a",
+          "to": "b"
+        },
+        {
+          "id": "ac",
+          "from": "a",
+          "to": "c"
+        }
+      ]
+    },
+    "output": [
+      {
+        "id": "a",
+        "type": "click"
+      },
+      {
+        "id": "b",
+        "type": "fill"
+      },
+      {
+        "id": "c",
+        "type": "wait"
+      }
+    ]
+  },
+  {
+    "name": "graph topo cycle falls back original order",
+    "input": {
+      "op": "topoOrder",
+      "nodes": [
+        {
+          "id": "a",
+          "type": "click"
+        },
+        {
+          "id": "b",
+          "type": "fill"
+        }
+      ],
+      "edges": [
+        {
+          "id": "ab",
+          "from": "a",
+          "to": "b"
+        },
+        {
+          "id": "ba",
+          "from": "b",
+          "to": "a"
+        }
+      ]
+    },
+    "output": [
+      {
+        "id": "a",
+        "type": "click"
+      },
+      {
+        "id": "b",
+        "type": "fill"
+      }
+    ]
+  },
+  {
+    "name": "graph topo dangling source error",
+    "input": {
+      "op": "topoOrder",
+      "nodes": [
+        {
+          "id": "a",
+          "type": "click"
+        }
+      ],
+      "edges": [
+        {
+          "id": "bad",
+          "from": "missing",
+          "to": "a"
+        }
+      ]
+    },
+    "output": {
+      "thrown": {
+        "name": "TypeError",
+        "message": "Cannot read properties of undefined (reading 'push')"
+      }
+    }
+  },
+  {
+    "name": "graph nodes to steps duplicate IDs",
+    "input": {
+      "op": "nodesToSteps",
+      "nodes": [
+        {
+          "id": "x",
+          "type": "fill",
+          "config": {
+            "value": "one"
+          }
+        },
+        {
+          "id": "x",
+          "type": "key",
+          "config": {
+            "keys": "Enter"
+          }
+        }
+      ],
+      "edges": []
+    },
+    "output": [
+      {
+        "id": "x",
+        "type": "fill",
+        "value": "one"
+      },
+      {
+        "id": "x",
+        "type": "key",
+        "keys": "Enter"
+      }
+    ]
+  },
+  {
+    "name": "IPC ClientId maximum UTF16 length",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC ClientId exceeds UTF16 length",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_big",
+          "maximum": 128,
+          "inclusive": true,
+          "path": [],
+          "message": "Too big: expected string to have <=128 characters"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC ClientId rejects whitespace",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": "alice bob"
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": [],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC ClientId rejects empty string",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": ""
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": [],
+          "message": "Too small: expected string to have >=1 characters"
+        },
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": [],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC ClientId emoji fits UTF16 cap but fails grammar",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": [],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC ClientId emoji exceeds UTF16 cap and fails grammar",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientIdSchema",
+      "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": [],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC JSON value nested valid",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "JsonValueSchema",
+      "value": {
+        "nested": [true, null, "x"]
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC stop named schema",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "StopServerMessageSchema",
+      "value": {
+        "type": "stop",
+        "future": true
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC ping named schema",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "PingFromExtensionMessageSchema",
+      "value": {
+        "type": "ping_from_extension",
+        "future": true
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC file operation named schema",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "FileOperationMessageSchema",
+      "value": {
+        "type": "file_operation",
+        "payload": {
+          "action": "prepareFile",
+          "future": true
+        }
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC file payload rejects unknown action",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "FileOperationPayloadSchema",
+      "value": {
+        "action": "launchMissiles"
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "invalid_value",
+          "values": ["prepareFile", "readBase64File", "cleanupFile", "analyzeTrace", "saveToPath"],
+          "path": ["action"],
+          "message": "Invalid option: expected one of \"prepareFile\"|\"readBase64File\"|\"cleanupFile\"|\"analyzeTrace\"|\"saveToPath\""
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC file payload missing required action",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "FileOperationPayloadSchema",
+      "value": {}
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "invalid_value",
+          "values": ["prepareFile", "readBase64File", "cleanupFile", "analyzeTrace", "saveToPath"],
+          "path": ["action"],
+          "message": "Invalid option: expected one of \"prepareFile\"|\"readBase64File\"|\"cleanupFile\"|\"analyzeTrace\"|\"saveToPath\""
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC response named schema",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ResponseMessageSchema",
+      "value": {
+        "responseToRequestId": "r1",
+        "payload": {
+          "ok": true
+        },
+        "future": true
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC unknown typed rejects empty type",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "UnknownTypedMessageSchema",
+      "value": {
+        "type": ""
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": ["type"],
+          "message": "Too small: expected string to have >=1 characters"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC tool call body rejects extra key",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ToolCallBodySchema",
+      "value": {
+        "args": {},
+        "clientId": "leaked"
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "unrecognized_keys",
+          "keys": ["clientId"],
+          "path": [],
+          "message": "Unrecognized key: \"clientId\""
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC tool call args rejects non-record",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ToolCallArgsSchema",
+      "value": ["not", "a", "record"]
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "expected": "record",
+          "code": "invalid_type",
+          "path": [],
+          "message": "Invalid input: expected record, received array"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC start accepts future keys",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "StartServerMessageSchema",
+      "value": {
+        "type": "start",
+        "payload": {
+          "port": 12306,
+          "futurePayload": true
+        },
+        "futureTop": "kept"
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC start missing literal type",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "StartServerMessageSchema",
+      "value": {
+        "payload": {
+          "port": 12306
+        }
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "invalid_value",
+          "values": ["start"],
+          "path": ["type"],
+          "message": "Invalid input: expected \"start\""
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC start rejects unsafe integer port",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "StartServerMessageSchema",
+      "value": {
+        "type": "start",
+        "payload": {
+          "port": 9007199254740992
+        }
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "too_big",
+          "maximum": 9007199254740991,
+          "note": "Integers must be within the safe integer range.",
+          "origin": "int",
+          "inclusive": true,
+          "path": ["payload", "port"],
+          "message": "Too big: expected int to be <=9007199254740991"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC start rejects decimal port",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "StartServerMessageSchema",
+      "value": {
+        "type": "start",
+        "payload": {
+          "port": 123.5
+        }
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "expected": "int",
+          "format": "safeint",
+          "code": "invalid_type",
+          "path": ["payload", "port"],
+          "message": "Invalid input: expected int, received number"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC call tool valid future keys",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "CallToolMessageSchema",
+      "value": {
+        "type": "call_tool",
+        "requestId": "r1",
+        "clientId": "alice",
+        "payload": {
+          "name": "chrome_click_element",
+          "args": {
+            "selector": "#x"
+          },
+          "future": 1
+        },
+        "futureTop": true
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC call tool invalid payload name",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "CallToolMessageSchema",
+      "value": {
+        "type": "call_tool",
+        "requestId": "r1",
+        "clientId": "alice",
+        "payload": {
+          "name": ""
+        }
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": ["payload", "name"],
+          "message": "Too small: expected string to have >=1 characters"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC call tool reports optional-base errors in schema order",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "CallToolMessageSchema",
+      "value": {
+        "type": "call_tool",
+        "requestId": "",
+        "responseToRequestId": 7,
+        "clientId": "invalid client",
+        "payload": {}
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": ["requestId"],
+          "message": "Too small: expected string to have >=1 characters"
+        },
+        {
+          "expected": "string",
+          "code": "invalid_type",
+          "path": ["responseToRequestId"],
+          "message": "Invalid input: expected string, received number"
+        },
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": ["clientId"],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        },
+        {
+          "expected": "string",
+          "code": "invalid_type",
+          "path": ["payload", "name"],
+          "message": "Invalid input: expected string, received undefined"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC disconnected accepts legacy payload client",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientDisconnectedMessageSchema",
+      "value": {
+        "type": "client_disconnected",
+        "clientId": "alice",
+        "payload": {
+          "clientId": "legacy"
+        },
+        "future": true
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC disconnected rejects malformed client",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "ClientDisconnectedMessageSchema",
+      "value": {
+        "type": "client_disconnected",
+        "clientId": ""
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": ["clientId"],
+          "message": "Too small: expected string to have >=1 characters"
+        },
+        {
+          "origin": "string",
+          "code": "invalid_format",
+          "format": "regex",
+          "pattern": "/^[A-Za-z0-9_.:-]+$/",
+          "path": ["clientId"],
+          "message": "Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC native union accepts future typed envelope",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "NativeMessageSchema",
+      "value": {
+        "type": "future_directive",
+        "future": {
+          "nested": true
+        }
+      }
+    },
+    "output": {
+      "success": true
+    }
+  },
+  {
+    "name": "IPC native union rejects primitive",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "NativeMessageSchema",
+      "value": 42
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "invalid_union",
+          "errors": [
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ],
+            [
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": [],
+                "message": "Invalid input: expected object, received number"
+              }
+            ]
+          ],
+          "path": [],
+          "message": "Invalid input"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC native union missing every discriminator",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "NativeMessageSchema",
+      "value": {}
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "code": "invalid_union",
+          "errors": [
+            [
+              {
+                "code": "invalid_value",
+                "values": ["start"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"start\""
+              }
+            ],
+            [
+              {
+                "code": "invalid_value",
+                "values": ["stop"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"stop\""
+              }
+            ],
+            [
+              {
+                "code": "invalid_value",
+                "values": ["ping_from_extension"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"ping_from_extension\""
+              }
+            ],
+            [
+              {
+                "code": "invalid_value",
+                "values": ["file_operation"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"file_operation\""
+              },
+              {
+                "code": "invalid_type",
+                "expected": "nonoptional",
+                "path": ["payload"],
+                "message": "Invalid input: expected nonoptional, received undefined"
+              }
+            ],
+            [
+              {
+                "code": "invalid_value",
+                "values": ["call_tool"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"call_tool\""
+              },
+              {
+                "expected": "string",
+                "code": "invalid_type",
+                "path": ["requestId"],
+                "message": "Invalid input: expected string, received undefined"
+              },
+              {
+                "expected": "string",
+                "code": "invalid_type",
+                "path": ["clientId"],
+                "message": "Invalid input: expected string, received undefined"
+              },
+              {
+                "expected": "object",
+                "code": "invalid_type",
+                "path": ["payload"],
+                "message": "Invalid input: expected object, received undefined"
+              }
+            ],
+            [
+              {
+                "code": "invalid_value",
+                "values": ["client_disconnected"],
+                "path": ["type"],
+                "message": "Invalid input: expected \"client_disconnected\""
+              },
+              {
+                "expected": "string",
+                "code": "invalid_type",
+                "path": ["clientId"],
+                "message": "Invalid input: expected string, received undefined"
+              }
+            ],
+            [
+              {
+                "expected": "string",
+                "code": "invalid_type",
+                "path": ["responseToRequestId"],
+                "message": "Invalid input: expected string, received undefined"
+              }
+            ],
+            [
+              {
+                "expected": "string",
+                "code": "invalid_type",
+                "path": ["type"],
+                "message": "Invalid input: expected string, received undefined"
+              }
+            ]
+          ],
+          "path": [],
+          "message": "Invalid input"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC native union empty type",
+    "input": {
+      "op": "ipcValidate",
+      "schema": "NativeMessageSchema",
+      "value": {
+        "type": ""
+      }
+    },
+    "output": {
+      "success": false,
+      "issues": [
+        {
+          "origin": "string",
+          "code": "too_small",
+          "minimum": 1,
+          "inclusive": true,
+          "path": ["type"],
+          "message": "Too small: expected string to have >=1 characters"
+        }
+      ]
+    }
+  },
+  {
+    "name": "IPC parse native union retains nested branch errors",
+    "input": {
+      "op": "parseNativeMessage",
+      "value": {
+        "type": "future_directive",
+        "requestId": 7
+      }
+    },
+    "output": {
+      "ok": false,
+      "error": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"start\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"start\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"stop\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"stop\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"ping_from_extension\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"ping_from_extension\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"file_operation\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"file_operation\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        },\n        {\n          \"code\": \"invalid_type\",\n          \"expected\": \"nonoptional\",\n          \"path\": [\n            \"payload\"\n          ],\n          \"message\": \"Invalid input: expected nonoptional, received undefined\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"call_tool\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"call_tool\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid input: expected string, received undefined\"\n        },\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"payload\"\n          ],\n          \"message\": \"Invalid input: expected object, received undefined\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"client_disconnected\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"client_disconnected\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid input: expected string, received undefined\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"responseToRequestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received undefined\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received number\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    }
+  },
+  {
+    "name": "IPC parse preserves future keys",
+    "input": {
+      "op": "parseNativeMessage",
+      "value": {
+        "type": "future_directive",
+        "future": {
+          "nested": true
+        }
+      }
+    },
+    "output": {
+      "ok": true,
+      "data": {
+        "type": "future_directive",
+        "future": {
+          "nested": true
+        }
+      }
+    }
+  },
+  {
+    "name": "IPC parse strictly rejects malformed call tool",
+    "input": {
+      "op": "parseNativeMessage",
+      "value": {
+        "type": "call_tool",
+        "requestId": "r1",
+        "clientId": "alice",
+        "payload": {}
+      }
+    },
+    "output": {
+      "ok": false,
+      "error": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"payload\",\n      \"name\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+    }
+  },
+  {
+    "name": "IPC parse strictly rejects malformed disconnected",
+    "input": {
+      "op": "parseNativeMessage",
+      "value": {
+        "type": "client_disconnected",
+        "clientId": ""
+      }
+    },
+    "output": {
+      "ok": false,
+      "error": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"start\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"start\\\"\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"stop\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"stop\\\"\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"ping_from_extension\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"ping_from_extension\\\"\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"file_operation\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"file_operation\\\"\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        },\n        {\n          \"code\": \"invalid_type\",\n          \"expected\": \"nonoptional\",\n          \"path\": [\n            \"payload\"\n          ],\n          \"message\": \"Invalid input: expected nonoptional, received undefined\"\n        }\n      ],\n      [\n        {\n          \"code\": \"invalid_value\",\n          \"values\": [\n            \"call_tool\"\n          ],\n          \"path\": [\n            \"type\"\n          ],\n          \"message\": \"Invalid input: expected \\\"call_tool\\\"\"\n        },\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"requestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received undefined\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        },\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"payload\"\n          ],\n          \"message\": \"Invalid input: expected object, received undefined\"\n        }\n      ],\n      [\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"string\",\n          \"code\": \"invalid_type\",\n          \"path\": [\n            \"responseToRequestId\"\n          ],\n          \"message\": \"Invalid input: expected string, received undefined\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ],\n      [\n        {\n          \"origin\": \"string\",\n          \"code\": \"too_small\",\n          \"minimum\": 1,\n          \"inclusive\": true,\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Too small: expected string to have >=1 characters\"\n        },\n        {\n          \"origin\": \"string\",\n          \"code\": \"invalid_format\",\n          \"format\": \"regex\",\n          \"pattern\": \"/^[A-Za-z0-9_.:-]+$/\",\n          \"path\": [\n            \"clientId\"\n          ],\n          \"message\": \"Invalid string: must match pattern /^[A-Za-z0-9_.:-]+$/\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    }
+  },
+  {
+    "name": "IPC parse response envelope",
+    "input": {
+      "op": "parseNativeMessage",
+      "value": {
+        "responseToRequestId": "r1",
+        "payload": {
+          "ok": true
+        },
+        "future": "kept"
+      }
+    },
+    "output": {
+      "ok": true,
+      "data": {
+        "responseToRequestId": "r1",
+        "payload": {
+          "ok": true
+        },
+        "future": "kept"
+      }
+    }
+  },
+  {
+    "name": "idem cache replay preserves error result",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 30000,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 100,
+          "clientId": "a",
+          "tool": "chrome_click_element",
+          "key": "one",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"error\":\"no\"}"
+              }
+            ],
+            "isError": true
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 101,
+          "clientId": "a",
+          "tool": "chrome_click_element",
+          "key": "one"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"no\"}"
+            }
+          ],
+          "isError": true,
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 1
+      }
+    ]
+  },
+  {
+    "name": "idem cache expires at TTL boundary",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 10,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 100,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 109,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one"
+        },
+        {
+          "kind": "lookup",
+          "now": 110,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ],
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 1
+      },
+      {
+        "result": null,
+        "size": 0
+      }
+    ]
+  },
+  {
+    "name": "idem cache LRU hit refreshes order",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 1000,
+      "maxEntries": 2,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 1,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "record",
+          "now": 2,
+          "clientId": "a",
+          "tool": "t",
+          "key": "two",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "two"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 3,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one"
+        },
+        {
+          "kind": "record",
+          "now": 4,
+          "clientId": "a",
+          "tool": "t",
+          "key": "three",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "three"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 5,
+          "clientId": "a",
+          "tool": "t",
+          "key": "two"
+        },
+        {
+          "kind": "lookup",
+          "now": 5,
+          "clientId": "a",
+          "tool": "t",
+          "key": "one"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "size": 2
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ],
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 2
+      },
+      {
+        "size": 2
+      },
+      {
+        "result": null,
+        "size": 2
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ],
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 2
+      }
+    ]
+  },
+  {
+    "name": "idem cache key delimiter collision behavior",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 1000,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 1,
+          "clientId": "a:b",
+          "tool": "c",
+          "key": "d",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 2,
+          "clientId": "a",
+          "tool": "b:c",
+          "key": "d"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "first"
+            }
+          ],
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 1
+      }
+    ]
+  },
+  {
+    "name": "idem cache ignores absent key components",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 1000,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 1,
+          "clientId": "a",
+          "tool": "t",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "ignored"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 2,
+          "clientId": "a",
+          "tool": "t"
+        },
+        {
+          "kind": "record",
+          "now": 3,
+          "clientId": "a",
+          "tool": "",
+          "key": "key",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "ignored"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 0
+      },
+      {
+        "result": null,
+        "size": 0
+      },
+      {
+        "size": 0
+      }
+    ]
+  },
+  {
+    "name": "idem replay retains UTF-16 object-spread metadata",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 1000,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 1,
+          "clientId": "a",
+          "tool": "t",
+          "key": "key",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "kept"
+              }
+            ],
+            "_meta": "😀"
+          }
+        },
+        {
+          "kind": "lookup",
+          "now": 2,
+          "clientId": "a",
+          "tool": "t",
+          "key": "key"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "kept"
+            }
+          ],
+          "_meta": {
+            "0": "\ud83d",
+            "1": "\ude00",
+            "idempotent_hit": true
+          }
+        },
+        "size": 1
+      }
+    ]
+  },
+  {
+    "name": "idem replay retains array result indices",
+    "input": {
+      "op": "idemCache",
+      "ttlMs": 1000,
+      "maxEntries": 3,
+      "actions": [
+        {
+          "kind": "record",
+          "now": 1,
+          "clientId": "a",
+          "tool": "t",
+          "key": "key",
+          "result": ["first", "second"]
+        },
+        {
+          "kind": "lookup",
+          "now": 2,
+          "clientId": "a",
+          "tool": "t",
+          "key": "key"
+        }
+      ]
+    },
+    "output": [
+      {
+        "size": 1
+      },
+      {
+        "result": {
+          "0": "first",
+          "1": "second",
+          "_meta": {
+            "idempotent_hit": true
+          }
+        },
+        "size": 1
+      }
+    ]
+  }
+]

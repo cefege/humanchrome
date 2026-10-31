@@ -372,16 +372,16 @@
       <h2>IMP-0156..0170 — Multi-tab by design (cross-section)</h2>
       <p class="muted">
         These rows exercise tools that <em>don't</em> care about page DOM — they verify the
-        per-client ownership and alias contracts the dispatcher enforces. The matrix runner uses
-        the same single tab for all rows in this section; what varies is the args + sequence
-        each row sends.
+        per-client ownership and alias contracts the dispatcher enforces. The matrix runner uses the
+        same single tab for all rows in this section; what varies is the args + sequence each row
+        sends.
       </p>
       <div class="row">
         <span id="multi-tab-owned-tabs-marker"></span>
         <span
           >IMP-0168: <code>chrome_owned_tabs({})</code> returns
-          <code>{count >= 1, ownedTabs:[…the matrix's auto-spawned tab…]}</code> with the
-          caller's <code>clientId</code> populated. No <code>tabId</code> arg needed; no auto-spawn
+          <code>{count >= 1, ownedTabs:[…the matrix's auto-spawned tab…]}</code> with the caller's
+          <code>clientId</code> populated. No <code>tabId</code> arg needed; no auto-spawn
           (read-only).</span
         >
       </div>
@@ -390,8 +390,8 @@
         <span
           >IMP-0169: <code>browser_alias_tab({alias:'fixture'})</code> succeeds, then
           <code>chrome_owned_tabs({})</code> shows the alias in the response's
-          <code>aliases</code> (via state). Aliases are per-MCP-client and self-evict when the
-          tab closes.</span
+          <code>aliases</code> (via state). Aliases are per-MCP-client and self-evict when the tab
+          closes.</span
         >
       </div>
     </section>
@@ -400,9 +400,9 @@
     <section id="new-tools-coverage">
       <h2>IMP-0124..0143 — Coverage for tools shipped without matrix rows</h2>
       <p class="muted">
-        Sections below are exercised by the matrix runner; each section maps to one row. The
-        markup is deliberately minimal so the row assertions stay focused on tool behaviour
-        rather than CSS or layout.
+        Sections below are exercised by the matrix runner; each section maps to one row. The markup
+        is deliberately minimal so the row assertions stay focused on tool behaviour rather than CSS
+        or layout.
       </p>
 
       <h3>IMP-0126 — <code>chrome_get_attributes</code></h3>
@@ -411,8 +411,8 @@
 
       <h3>IMP-0125 — <code>chrome_hover</code> reveals tooltip</h3>
       <p class="muted">
-        Pure-CSS <code>:hover</code> doesn't fire from synthesized pointer events in Chromium,
-        so a small inline listener flips a class on <code>mouseover</code> / off on
+        Pure-CSS <code>:hover</code> doesn't fire from synthesized pointer events in Chromium, so a
+        small inline listener flips a class on <code>mouseover</code> / off on
         <code>mouseout</code>. The row asserts the class lands by reading it via
         <code>chrome_get_attributes</code> after the hover dispatches.
       </p>
@@ -427,13 +427,14 @@
 
       <h3>Bug-007 — <code>chrome_combobox_select</code> (keyboard-commit combobox)</h3>
       <p class="muted">
-        Downshift-style mock: option-click is intentionally a no-op; only the keyboard
-        commit path (ArrowDown highlights + Enter binds the form state) updates
+        Downshift-style mock: option-click is intentionally a no-op; only the keyboard commit path
+        (ArrowDown highlights + Enter binds the form state) updates
         <code>#combobox-selected</code>. The row calls
         <code>chrome_combobox_select({comboboxSelector:'#combobox-input', query:'LangGraph'})</code>
         and asserts <code>#combobox-selected</code> reads "LangGraph". If a future regression
         re-introduces the synthetic-click code path, the assertion fails because the click never
-        bound the state.
+        bound the state. The runner also keeps this tab backgrounded while a shared debugger session
+        is held. Selection must commit without activating the tab.
       </p>
       <div class="row">
         <input
@@ -445,7 +446,11 @@
           aria-expanded="false"
           placeholder="Type to filter…"
         />
-        <ul id="combobox-listbox" role="listbox" style="list-style:none;padding:0;margin:0"></ul>
+        <ul
+          id="combobox-listbox"
+          role="listbox"
+          style="list-style: none; padding: 0; margin: 0"
+        ></ul>
         <div>Selected: <span id="combobox-selected">(none)</span></div>
       </div>
       <script>
@@ -459,9 +464,7 @@
 
           function render() {
             const q = input.value.trim().toLowerCase();
-            visible = q
-              ? SOURCE.filter((s) => s.toLowerCase().includes(q))
-              : [];
+            visible = q ? SOURCE.filter((s) => s.toLowerCase().includes(q)) : [];
             listbox.innerHTML = '';
             visible.forEach((text, i) => {
               const li = document.createElement('li');
@@ -509,13 +512,13 @@
       <h3>Bug-008-probe — <code>chrome_typeahead_probe</code> on a static input</h3>
       <p class="muted">
         Static input + a tiny "lookup" handler that fires a no-op fetch to
-        <code>/typeahead-fixture-stub</code> on every <code>input</code> event. The matrix row
-        types one char via <code>chrome_typeahead_probe</code> and asserts
+        <code>/typeahead-fixture-stub</code> on every <code>input</code> event. The matrix row types
+        one char via <code>chrome_typeahead_probe</code> and asserts
         <code>summary.inputFired === true</code> + <code>summary.lookupFetchFired === true</code>.
         The captured <code>summary.keydownFired</code> records whether the runner's Chrome (CFT)
-        delivers <code>keydown</code> through the current IMP-0176 keystroke path — the
-        Bug-008 divergence question. The fetch is to a same-origin 404 endpoint, so its
-        response is irrelevant; the probe only cares that the request fired.
+        delivers <code>keydown</code> through the current IMP-0176 keystroke path — the Bug-008
+        divergence question. The fetch is to a same-origin 404 endpoint, so its response is
+        irrelevant; the probe only cares that the request fired.
       </p>
       <input id="probe-input" type="text" placeholder="Type to fire lookup…" />
       <script>
@@ -526,13 +529,70 @@
             // Fire-and-forget fetch — its existence is what the probe asserts.
             // 404 is fine: probe only inspects the request, not the response.
             try {
-              fetch('/typeahead-fixture-stub?q=' + encodeURIComponent(input.value)).catch(
-                () => {}
-              );
+              fetch('/typeahead-fixture-stub?q=' + encodeURIComponent(input.value)).catch(() => {});
             } catch (e) {}
           });
         })();
       </script>
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="rust-recorder-workflow">
+      <h2>Rust policy live proof — recorder and workflow</h2>
+      <p>
+        The recorder scenario starts recording and immediately clicks the first button, then replays
+        the persisted flow. The workflow scenario reaches its button through a V3 variable branch.
+      </p>
+      <div class="row">
+        <button id="rr-recorder-target" type="button"> Record and replay click </button>
+        <output id="rr-recorder-count">0</output>
+      </div>
+      <div class="row">
+        <button id="rr-workflow-target" data-testid="rr-workflow-target" type="button">
+          V3 workflow branch click
+        </button>
+        <output id="rr-workflow-count">0</output>
+      </div>
+      <iframe
+        id="rr-csp-frame"
+        title="Restrictive CSP recorder frame"
+        srcdoc="<!doctype html><meta http-equiv='Content-Security-Policy' content=&quot;default-src 'none'; style-src 'unsafe-inline'&quot;><button id='rr-csp-target' data-testid='rr-csp-target' type='button'>CSP frame target</button>"
+      ></iframe>
+      <script>
+        (() => {
+          const increment = (buttonId, outputId) => {
+            const button = document.getElementById(buttonId);
+            const output = document.getElementById(outputId);
+            button?.addEventListener('click', () => {
+              output.textContent = String(Number(output.textContent || '0') + 1);
+            });
+          };
+          increment('rr-recorder-target', 'rr-recorder-count');
+          increment('rr-workflow-target', 'rr-workflow-count');
+        })();
+      </script>
+    </section>
+
+    <!-- ============================================================== -->
+    <section id="rust-6-editor">
+      <h2>Rust-6 — Web Editor V2 surface</h2>
+      <p>
+        The Rust-6 editor matrix row foregrounds an owned fixture tab, opens Web Editor V2 through
+        the runtime toggle, selects this button with a real pointer click, and changes its opacity
+        through the visible Properties panel.
+      </p>
+      <button
+        id="rust-editor-target"
+        type="button"
+        style="min-width: 240px; min-height: 64px; border: 2px solid #38598b; background: #cfe8ff"
+      >
+        Select me in Web Editor V2
+      </button>
+      <p>
+        Expected: the selected target is <code>button#rust-editor-target</code>; entering
+        <code>0.42</code> in Properties → Appearance → Opacity creates
+        <code>style.opacity === "0.42"</code>.
+      </p>
     </section>
 
     <script>

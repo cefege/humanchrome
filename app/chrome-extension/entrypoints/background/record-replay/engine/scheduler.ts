@@ -272,7 +272,10 @@ class ExecutionOrchestrator {
     try {
       const u = ensured?.url || '';
       if (/^(https?:|file:)/i.test(u))
-        await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+        await handleCallTool({
+          name: TOOL_NAMES.BROWSER.READ_PAGE,
+          args: { tabId: ensured.tabId },
+        });
     } catch {
       // ignore: preloading read_page is best-effort
     }

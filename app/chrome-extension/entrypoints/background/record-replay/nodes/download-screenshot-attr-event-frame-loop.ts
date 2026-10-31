@@ -69,7 +69,7 @@ export const triggerEventNode: NodeRuntime<StepTriggerEvent> = {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tabs?.[0]?.id;
     if (typeof tabId !== 'number') throw new Error('Active tab not found');
-    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
     const located = await locateElement(tabId, s.target, ctx.frameId);
     const cssSelector = !located?.ref
       ? s.target.candidates?.find((c) => c.type === 'css' || c.type === 'attr')?.value
@@ -122,7 +122,7 @@ export const setAttributeNode: NodeRuntime<StepSetAttribute> = {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tabs?.[0]?.id;
     if (typeof tabId !== 'number') throw new Error('Active tab not found');
-    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+    await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
     const located = await locateElement(tabId, s.target, ctx.frameId);
     const frameId = located?.frameId ?? ctx.frameId;
     const cssSelector = !located?.ref
@@ -191,7 +191,7 @@ export const switchFrameNode: NodeRuntime<StepSwitchFrame> = {
     if (!target) ctx.frameId = undefined;
     else ctx.frameId = target.frameId;
     try {
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+      await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
     } catch {}
     ctx.logger({
       stepId: step.id,

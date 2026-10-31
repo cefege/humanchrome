@@ -1,0 +1,854 @@
+{
+  "framing": [
+    {
+      "scenario": "split-header-body",
+      "frames": [
+        {
+          "type": "pong_to_extension"
+        }
+      ]
+    },
+    {
+      "scenario": "coalesced",
+      "frames": [
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        }
+      ]
+    },
+    {
+      "scenario": "length-0",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Invalid message length: 0"
+          }
+        },
+        {
+          "type": "pong_to_extension"
+        }
+      ]
+    },
+    {
+      "scenario": "length-16777217",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Invalid message length: 16777217"
+          }
+        },
+        {
+          "type": "pong_to_extension"
+        }
+      ]
+    },
+    {
+      "scenario": "exact-16-MiB-frame-is-accepted",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Unknown message type or non-response message: future_message"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "invalid-{\"type\":\"Buffer\",\"data\":[123]}",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Failed to parse message: Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "invalid-null",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Invalid message format"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "invalid-[]",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Invalid native message: Invalid input"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "invalid-{}",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Invalid native message: Invalid input"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "invalid-{\"type\":\"future_message\",\"future\":true}",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Unknown message type or non-response message: future_message"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "valid-JSON-with-escaped-unpaired-surrogates",
+      "frames": [
+        {
+          "type": "error_from_native_host",
+          "payload": {
+            "message": "Unknown message type or non-response message: future_message"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yield-after-100",
+      "frames": [
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        },
+        {
+          "type": "pong_to_extension"
+        }
+      ]
+    }
+  ],
+  "requests": {
+    "omitted": {
+      "outbound": {
+        "type": "request_data",
+        "requestId": "<uuid-1>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": false
+        }
+      }
+    },
+    "explicitNull": {
+      "outbound": {
+        "type": "request_data",
+        "payload": null,
+        "requestId": "<uuid-2>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": null
+        }
+      }
+    },
+    "nullError": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "errorShape": "null"
+        },
+        "requestId": "<uuid-3>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "nullErrorIsNotFailure": true
+          }
+        }
+      }
+    },
+    "extensionError": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "retained": true
+        },
+        "requestId": "<uuid-4>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "rejected",
+          "error": "[object Object]"
+        }
+      }
+    },
+    "tool": {
+      "outbound": {
+        "type": "call_tool",
+        "requestId": "<uuid-5>",
+        "clientId": "tool-client",
+        "payload": {
+          "name": "chrome_help",
+          "args": {
+            "query": "click"
+          }
+        }
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "content": [
+              {
+                "type": "text",
+                "text": "extension result"
+              }
+            ],
+            "opaqueExtensionField": {
+              "retained": true
+            }
+          }
+        }
+      }
+    },
+    "opaqueRoundTrip": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "text": "\ud800",
+          "\ud800": "unpaired key",
+          "�": "distinct replacement-character key",
+          "nested": ["\udfff", "😀", null]
+        },
+        "requestId": "<uuid-6>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "text": "\ud800",
+            "\ud800": "unpaired key",
+            "�": "distinct replacement-character key",
+            "nested": ["\udfff", "😀", null]
+          }
+        }
+      }
+    },
+    "opaqueToolArgs": {
+      "outbound": {
+        "type": "call_tool",
+        "requestId": "<uuid-7>",
+        "clientId": "unicode-client",
+        "payload": {
+          "name": "chrome_javascript",
+          "args": {
+            "text": "\ud800",
+            "\ud800": "unpaired key",
+            "�": "distinct replacement-character key",
+            "nested": ["\udfff", "😀", null]
+          }
+        }
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "preserved": true
+          }
+        }
+      }
+    },
+    "opaqueError": {
+      "outbound": {
+        "type": "request_data",
+        "requestId": "<uuid-8>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "rejected",
+          "error": "prefix,\ud800,"
+        }
+      }
+    },
+    "correlation": {
+      "outbound": {
+        "type": "request_data",
+        "requestId": "<uuid-9>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "match": "exact"
+          }
+        }
+      }
+    },
+    "preparedWriteFailure": {
+      "status": 200,
+      "body": {
+        "outcome": "rejected",
+        "error": "CALL_TOOL envelopes require a clientId"
+      }
+    },
+    "admittedAfterWriteFailure": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "after": "write-failure"
+        },
+        "requestId": "<uuid-10>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "admitted": true
+          }
+        }
+      }
+    },
+    "timeout": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "deadlineInstalledBeforeWrite": true
+        },
+        "requestId": "<uuid-11>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "rejected",
+          "error": "Request timed out after 35ms"
+        }
+      }
+    },
+    "admittedAfterTimeout": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "after": "timeout"
+        },
+        "requestId": "<uuid-12>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "admitted": true
+          }
+        }
+      }
+    },
+    "perClient": {
+      "outbound": {
+        "count": 50,
+        "first": {
+          "type": "request_data",
+          "payload": {
+            "cap": "client"
+          },
+          "requestId": "<uuid-13>",
+          "clientId": "cap-client"
+        },
+        "last": {
+          "type": "request_data",
+          "payload": {
+            "cap": "client"
+          },
+          "requestId": "<uuid-14>",
+          "clientId": "cap-client"
+        }
+      },
+      "before": {
+        "pending": 50,
+        "resolved": 0,
+        "rejected": [
+          "CLIENT_BUSY: client \"cap-client\" has 50 requests in flight (cap 50). Wait for prior calls to complete before issuing more."
+        ]
+      },
+      "after": {
+        "pending": 0,
+        "resolved": 50,
+        "rejected": [
+          "CLIENT_BUSY: client \"cap-client\" has 50 requests in flight (cap 50). Wait for prior calls to complete before issuing more."
+        ]
+      }
+    },
+    "admittedAfterClientCap": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "after": "client-cap"
+        },
+        "requestId": "<uuid-15>",
+        "clientId": "cap-client"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "admitted": true
+          }
+        }
+      }
+    },
+    "global": {
+      "outbound": {
+        "count": 1000,
+        "first": {
+          "type": "request_data",
+          "payload": {
+            "cap": "global"
+          },
+          "requestId": "<uuid-16>"
+        },
+        "last": {
+          "type": "request_data",
+          "payload": {
+            "cap": "global"
+          },
+          "requestId": "<uuid-17>"
+        }
+      },
+      "before": {
+        "pending": 1000,
+        "resolved": 0,
+        "rejected": ["Too many pending requests (1000 >= 1000)"]
+      },
+      "after": {
+        "pending": 0,
+        "resolved": 1000,
+        "rejected": ["Too many pending requests (1000 >= 1000)"]
+      }
+    },
+    "admittedAfterGlobalCap": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "after": "global-cap"
+        },
+        "requestId": "<uuid-18>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "admitted": true
+          }
+        }
+      }
+    }
+  },
+  "lifecycle": {
+    "initialToRelay": {
+      "ping": "pong_to_extension",
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "source": "relay"
+        },
+        "requestId": "<uuid-19>"
+      }
+    },
+    "sourceLoss": {
+      "status": 200,
+      "body": {
+        "outcome": "rejected",
+        "error": "Native host source disconnected — request aborted"
+      }
+    },
+    "unavailable": {
+      "status": 200,
+      "body": {
+        "outcome": "rejected",
+        "error": "Bridge has no active native-messaging source (SW reconnecting)"
+      }
+    },
+    "reconnected": {
+      "outbound": {
+        "type": "request_data",
+        "payload": {
+          "source": "replacement"
+        },
+        "requestId": "<uuid-20>"
+      },
+      "terminal": {
+        "status": 200,
+        "body": {
+          "outcome": "resolved",
+          "payloadPresent": true,
+          "payload": {
+            "reconnected": true
+          }
+        }
+      }
+    },
+    "idlePrimaryExit": {
+      "code": 0,
+      "signal": null
+    },
+    "socketRemoved": false
+  },
+  "staleSocket": {
+    "staleRecovered": true,
+    "liveSocketPreserved": true
+  },
+  "signalShutdown": {
+    "exit": {
+      "code": 0,
+      "signal": null
+    },
+    "ownRegistryRemoved": true,
+    "socketRemoved": false
+  },
+  "standalone": {
+    "code": 0,
+    "signal": null
+  }
+}

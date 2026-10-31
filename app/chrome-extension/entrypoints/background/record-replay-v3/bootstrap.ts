@@ -344,16 +344,21 @@ export async function bootstrapV3(): Promise<V3Runtime> {
       logger,
     });
 
-    // 10) RpcServer (created but started after recovery)
+    // Register the MV3 listener synchronously, but hold requests until recovery finishes.
+    const ready = Promise.withResolvers<void>();
+    // bootstrapPromise reports failures even when no RPC is waiting on this gate.
+    void ready.promise.catch(() => {});
     const rpcServer = new RpcServer({
       storage,
       events,
+      ready: ready.promise,
       scheduler,
       debugController,
       runners,
       triggerManager: triggers,
       now,
     });
+    rpcServer.start();
 
     // Cleanup helper for error recovery
     const cleanup = async (): Promise<void> => {
@@ -392,10 +397,11 @@ export async function bootstrapV3(): Promise<V3Runtime> {
       // 11) Start components
       scheduler.start();
       await triggers.start();
-      rpcServer.start();
+      ready.resolve();
 
       logger.info('[RR-V3] Bootstrap complete');
     } catch (e) {
+      ready.reject(e);
       await cleanup();
       throw e;
     }

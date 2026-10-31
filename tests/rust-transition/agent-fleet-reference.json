@@ -1,0 +1,1003 @@
+{
+  "agent": {
+    "project": {
+      "name": "Compatibility project",
+      "rootPath": "<temporary-directory>/home/workspace",
+      "preferredCli": "codex",
+      "enableHumanChrome": true
+    },
+    "reset": 1,
+    "cancel": {
+      "success": false,
+      "message": "No running execution found with this requestId",
+      "requestId": "no-such-request",
+      "sessionId": "<uuid-1>"
+    }
+  },
+  "agentApplication": {
+    "defaultRoot": {
+      "success": true,
+      "path": "<temporary-directory>/home/.humanchrome-agent/workspaces/route-fixture-project"
+    },
+    "validationBefore": {
+      "valid": true,
+      "absolute": "<temporary-directory>/home/workspaces/created-from-route",
+      "exists": false,
+      "needsCreation": true
+    },
+    "session": {
+      "name": "Updated route session",
+      "managementInfo": {
+        "lastUpdated": "<timestamp>",
+        "model": "gpt-5"
+      },
+      "projectSessions": 1
+    },
+    "messages": {
+      "page": {
+        "limit": 1,
+        "offset": 0,
+        "count": 1,
+        "hasMore": true
+      },
+      "history": {
+        "limit": 1,
+        "offset": 0,
+        "count": 1,
+        "hasMore": false
+      },
+      "deleted": 1,
+      "missingContent": {
+        "success": false,
+        "error": "content is required"
+      }
+    },
+    "attachment": {
+      "contentType": "image/png",
+      "bytes": "wolQTkcNChoKcm91dGUgZml4dHVyZSBpbWFnZQ==",
+      "cleanup": {
+        "scope": "project",
+        "removedFiles": 1,
+        "removedBytes": 28
+      }
+    }
+  },
+  "fleetCli": {
+    "credentialTransitions": ["open", "explicit", "rotated", "reopened", "rotated-open"],
+    "profiles": [
+      {
+        "name": "fixture-a",
+        "port": 12500,
+        "labels": ["work"],
+        "enabled": false
+      }
+    ],
+    "nodes": [],
+    "parked": false,
+    "purposes": [
+      {
+        "purpose": "mail",
+        "profile": "fixture-a",
+        "node": "mihai-m1-us.local",
+        "state": "unknown",
+        "labels": ["work"]
+      }
+    ],
+    "status": {
+      "serve": "down",
+      "parked": false,
+      "profiles": [
+        {
+          "name": "fixture-a",
+          "port": 12500,
+          "labels": ["work"],
+          "purpose": null,
+          "enabled": false,
+          "state": "stopped",
+          "pid": null,
+          "leasedBy": null,
+          "lastError": null,
+          "startedBy": null
+        },
+        {
+          "name": "fixture-b",
+          "port": 12501,
+          "labels": [],
+          "purpose": null,
+          "enabled": false,
+          "state": "stopped",
+          "pid": null,
+          "leasedBy": null,
+          "lastError": null,
+          "startedBy": null
+        }
+      ]
+    }
+  },
+  "fleetLifecycle": {
+    "gateway": {
+      "authorized": true,
+      "unauthenticatedStatus": 401,
+      "duplicateRefused": true,
+      "protocol": [
+        {
+          "label": "both",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {},
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "json",
+          "status": 406,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Not Acceptable: Client must accept both application/json and text/event-stream"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "sse",
+          "status": 406,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Not Acceptable: Client must accept both application/json and text/event-stream"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "wildcard",
+          "status": 406,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Not Acceptable: Client must accept both application/json and text/event-stream"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "unsupported-version",
+          "status": 400,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Bad Request: Unsupported protocol version: 1900-01-01 (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07)"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "supported-version",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {},
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "non-json-content-type",
+          "status": 415,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Unsupported Media Type: Content-Type must be application/json"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "initialize-2024-10-07",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {
+                "protocolVersion": "2024-10-07",
+                "capabilities": {
+                  "tools": {}
+                },
+                "serverInfo": {
+                  "name": "HumanChromeFleet",
+                  "version": "1.0.0"
+                }
+              },
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "initialize-2025-06-18",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {
+                  "tools": {}
+                },
+                "serverInfo": {
+                  "name": "HumanChromeFleet",
+                  "version": "1.0.0"
+                }
+              },
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "initialize-latest",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {
+                  "tools": {}
+                },
+                "serverInfo": {
+                  "name": "HumanChromeFleet",
+                  "version": "1.0.0"
+                }
+              },
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "initialize-unsupported-fallback",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {
+                  "tools": {}
+                },
+                "serverInfo": {
+                  "name": "HumanChromeFleet",
+                  "version": "1.0.0"
+                }
+              },
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "label": "get",
+          "status": 405,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32000,
+              "message": "Method not allowed."
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "delete",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "body": {
+            "statusCode": 400,
+            "code": "FST_ERR_CTP_EMPTY_JSON_BODY",
+            "error": "Bad Request",
+            "message": "Body cannot be empty when content-type is set to 'application/json'"
+          }
+        },
+        {
+          "label": "notification",
+          "status": 202,
+          "contentType": null,
+          "body": ""
+        },
+        {
+          "label": "invalid-request",
+          "status": 400,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32600,
+              "message": "Bad Request: the request body is not a valid JSON-RPC message"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "invalid-boolean-id",
+          "status": 400,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32600,
+              "message": "Bad Request: the request body is not a valid JSON-RPC message"
+            },
+            "id": null
+          }
+        },
+        {
+          "label": "invalid-array-params",
+          "status": 400,
+          "contentType": "application/json",
+          "body": {
+            "jsonrpc": "2.0",
+            "error": {
+              "code": -32600,
+              "message": "Bad Request: the request body is not a valid JSON-RPC message"
+            },
+            "id": 1
+          }
+        },
+        {
+          "label": "missing-tool-name",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32602,
+                "message": "Invalid tools/call request: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"name\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+              }
+            }
+          ]
+        },
+        {
+          "label": "invalid-arguments-null",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32602,
+                "message": "Invalid tools/call request: [\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"arguments\"\n    ],\n    \"message\": \"Invalid input: expected record, received null\"\n  }\n]"
+              }
+            }
+          ]
+        },
+        {
+          "label": "invalid-arguments-[]",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32602,
+                "message": "Invalid tools/call request: [\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"arguments\"\n    ],\n    \"message\": \"Invalid input: expected record, received array\"\n  }\n]"
+              }
+            }
+          ]
+        },
+        {
+          "label": "invalid-arguments-42",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32602,
+                "message": "Invalid tools/call request: [\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"arguments\"\n    ],\n    \"message\": \"Invalid input: expected record, received number\"\n  }\n]"
+              }
+            }
+          ]
+        },
+        {
+          "label": "invalid-arguments-\"text\"",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32602,
+                "message": "Invalid tools/call request: [\n  {\n    \"expected\": \"record\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"params\",\n      \"arguments\"\n    ],\n    \"message\": \"Invalid input: expected record, received string\"\n  }\n]"
+              }
+            }
+          ]
+        },
+        {
+          "label": "lossless-id",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {},
+              "jsonrpc": "2.0",
+              "id": "\ud800"
+            }
+          ]
+        },
+        {
+          "label": "lossless-method",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                "code": -32601,
+                "message": "Method not found"
+              }
+            }
+          ]
+        },
+        {
+          "label": "lossless-dispatch-name",
+          "status": 200,
+          "contentType": "text/event-stream",
+          "body": [
+            {
+              "result": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "unknown tool: humanchrome"
+                  }
+                ],
+                "isError": true
+              },
+              "jsonrpc": "2.0",
+              "id": 1
+            }
+          ]
+        }
+      ],
+      "reloaded": [
+        {
+          "name": "reload-fixture",
+          "labels": ["reloaded"],
+          "enabled": false,
+          "state": "stopped"
+        }
+      ],
+      "shutdown": ["SIGTERM", "SIGINT"]
+    },
+    "worker": {
+      "authorized": true,
+      "unauthenticatedStatus": 401,
+      "duplicateRefused": true,
+      "reloaded": [
+        {
+          "name": "reload-fixture",
+          "labels": ["reloaded"],
+          "enabled": false,
+          "state": "stopped"
+        }
+      ],
+      "shutdown": ["SIGTERM", "SIGINT"]
+    }
+  },
+  "fleetPeer": {
+    "first": 303,
+    "blocked": 409,
+    "pooled": 303,
+    "handoff": 303,
+    "actions": 3,
+    "redirects": 0
+  },
+  "fleetCoordinator": [
+    {
+      "label": "/healthz",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "healthy": true
+      }
+    },
+    {
+      "label": "/readyz",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "ready": true
+      }
+    },
+    {
+      "label": "/v1/profiles",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "body": [
+        {
+          "name": "worker-a:profile-a",
+          "port": 12345,
+          "labels": ["any"],
+          "enabled": true,
+          "purpose": "fixture-purpose",
+          "state": "healthy",
+          "pid": null,
+          "leasedBy": null,
+          "lastError": null,
+          "startedBy": null,
+          "worker": "worker-a",
+          "profile": "profile-a",
+          "available": true
+        }
+      ]
+    },
+    {
+      "label": "/v1/workers",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "body": [
+        {
+          "id": "worker-a",
+          "available": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "label": "/v1/leases",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "body": []
+    },
+    {
+      "label": "unauthorized",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "error": "unauthorized"
+      }
+    },
+    {
+      "label": "non-admin worker inventory",
+      "status": 403,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "error": "admin_required",
+        "message": "admin_required"
+      }
+    },
+    {
+      "label": "non-admin parking",
+      "status": 403,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "error": "admin_required",
+        "message": "admin_required"
+      }
+    },
+    {
+      "label": "initialize-2024-10-07",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "protocolVersion": "2024-10-07",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "HumanChromeFleet",
+              "version": "1.0.0"
+            }
+          },
+          "jsonrpc": "2.0",
+          "id": 1
+        }
+      ]
+    },
+    {
+      "label": "initialize-2025-06-18",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "HumanChromeFleet",
+              "version": "1.0.0"
+            }
+          },
+          "jsonrpc": "2.0",
+          "id": 2
+        }
+      ]
+    },
+    {
+      "label": "initialize-2025-11-25",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "HumanChromeFleet",
+              "version": "1.0.0"
+            }
+          },
+          "jsonrpc": "2.0",
+          "id": 3
+        }
+      ]
+    },
+    {
+      "label": "initialize-1900-01-01",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "HumanChromeFleet",
+              "version": "1.0.0"
+            }
+          },
+          "jsonrpc": "2.0",
+          "id": 4
+        }
+      ]
+    },
+    {
+      "label": "missing-sse-accept",
+      "status": 406,
+      "contentType": "application/json",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32000,
+          "message": "Not Acceptable: Client must accept both application/json and text/event-stream"
+        },
+        "id": null
+      }
+    },
+    {
+      "label": "unsupported-header-version",
+      "status": 400,
+      "contentType": "application/json",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32000,
+          "message": "Bad Request: Unsupported protocol version: 1900-01-01 (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07)"
+        },
+        "id": null
+      }
+    },
+    {
+      "label": "ping",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {},
+          "jsonrpc": "2.0",
+          "id": 7
+        }
+      ]
+    },
+    {
+      "label": "unknown-method",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "jsonrpc": "2.0",
+          "id": 8,
+          "error": {
+            "code": -32601,
+            "message": "Method not found"
+          }
+        }
+      ]
+    },
+    {
+      "label": "catalog",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "tools": [
+              {
+                "name": "fleet_profiles",
+                "description": "List every browser in the fleet with its state, lease holder and last failure. Start here.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "fleet_profile",
+                "description": "Start, stop or restart one browser. Restart loses its tabs and cookies stay on disk.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": ["start", "stop", "restart"]
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "Profile name, or nodeId:profile on a peer"
+                    }
+                  },
+                  "required": ["action", "name"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "fleet_leases",
+                "description": "List which agent holds which browser, or release one agent's holds.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": ["list", "release"],
+                      "default": "list"
+                    },
+                    "agent": {
+                      "type": "string",
+                      "description": "Required for release"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "fleet_purposes",
+                "description": "Map each purpose tag to the browser serving it.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "fleet_park",
+                "description": "Park: stop every browser; a request can still start one on demand. Unpark: start every enabled browser.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "parked": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["parked"],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "jsonrpc": "2.0",
+          "id": 9
+        }
+      ]
+    },
+    {
+      "label": "fleet_profiles-{}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "[{\"name\":\"worker-a:profile-a\",\"port\":12345,\"labels\":[\"any\"],\"enabled\":true,\"purpose\":\"fixture-purpose\",\"state\":\"healthy\",\"pid\":null,\"leasedBy\":null,\"lastError\":null,\"startedBy\":null,\"worker\":\"worker-a\",\"profile\":\"profile-a\",\"available\":true}]"
+              }
+            ]
+          },
+          "jsonrpc": "2.0",
+          "id": 10
+        }
+      ]
+    },
+    {
+      "label": "fleet_leases-{}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"leases\":[]}"
+              }
+            ]
+          },
+          "jsonrpc": "2.0",
+          "id": 11
+        }
+      ]
+    },
+    {
+      "label": "fleet_purposes-{}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"purposes\":[{\"purpose\":\"fixture-purpose\",\"profile\":\"worker-a:profile-a\",\"node\":\"worker-a\",\"state\":\"healthy\",\"labels\":[\"any\"]}]}"
+              }
+            ]
+          },
+          "jsonrpc": "2.0",
+          "id": 12
+        }
+      ]
+    },
+    {
+      "label": "fleet_profile-{\"name\":\"worker-a:profile-a\",\"action\":\"invalid\"}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "invalid_action"
+              }
+            ],
+            "isError": true
+          },
+          "jsonrpc": "2.0",
+          "id": 13
+        }
+      ]
+    },
+    {
+      "label": "fleet_leases-{\"action\":\"release\",\"agent\":\"not-the-caller\"}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "missing_agent"
+              }
+            ],
+            "isError": true
+          },
+          "jsonrpc": "2.0",
+          "id": 14
+        }
+      ]
+    },
+    {
+      "label": "fleet_park-{\"parked\":\"invalid\"}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "invalid_args"
+              }
+            ],
+            "isError": true
+          },
+          "jsonrpc": "2.0",
+          "id": 15
+        }
+      ]
+    },
+    {
+      "label": "fixture_unknown-{}",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": [
+        {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "unknown_tool"
+              }
+            ],
+            "isError": true
+          },
+          "jsonrpc": "2.0",
+          "id": 16
+        }
+      ]
+    },
+    {
+      "label": "mcp-get",
+      "status": 405,
+      "contentType": "application/json",
+      "body": {
+        "jsonrpc": "2.0",
+        "error": {
+          "code": -32000,
+          "message": "Method not allowed."
+        },
+        "id": null
+      }
+    },
+    {
+      "label": "mcp-delete",
+      "status": 503,
+      "contentType": "application/json; charset=utf-8",
+      "body": {
+        "error": "coordinator_unavailable"
+      }
+    }
+  ],
+  "agentOs": [
+    {
+      "exitCode": 1,
+      "status": 200,
+      "body": {
+        "success": false,
+        "cancelled": true
+      }
+    },
+    {
+      "exitCode": 42,
+      "status": 500,
+      "body": {
+        "success": false,
+        "error": "Command failed: osascript -e '\n    set selectedFolder to choose folder with prompt \"Select Project Directory\"\n    return POSIX path of selectedFolder\n  '\ncontrolled picker failure\n"
+      }
+    }
+  ]
+}

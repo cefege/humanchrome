@@ -22,6 +22,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   existsSync,
   cpSync,
@@ -31,29 +32,38 @@ import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { platform, homedir } from 'node:os';
+import { createServer } from 'node:net';
+import { once } from 'node:events';
+import { createBrowserPolicyDriver } from './lib/browser-policy-driver.mjs';
+import { runEditorScenario } from './lib/browser-policy-editor.mjs';
+import { runQueueScenario } from './lib/browser-policy-queue.mjs';
+import {
+  runRecorderScenario,
+  runWorkflowScenario,
+  verifyWorkflowAfterRestart,
+} from './lib/browser-policy-recorder-workflow.mjs';
+import {
+  runOwnershipScenario,
+  runSemanticScenario,
+  verifyOwnershipAfterRestart,
+  verifySemanticAfterRestart,
+} from './lib/browser-policy-state-semantic.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXPECTED_EXTENSION_ID = 'hbdgbgagpkpjffpklnamcljpakneikee';
+const TEST_NATIVE_BIN = process.env.HC_TEST_NATIVE_BIN;
 
 /**
- * IMP-0163: derive the deterministic extension ID Chrome assigns to an
- * unpacked extension loaded via `--load-extension`. Algorithm matches
- * Chromium's `Extension::GenerateIdForPath` in
- * `extensions/common/extension.cc`: SHA-256 the absolute path's UTF-8
- * bytes, hex-encode the first 16 bytes (= 32 hex chars), then map each
- * hex digit through the a-p alphabet (0→a, 9→j, a→k, f→p).
- *
- * Used to patch the NM manifest's `allowed_origins` when the manifest
- * `key` field isn't honored — which happens whenever the `CHROME_EXTENSION_KEY`
- * env var isn't set at build time. CI runners don't have it; local
- * dev builds do. Pre-IMP-0163 the matrix's NM manifest only listed
- * the keyed ID `hbdgbgag...`, and CI's unpacked extension loaded as
- * the path-derived ID `dmjkiedo...`, so Chrome refused to spawn the
- * bridge with "Access to the specified native messaging host is
- * forbidden."
+ * Match Chrome's staged extension identity: a manifest public key takes
+ * precedence over the canonical unpacked filesystem path. Both use SHA-256's first
+ * 16 bytes mapped through Chrome's a-p alphabet.
  */
 function deriveUnpackedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath, 'utf8').digest('hex');
+  const manifest = JSON.parse(readFileSync(resolve(absolutePath, 'manifest.json'), 'utf8'));
+  const identity = typeof manifest.key === 'string' && manifest.key.length > 0
+    ? Buffer.from(manifest.key, 'base64')
+    : realpathSync(absolutePath);
+  const hash = createHash('sha256').update(identity).digest('hex');
   const first32 = hash.slice(0, 32);
   let out = '';
   for (const c of first32) {
@@ -79,6 +89,7 @@ const ARGS = new Set(process.argv.slice(2));
 const SHOULD_BUILD = ARGS.has('--build');
 const LAUNCH_CHROME = ARGS.has('--launch-chrome');
 const KEEP_CHROME = ARGS.has('--keep-chrome');
+const WITH_TASKS = ARGS.has('--with-tasks');
 const JSON_OUT = (() => {
   const i = process.argv.indexOf('--json');
   return i >= 0 ? process.argv[i + 1] : null;
@@ -102,15 +113,51 @@ const ONLY_FILTERS = (() => {
 })();
 
 const CLIENT_ID = `e2e-matrix-${Date.now().toString(36)}`;
+let activeSpawned = null;
+let signalCleanupStarted = false;
+let fixtureTabId;
+let policyDriver;
+const policyEvidence = {};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function allocateCdpPort() {
+  const listener = createServer();
+  listener.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const port = listener.address().port;
+  await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+  return port;
+}
+
+async function runTaskScenarios(spawned) {
+  const output = JSON_OUT ? `${JSON_OUT}.tasks.json` : resolve(spawned.profile, 'tasks-result.json');
+  const child = spawn(process.execPath, [
+    resolve(REPO_ROOT, 'scripts/run-task-scenarios.mjs'), '--json', output,
+  ], {
+    env: { ...process.env, HC_BRIDGE_URL: BRIDGE_BASE },
+    stdio: 'inherit',
+  });
+  spawned.taskPid = child.pid;
+  const [exitCode, signal] = await once(child, 'exit');
+  spawned.taskPid = null;
+  const report = existsSync(output) ? JSON.parse(readFileSync(output, 'utf8')) : null;
+  if (exitCode === 0 && !Array.isArray(report?.results)) {
+    throw new Error('task scenarios exited without their consumer-result report');
+  }
+  return { exitCode, signal, report };
+}
+
 async function callTool(name, args = {}, timeoutMs = 15_000) {
+  const targetArgs = typeof fixtureTabId === 'number' && args.tabId == null &&
+    !(name === 'chrome_navigate' && args.newTab === true)
+    ? { ...args, tabId: fixtureTabId }
+    : args;
   try {
     const res = await fetch(`${BRIDGE_BASE}/api/tools/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-client-id': CLIENT_ID },
-      body: JSON.stringify({ args }),
+      body: JSON.stringify({ args: targetArgs }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return { isError: true, httpStatus: res.status, body: await res.text() };
@@ -122,10 +169,36 @@ async function callTool(name, args = {}, timeoutMs = 15_000) {
         // not JSON — leave parsed undefined
       }
     }
+    if (name === 'chrome_navigate' && !json.isError) {
+      const tabId = json.parsed?.tabId ?? json.parsed?.tab?.id;
+      if (typeof tabId === 'number') fixtureTabId = tabId;
+    }
     return json;
   } catch (err) {
     return { isError: true, transportError: err.message };
   }
+}
+
+async function callMcp(payload) {
+  const response = await fetch(`${BRIDGE_BASE}/mcp`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      'mcp-protocol-version': '2025-06-18',
+      'x-humanchrome-session': CLIENT_ID,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await response.text();
+  if (response.status === 202) return { status: response.status };
+  const data = text.split(/\r?\n/).find((line) => line.startsWith('data:'));
+  const body = data ? JSON.parse(data.slice(5).trim()) : text ? JSON.parse(text) : null;
+  if (!response.ok || body?.error || body?.result?.isError) {
+    throw new Error(`MCP ${response.status}: ${JSON.stringify(body)}`);
+  }
+  return { status: response.status, body };
 }
 
 function run(cmd, args) {
@@ -175,7 +248,10 @@ const MATRIX = [
     check: (res) => {
       const d = detailsOf(res);
       const matchCount = d?.details?.matchCount ?? d?.error?.details?.matchCount;
-      return assert(res.isError && matchCount === 3, `expected matchCount:3, got ${JSON.stringify(res)}`);
+      return assert(
+        res.isError && matchCount === 3,
+        `expected matchCount:3, got ${JSON.stringify(res)}`,
+      );
     },
   },
   {
@@ -253,15 +329,21 @@ const MATRIX = [
   {
     imp: 'IMP-0102',
     name: 'wait_for kind:load_state',
-    run: () =>
-      callTool('chrome_wait_for', { kind: 'load_state', state: 'load', timeoutMs: 2000 }),
+    run: () => callTool('chrome_wait_for', { kind: 'load_state', state: 'load', timeoutMs: 2000 }),
     check: (res) => assert(!res.isError, JSON.stringify(res)),
   },
   {
     imp: 'IMP-0092',
     name: 'coords-over-empty-space returns error envelope',
     run: () => callTool('chrome_click_element', { coordinates: { x: 9999, y: 9999 } }),
-    check: (res) => assert(res.isError === true, `expected error, got ${JSON.stringify(res)}`),
+    check: (res) =>
+      assert(
+        res.isError === true &&
+          !res.transportError &&
+          !res.httpStatus &&
+          Array.isArray(res.content),
+        `expected a tool error envelope, got ${JSON.stringify(res)}`,
+      ),
   },
   {
     imp: 'IMP-0095',
@@ -376,7 +458,10 @@ const MATRIX = [
         p?.ok === true &&
         p?.attributes?.href === '/x' &&
         p?.attributes?.['aria-label'] === 'hi';
-      return assert(ok, `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`);
+      return assert(
+        ok,
+        `expected href=/x + aria-label=hi, got ${JSON.stringify(res).slice(0, 300)}`,
+      );
     },
   },
   {
@@ -431,34 +516,62 @@ const MATRIX = [
     imp: 'Bug-007',
     name: 'chrome_combobox_select keyboard-commits a Downshift-style option',
     run: async () => {
-      // Reset the fixture state so re-runs see "(none)" before commit.
-      await callTool('chrome_javascript', {
-        code: `document.getElementById('combobox-selected').textContent='(none)'; document.getElementById('combobox-input').value=''; return true;`,
+      const tabId = fixtureTabId;
+      if (typeof tabId !== 'number') throw new Error('fixture tab is unavailable');
+      const policy = await callTool('chrome_handle_dialog', {
+        tabId,
+        action: 'register_default',
+        defaultBehavior: 'accept',
       });
-      const selectRes = await callTool('chrome_combobox_select', {
-        comboboxSelector: '#combobox-input',
-        query: 'LangGraph',
-        perKeyDelayMs: 0,
-        jitterMs: 0,
-        waitForOptionsMs: 1500,
-      });
-      const verifyRes = await callTool('chrome_javascript', {
-        code: `return document.getElementById('combobox-selected').textContent;`,
-      });
-      return { selectRes, verifyRes };
+      if (policy.isError)
+        throw new Error(`cannot hold shared CDP session: ${JSON.stringify(policy)}`);
+      let controlId;
+      try {
+        // Reset the fixture state so re-runs see "(none)" before commit.
+        await callTool('chrome_javascript', {
+          code: `document.getElementById('combobox-selected').textContent='(none)'; document.getElementById('combobox-input').value=''; return true;`,
+        });
+        const control = await callTool('chrome_navigate', { url: 'about:blank', newTab: true });
+        controlId = control.parsed?.tabId ?? control.parsed?.tab?.id;
+        if (typeof controlId !== 'number')
+          throw new Error(`control tab failed: ${JSON.stringify(control)}`);
+        const switched = await callTool('chrome_switch_tab', { tabId: controlId });
+        if (switched.isError)
+          throw new Error(`control tab did not activate: ${JSON.stringify(switched)}`);
+        const selectRes = await callTool('chrome_combobox_select', {
+          tabId,
+          comboboxSelector: '#combobox-input',
+          query: 'LangGraph',
+          perKeyDelayMs: 0,
+          jitterMs: 0,
+          waitForOptionsMs: 1500,
+        });
+        const verifyRes = await callTool('chrome_javascript', {
+          tabId,
+          code: `return { selected: document.getElementById('combobox-selected').textContent, visibility: document.visibilityState };`,
+        });
+        return { selectRes, verifyRes };
+      } finally {
+        fixtureTabId = tabId;
+        await callTool('chrome_handle_dialog', { tabId, action: 'unregister_default' });
+        await callTool('chrome_switch_tab', { tabId });
+        if (typeof controlId === 'number') {
+          await callTool('chrome_close_tabs', { action: 'ids', tabIds: [controlId], tabId });
+        }
+      }
     },
     check: ({ selectRes, verifyRes }) => {
       const sb = selectRes?.parsed;
-      const selected =
-        typeof verifyRes?.parsed === 'string'
-          ? verifyRes.parsed
-          : verifyRes?.parsed?.result ?? null;
+      const value = verifyRes?.parsed?.result;
+      const observed = typeof value === 'string' ? JSON.parse(value) : value;
+      const selected = observed?.selected;
       const ok =
         !selectRes?.isError &&
         sb?.ok === true &&
         sb?.selectedText === 'LangGraph' &&
         sb?.arrowDownCount === 1 &&
-        selected === 'LangGraph';
+        selected === 'LangGraph' &&
+        observed?.visibility === 'hidden';
       return assert(
         ok,
         `expected selectedText:"LangGraph" + page state "LangGraph", got selectedText=${JSON.stringify(sb?.selectedText)} arrowDownCount=${sb?.arrowDownCount} pageSelected=${JSON.stringify(selected)} selectErr=${selectRes?.isError ? JSON.stringify(sb).slice(0, 300) : 'none'}`,
@@ -569,6 +682,65 @@ const MATRIX = [
       );
     },
   },
+  {
+    imp: 'Native-MCP',
+    name: 'tools/call notification cannot navigate',
+    run: async () => {
+      const initial = await callMcp({
+        jsonrpc: '2.0',
+        id: 101,
+        method: 'tools/call',
+        params: {
+          name: 'humanchrome',
+          arguments: { name: 'chrome_navigate', args: { url: FIXTURE_URL } },
+        },
+      });
+      const navigation = JSON.parse(initial.body?.result?.content?.[0]?.text ?? 'null');
+      if (typeof navigation?.tabId !== 'number')
+        throw new Error(`MCP navigation failed: ${JSON.stringify(initial)}`);
+      const tabId = navigation.tabId;
+      const settled = await callTool('chrome_wait_for', {
+        tabId,
+        kind: 'url',
+        pattern: FIXTURE_URL,
+        timeoutMs: 5000,
+      });
+      if (settled.isError)
+        throw new Error(`MCP fixture navigation did not settle: ${JSON.stringify(settled)}`);
+      const changed = new URL(FIXTURE_URL);
+      changed.searchParams.set('unexpected-notification', '1');
+      const notification = await callMcp({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          name: 'humanchrome',
+          arguments: { name: 'chrome_navigate', args: { tabId, url: changed.href } },
+        },
+      });
+      const state = await callTool('chrome_javascript', {
+        tabId,
+        code: 'return { href: location.href };',
+      });
+      const value =
+        typeof state.parsed?.result === 'string'
+          ? JSON.parse(state.parsed.result)
+          : state.parsed?.result;
+      return {
+        initialStatus: initial.status,
+        notificationStatus: notification.status,
+        href: value?.href,
+        isError: state.isError,
+      };
+    },
+    check: (result) =>
+      assert(
+        result.initialStatus === 200 &&
+          result.notificationStatus === 202 &&
+          !result.isError &&
+          result.href === FIXTURE_URL,
+        `MCP notification changed the live tab: ${JSON.stringify(result)}`,
+      ),
+  },
 ];
 
 async function waitForFreshSw(priorBuildHash, priorAvailable) {
@@ -665,6 +837,23 @@ function readRegistry() {
   }
   return out;
 }
+function assertCandidateBridgeProcess(entry) {
+  if (!TEST_NATIVE_BIN) return;
+
+  const candidate = resolve(TEST_NATIVE_BIN);
+  const pid = Number(entry.pid);
+  const inspected = spawnSync('ps', ['-ww', '-p', String(pid), '-o', 'command='], {
+    encoding: 'utf8',
+  });
+  const command = inspected.stdout?.trim();
+  if (inspected.error || inspected.status !== 0 || !command?.includes(candidate)) {
+    throw new Error(
+      `candidate native-host proof failed: pid=${pid} command=${JSON.stringify(command)} expected=${candidate}`,
+    );
+  }
+  console.log(`[e2e] candidate native host proof: pid=${pid} command=${command}`);
+}
+
 
 async function findSpawnedBridge(extensionId, afterMs, deadlineMs, { wakeCdpUrl } = {}) {
   // Poll the on-disk registry written by the bridge after it binds its HTTP
@@ -760,7 +949,7 @@ function stageExtensionForChrome() {
   // lives there. Mirror the bridge's workaround (IMP from project memory):
   // copy the build to ~/Library/Application Support/humanchrome-bridge/e2e-ext/
   // where Chrome is unrestricted, then point --load-extension at the copy.
-  const src = resolve(REPO_ROOT, 'app/chrome-extension/.output/chrome-mv3');
+  const src = resolve(REPO_ROOT, process.env.HC_E2E_EXTENSION_DIR || 'app/chrome-extension/.output/chrome-mv3');
   const tccSafe = resolve(homedir(), 'Library/Application Support/humanchrome-bridge/e2e-ext');
   if (existsSync(tccSafe)) rmSync(tccSafe, { recursive: true, force: true });
   mkdirSync(dirname(tccSafe), { recursive: true });
@@ -769,16 +958,15 @@ function stageExtensionForChrome() {
 }
 
 function nativeMessagingHostManifestSource() {
-  // The user's daily-driver Chrome NM manifest is the canonical source —
-  // generated once by `humanchrome-bridge register`, points at the installed
-  // dist's run_host.sh. Reuse it verbatim for the matrix run.
+  // The installed manifest supplies the native-host name and origins for an
+  // isolated run. HC_TEST_NATIVE_BIN replaces only its executable path.
   return resolve(
     homedir(),
     'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.humanchrome.nativehost.json',
   );
 }
 
-function nativeMessagingHostTargets() {
+function nativeMessagingHostTargets(home = homedir(), includeRegularChrome = true) {
   // Chrome on macOS only scans system-wide (`/Library/...`) and user-level
   // (`~/Library/...`) NM manifest dirs — NOT profile-relative paths under
   // `--user-data-dir`. Empirically Chrome for Testing 148 falls back to the
@@ -800,8 +988,7 @@ function nativeMessagingHostTargets() {
     // chrome-for-testing dir Google ships).
     return [];
   }
-  const home = homedir();
-  return [
+  const targets = [
     // Chrome for Testing (Chrome 146+, documented) — `ChromeForTesting`
     // (no spaces). Some docs / forum posts disagree on whether the dir
     // uses spaces; we stage both spellings and let CFT pick whichever
@@ -811,31 +998,36 @@ function nativeMessagingHostTargets() {
     // CFT's own user-data-dir naming and is what Chrome 148 actually
     // appears to read on this machine.
     resolve(home, 'Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts'),
-    // Regular Chrome user-level dir. CFT < 146 reads from here, and Chrome
-    // 148 still falls back to it in practice. Staging here means a user
-    // who installed humanchrome-bridge via the normal `register` flow
-    // already has the file in place; we just won't overwrite it.
-    resolve(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
   ];
+  if (includeRegularChrome) {
+    targets.push(resolve(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'));
+  }
+  return targets;
 }
 
-function stageNativeMessagingHost(profile, extensionPath) {
-  // Per IMP-0139: Chrome on macOS does NOT scan `<user-data-dir>/NativeMessagingHosts/`.
-  // The pre-IMP-0139 implementation copied here, which only worked by
-  // accident — the same user happened to have the manifest staged at a
-  // user-level path the matrix never wrote to. On fresh systems that left
-  // Chrome with "Specified native messaging host not found." and the bridge
-  // never spawned. Now we stage at every documented + empirically-correct
-  // user-level path.
+function stageNativeMessagingHost(profile, extensionPath, nativeHostHome) {
+  // Candidate runs stage only Chrome-for-Testing locations under the real
+  // HOME. They never write the daily Chrome location, even temporarily.
+  const candidatePath = TEST_NATIVE_BIN ? resolve(TEST_NATIVE_BIN) : null;
+  if (candidatePath && !existsSync(candidatePath)) {
+    throw new Error(`HC_TEST_NATIVE_BIN does not exist: ${candidatePath}`);
+  }
+
   const src = nativeMessagingHostManifestSource();
   const profileLocal = resolve(profile, 'NativeMessagingHosts');
   if (!existsSync(src)) {
+    if (candidatePath) {
+      throw new Error(
+        `cannot stage HC_TEST_NATIVE_BIN without a native messaging manifest source: ${src}`,
+      );
+    }
     console.warn(`[e2e] no NM manifest at ${src} — bridge handshake will fail.`);
     console.warn(
       '[e2e]   Run `humanchrome-bridge register` (or equivalent install) first.',
     );
-    return;
+    return () => {};
   }
+
   // IMP-0163: derive the path-based extension ID Chrome will assign
   // to the staged extension and add it to allowed_origins. The user's
   // local Chrome honors the manifest `key` (via the CHROME_EXTENSION_KEY
@@ -854,10 +1046,15 @@ function stageNativeMessagingHost(profile, extensionPath) {
       `[e2e]   name=${manifest.name} path=${manifest.path} allowed_origins=${JSON.stringify(manifest.allowed_origins)}`,
     );
   } catch (err) {
+    if (candidatePath) throw err;
     console.warn(`[e2e]   failed to read/parse source manifest: ${err.message}`);
-    return;
+    return () => {};
   }
 
+  if (candidatePath) {
+    manifest.path = candidatePath;
+    console.log(`[e2e]   using candidate native host = ${candidatePath}`);
+  }
   if (extensionPath) {
     const derivedId = deriveUnpackedExtensionId(extensionPath);
     const derivedOrigin = `chrome-extension://${derivedId}/`;
@@ -877,25 +1074,38 @@ function stageNativeMessagingHost(profile, extensionPath) {
   mkdirSync(profileLocal, { recursive: true });
   writeFileSync(resolve(profileLocal, 'com.humanchrome.nativehost.json'), manifestJson);
   console.log(`[e2e]   profile-relative (back-compat) = ${profileLocal}/`);
-  // User-level copies — the paths Chrome actually scans on macOS.
-  // IMP-0163: ALWAYS write our patched version (with path-derived ID in
-  // allowed_origins). Pre-fix we skipped if a manifest already existed,
-  // which kept the user-installed pinned-ID-only manifest in place and
-  // is exactly why CI was failing.
-  for (const dst of nativeMessagingHostTargets()) {
+
+  const ownedWrites = [];
+  for (const dst of nativeMessagingHostTargets(nativeHostHome, !candidatePath)) {
     const dstFile = resolve(dst, 'com.humanchrome.nativehost.json');
+    const previous = existsSync(dstFile) ? readFileSync(dstFile, 'utf8') : null;
     mkdirSync(dst, { recursive: true });
     writeFileSync(dstFile, manifestJson);
+    ownedWrites.push({ dstFile, previous });
     console.log(`[e2e]   user-level (staged) = ${dstFile}`);
   }
+
+  return () => {
+    for (const { dstFile, previous } of ownedWrites.reverse()) {
+      try {
+        if (!existsSync(dstFile) || readFileSync(dstFile, 'utf8') !== manifestJson) continue;
+        if (previous === null) rmSync(dstFile, { force: true });
+        else writeFileSync(dstFile, previous);
+      } catch (err) {
+        console.warn(`[e2e] failed to restore staged native messaging manifest ${dstFile}: ${err.message}`);
+      }
+    }
+  };
 }
 
-function launchChrome() {
+function launchChrome(cdpPort) {
   const profile = resolve(homedir(), 'Library/Application Support/humanchrome-bridge/e2e-profile');
   const ext = stageExtensionForChrome();
   if (existsSync(profile)) rmSync(profile, { recursive: true, force: true });
   mkdirSync(profile, { recursive: true });
-  stageNativeMessagingHost(profile, ext);
+  const nativeHostHome = homedir();
+  const restoreNativeMessagingHost = stageNativeMessagingHost(profile, ext, nativeHostHome);
+  try {
 
   // IMP-0120: isolate the matrix bridge from the user's main Chrome's
   // daemon UDS by giving it its own registry dir + daemon socket. Without
@@ -972,10 +1182,17 @@ function launchChrome() {
   const args = [
     `--user-data-dir=${profile}`,
     `--load-extension=${ext}`,
-    '--remote-debugging-port=9333',
+    `--remote-debugging-port=${cdpPort}`,
     '--no-first-run',
     '--no-default-browser-check',
-    '--disable-features=DialMediaRouteProvider',
+    '--disable-features=DialMediaRouteProvider,CalculateNativeWinOcclusion',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    ...(process.env.HC_E2E_HEADLESS === '1' ? ['--headless=new', '--window-size=1280,900'] : []),
+    // DOM fixtures do not exercise real credentials. A private HOME has no
+    // login Keychain; never block its cookie store on an interactive prompt.
+    ...(platform() === 'darwin' ? ['--use-mock-keychain'] : []),
     // Verbose logging so the "Specified native messaging host not found"
     // and "Failed to start native messaging host" messages land in the
     // profile-relative log file. Skip when HC_QUIET_CHROME is set so
@@ -994,13 +1211,96 @@ function launchChrome() {
     detached: true,
     env: {
       ...process.env,
+      ...(TEST_NATIVE_BIN
+        ? {
+            XDG_CONFIG_HOME: resolve(profile, 'bridge-runtime/config'),
+            XDG_DATA_HOME: resolve(profile, 'bridge-runtime/data'),
+            HC_DISABLE_DAEMON: '0',
+            CHROME_MCP_AGENT_DB_FILE: resolve(profile, 'bridge-runtime/agent.db'),
+            CHROME_MCP_AGENT_DATA_DIR: resolve(profile, 'bridge-runtime/agent-data'),
+            HC_FLEET_ROOT: resolve(profile, 'bridge-runtime/fleet'),
+            HC_FLEET_PROFILE: '',
+            HUMANCHROME_TOKEN: '',
+          }
+        : {}),
       HC_INSTANCE_REGISTRY_DIR: matrixRegistry,
       HC_BRIDGE_DAEMON_SOCKET: matrixDaemonSocket,
     },
   });
   child.unref();
-  return { pid: child.pid, profile, spawnedAt, matrixRegistry, chromeLogPath };
+    return {
+      pid: child.pid,
+      cdpPort,
+      extensionId: deriveUnpackedExtensionId(ext),
+      profile,
+      spawnedAt,
+      matrixRegistry,
+      chromeLogPath,
+      nativeHostHome,
+      restoreNativeMessagingHost,
+    };
+  } catch (error) {
+    restoreNativeMessagingHost();
+    throw error;
+  }
 }
+async function terminateOwnedProcess(pid, label, processGroup = false) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const target = processGroup ? -pid : pid;
+  try {
+    process.kill(target, 'SIGTERM');
+  } catch {
+    return;
+  }
+
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    await sleep(50);
+    try {
+      process.kill(target, 0);
+    } catch {
+      console.log(`[e2e] cleaned up ${label} pid=${pid}`);
+      return;
+    }
+  }
+  try {
+    process.kill(target, 'SIGKILL');
+    console.log(`[e2e] force-cleaned ${label} pid=${pid}`);
+  } catch {
+    /* already gone */
+  }
+}
+
+async function cleanupSpawned(spawned, force = false) {
+  if (!spawned) return;
+  if (spawned.cleanupPromise) return spawned.cleanupPromise;
+
+  spawned.cleanupPromise = (async () => {
+    await terminateOwnedProcess(spawned.taskPid, 'task scenarios');
+    if (force || !KEEP_CHROME) {
+      await terminateOwnedProcess(spawned.pid, 'spawned Chrome', true);
+      await terminateOwnedProcess(spawned.bridgePid, 'isolated bridge');
+    } else {
+      console.log(`[e2e] --keep-chrome: leaving Chrome pid=${spawned.pid} and its bridge running`);
+    }
+    spawned.restoreNativeMessagingHost?.();
+  })();
+  return spawned.cleanupPromise;
+}
+
+async function exitForSignal(signal) {
+  if (signalCleanupStarted) return;
+  signalCleanupStarted = true;
+  await cleanupSpawned(activeSpawned, true);
+  process.exit(signal === 'SIGINT' ? 130 : 143);
+}
+
+process.once('SIGINT', () => {
+  void exitForSignal('SIGINT');
+});
+process.once('SIGTERM', () => {
+  void exitForSignal('SIGTERM');
+});
 
 /**
  * IMP-0162: ensure a fixture HTTP server is live on port 4173.
@@ -1047,8 +1347,69 @@ async function ensureFixtureServer() {
   return child;
 }
 
+async function getPolicyDriver() {
+  if (!activeSpawned) throw new Error('Browser policy gates require an owned --launch-chrome profile');
+  policyDriver ??= await createBrowserPolicyDriver({
+    cdpPort: activeSpawned.cdpPort,
+    extensionId: activeSpawned.extensionId,
+    bridgeBase: BRIDGE_BASE,
+    fixtureUrl: FIXTURE_URL,
+  });
+  return policyDriver;
+}
+
+function browserPolicyRows() {
+  const scenario = (imp, name, key, run) => ({
+    imp,
+    name,
+    async run() {
+      policyEvidence[key] = await run(await getPolicyDriver());
+      return policyEvidence[key];
+    },
+    // Each scenario asserts its actual DOM/storage/tool outcomes before returning evidence.
+    check: () => ({ status: 'PASS' }),
+  });
+  return [
+    scenario('extension-ui-ready', 'five packaged Vue realms mount', 'renderers',
+      async (driver) => driver.verifyRendererReadiness()),
+    scenario('IMP-0200', 'sidepanel loads a real native project and session', 'sidepanel',
+      async (driver) => driver.verifySidepanelData()),
+    scenario('Rust-6-editor', 'real Web Editor V2 selection and opacity edit', 'editor', runEditorScenario),
+    scenario('Rust-7a', 'owned clients, queue fairness and non-closing release', 'ownership', async (driver) => {
+      const ownership = await runOwnershipScenario(driver);
+      return { ...ownership, queue: await runQueueScenario(driver) };
+    }),
+    scenario('Rust-7b', 'first recorder interaction, CSP frame and real replay', 'recorder', runRecorderScenario),
+    scenario('Rust-7c', 'workflow branch, retry, pause, cancel and durable events', 'workflow', runWorkflowScenario),
+    scenario('Rust-7d', 'real offscreen inference, HNSW ranking and persistence', 'semantic', runSemanticScenario),
+    {
+      imp: 'Rust-6',
+      name: 'SW restart restores ownership and durable workflow/vector state',
+      async run() {
+        for (const prerequisite of ['ownership', 'workflow', 'semantic']) {
+          if (!policyEvidence[prerequisite]) {
+            throw new Error(`${prerequisite} prerequisite did not complete; restart coverage is unverified`);
+          }
+        }
+        const driver = await getPolicyDriver();
+        const restart = await driver.restartServiceWorker();
+        const ownership = await verifyOwnershipAfterRestart(driver, policyEvidence.ownership);
+        const workflow = await verifyWorkflowAfterRestart(driver, policyEvidence.workflow);
+        const semantic = await verifySemanticAfterRestart(driver, policyEvidence.semantic);
+        return { restart, ownership, workflow, semantic };
+      },
+      check: () => ({ status: 'PASS' }),
+    },
+  ];
+}
+
 async function main() {
-  console.log(`[e2e] bridge=${BRIDGE_BASE} fixture=${FIXTURE_URL} clientId=${CLIENT_ID}`);
+  let spawned = null;
+  try {
+    console.log(`[e2e] bridge=${BRIDGE_BASE} fixture=${FIXTURE_URL} clientId=${CLIENT_ID}`);
+    if (WITH_TASKS && !LAUNCH_CHROME) {
+      throw new Error('--with-tasks requires --launch-chrome; never run task scenarios against an unowned browser');
+    }
 
   if (SHOULD_BUILD) {
     console.log('[e2e] building shared + native + extension...');
@@ -1070,9 +1431,9 @@ async function main() {
     });
   }
 
-  let spawned = null;
   if (LAUNCH_CHROME) {
-    spawned = launchChrome();
+    spawned = launchChrome(await allocateCdpPort());
+    activeSpawned = spawned;
     // IMP-0120: matrix's bridge uses an isolated registry dir so its
     // daemon UDS doesn't collide with the user's main Chrome. Point
     // findSpawnedBridge at the same isolated dir.
@@ -1095,10 +1456,8 @@ async function main() {
       EXPECTED_EXTENSION_ID,
       spawned.spawnedAt,
       handshakeDeadline,
-      // The matrix already opened CDP on 9333 (`--remote-debugging-port=9333`).
-      // findSpawnedBridge uses it to actively wake the SW once first-run
-      // setup completes — see the IMP-0162 comment inside the helper.
-      { wakeCdpUrl: 'http://127.0.0.1:9333' },
+      // Wake only the debugger belonging to this run's owned Chrome.
+      { wakeCdpUrl: `http://127.0.0.1:${spawned.cdpPort}` },
     );
     if (!entry) {
       // IMP-0139: self-diagnostic dump. Most common cause is Chrome not
@@ -1116,7 +1475,7 @@ async function main() {
       console.error(
         `[e2e]   1. source manifest at ${sourceManifest} → ${existsSync(sourceManifest) ? 'OK' : 'MISSING'}`,
       );
-      for (const dir of nativeMessagingHostTargets()) {
+      for (const dir of nativeMessagingHostTargets(spawned.nativeHostHome, !TEST_NATIVE_BIN)) {
         const file = resolve(dir, 'com.humanchrome.nativehost.json');
         console.error(`[e2e]   2. staged at ${file} → ${existsSync(file) ? 'OK' : 'MISSING'}`);
       }
@@ -1143,8 +1502,10 @@ async function main() {
       } catch {
         console.error(`[e2e]      pid ${spawned.pid} is gone (Chrome exited / crashed)`);
       }
-      process.exit(3);
+      return 3;
     }
+    spawned.bridgePid = Number(entry.pid);
+    assertCandidateBridgeProcess(entry);
     BRIDGE_BASE = `http://127.0.0.1:${entry.port}`;
     const handshakeMs = Date.now() - spawned.spawnedAt;
     console.log(
@@ -1173,11 +1534,9 @@ async function main() {
     if (reload.isError) {
       const txt = reload?.content?.[0]?.text ?? reload?.transportError ?? JSON.stringify(reload);
       if (typeof txt === 'string' && txt.includes('Tool chrome_dev_reload not found')) {
-        console.error('[e2e] chrome_dev_reload not on SW — this is the ONE-TIME bootstrap.');
-        console.error('[e2e] Reload the extension once at:');
-        console.error('[e2e]   chrome://extensions/?id=hbdgbgagpkpjffpklnamcljpakneikee');
-        console.error('[e2e] Then re-run. Every subsequent run is unattended.');
-        process.exit(2);
+        console.error('[e2e] chrome_dev_reload is unavailable on this service worker.');
+        console.error('[e2e] Rebuild and run with --launch-chrome to use a fresh isolated profile.');
+        return 2;
       }
       console.warn(`[e2e] dev_reload returned an error envelope, continuing anyway: ${txt}`);
     }
@@ -1185,7 +1544,7 @@ async function main() {
     probe2 = await waitForFreshSw(priorBuildHash, probe1Available);
     if (!probe2) {
       console.error('[e2e] SW did not pick up the new build within 15s after dev_reload.');
-      process.exit(3);
+      return 3;
     }
     console.log(`[e2e] SW info after reload: ${JSON.stringify(probe2.parsed)}`);
   } else {
@@ -1196,7 +1555,7 @@ async function main() {
   const nav = await callTool('chrome_navigate', { url: FIXTURE_URL });
   if (nav.isError) {
     console.error(`[e2e] navigate failed: ${JSON.stringify(nav)}`);
-    process.exit(4);
+    return 4;
   }
   // Force foreground — CFT tabs spawn with visibilityState='hidden' under
   // CI, and Chromium's renderer suppresses CDP text input + CSS :hover
@@ -1211,18 +1570,19 @@ async function main() {
     console.warn(`[e2e] WARN: chrome_navigate response had no tabId — type_into row may fail; nav=${JSON.stringify(nav).slice(0, 200)}`);
   }
 
+  const matrix = [...MATRIX, ...(spawned ? browserPolicyRows() : [])];
   const rowsToRun = ONLY_FILTERS
-    ? MATRIX.filter((row) =>
+    ? matrix.filter((row) =>
         ONLY_FILTERS.some((token) => row.imp.includes(token) || row.name.includes(token)),
       )
-    : MATRIX;
+    : matrix;
   if (ONLY_FILTERS) {
     console.log(
-      `[e2e] --only ${ONLY_FILTERS.join(',')} → running ${rowsToRun.length}/${MATRIX.length} rows`,
+      `[e2e] --only ${ONLY_FILTERS.join(',')} → running ${rowsToRun.length}/${matrix.length} rows`,
     );
     if (rowsToRun.length === 0) {
-      console.error(`[e2e] --only filter matched no rows; available imp ids: ${[...new Set(MATRIX.map((r) => r.imp))].join(', ')}`);
-      process.exit(1);
+      console.error(`[e2e] --only filter matched no rows; available imp ids: ${[...new Set(matrix.map((r) => r.imp))].join(', ')}`);
+      return 1;
     }
   } else {
     console.log(`[e2e] running ${rowsToRun.length} rows...`);
@@ -1250,6 +1610,7 @@ async function main() {
       res: outcome.res ?? null,
     });
   }
+  const tasks = WITH_TASKS ? await runTaskScenarios(spawned) : null;
 
   const counts = results.reduce((acc, r) => ((acc[r.status] = (acc[r.status] ?? 0) + 1), acc), {});
   console.log(`\n[e2e] summary: ${JSON.stringify(counts)}`);
@@ -1266,6 +1627,7 @@ async function main() {
           swInfoAfter: probe2.parsed,
           results,
           counts,
+          ...(tasks ? { tasks } : {}),
         },
         null,
         2,
@@ -1274,21 +1636,18 @@ async function main() {
     console.log(`[e2e] wrote ${JSON_OUT}`);
   }
 
-  if (spawned && !KEEP_CHROME) {
-    try {
-      process.kill(spawned.pid, 'SIGTERM');
-      console.log(`[e2e] cleaned up spawned Chrome pid=${spawned.pid}`);
-    } catch {
-      /* already gone */
-    }
-  } else if (spawned) {
-    console.log(`[e2e] --keep-chrome: leaving Chrome pid=${spawned.pid} running`);
+    return counts.FAIL || (tasks && tasks.exitCode !== 0) ? 1 : 0;
+  } finally {
+    await policyDriver?.close();
+    policyDriver = undefined;
+    await cleanupSpawned(spawned);
+    if (activeSpawned === spawned) activeSpawned = null;
   }
-
-  process.exit(counts.FAIL ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error('[e2e] fatal:', err);
-  process.exit(99);
-});
+main()
+  .then((code) => process.exit(code ?? 0))
+  .catch((err) => {
+    console.error('[e2e] fatal:', err);
+    process.exit(99);
+  });

@@ -17,26 +17,33 @@ Read-only inspection through SSH alias `ovh1` established the following:
 - Flux runs other applications, but this repository is not currently a Flux source. The manifests are applied explicitly rather than modifying another application's GitOps source.
 - At initial inspection there was no Tailscale Kubernetes Operator. The current enrollment is recorded below; the existing Mac and OVH host devices remain user-owned and untagged.
 - The OVH host has Node `v22.23.1`, pnpm `10.33.2`, OpenSSL `3.5.5`, and k3s'
-  built-in Kustomize. The image build itself uses Node 24 inside Docker.
-  Corepack is not installed on the host, which does not affect that image build.
+  built-in Kustomize. Those host tools supported the historical Node-based
+  image workflow; Corepack is not installed on the host.
+
+  The current coordinator image is built in Docker from the pinned Rust/Debian
+  bases with Rust `1.99.1` and the locked Cargo graph. The resulting runtime is
+  the Rust coordinator, not a Node application.
+
 - Helm was absent during inspection. The checksum-verified bootstrap below
   subsequently installed Helm `v4.3.1`. No registry login or usable remote
   image registry was discovered.
 
 No live resource was created or changed during that inspection.
 
-## Current verified private deployment
+## Historical private deployment (2026-10-28)
 
-- Namespace: `humanchrome-fleet`; image:
-  `humanchrome-coordinator:20261028-a168ad6e`.
-- The coordinator and durable PostgreSQL are running on OVH. The Mac worker
-  enrolls only `mac-1:browser`, in a root separate from the existing local fleet.
+- Namespace: `humanchrome-fleet`; the then-current image was
+  `humanchrome-coordinator:20261028-a168ad6e`. It is now a rollback image, not
+  the current production image.
+- The coordinator and durable PostgreSQL were running on OVH. The Mac worker
+  enrolled only `mac-1:browser`, in a root separate from the existing local
+  fleet.
 - Real browser HTTP/MCP control, two-worker isolation on one Mac, stale-lease
   rejection and worker-disconnection handling were exercised. Restarting
   PostgreSQL triggered automatic coordinator recovery; browser state and lease
   identities survived with the same database PVC.
 - Tailscale Operator `1.98.4` is enrolled with a scoped OAuth client. Private
-  ingress reaches the coordinator; its worker URL now uses
+  ingress reaches the coordinator; its worker URL uses
   `fleet-worker.humanchrome-fleet.svc.cluster.local`, not the OVH host's route.
 - The private endpoint returned healthy/ready responses, rejected missing
   bearer credentials with HTTP 401, and served real single-tool MCP calls.
@@ -44,10 +51,52 @@ No live resource was created or changed during that inspection.
   device identities stayed unchanged. The browser DOM and workflow lease
   identity also survived, and a subsequent JavaScript-driven browser action
   completed. The smoke tab and lease were released afterward.
-- The existing unrestricted tailnet grant was preserved; only the two
-  required tag-owner definitions were added. Tailnet access is not restricted
-  to admins by this deployment. Application bearer authentication remains
-  mandatory.
+- The existing unrestricted tailnet grant was preserved; only the two required
+  tag-owner definitions were added. Tailnet access is not restricted to admins
+  by this deployment. Application bearer authentication remains mandatory.
+
+## Current production rollout (2026-10-30–31)
+
+- Source `956ffd77c91f1124f3fc821647a5312b648fbe1e`, committed and pushed on
+  `option-a/rust-native-typescript-browser-20261030` (PR #414), is built and
+  deployed on OVH as
+  `humanchrome-coordinator:956ffd77c91f`.
+  The image entrypoint is the Rust bridge: the running coordinator's
+  `/proc/1/exe` is `/usr/local/bin/humanchrome-bridge`.
+- The deployed coordinator returned HTTP 200 from both `/healthz` and
+  `/readyz`. The Rust Docker build/import path uses Docker only to build and
+  archive the amd64 image before k3s containerd import; it does not require a
+  registry pull.
+- The rollout preserved every pre-existing PostgreSQL PVC and Kubernetes Secret
+  UID. PostgreSQL remains `postgres:17-alpine`; neither its data identity nor
+  the protected Secret identities were replaced.
+- The Mac worker and standalone gateway run Rust source
+  `a91797130696b43ea44e9625895138810a3fb2d1` from the complete installed
+  `~/Library/Application Support/humanchrome-bridge/releases/1.2.0-2108-0`
+  release. Their existing roots, databases and profile paths remain in use.
+- The permanent upgrade helper automatically retargeted the worker and all seven
+  standalone native-host descriptors. The global native registration preserved
+  its four configured origins; the worker profile retained its three origins.
+  All seven standalone profile directories retained their device/inode identity.
+- After the authorized restart, the standalone gateway reported up and its
+  LinkedIn profile reported healthy with the active client lease. No legacy
+  Node core process remained.
+- The global CLI now uses the complete `1.2.0-14233-0` release. Actual executable
+  metadata, rather than whitespace-split argv, lets installed CLI status/control
+  recognize the `Application Support` executable path. This CLI-only fix did not
+  interrupt the healthy services a second time.
+- The normal extension synchronization path deployed TypeScript build
+  `mvvcuxmn-lranwe`; live diagnostics confirmed that build, extension `1.2.0`,
+  and ID `dhabpgnpajocncnoigibmocmfjnhlmhe`.
+- Authenticated production MCP through Rust coordinator → worker → native host
+  → extension opened an owned fixture tab and read its main-frame Submit control.
+  Only that tab was closed; the diagnostic lease released with HTTP 200.
+- Coordinator `/healthz` and `/readyz`, worker health, and native `/ping` on
+  `12900` returned HTTP 200. Docker/k3s hosts the cloud coordinator; desktop
+  gateway, worker and native messaging remain Mac host executables.
+- Optional Node SDK subprocesses and protected rollback backups remain by design;
+  they are not a legacy Node core fallback. Fresh GitHub CI verdicts are separate
+  from this completed production activation.
 
 The `local-path` PVC survives Pod restarts, not loss of the OVH disk. Back up
 PostgreSQL and Kubernetes Secrets separately; neither replication nor backup
@@ -237,6 +286,17 @@ Git. The initial non-admin token is `agentToken` in the private
 `~/Library/Application Support/humanchrome-coordinator/ovh-bootstrap.json`.
 The Operator OAuth credential is separate: it belongs in
 `tailscale/operator-oauth`, not in MCP client configuration.
+
+This checkout's `.mcp.json` uses that environment variable and the private OVH
+endpoint. OMP's higher-priority `.omp/mcp.json` resolves the same header through
+a command: it uses `HUMANCHROME_COORDINATOR_TOKEN` when set, otherwise reads
+`agentToken` from the private bootstrap file above. Neither configuration
+contains a literal bearer token. Set `HUMANCHROME_AGENT` to a distinct, stable
+workflow name when separate clients need separate assignments.
+
+Existing clients load the changed configuration on their MCP reload or next
+session; the configuration was verified with an authenticated MCP handshake
+and `tools/list`, including the upgraded MCP client.
 
 This HTTP connection travels inside encrypted Tailscale; it is not publicly
 reachable. Each independent workflow needs a distinct, stable agent name.

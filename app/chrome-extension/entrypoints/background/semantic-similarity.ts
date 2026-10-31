@@ -1,4 +1,4 @@
-import type { ModelPreset } from '@/utils/semantic-similarity-engine';
+import { PREDEFINED_MODELS, type ModelPreset } from '@/utils/semantic-similarity/model-registry';
 import { OffscreenManager } from '@/utils/offscreen-manager';
 import { BACKGROUND_MESSAGE_TYPES, OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 import { STORAGE_KEYS, ERROR_MESSAGES } from '@/common/constants';
@@ -55,7 +55,6 @@ export async function initializeDefaultSemanticEngine(): Promise<void> {
     const defaultVersion =
       (result.selectedVersion as 'full' | 'quantized' | 'compressed') || 'quantized';
 
-    const { PREDEFINED_MODELS } = await import('@/utils/semantic-similarity-engine');
     const modelInfo = PREDEFINED_MODELS[defaultModel];
 
     await OffscreenManager.getInstance().ensureOffscreenDocument();
@@ -119,21 +118,11 @@ function needsModelSwitch(
   if (!currentBackgroundModelConfig) {
     return true;
   }
-
-  const keyFields = ['modelPreset', 'modelVersion', 'modelDimension'];
-  for (const field of keyFields) {
-    const newValue =
-      field === 'modelPreset'
-        ? modelPreset
-        : field === 'modelVersion'
-          ? modelVersion
-          : modelDimension;
-    if (newValue !== currentBackgroundModelConfig[field as keyof ModelConfig]) {
-      return true;
-    }
-  }
-
-  return false;
+  return (
+    currentBackgroundModelConfig.modelPreset !== modelPreset ||
+    currentBackgroundModelConfig.modelVersion !== modelVersion ||
+    currentBackgroundModelConfig.modelDimension !== modelDimension
+  );
 }
 
 /**

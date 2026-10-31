@@ -15,14 +15,13 @@ async function runClickStep(
   step: StepClick,
   options: { double?: boolean; failureMessage: string },
 ): Promise<ExecResult> {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  const firstTab = tabs && tabs[0];
-  const tabId = firstTab && typeof firstTab.id === 'number' ? firstTab.id : undefined;
+  const tabId =
+    ctx.tabId ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!tabId) throw new Error('Active tab not found');
-  await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: {} });
+  await handleCallTool({ name: TOOL_NAMES.BROWSER.READ_PAGE, args: { tabId } });
   const s = expandTemplatesDeep<StepClick>(step, ctx.vars);
   const located = await locateElement(tabId, s.target, ctx.frameId);
-  const frameId = located?.frameId ?? ctx.frameId;
+  const frameId = located?.frameId ?? ctx.frameId ?? 0;
   const first = s.target?.candidates?.[0]?.type;
   const resolvedBy = located?.resolvedBy || (located?.ref ? 'ref' : '');
   const fallbackUsed = resolvedBy && first && resolvedBy !== 'ref' && resolvedBy !== first;
@@ -38,6 +37,7 @@ async function runClickStep(
   const res = await handleCallTool({
     name: TOOL_NAMES.BROWSER.CLICK,
     args: {
+      tabId,
       ref: located?.ref || step.target?.ref,
       selector: !located?.ref
         ? s.target?.candidates?.find((c) => c.type === 'css' || c.type === 'attr')?.value

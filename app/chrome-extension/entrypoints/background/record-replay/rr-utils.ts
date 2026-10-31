@@ -75,11 +75,17 @@ export async function ensureTab(options: {
 
   // current tab target
   if (startUrl) {
-    await handleCallTool({ name: TOOL_NAMES.BROWSER.NAVIGATE, args: { url: startUrl } });
+    await handleCallTool({
+      name: TOOL_NAMES.BROWSER.NAVIGATE,
+      args: { url: startUrl, tabId: active?.id },
+    });
   } else if (options.refresh) {
     // only refresh if current tab is a web page
     if (isWebUrl(active?.url))
-      await handleCallTool({ name: TOOL_NAMES.BROWSER.NAVIGATE, args: { refresh: true } });
+      await handleCallTool({
+        name: TOOL_NAMES.BROWSER.NAVIGATE,
+        args: { refresh: true, tabId: active?.id },
+      });
   }
 
   // Re-evaluate active after potential navigation

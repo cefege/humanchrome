@@ -7,21 +7,132 @@ pnpm e2e:full      # rebuild everything → reload SW → run matrix → write /
 pnpm e2e:matrix    # skip the rebuild, just run the matrix against the running SW
 ```
 
-`scripts/run-e2e-matrix.mjs` talks straight to the bridge's HTTP API on
-`:12306` (no MCP, no Claude Code session needed). It probes
+`scripts/run-e2e-matrix.mjs` talks straight to the bridge's REST and MCP HTTP
+endpoints on `:12306` (no external MCP client or Claude Code session needed). It probes
 `chrome_runtime_info` to verify the SW is on the latest bundle, calls
 `chrome_dev_reload` to flush if needed, and walks every matrix row
 returning structured pass/fail per IMP.
 
-Exit codes: `0` clean, `1` matrix failure, `2` SW pre-bootstrap (run a
-one-time manual reload at `chrome://extensions/?id=dhabpgnpajocncnoigibmocmfjnhlmhe`
-to load `chrome_runtime_info` + `chrome_dev_reload`; every run after that
-is unattended), `3` SW reload didn't take effect, `4` fixture navigation
-failed.
+Exit codes: `0` clean, `1` matrix/task failure, `2` SW pre-bootstrap,
+`3` isolated handshake or SW reload failure, `4` fixture navigation failed.
+Use `--launch-chrome` for a fresh owned Chrome/SW when bootstrap is missing;
+never ask an operator to reload the daily browser.
 
 The rest of this document describes the deeper recipe (manual rows,
 chrome-devtools-mcp cross-verification, fixture-addition rules) for
 cases where the standalone runner doesn't cover what you need.
+
+## Isolated Rust-native / TypeScript-browser gate
+
+Build the Rust binaries and retained numeric SIMD, shared and worker assets
+without installed-runtime synchronization. There is no general browser
+Rust/WASM policy kernel. Select Chrome for Testing explicitly:
+
+```bash
+pnpm build:wasm
+pnpm build:shared
+node scripts/build-browser-workers.mjs
+HC_TEST_NATIVE_BIN="$PWD/target/release/humanchrome-nativehost" \
+HC_CHROME_PATH="/absolute/path/to/Google Chrome for Testing" \
+  node scripts/verify-rust-transition.mjs --suite browser
+```
+
+Separate native provenance for candidate-browser work is immutable revision
+[`5f223ec9d3a62ce9fb42ed8bbe708c6fc7ff4473`](https://github.com/cefege/humanchrome/actions/runs/41071714692):
+all four platform jobs and the Linux coordinator image passed. Its opt-in
+real-PostgreSQL TLS release case passed. The corrected
+`target/rust-transition/performance-native.json` validates fully read successful
+response bodies and records controlled TypeScript → Rust startup, MCP-help and
+REST-forwarding comparisons; it excludes Chrome, ONNX and optional SDK processes,
+so it is neither a browser result nor a whole-feature-set Node-free claim.
+
+This gate does **not** use `--build`: ordinary build scripts can synchronize into
+the installed runtime. It invokes WXT's build API with a private output directory,
+without package lifecycle/postbuild hooks or changes to the normal `.output/`.
+It creates a private HOME, native manifest, database, registry, daemon socket and
+Chrome profile, then checks the actual candidate PID. Matrix, fleet-worker and
+lifecycle fixtures can select an isolated artifact with `HC_E2E_EXTENSION_DIR`.
+The main WXT build aliases `humanchrome-shared` to its TypeScript source;
+generated worker/recorder bundles consume the freshly built shared dist above.
+The staged manifest's public key determines its allowed origin when present;
+unkeyed builds use the canonical filesystem path, including macOS `/tmp` →
+`/private/tmp` resolution. CDP uses an allocated port, not another browser's debugger.
+Fixture calls keep the explicit navigated tab ID rather than relying on global
+focus or an implicit mutation target.
+On macOS these credential-free DOM fixtures use Chrome's test-only Keychain so
+a private HOME cannot block cookie initialization on an interactive prompt.
+This gate does not prove real-Keychain compatibility; the isolated fleet
+lifecycle suite exercises encrypted cookies with the actual unlocked Keychain.
+
+The matrix's `--with-tasks` option additionally runs local fixture task scenarios
+against that same owned bridge before cleanup, including form input, clicks,
+keyboard actions and a multi-step browser workflow. It requires
+`--launch-chrome`; no live-network task or paid model is enabled. Reports remain
+under `target/rust-transition/`. Any matrix/task failure remains nonzero; a known
+baseline issue is not silently converted into a passing browser contract.
+
+The owned candidate also runs these browser-policy contracts. They use the real
+packaged extension and native bridge, not test-only policy exports:
+
+| Row             | Surface                                         | Required observation                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Rust-6-ui`     | Popup, options, sidepanel, builder, welcome     | Each actual Vue page mounts and completes its packaged JavaScript helper calls; no synthetic kernel-readiness flag is used.                                                                                                                                                                                                                                                                                                                                              |
+| `Rust-6-editor` | `#rust-6-editor`                                | In an owned foreground fixture tab, toggle the V2 editor and require an open `[data-mcp-web-editor="v2"]` shadow root with `[role="toolbar"][aria-label="Web Editor Toolbar"]` and `.we-prop-panel`; select `#rust-editor-target`, commit `0.42` through `input[aria-label="Opacity value"]`, and require its inline `style.opacity === "0.42"`. Record `browser-rust-6-editor.png` plus its bytes/SHA-256 in the matrix JSON, then toggle off and remove the owned tab. |
+| `IMP-0200`      | Sidepanel                                       | A real native project/session is persisted through REST, loaded by the actual UI and opened; only the private fixture records are removed.                                                                                                                                                                                                                                                                                                                               |
+| `Rust-7a`       | Owned fixture tabs                              | Separate clients, cross-client mutation rejection, usable aliases, deterministic pacing and release without closing the tab. Alias refresh uses `refresh:true`; URL calls retain their existing tool-owned targeting exception.                                                                                                                                                                                                                                          |
+| `Rust-7b`       | `#rust-recorder-workflow`                       | First recorded interaction, initialized restrictive-CSP frame, exact generated-target comparison with the frozen original executable, persisted-target comparison and actual replayed counter change.                                                                                                                                                                                                                                                                    |
+| `Rust-7c`       | `#rust-recorder-workflow` and builder           | Variable branch, two retry attempts, cycle rejection, deterministic pause/resume/cancel, event ordering and actual V2 file import with coordinate/ID root choice and visible warnings.                                                                                                                                                                                                                                                                                   |
+| `Rust-7d`       | `rust-semantic-policy.html`                     | Genuine tokenizer/model loading and ONNX inference, overlapping same-tab indexing RPCs, HNSW ranking, finite scores and matching snippets. Persisted mapping count must equal index stats and unique `(tabId, URL, chunk index)` count. No replacement vectors or model are injected.                                                                                                                                                                                    |
+| `Rust-6`        | Service-worker stop/start, not extension reload | Native HTTP stays available; the first workflow read sent during activation completes after crash recovery, ownership/aliases restore, pacing resets, workflow events/`nextSeq` survive, and HNSW results match after the offscreen document is explicitly closed and recreated. Cold reset before model readiness must reopen a zero-document/zero-tab index with `search:[]`. Missing prerequisites fail rather than becoming passing partial coverage.                |
+
+Owned Option A evidence includes keyed `browser-hc-rt-hziSan.json` and keyless
+`browser-hc-rt-vxH0UF.json`, each with its `.tasks.json` sidecar under
+`target/rust-transition/`. Each passed 35/35 matrix rows and 17/17 task scenarios.
+All five actual Vue realms mounted; the V2 editor committed opacity `0.42` and
+recorded its screenshot. Queue fairness, tab closure, six frozen recorder
+targets, actual recorded-flow replay, workflow lifecycle, genuine ONNX/HNSW,
+persisted-query reopen, service-worker/native-channel replacement and cold
+vector reset passed. This is an isolated Chrome-for-Testing result, not proof
+of a production installation. Native artifact installation and deployment are
+separate gates.
+
+The workflow activation fix is verified by `browser-hc-rt-GoFeWg.json` and its
+`.tasks.json` sidecar: Chrome for Testing `156.0.8078.80`, 35/35 matrix rows and
+17/17 task scenarios. Four actual worker activations completed the immediately
+submitted workflow read, without retrying it or waiting for a startup sleep.
+This run explicitly used `HC_E2E_HEADLESS=1` for a real Chrome compositor
+independent of the daily-driver desktop. The runner otherwise remains headed by
+default; both modes keep the same native bridge, extension, trusted input and
+assertions. Owned launches disable renderer background throttling/occlusion,
+and editor clicks include the pointer move used by production trusted clicks.
+
+The subsequent same-tab indexing fix is verified by
+`browser-hc-rt-zbp8uQ.json` and its task sidecar: 35/35 rows and 17/17 tasks in
+the same explicit Chrome 156 headless mode. Concurrent real indexing requests
+leave 20 documents and 20 unique chunk identities in IndexedDB, unchanged after
+offscreen/worker recreation with exact query-result equality. The original
+restart equality check remains; uniqueness and persisted-count checks add
+coverage rather than relaxing it.
+
+Performance references are observational, not acceptance gates or speed claims:
+`performance-extension-startup.json` records three same-backend source/current
+startup samples; `performance-browser.json` records the exact-output recorder
+regression; and `performance-workflow-vector.json` records actual-Chrome
+workflow/vector parity alongside the remaining CPU regressions. Browser
+functional acceptance remains the matrix/task evidence above.
+
+Recorder setup sends a JSON `number[]` through Chrome's argument boundary.
+Same-origin isolated extension worlds may privately reuse a compiled module from
+an ancestor when `srcdoc` CSP blocks compilation; the page receives neither the
+module nor a message bridge, and its CSP is not changed. Recorder DOM extraction
+keeps the original eight-strategy producer configuration while sharing Rust
+candidate policy with the modern locator configuration.
+
+The production connection policy permits the dynamic-port bridge at
+`http://127.0.0.1:*` and the observed Hugging Face data redirect at
+`https://us.aws.cdn.hf.co`, in addition to its previous allowed origins. These
+two changes were explicitly approved; they do not relax script policy, page CSP,
+Chrome permissions or native server checks.
 
 ---
 
@@ -38,37 +149,30 @@ non-mocked DOM.
    then it auto-starts when Chrome connects).
 2. Extension built: `pnpm --filter chrome-extension build` — produces
    `app/chrome-extension/.output/chrome-mv3/`.
-3. `.mcp.json` in repo root (already committed) — registers both
-   `humanchrome` and `chrome-devtools` servers so Claude Code picks
-   them up automatically on session start.
+3. The checked-in project MCP configuration targets the private OVH fleet.
+   The isolated matrix runner talks to its own temporary bridge directly and
+   does not use that configuration. Manual cross-verification needs MCP entries
+   for the specific verification bridge and `chrome-devtools`; do not send
+   fixture calls to another worker unintentionally.
 4. Network access for the late-image case (the fixture hits
    `httpbin.org/delay/2`). If running offline, skip the
    `kind:load_state` section.
 
-## Unattended reload pipeline (no human in the loop)
+## Unattended service-worker restart protocol (no human in the loop)
 
-Bridge + extension code changes don't auto-flush. The recipe:
+The owned candidate already starts from its freshly packaged extension and isolated
+native bridge. For the persistence/restart gate, terminate **only** its extension
+service worker through the owned browser's DevTools target, then issue the next
+bridge operation so Chrome starts a new worker. Explicitly close the offscreen
+document before termination; the next semantic request must reopen the persisted
+HNSW corpus.
 
-```bash
-pnpm build:shared && pnpm build:native && pnpm build:extension
-```
-
-…rebuilds everything and `sync-installed.mjs` (postbuild hook on `build:native`)
-copies the bridge bundle to `~/Library/Application Support/humanchrome-bridge/`.
-The running bridge process (spawned by Chrome native messaging) and the
-service-worker still hold the OLD code in memory. To flush them:
-
-- Bridge: `kill $(pgrep -f 'humanchrome-bridge/dist/index.js')` — Chrome
-  respawns it on the next native message.
-- Service worker: call the MCP tool `chrome_dev_reload` — fires
-  `chrome.runtime.reload()` from the SW context which restarts the
-  extension and picks up the new `.output/chrome-mv3/` bundle.
-
-Bootstrap caveat: `chrome_dev_reload` itself needs to be present in the
-running SW to be callable. If you're on a SW that pre-dates this tool,
-do ONE manual reload (`chrome://extensions/?id=...` → reload icon) so the
-SW picks up the build that contains the tool, then every subsequent
-test cycle is unattended.
+Do **not** call `chrome.runtime.reload()` or reload/update the extension for this
+gate. Chrome clears `chrome.storage.session` on a full extension reload/update,
+erasing the ownership state under test. A separate minimal `chrome.runtime.reload()`
+probe kept HTTP available but did not observe a new worker; it is not a passing
+result and is not a substitute for this required service-worker stop/start
+contract.
 
 ## Run
 
@@ -214,6 +318,9 @@ perKeyDelayMs:0, jitterMs:0}` against the keyboard-commit combobox
   The fixture's option `click` handler is intentionally a no-op (matches
   LinkedIn Downshift behaviour), so a regression that routes through
   synthetic option-click fails the assertion.
+  The runner holds a shared dialog CDP session and backgrounds the fixture
+  before committing; it also requires `document.visibilityState === 'hidden'`
+  afterward. This catches dropped keyboard events without stealing window focus.
 - **Bug-008-probe** `chrome_typeahead_probe` — types a single char into
   `#probe-input` (a static fixture input whose `input` listener fires a
   fetch to `/typeahead-fixture-stub`). Asserts `summary.inputFired` +
@@ -230,6 +337,20 @@ perKeyDelayMs:0, jitterMs:0}` against the keyboard-commit combobox
   roundtrip on the in-memory tab map (doesn't issue a network request
   against an echo server — that needs httpbin.org and would make the
   row flaky).
+
+### Native-MCP — request versus notification
+
+The runner navigates to the existing fixture through a real MCP `tools/call`,
+then sends a `tools/call` notification containing a different navigation URL.
+The notification must acknowledge with HTTP 202 without changing the live tab.
+A subsequent browser JavaScript call observes the actual location.
+
+Run an uninstalled native candidate without synchronizing production artifacts:
+
+```bash
+HC_TEST_NATIVE_BIN="$PWD/target/release/humanchrome-nativehost" \
+  node scripts/run-e2e-matrix.mjs --launch-chrome --only Native-MCP
+```
 
 ## Reporting
 

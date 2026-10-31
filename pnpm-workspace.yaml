@@ -3,11 +3,50 @@ packages:
   - 'packages/*'
 
 onlyBuiltDependencies:
-  - better-sqlite3
   - sharp
   - esbuild
   - '@parcel/watcher'
 
-# Force-pin transitive deps with critical/high CVEs.
+# Security floors stay within the installed release lines except the Hono adapter:
+# MCP SDK 1.32 supports both its v1 and patched v2 adapters.
 overrides:
-  protobufjs: '>=7.5.5'
+  '@modelcontextprotocol/sdk': '>=1.32.2 <2'
+  '@hono/node-server@>=1.19.10 <2.1.5': '>=2.1.5 <3'
+  'hono@>=4 <4.13.14': '>=4.13.14 <5'
+  'body-parser@>=2 <2.4.0': '>=2.4.0 <3'
+  'proxy-addr@>=2 <2.0.8': '>=2.0.8 <3'
+  'ip-address@>=10 <10.7.5': '>=10.7.5 <11'
+  'brace-expansion@>=1 <1.1.21': '>=1.1.21 <2'
+  'brace-expansion@>=2 <2.1.7': '>=2.1.7 <3'
+  'brace-expansion@>=5 <5.0.12': '>=5.0.12 <6'
+  'js-yaml@>=3 <3.15.0': '>=3.15.0 <4'
+  'js-yaml@>=4 <4.3.2': '>=4.3.2 <5'
+  'shell-quote@<1.11.0': '>=1.11.0 <2'
+  'protobufjs@>=7 <7.6.5': '>=7.6.5 <8'
+  'protobufjs@>=8 <8.6.6': '>=8.6.6 <9'
+  'fast-uri@>=3 <3.1.9': '>=3.1.9 <4'
+  'fast-uri@>=4 <4.2.3': '>=4.2.3 <5'
+  'find-my-way@>=9 <9.7.0': '>=9.7.0 <10'
+  'postcss@>=8 <8.5.23': '>=8.5.23 <9'
+  'undici@>=6 <6.29.1': '>=6.29.1 <7'
+  'undici@>=7 <7.30.1': '>=7.30.1 <8'
+  'nanoid@>=3 <3.3.18': '>=3.3.18 <4'
+  'postcss-selector-parser@>=7 <7.1.6': '>=7.1.6 <8'
+  'browserslist@>=4 <4.28.7': '>=4.28.7 <5'
+  'qs@>=6 <6.16.1': '>=6.16.1 <7'
+  'baseline-browser-mapping@>=2 <2.11.0': '>=2.11.0 <3'
+  'source-map-js@>=1 <1.2.2': '>=1.2.2 <2'
+  'fast-copy@>=4 <4.1.0': '>=4.1.0 <5'
+  'handlebars@>=4 <4.7.10': '>=4.7.10 <5'
+  'tmp@<0.2.6': '>=0.2.6 <0.3'
+  'esbuild@<0.28.1': '>=0.28.1 <0.29'
+  'form-data@>=4 <4.0.6': '>=4.0.6 <5'
+  '@babel/core': '>=7.29.6 <8'
+  'linkify-it@<=5.0.0': '>=5.0.1 <6'
+  'adm-zip@<0.6.1': '>=0.6.1 <0.7'
+  # node-notifier uses v4(), which remains CommonJS-compatible in uuid 11.
+  'node-notifier>uuid': '>=11.1.1 <12'
+
+# Upstream PR #274 fixes GHSA-gcqx-w48m-w2h4; no fixed release exists yet.
+patchedDependencies:
+  deepmerge@4.3.1: patches/deepmerge@4.3.1.patch

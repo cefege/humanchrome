@@ -244,7 +244,7 @@ To drive a private method directly without `eslint-disable`, cast through `unkno
 const result = (fooTool as unknown as { privateMethod: (x: number) => string }).privateMethod(42);
 ```
 
-The pattern is used widely in the native-server engine tests (e.g. `app/native-server/src/agent/engines/claude.build-run-options.test.ts`) and applies the same way here.
+The same cast pattern applies to extension and Rust-boundary tests when a narrowly scoped private detail needs coverage.
 
 ---
 
@@ -261,20 +261,22 @@ When in doubt, try without the permission first, see what Chrome refuses, then a
 ## Verification, in order
 
 ```bash
-# 1. Rebuild shared so the new TOOL_NAMES entry is in dist/
-cd packages/shared && npm run build
+# 1. Rebuild contracts and shared dist so the new TOOL_NAMES entry reaches
+#    browser consumers and the embedded Rust contract artifact.
+pnpm build:contracts
+pnpm build:shared
 
 # 2. Typecheck the extension against the new entry
-cd ../../app/chrome-extension && npx tsc --noEmit -p .
+cd app/chrome-extension && npx tsc --noEmit -p .
 
 # 3. Run the new test + the registry shape guard
 npx vitest run --reporter=dot tests/tools/browser/<slug>.test.ts tests/tools/lazy-tool-registry.test.ts
 
 # 4. Regenerate the auto-doc (so docs/TOOLS.md reflects the new tool)
-cd ../native-server && node scripts/generate-tools-doc.mjs
+cd ../.. && pnpm --filter @humanchrome/third-party-adapters run docs:tools
 
-# 5. Run bridge tests ONLY if you touched bridge code
-npm test
+# 5. Run the native contract test when the catalog change affects native callers
+cargo test --locked -p humanchrome-contracts
 ```
 
 If any step fails, fix before proceeding. Don't paper over typecheck or test failures.
@@ -310,9 +312,9 @@ PR body — copy a recent merged tool PR for the canonical shape:
 
 ## Test plan
 
-- [x] `npm run build` in `packages/shared`
+- [x] `pnpm build:contracts && pnpm build:shared`
 - [x] `npx tsc --noEmit -p .` in `app/chrome-extension`
 - [x] N new tests at `tests/tools/browser/<slug>.test.ts`
 - [x] `tests/tools/lazy-tool-registry.test.ts` — confirms TOOL_NAMES.BROWSER.FOO is registered
-- [ ] Full extension suite + bridge (deferred to CI)
+- [ ] Full extension suite and native contract coverage (deferred to CI)
 ```

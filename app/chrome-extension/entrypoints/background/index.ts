@@ -14,6 +14,7 @@ import { initQuickPanelTabsHandler } from './quick-panel/tabs-handler';
 import { initLastTabGuardListeners } from '@/utils/last-tab-guard';
 import { initTabCreationTracker } from './utils/tab-creation-tracker';
 import { initSelfUpdateWatcher } from './self-update-watcher';
+import { initContentIndexerHost } from './content-indexer-host';
 
 // Record-Replay V3 (feature flag)
 import { bootstrapV3 } from './record-replay-v3/bootstrap';
@@ -28,15 +29,10 @@ const ENABLE_RR_V3 = true;
  * Background script entry point
  * Initializes all background services and listeners
  *
- * `type: 'module'` makes the SW an ESM script, which lets Rolldown emit the
- * dynamic-import targets (e.g. `await import('@/utils/content-indexer')` in
- * `tools/browser/vector-search.ts`, `await import('@/utils/vector-database')`
- * in `storage-manager.ts`) as separate chunks instead of inlining them into
- * `background.js`. Without this, WXT compiles the SW as a classic IIFE and
- * Rolldown's `inlineDynamicImports` pass collapses the entire reachable graph
- * — including `@huggingface/transformers` (~700 KB) and `onnxruntime-web`
- * (~500 KB) — into the SW chunk regardless of dynamic-import sites in source.
- * See IMP-0057.
+ * Service workers use a module entrypoint so their static dependency graph can
+ * be bundled at install time. Chrome still forbids runtime `import()` from a
+ * ServiceWorkerGlobalScope, so heavyweight inference stays in the offscreen
+ * document and background handlers must route to it over extension messages.
  */
 export default defineBackground({
   type: 'module',
@@ -62,6 +58,7 @@ export default defineBackground({
     initNativeHostListener();
     initSemanticSimilarityListener();
     initStorageManagerListener();
+    initContentIndexerHost();
     // Last-tab guard: keep windows alive when tools close the last tab
     initLastTabGuardListeners();
     initTabCreationTracker();

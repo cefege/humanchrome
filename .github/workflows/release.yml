@@ -21,8 +21,8 @@ env:
   HC_ALLOW_KEYLESS_BUILD: '1'
 
 jobs:
-  release:
-    name: Build extension zip and publish GitHub Release
+  extension:
+    name: Build extension zip
     runs-on: ubuntu-latest
 
     steps:
@@ -43,8 +43,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build all packages
-        run: pnpm build
+      - name: Set up Rust and numeric WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
+
+      - name: Build contracts and browser extension assets
+        run: pnpm build:contracts && pnpm build:browser
 
       - name: Zip the unpacked extension
         working-directory: app/chrome-extension
@@ -52,9 +55,158 @@ jobs:
           cd .output
           zip -r ../humanchrome-extension-${GITHUB_REF_NAME}.zip chrome-mv3
 
+      - name: Upload extension release asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-release-${{ github.sha }}
+          path: app/chrome-extension/humanchrome-extension-*.zip
+          if-no-files-found: error
+
+  native:
+    name: Package native ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - id: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - id: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - id: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: pnpm
+
+      - name: Install Node build dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install vendored OpenSSL prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install --yes build-essential perl pkg-config
+              ;;
+            macOS)
+              command -v perl
+              command -v make
+              command -v clang
+              ;;
+            Windows)
+              choco.exe install strawberryperl nasm --no-progress --yes
+              printf '%s\n' 'OPENSSL_SRC_PERL=C:/Strawberry/perl/bin/perl.exe' >> "$GITHUB_ENV"
+              printf '%s\n' 'C:/Strawberry/perl/bin' 'C:/Strawberry/c/bin' >> "$GITHUB_PATH"
+              'C:/Strawberry/perl/bin/perl.exe' -MLocale::Maketext::Simple -e 1
+              command -v nasm
+              ;;
+            *)
+              echo "unsupported runner OS: ${RUNNER_OS}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Set up pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.target }}
+
+      - name: Build native public executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "${{ matrix.target }}" -p humanchrome-native \
+            --bin humanchrome-nativehost \
+            --bin humanchrome-bridge \
+            --bin humanchrome-stdio
+
+      - name: Build supported optional engines
+        if: matrix.target == 'aarch64-apple-darwin'
+        uses: ./.github/actions/build-optional-engines
+        with:
+          output-dir: native-engines
+
+      - name: Package native release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_args=(
+            --target "${{ matrix.target }}"
+            --bin-dir "target/${{ matrix.target }}/release"
+            --output-dir native-artifacts
+          )
+          if [[ "${{ matrix.target }}" == aarch64-apple-darwin ]]; then
+            package_args+=(--engines-dir native-engines)
+          fi
+          node scripts/package-native-release.mjs "${package_args[@]}"
+
+      - name: Smoke packaged native release without Node on child PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          extension='tar.gz'
+          if [[ "${{ matrix.target }}" == *windows* ]]; then extension='zip'; fi
+          smoke_args=(--archive "native-artifacts/humanchrome-native-${version}-${{ matrix.target }}.${extension}")
+          if [[ "${{ matrix.target }}" == aarch64-apple-darwin ]]; then
+            smoke_args+=(--engines-archive "native-artifacts/humanchrome-engines-${version}-${{ matrix.target }}.${extension}")
+          fi
+          node scripts/smoke-native-release.mjs "${smoke_args[@]}"
+
+      - name: Upload native release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-release-${{ matrix.id }}-${{ github.sha }}
+          path: native-artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [extension, native]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify tag matches native package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            app/chrome-extension/humanchrome-extension-*.zip
+            release-assets/**

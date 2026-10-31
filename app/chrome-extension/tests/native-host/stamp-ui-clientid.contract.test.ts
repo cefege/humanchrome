@@ -13,6 +13,7 @@
  *   3. `:0` fallback so the format stays parseable
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as ClientStateModule from '@/entrypoints/background/utils/client-state';
 
 // Pull the function out of native-host.ts. It's not exported, so we
 // import the whole module and reach in via a re-export shim we add
@@ -48,7 +49,8 @@ vi.mock('@/entrypoints/background/utils/debug-log', () => ({
   },
 }));
 
-vi.mock('@/entrypoints/background/utils/client-state', () => ({
+vi.mock('@/entrypoints/background/utils/client-state', async (importOriginal) => ({
+  ...(await importOriginal<typeof ClientStateModule>()),
   loadPersistedClientState: vi.fn().mockResolvedValue(undefined),
   releaseClient: vi.fn(),
   getClientState: vi.fn(),
@@ -164,9 +166,7 @@ describe('IMP-0167 — per-window UI clientId stamping', () => {
   });
 
   it('options page with no windowId falls back to :0', async () => {
-    (globalThis.chrome as any).windows.getLastFocused.mockRejectedValueOnce(
-      new Error('no window'),
-    );
+    (globalThis.chrome as any).windows.getLastFocused.mockRejectedValueOnce(new Error('no window'));
     const id = await callViaListener('/options.html');
     expect(id).toBe('__ui:options:0');
   });

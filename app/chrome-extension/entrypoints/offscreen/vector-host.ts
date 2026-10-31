@@ -4,7 +4,9 @@
  * never construct a ContentIndexer outside the offscreen page.
  */
 import { getGlobalContentIndexer } from '@/utils/content-indexer';
+import type { SemanticSimilarityEngine } from '@/utils/semantic-similarity-engine';
 import { clearAllVectorData } from '@/utils/vector-database';
+import { INDEXER_HOST_MESSAGES } from '@/common/content-indexer-messages';
 import { OFFSCREEN_MESSAGE_TYPES } from '@/common/message-types';
 
 interface IndexerHostMessage {
@@ -13,7 +15,12 @@ interface IndexerHostMessage {
   query?: string;
   topK?: number;
   tabId?: number;
+  changeInfo?: { status?: string };
+  tab?: chrome.tabs.Tab;
+  details?: { frameId: number; tabId: number };
 }
+
+type SemanticEngineGetter = () => SemanticSimilarityEngine | null;
 
 type IndexerHostResponse = {
   success: boolean;
@@ -31,6 +38,9 @@ const INDEXER_MESSAGE_TYPES = new Set<string>([
   OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_REINITIALIZE,
   OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_START_INIT,
   OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_STATUS,
+  INDEXER_HOST_MESSAGES.TAB_UPDATED,
+  INDEXER_HOST_MESSAGES.TAB_REMOVED,
+  INDEXER_HOST_MESSAGES.NAVIGATION_COMMITTED,
 ]);
 
 /**
@@ -42,11 +52,12 @@ const INDEXER_MESSAGE_TYPES = new Set<string>([
 export function handleIndexerMessage(
   message: IndexerHostMessage,
   sendResponse: (response: IndexerHostResponse) => void,
+  getSemanticEngine: SemanticEngineGetter,
 ): boolean {
   if (!message || typeof message.type !== 'string') return false;
   if (!INDEXER_MESSAGE_TYPES.has(message.type)) return false;
 
-  dispatchIndexerCall(message)
+  dispatchIndexerCall(message, getSemanticEngine)
     .then((result) => sendResponse({ success: true, result }))
     .catch((err) =>
       sendResponse({
@@ -65,8 +76,11 @@ function requireTabId(message: IndexerHostMessage, label: string): number {
   return message.tabId;
 }
 
-async function dispatchIndexerCall(message: IndexerHostMessage): Promise<unknown> {
-  const indexer = getGlobalContentIndexer();
+async function dispatchIndexerCall(
+  message: IndexerHostMessage,
+  getSemanticEngine: SemanticEngineGetter,
+): Promise<unknown> {
+  const indexer = getGlobalContentIndexer(getSemanticEngine);
 
   switch (message.type) {
     case OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_SEARCH: {
@@ -118,6 +132,28 @@ async function dispatchIndexerCall(message: IndexerHostMessage): Promise<unknown
 
     case OFFSCREEN_MESSAGE_TYPES.CONTENT_INDEXER_START_INIT: {
       indexer.startSemanticEngineInitialization();
+      return undefined;
+    }
+
+    case INDEXER_HOST_MESSAGES.TAB_UPDATED: {
+      const tabId = requireTabId(message, 'TAB_UPDATED');
+      if (!message.changeInfo || !message.tab) {
+        throw new Error('TAB_UPDATED: [changeInfo] and [tab] are required');
+      }
+      indexer.handleTabUpdated(tabId, message.changeInfo, message.tab);
+      return undefined;
+    }
+
+    case INDEXER_HOST_MESSAGES.TAB_REMOVED: {
+      await indexer.handleTabRemoved(requireTabId(message, 'TAB_REMOVED'));
+      return undefined;
+    }
+
+    case INDEXER_HOST_MESSAGES.NAVIGATION_COMMITTED: {
+      if (!message.details) {
+        throw new Error('NAVIGATION_COMMITTED: [details] is required');
+      }
+      await indexer.handleNavigationCommitted(message.details);
       return undefined;
     }
 

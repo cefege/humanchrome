@@ -2,13 +2,14 @@
 
 ## Quick Diagnosis
 
-Run the diagnostic tool to identify common issues:
+Run the diagnostic tool to inspect the installed native manifest, executable,
+permissions, and registration:
 
 ```bash
 humanchrome-bridge doctor
 ```
 
-To automatically fix common issues:
+To apply the supported registration repair actions:
 
 ```bash
 humanchrome-bridge doctor --fix
@@ -39,52 +40,43 @@ By default, usernames, paths, and tokens are redacted. Use `--no-redact` if you'
 humanchrome-bridge doctor
 ```
 
-This will check installation, manifest, permissions, and Node.js path.
+This checks the native executable path, manifest, permissions, and registration
+state. It does not require a Node runtime.
 
-2. **Check if humanchrome-bridge is installed successfully**, ensure it's globally installed
+2. **Check that an installed native bundle is registered**
 
 ```bash
-humanchrome-bridge -V
+humanchrome-bridge --version
 ```
 
-<img width="612" alt="Screenshot 2025-06-11 15 09 57" src="https://github.com/user-attachments/assets/59458532-e6e1-457c-8c82-3756a5dbb28e" />
+The source build in `target/release/` is an uninstalled candidate. Do not use
+it to replace a daily Chrome registration until the installation cutover is
+approved.
 
-2. **Check if the manifest file is in the correct directory**
+3. **Check that the manifest file is in the correct directory**
 
-Windows path: C:\Users\xxx\AppData\Roaming\Google\Chrome\NativeMessagingHosts
+Windows path: `C:\Users\xxx\AppData\Roaming\Google\Chrome\NativeMessagingHosts`
 
-Mac path: /Users/xxx/Library/Application\ Support/Google/Chrome/NativeMessagingHosts
+macOS path: `/Users/xxx/Library/Application Support/Google/Chrome/NativeMessagingHosts`
 
-If the npm package is installed correctly, a file named `com.humanchrome.nativehost.json` should be generated in this directory
+The manifest is named `com.humanchrome.nativehost.json` and its `path` must name
+an absolute executable `humanchrome-nativehost` path.
 
-3. **Check logs**
-   Logs are now stored in user-writable directories:
+4. **Check logs**
 
 - **macOS**: `~/Library/Logs/humanchrome-bridge/`
 - **Windows**: `%LOCALAPPDATA%\humanchrome-bridge\logs\`
 - **Linux**: `~/.local/state/humanchrome-bridge/logs/`
 
-<img width="804" alt="Screenshot 2025-06-11 15 09 41" src="https://github.com/user-attachments/assets/ce7b7c94-7c84-409a-8210-c9317823aae1" />
+5. **Check executable permissions**
 
-4. **Check if you have execution permissions**
-   You need to check your installation path (if unclear, open the manifest file in step 2, the path field shows the installation directory). For example, if the Mac installation path is as follows:
-
-`xxx/node_modules/humanchrome-bridge/dist/run_host.sh`
-
-Check if this script has execution permissions. Run to fix:
+Open the manifest and inspect its `path`. The referenced
+`humanchrome-nativehost` executable must be readable and executable by Chrome.
+Run:
 
 ```bash
 humanchrome-bridge fix-permissions
 ```
-
-5. **Node.js not found**
-   If you use a Node version manager (nvm, volta, asdf, fnm), the wrapper script may not find Node.js. Set the `HUMANCHROME_NODE_PATH` environment variable:
-
-```bash
-export HUMANCHROME_NODE_PATH=/path/to/your/node
-```
-
-Or run `humanchrome-bridge doctor --fix` to write the current Node path.
 
 ## Log Locations
 

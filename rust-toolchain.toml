@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy", "llvm-tools"]
+targets = ["wasm32-unknown-unknown"]

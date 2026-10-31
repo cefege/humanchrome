@@ -19,13 +19,18 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
+# Match the other CI builds; the isolated runner registers the path-derived ID.
+env:
+  CHROME_EXTENSION_KEY: ${{ secrets.CHROME_EXTENSION_KEY }}
+  HC_ALLOW_KEYLESS_BUILD: '1'
+
 jobs:
   matrix:
     # macOS runner avoids the Linux headed-Chrome complications (Xvfb,
     # MV3 SW timing). Slightly more expensive but the matrix is small
     # (under a minute of actual run time once the bridge is up).
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -45,11 +50,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build shared + native + extension
-        run: |
-          pnpm build:shared
-          pnpm build:native
-          pnpm build:extension
+      - name: Set up Rust and WASM tooling
+        uses: ./.github/actions/setup-browser-wasm
+
+      - name: Build native bridge and complete browser assets
+        run: pnpm build
 
       - name: Install Chrome for Testing
         # Stable Chrome killed --load-extension in 137+; CFT is the only
@@ -58,12 +63,12 @@ jobs:
         run: npx --yes @puppeteer/browsers install chrome@stable
 
       - name: Register native messaging host
-        # `humanchrome-bridge register` writes the NM manifest to the user
-        # Application Support dir so Chrome can spawn the bridge via
-        # chrome.runtime.connectNative.
+        # The bare target/release directory is an uninstalled candidate, not a
+        # complete immutable bundle. Register the candidate host explicitly for
+        # this isolated CI profile.
         run: |
-          node app/native-server/dist/cli.js register
-
+          target/release/humanchrome-bridge register --browser chrome \
+            --host-path "$PWD/target/release/humanchrome-nativehost"
       - name: Stage NM manifest into CFT user-data-dir
         # CFT looks at <user-data-dir>/NativeMessagingHosts/ first; without
         # this it errors with "Specified native messaging host not found."

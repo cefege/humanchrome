@@ -1,0 +1,74 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/humanchrome-contracts",
+    "crates/humanchrome-core",
+    "crates/humanchrome-native",
+    "packages/wasm-simd",
+]
+
+[workspace.package]
+version = "1.2.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+repository = "https://github.com/cefege/humanchrome"
+
+[workspace.dependencies]
+humanchrome-contracts = { path = "crates/humanchrome-contracts" }
+humanchrome-core = { path = "crates/humanchrome-core" }
+anyhow = "1"
+axum = "0.8"
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive", "env"] }
+dirs = "6"
+futures-core = "0.3"
+futures-util = "0.3"
+getrandom = "0.4"
+hashlink = "0.9"
+hostname = "0.4"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+indexmap = "2"
+jsonschema = { version = "0.60", default-features = false }
+libc = "0.2"
+openssl = { version = "0.10", features = ["vendored"] }
+postgres-openssl = "0.5"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+rmcp = { version = "~3.8.0", default-features = false, features = ["server", "client", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+ryu-js = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+sha2 = "0.10"
+thiserror = "2"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "fs", "process", "signal", "sync", "time"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-normalization = "0.1"
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+wasm-bindgen = "0.2"
+wide = "0.7"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = ["console"] }
+webpki-root-certs = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
