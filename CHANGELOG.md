@@ -78,6 +78,12 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Fixed
 
+- Workflow RPC registers synchronously during service-worker activation, waits
+  for crash recovery before handling requests, and discards requests from clients
+  disconnected during recovery rather than executing their mutations.
+- Owned browser verification keeps renderers active, sends complete trusted
+  editor pointer gestures and supports explicit `HC_E2E_HEADLESS=1` isolation
+  from the physical desktop without changing assertions or production settings.
 - CI/release companion builds now supply checksum-pinned Node and Codex inputs
   on the supported Mac arm64 target; all four platforms retain core archive
   packaging and Node-absent smoke coverage. The fixture workflow explicitly

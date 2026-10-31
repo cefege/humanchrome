@@ -237,11 +237,12 @@ export const scenarios = [
         success: p?.success === true,
         captured: !!(p?.fileSaved || p?.base64 || p?.dataUrl),
         filename: p?.filename ?? null,
+        error: p?.error ?? null,
       };
     },
     predicate: (a) => ({
       ok: !a.isError && a.success && a.captured,
-      reason: `success=${a.success} captured=${a.captured} file=${a.filename}`,
+      reason: `success=${a.success} captured=${a.captured} file=${a.filename} error=${JSON.stringify(a.error)}`,
     }),
   },
 ];

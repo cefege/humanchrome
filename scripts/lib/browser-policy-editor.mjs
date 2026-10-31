@@ -146,6 +146,13 @@ function assertVisiblePoint(point, label, surface) {
 async function dispatchPointerClick(driver, tabId, point) {
   const params = { x: point.x, y: point.y, button: 'left', clickCount: 1 };
   await driver.sendPageCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+    button: 'none',
+    buttons: 0,
+  });
+  await driver.sendPageCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mousePressed',
     buttons: 1,
     ...params,
@@ -158,17 +165,7 @@ async function dispatchPointerClick(driver, tabId, point) {
 }
 
 async function editOpacity(driver, tabId, point, platform) {
-  const click = { x: point.x, y: point.y, button: 'left', clickCount: 1 };
-  await driver.sendPageCommand(tabId, 'Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    buttons: 1,
-    ...click,
-  });
-  await driver.sendPageCommand(tabId, 'Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    buttons: 0,
-    ...click,
-  });
+  await dispatchPointerClick(driver, tabId, point);
   const selectAllModifiers = String(platform).includes('Mac') ? 4 : 2;
   await driver.sendPageCommand(tabId, 'Input.dispatchKeyEvent', {
     type: 'keyDown',

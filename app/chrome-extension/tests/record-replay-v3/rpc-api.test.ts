@@ -21,6 +21,10 @@ import type { EventsBus } from '@/entrypoints/background/record-replay-v3/engine
 import type { RunScheduler } from '@/entrypoints/background/record-replay-v3/engine/queue/scheduler';
 import type { RunQueueItem } from '@/entrypoints/background/record-replay-v3/engine/queue/queue';
 import { RpcServer } from '@/entrypoints/background/record-replay-v3/engine/transport/rpc-server';
+import {
+  RR_V3_PORT_NAME,
+  type RpcRequest,
+} from '@/entrypoints/background/record-replay-v3/engine/transport/rpc';
 
 // ==================== Test Utilities ====================
 
@@ -186,6 +190,89 @@ interface MockStorageInternal {
 function getInternal(storage: StoragePort): MockStorageInternal {
   return (storage as unknown as { _internal: MockStorageInternal })._internal;
 }
+
+function connectStartupClient(server: RpcServer) {
+  const replies: unknown[] = [];
+  let onMessage!: (message: unknown) => Promise<void>;
+  let onDisconnect!: () => void;
+  const port = {
+    name: RR_V3_PORT_NAME,
+    postMessage: (message: unknown) => {
+      replies.push(message);
+    },
+    onMessage: {
+      addListener: (listener: typeof onMessage) => {
+        onMessage = listener;
+      },
+    },
+    onDisconnect: {
+      addListener: (listener: typeof onDisconnect) => {
+        onDisconnect = listener;
+      },
+    },
+  } as unknown as chrome.runtime.Port;
+  // Supply an owned Port while retaining the real private connection/message handlers.
+  const connection = server as unknown as { handleConnect: (port: chrome.runtime.Port) => void };
+  connection.handleConnect(port);
+  return {
+    replies,
+    send: (method: RpcRequest['method'], params: RpcRequest['params']) =>
+      onMessage({ type: 'rr_v3.request', requestId: 'during-recovery', method, params }),
+    disconnect: () => onDisconnect(),
+  };
+}
+
+describe('V3 RPC startup ordering', () => {
+  it('answers an early run read with recovered state, not the pre-recovery record', async () => {
+    const storage = createMockStorage();
+    const ready = Promise.withResolvers<void>();
+    const server = new RpcServer({ storage, events: createMockEventsBus(), ready: ready.promise });
+    const run: RunRecordV3 = {
+      schemaVersion: 3,
+      id: 'recovering-run' as RunRecordV3['id'],
+      flowId: 'recovering-flow' as RunRecordV3['flowId'],
+      status: 'running',
+      createdAt: 1,
+      updatedAt: 1,
+      attempt: 1,
+      maxAttempts: 1,
+      nextSeq: 1,
+    };
+    getInternal(storage).runsMap.set(run.id, run);
+    const client = connectStartupClient(server);
+    const pending = client.send('rr_v3.getRun', { runId: run.id });
+    getInternal(storage).runsMap.set(run.id, { ...run, status: 'failed', finishedAt: 2 });
+    ready.resolve();
+    await pending;
+    expect(client.replies).toEqual([
+      expect.objectContaining({
+        ok: true,
+        result: expect.objectContaining({ id: run.id, status: 'failed', finishedAt: 2 }),
+      }),
+    ]);
+    client.disconnect();
+  });
+
+  it('does not enqueue an early request whose client disconnected during recovery', async () => {
+    const storage = createMockStorage();
+    const ready = Promise.withResolvers<void>();
+    const server = new RpcServer({
+      storage,
+      events: createMockEventsBus(),
+      scheduler: createMockScheduler(),
+      ready: ready.promise,
+    });
+    const flow = createTestFlow('startup-flow');
+    getInternal(storage).flowsMap.set(flow.id, flow);
+    const client = connectStartupClient(server);
+    const pending = client.send('rr_v3.enqueueRun', { flowId: flow.id });
+    client.disconnect();
+    ready.resolve();
+    await pending;
+    expect(getInternal(storage).runsMap.size).toBe(0);
+    expect(getInternal(storage).queueMap.size).toBe(0);
+  });
+});
 
 // ==================== Tests ====================
 

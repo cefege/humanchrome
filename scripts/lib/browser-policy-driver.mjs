@@ -269,7 +269,26 @@ export async function createBrowserPolicyDriver({ cdpPort, extensionId, bridgeBa
       const lifecycle = (async () => {
         // This driver is restricted to the matrix-owned browser profile.
         await connection.send('ServiceWorker.stopAllWorkers', {}, 10_000);
-        return this.evaluate(`chrome.runtime.sendMessage({type: 'get_server_status'})`);
+        return this.evaluate(`(async () => {
+          const nativeStatus = chrome.runtime.sendMessage({type: 'get_server_status'});
+          const port = chrome.runtime.connect({name: 'rr_v3'});
+          try {
+            const runs = await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('First workflow request during SW activation timed out')), 15000);
+              port.onMessage.addListener(message => {
+                if (message?.type !== 'rr_v3.response' || message.requestId !== 'cold-workflow-readiness') return;
+                clearTimeout(timer);
+                if (message.ok) resolve(message.result);
+                else reject(new Error('Workflow startup failed: ' + message.error));
+              });
+              port.postMessage({type: 'rr_v3.request', requestId: 'cold-workflow-readiness', method: 'rr_v3.listRuns'});
+            });
+            if (!Array.isArray(runs)) throw new Error('Cold workflow request did not return durable runs');
+            return {nativeStatus: await nativeStatus, workflowRunIds: runs.map(run => run.id)};
+          } finally {
+            port.disconnect();
+          }
+        })()`);
       })().then(result => (lifecycleResult = { result }), error => (lifecycleResult = { error }));
       const deadline = Date.now() + 30_000;
       const httpChecks = [];
@@ -347,6 +366,7 @@ export async function createBrowserPolicyDriver({ cdpPort, extensionId, bridgeBa
         closedOffscreenForPersistence: true,
         httpChecks,
         status,
+        coldWorkflowRunIds: lifecycleResult.result.workflowRunIds,
         nativeChannel,
         nativeChannelAttempts,
       };

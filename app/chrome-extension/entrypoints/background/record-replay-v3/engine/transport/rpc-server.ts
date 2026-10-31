@@ -34,6 +34,8 @@ import {
 export interface RpcServerConfig {
   storage: StoragePort;
   events: EventsBus;
+  /** Requests wait until startup recovery has completed. */
+  ready?: Promise<void>;
   debugController?: DebugController;
   runners?: RunnerRegistry;
   scheduler?: RunScheduler;
@@ -56,6 +58,7 @@ function defaultGenerateRunId(): RunId {
 export class RpcServer {
   private readonly storage: StoragePort;
   private readonly events: EventsBus;
+  private readonly ready?: Promise<void>;
   private readonly debugController?: DebugController;
   private readonly runners?: RunnerRegistry;
   private readonly scheduler?: RunScheduler;
@@ -69,6 +72,7 @@ export class RpcServer {
   constructor(config: RpcServerConfig) {
     this.storage = config.storage;
     this.events = config.events;
+    this.ready = config.ready;
     this.debugController = config.debugController;
     this.runners = config.runners;
     this.scheduler = config.scheduler;
@@ -126,13 +130,15 @@ export class RpcServer {
   private handleMessage = async (connId: string, msg: unknown): Promise<void> => {
     if (!isRpcRequest(msg)) return;
 
-    const conn = this.connections.get(connId);
-    if (!conn) return;
-
     try {
+      if (this.ready) await this.ready;
+      const conn = this.connections.get(connId);
+      if (!conn) return;
       const result = await this.handleRequest(msg, conn);
       conn.port.postMessage(createRpcResponseOk(msg.requestId, result));
     } catch (e) {
+      const conn = this.connections.get(connId);
+      if (!conn) return;
       const error = e instanceof Error ? e.message : String(e);
       conn.port.postMessage(createRpcResponseErr(msg.requestId, error));
     }

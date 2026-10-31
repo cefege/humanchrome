@@ -12,11 +12,12 @@ package and ONNX/HNSW engines remain. The pre-reversal source is preserved in
 | Gate                                                                                    | Observed result                                                                                                                                    |
 | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Rust format, Clippy with warnings denied, workspace tests and optimized native binaries | Passed; 191 tests across 13 suites, one opt-in TLS test ignored                                                                                    |
-| Shared and extension suites                                                             | 174 shared and 1,939 extension tests passed; one extension test skipped                                                                            |
+| Shared and extension suites                                                             | 174 shared and 1,941 extension tests passed; one extension test skipped                                                                            |
 | TypeScript, generated contracts and source inventory                                    | Passed; 646 production files, 85 retained browser-policy boundaries, zero pending boundaries                                                       |
-| Owned Chrome for Testing                                                                | `browser-hc-rt-XKBl9X.json`: 35/35 matrix rows and 17/17 task scenarios                                                                            |
+| Owned Chrome for Testing                                                                | Chrome 156, explicit headless mode, `browser-hc-rt-GoFeWg.json`: 35/35 matrix rows and 17/17 tasks, including immediate workflow RPC on activation |
 | Extracted native core plus pinned optional-engine archives                              | Installation, upgrade, retained configuration, Node-absent core startup and actual trace smoke passed                                              |
 | Actual bundled Claude SDK and Codex                                                     | Local-only startup/activity/cancel/reap passed; Claude resume and invalid-resume clearing passed; no credentials or completed cloud-model response |
+| Hosted native and build gates                                                           | Run `41144837780` passed all four native platforms, actual companion archive smoke, bridge smoke, build/typecheck and extension packaging          |
 
 The 35/35 + 17/17 result is an isolated owned-Chrome gate, not a probe of the
 daily-driver production profile or proof that its extension source has reloaded.
@@ -52,7 +53,10 @@ released. Coordinator health/readiness, worker health and native `/ping` returne
 backups are intentionally retained.
 
 Production activation is complete. Fresh source-release checks remain distinct
-from those live facts; IMP-0210 tracks the remaining fresh GitHub CI verdicts.
+from those live facts. The subsequent workflow activation fix (IMP-0214) is
+source-verified by the full owned Chrome matrix and extension suite; it has not
+been synchronized over production build `mvvcuxmn-lranwe`. No additional live
+service restart was needed for this follow-up.
 
 The retired general browser kernel's tests and benchmarks below are historical,
 not requirements or current-source certification. Browser policy uses direct

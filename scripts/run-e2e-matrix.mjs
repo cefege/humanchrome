@@ -1185,7 +1185,11 @@ function launchChrome(cdpPort) {
     `--remote-debugging-port=${cdpPort}`,
     '--no-first-run',
     '--no-default-browser-check',
-    '--disable-features=DialMediaRouteProvider',
+    '--disable-features=DialMediaRouteProvider,CalculateNativeWinOcclusion',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    ...(process.env.HC_E2E_HEADLESS === '1' ? ['--headless=new', '--window-size=1280,900'] : []),
     // DOM fixtures do not exercise real credentials. A private HOME has no
     // login Keychain; never block its cookie store on an interactive prompt.
     ...(platform() === 'darwin' ? ['--use-mock-keychain'] : []),

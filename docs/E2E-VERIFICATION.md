@@ -83,7 +83,7 @@ packaged extension and native bridge, not test-only policy exports:
 | `Rust-7b`       | `#rust-recorder-workflow`                       | First recorded interaction, initialized restrictive-CSP frame, exact generated-target comparison with the frozen original executable, persisted-target comparison and actual replayed counter change.                                                                                                                                                                                                                                                                    |
 | `Rust-7c`       | `#rust-recorder-workflow` and builder           | Variable branch, two retry attempts, cycle rejection, deterministic pause/resume/cancel, event ordering and actual V2 file import with coordinate/ID root choice and visible warnings.                                                                                                                                                                                                                                                                                   |
 | `Rust-7d`       | `rust-semantic-policy.html`                     | Genuine tokenizer/model loading and ONNX inference, HNSW indexing/ranking, finite scores, matching snippets and a persistable corpus. No replacement vectors or model are injected.                                                                                                                                                                                                                                                                                      |
-| `Rust-6`        | Service-worker stop/start, not extension reload | Native HTTP stays available; ownership/aliases restore, pacing resets, workflow events/`nextSeq` survive, and HNSW results match after the offscreen document is explicitly closed and recreated. Cold reset before model readiness must reopen a zero-document/zero-tab index with `search:[]`. Missing prerequisites fail rather than becoming passing partial coverage.                                                                                               |
+| `Rust-6`        | Service-worker stop/start, not extension reload | Native HTTP stays available; the first workflow read sent during activation completes after crash recovery, ownership/aliases restore, pacing resets, workflow events/`nextSeq` survive, and HNSW results match after the offscreen document is explicitly closed and recreated. Cold reset before model readiness must reopen a zero-document/zero-tab index with `search:[]`. Missing prerequisites fail rather than becoming passing partial coverage.                |
 
 Owned Option A evidence includes keyed `browser-hc-rt-hziSan.json` and keyless
 `browser-hc-rt-vxH0UF.json`, each with its `.tasks.json` sidecar under
@@ -95,6 +95,16 @@ persisted-query reopen, service-worker/native-channel replacement and cold
 vector reset passed. This is an isolated Chrome-for-Testing result, not proof
 of a production installation. Native artifact installation and deployment are
 separate gates.
+
+The workflow activation fix is verified by `browser-hc-rt-GoFeWg.json` and its
+`.tasks.json` sidecar: Chrome for Testing `156.0.8078.80`, 35/35 matrix rows and
+17/17 task scenarios. Four actual worker activations completed the immediately
+submitted workflow read, without retrying it or waiting for a startup sleep.
+This run explicitly used `HC_E2E_HEADLESS=1` for a real Chrome compositor
+independent of the daily-driver desktop. The runner otherwise remains headed by
+default; both modes keep the same native bridge, extension, trusted input and
+assertions. Owned launches disable renderer background throttling/occlusion,
+and editor clicks include the pointer move used by production trusted clicks.
 
 Performance references are observational, not acceptance gates or speed claims:
 `performance-extension-startup.json` records three same-backend source/current

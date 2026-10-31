@@ -104,6 +104,28 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Match the production multi-thread runtime and gate readiness on the child's installed TERM trap, not a mocked Codex progress echo. Keep both five-second deadlines and the graceful-signal/reaping assertions.
 - **Notes**: With that test setup, format, warnings-denied Clippy and the unfiltered workspace pass: 191 tests across 13 suites, one pre-existing opt-in TLS test ignored. Temporary diagnostics and timeout increases are removed; production provider code is unchanged. The underlying Darwin loader mechanism is not established and no upstream Tokio/macOS fix is claimed.
 
+### IMP-0214 · Workflow RPC can lose its first connection during service-worker recovery (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-31 (hosted Chrome verification)
+- **Status**: done
+- **Why**: `bootstrapV3` registered its Port listener only after awaited crash recovery and trigger initialization. Native readiness can occur earlier, so a workflow connection made during activation has no workflow receiver.
+- **Cost**: S
+- **Value**: L
+- **Repro**: Hosted run `41144837785` passed 34/35 rows, then timed out on the first `rr_v3.getRun` after a service-worker restart. Independent regressions also exposed a pre-recovery run read and an enqueue from a client disconnected during recovery.
+- **Fix sketch**: Register workflow RPC synchronously, gate requests until recovery completes, and discard queued requests whose connection has gone away. Do not replay requests or add startup sleeps.
+- **Notes**: Both regressions failed before and pass after; all 48 RPC tests, extension typecheck, and 1,941 extension tests pass. Chrome 156 evidence `browser-hc-rt-GoFeWg.json` passes 35/35 matrix rows and 17/17 tasks, including immediate read-only workflow RPC during four real worker activations. This follow-up is source-verified, not yet promoted over the healthy production extension.
+
+### IMP-0215 · Owned browser verification depends on desktop rendering state (bug) · score: 8
+
+- **Proposed by**: omp · 2026-10-31 (local Chrome 156 verification)
+- **Status**: done
+- **Why**: The legacy matrix launcher omitted the native launcher's background-rendering controls, and the editor helper omitted the preceding pointer move used by production trusted clicks. Local headed Chrome 156 on macOS 27 produced stationary-animation and pointer/screenshot failures that the isolated hosted desktop did not show.
+- **Cost**: S
+- **Value**: L
+- **Repro**: `browser-hc-rt-htyr9r.json` returned 30/35 matrix and 10/17 task passes. Matching background-rendering flags restored animation/recorder behavior and 16/17 tasks in `browser-hc-rt-6HZJNG.json`; editor/workflow pointer and screenshot failures remained.
+- **Fix sketch**: Keep the owned renderer active, use the full pointer gesture, and provide an explicit real-Chrome headless mode for display-independent verification. Preserve headed mode, native input, screenshots and every existing assertion.
+- **Notes**: Real Chrome 156 headless verification `browser-hc-rt-GoFeWg.json` passes all 35 matrix rows and 17 task scenarios, including actual editor opacity/screenshot, workflow clicks and screenshot-region output. No assertion was relaxed. `HC_E2E_HEADLESS=1` explicitly isolates the compositor from the user's desktop; headed mode remains the default. Production launch settings are unchanged.
+
 ### IMP-0209 · Profile native-host descriptor remains on removed Node executable after versioned upgrade (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-10-30 (production Rust rollout)
@@ -118,13 +140,13 @@ The order of items inside ## Active is sorted by score descending.
 ### IMP-0210 · Release workflows omit required fixture and companion build inputs (bug) · score: 8
 
 - **Proposed by**: bug-scout · 2026-10-30 (PR #414 checks)
-- **Status**: in-progress
+- **Status**: done
 - **Why**: The fixture workflow does not opt into the existing intentional keyless CI mode. Native CI/release workflows invoke the Mac-arm64-only companion builder without its required target, Node archive or Codex executable, including on unsupported targets.
 - **Cost**: S
 - **Value**: L
 - **Repro**: CI run `41101366637` fails the production-key guard before its matrix; native job `124218996216` in run `41101366579` compiles the Intel core, then fails companion build with `--target is required`.
 - **Fix sketch**: Match the existing CI keyless setting; keep core archives on all four targets, and build/smoke companion archives only on the supported Mac arm64 target using checksum-pinned official runtime inputs shared by CI and release.
-- **Notes**: The exact shared companion build action downloaded and verified Node 24.22.2 and Codex 0.154.0, built the real SDK/analyzer artifact, and passed extracted core/companion archive smoke locally. Keyless startup exposed a canonical-path origin mismatch (`/tmp` versus `/private/tmp`); matching Chrome's actual canonical path fixed native authorization. The resulting `browser-hc-rt-vxH0UF.json` passed 35/35 matrix rows and 17/17 tasks. Byte-identical generated contracts now remain formatter-excluded; regeneration changed no contract values. New GitHub checks remain a separate gate.
+- **Notes**: Hosted run `41144837780` passed all four native targets, actual Mac arm64 companion archive smoke, bridge smoke, build/typecheck and extension packaging. The keyless browser workflow built and ran all 35 rows; its only hosted failure was the separate workflow activation race tracked by IMP-0214. Official checksum-pinned Node 24.22.2/Codex 0.154.0 and extracted archive smoke also pass locally. No native pipeline input or runner gate remains blocked.
 
 ### IMP-0208 · Page read can accept an iframe response for the main document (bug) · score: 8
 
