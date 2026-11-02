@@ -197,12 +197,21 @@ interactive login. Closing the Screen Sharing window disconnects the viewer;
 it does not stop the VM, Chrome or the fleet worker. Do not log out or shut down
 the guest just to close the viewer.
 
-Verification authenticated the actual guest account using Apple's ARD protocol
+Initial verification authenticated the actual guest account using Apple's ARD protocol
 and received a complete 2048×1536 desktop framebuffer, visually inspected without
 opening any host viewer or sending input. Anonymous authentication and legacy
 shared VNC-password authentication were not offered. The enablement commands
 were guest-only: add `admin` to `com.apple.access_screensharing`, enable
 `system/com.apple.screensharing`, and kickstart that service.
+
+The VM display now matches the M1 Max laptop's built-in panel: **3456×2234
+pixels**, with a **1728×1117-point desktop at 2× Retina scaling**. Tart's persistent
+display is `1728x1117pt`, with display refit disabled. After the graceful VM
+restart, macOS initially restored its old cached mode; the exact matching HiDPI
+mode was then selected using a permanent CoreGraphics display configuration.
+An authenticated Screen Sharing connection confirmed the new 3456×2234
+framebuffer dimensions, without opening a host viewer or sending desktop input.
+All three fleet profiles and the Career service were healthy afterward.
 
 ### Lifecycle and private state
 

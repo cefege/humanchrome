@@ -13,6 +13,9 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 - Native macOS Screen Sharing access to the local fleet VM using the dedicated
   guest account over Tailscale. Account authentication and a complete desktop
   framebuffer were verified without opening a host viewer.
+  The guest now matches the laptop's 3456×2234 Retina panel, with readable
+  1728×1117 logical sizing; persistent configuration and authenticated Screen
+  Sharing framebuffer dimensions were verified.
 - Career integration with the VM fleet: authenticated purpose-bound browser
   selection, separate local/desk clients, credential-safe connection files,
   cross-worker tab-cache isolation and host-file uploads without shared folders.
