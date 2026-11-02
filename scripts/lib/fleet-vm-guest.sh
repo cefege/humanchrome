@@ -85,7 +85,7 @@ if [[ -f "$root/worker.json" ]]; then
   [[ "$(json_value "$root/worker.json" port)" == 12310 ]] || fail 'unexpected worker port'
   allowed=$(/usr/bin/plutil -extract profiles json -o - "$root/worker.json" | /usr/bin/tr -d '[:space:]')
   case "$allowed" in
-    '["browser"]'|'["browser","career-linkedin","career-freelancermap"]') ;;
+    '["browser"]'|'["browser","career-linkedin","career-freelancermap"]'|'["browser","career-linkedin","career-freelancermap","tinder","whatsapp"]') ;;
     *) fail 'unexpected worker profile allowlist' ;;
   esac
   [[ "$(json_value "$root/fleet.json" profiles.0.name)" == browser ]] || fail 'partial or foreign browser configuration'

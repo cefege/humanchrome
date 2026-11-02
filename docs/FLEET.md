@@ -167,6 +167,29 @@ Natural lease-expiry recovery and non-admin cold starts retained profile state.
 Sanitized results are in
 [`2026-11-02_local-vm-fleet.json`](e2e-runs/2026-11-02_local-vm-fleet.json).
 
+Flame's VM integration is **prepared but not activated**. Its required new
+profiles are `tinder` and `whatsapp`, with matching unique purposes and stable
+agents `flame-v2-tinder` / `flame-v2-whatsapp`. They must be created in this
+existing worker, using its approved `empty` seed source, never a second VM,
+the host daily profile, a Career profile or a generic research route.
+The guest bootstrap guard accepts the extended exact allowlist
+`browser,career-linkedin,career-freelancermap,tinder,whatsapp`; the live worker
+still has only the original three entries.
+
+On 2026-11-02 Mike chose **Keep Career uninterrupted** because its desk continued
+renewing its LinkedIn lease. No worker/coordinator reload or profile provisioning
+was performed. Separate non-admin Flame local/production credentials are prepared
+privately, not registered; Career's credentials and running Pod were unchanged.
+Flame uses its own `~/.config/flame/fleet.json`, not Career's token. Its production
+writer was stopped after a coherent backup and unchanged durable-work inventory;
+it remains at zero replicas rather than using the old host gateway.
+Activation requires an authorized shared-fleet idle window: the installed
+worker reads its allowlist at startup, and coordinator credential reload closes
+connections. Never release Career's assignment or interrupt its work to bypass
+that gate. Flame's README documents the protected activation material, exact
+purpose/worker routing, guest-only fixture acceptance and rollback boundary.
+
+
 The VM has 4 vCPUs, 12 GiB RAM and a 100 GB sparse disk. It uses its own Tailscale
 identity. Initial provisioning used a fresh Chrome profile; later guest logins
 are persistent and were retained when creating the Career profiles.
