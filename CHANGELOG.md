@@ -10,6 +10,9 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
   lifecycle, guest-only native bootstrap, and explicit idle coordinator
   cutover/rollback. The existing endpoint routes exclusively to the guest;
   the old Mac remains an explicit rollback target, not a fallback.
+- Native macOS Screen Sharing access to the local fleet VM using the dedicated
+  guest account over Tailscale. Account authentication and a complete desktop
+  framebuffer were verified without opening a host viewer.
 - Rust transition prerequisites: a pinned Cargo workspace, generated declarative
   contracts, isolated process compatibility fixtures, and a production-source
   ownership inventory. Native and isolated-Chrome verification can target

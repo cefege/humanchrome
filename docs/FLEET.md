@@ -157,6 +157,35 @@ The measured public egress IP matched the laptop's. This is isolation, not
 anti-detection: WebGL exposes **Apple Paravirtual device**. Authenticated target
 sites and anti-bot acceptance have not been verified.
 
+### Connect with macOS Screen Sharing
+
+Native Screen Sharing is enabled in the guest, and `admin` is explicitly in its
+screen-sharing access group. From the laptop, use the built-in client:
+
+```bash
+pbcopy < "$HOME/Library/Application Support/humanchrome-vm-pilot/private/guest-password"
+open 'vnc://admin@100.74.43.109'
+```
+
+Authenticate as **Registered User**, username **admin**, and paste the copied
+guest password. It is not the laptop password or the original image password.
+No password is embedded in the URL or stored in Git. The address is the guest's
+private Tailscale IP, not a public port forward.
+
+Use the Chrome window already open in that desktop: it is the fleet's persistent
+`browser` profile. Sign into Google or other sites there. The viewer and
+automation share that guest desktop, so avoid running browser jobs while doing
+interactive login. Closing the Screen Sharing window disconnects the viewer;
+it does not stop the VM, Chrome or the fleet worker. Do not log out or shut down
+the guest just to close the viewer.
+
+Verification authenticated the actual guest account using Apple's ARD protocol
+and received a complete 2048×1536 desktop framebuffer, visually inspected without
+opening any host viewer or sending input. Anonymous authentication and legacy
+shared VNC-password authentication were not offered. The enablement commands
+were guest-only: add `admin` to `com.apple.access_screensharing`, enable
+`system/com.apple.screensharing`, and kickstart that service.
+
 ### Lifecycle and private state
 
 Run from the repository:

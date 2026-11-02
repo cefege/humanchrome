@@ -1,6 +1,22 @@
 {
   "schemaVersion": 1,
   "verifiedAt": "2026-11-02T16:15:07.239Z",
+  "screenSharing": {
+    "verifiedOn": "2026-11-02",
+    "client": "built-in macOS Screen Sharing",
+    "address": "vnc://admin@100.74.43.109",
+    "guestAccountAuthorized": true,
+    "nativeAccountAuthentication": "passed",
+    "completeFramebufferReceived": true,
+    "framebufferWidth": 2048,
+    "framebufferHeight": 1536,
+    "desktopVisuallyInspected": true,
+    "hostViewerOpened": false,
+    "inputEventsSent": false,
+    "anonymousAuthenticationOffered": false,
+    "legacySharedVncPasswordAuthenticationOffered": false,
+    "screenshot": "private evidence/guest-screen-sharing.png; not committed"
+  },
   "status": "deployed_with_recorded_tool_issue",
   "initiative": "IMP-0217",
   "checkpoint": {
