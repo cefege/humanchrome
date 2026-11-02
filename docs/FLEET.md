@@ -151,11 +151,29 @@ is `laptop-vm-1`, with profile `browser` and labels `research`, `vm-pilot`.
 Both `research` and `any` pools select that guest. `mac-1` remains intact but
 is not a selectable worker or an automatic fallback.
 
+Career additionally uses `career-linkedin` and `career-freelancermap`, with
+matching unique purposes. They were seeded from the signed-in guest `browser`
+and passed the native cookie/Google-session gates. Career reads its private
+`~/.config/career/fleet.json` connection automatically; its code and files stay
+on the host. Local Career and the deployed desk have separate non-admin
+credentials and never fall back to local Chrome. Host uploads cross as file
+bytes, without sharing host directories.
+
+The deployed desk was verified from its actual non-root Pod through the private
+coordinator Service: page reads, a trusted form action from a background tab,
+and Pod-file upload all reached the VM. Career activates its owned target tab
+before trusted input; that focus change remains inside the guest desktop.
+Natural lease-expiry recovery and non-admin cold starts retained profile state.
+Sanitized results are in
+[`2026-11-02_local-vm-fleet.json`](e2e-runs/2026-11-02_local-vm-fleet.json).
+
 The VM has 4 vCPUs, 12 GiB RAM and a 100 GB sparse disk. It uses its own Tailscale
-identity and a fresh Chrome profile: existing website logins were not migrated.
+identity. Initial provisioning used a fresh Chrome profile; later guest logins
+are persistent and were retained when creating the Career profiles.
 The measured public egress IP matched the laptop's. This is isolation, not
-anti-detection: WebGL exposes **Apple Paravirtual device**. Authenticated target
-sites and anti-bot acceptance have not been verified.
+anti-detection: WebGL exposes **Apple Paravirtual device**. Google-session gates
+passed; authenticated LinkedIn/FreelancerMap acceptance and anti-bot behavior
+have not been verified.
 
 ### Connect with macOS Screen Sharing
 

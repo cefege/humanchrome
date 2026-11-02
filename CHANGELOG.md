@@ -13,6 +13,11 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 - Native macOS Screen Sharing access to the local fleet VM using the dedicated
   guest account over Tailscale. Account authentication and a complete desktop
   framebuffer were verified without opening a host viewer.
+- Career integration with the VM fleet: authenticated purpose-bound browser
+  selection, separate local/desk clients, credential-safe connection files,
+  cross-worker tab-cache isolation and host-file uploads without shared folders.
+  Local and deployed real-browser verification includes non-admin cold starts,
+  expired-workflow recovery, and guest-only activation before trusted input.
 - Rust transition prerequisites: a pinned Cargo workspace, generated declarative
   contracts, isolated process compatibility fixtures, and a production-source
   ownership inventory. Native and isolated-Chrome verification can target

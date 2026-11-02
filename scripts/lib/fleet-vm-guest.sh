@@ -84,7 +84,10 @@ if [[ -f "$root/worker.json" ]]; then
   [[ "$(json_value "$root/worker.json" host)" == "$HC_VM_WORKER_HOST" ]] || fail 'worker address changed; explicit configuration maintenance required'
   [[ "$(json_value "$root/worker.json" port)" == 12310 ]] || fail 'unexpected worker port'
   allowed=$(/usr/bin/plutil -extract profiles json -o - "$root/worker.json" | /usr/bin/tr -d '[:space:]')
-  [[ "$allowed" == '["browser"]' ]] || fail 'unexpected worker profile allowlist'
+  case "$allowed" in
+    '["browser"]'|'["browser","career-linkedin","career-freelancermap"]') ;;
+    *) fail 'unexpected worker profile allowlist' ;;
+  esac
   [[ "$(json_value "$root/fleet.json" profiles.0.name)" == browser ]] || fail 'partial or foreign browser configuration'
   [[ "$(json_value "$root/fleet.json" chromePath)" == "$chrome" ]] || fail 'Chrome path mismatch'
   [[ "$(json_value "$root/fleet.json" extensionDir)" == "$extension" ]] || fail 'extension path mismatch'

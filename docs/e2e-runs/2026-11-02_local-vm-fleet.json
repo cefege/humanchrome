@@ -47,6 +47,72 @@
     "samePublicEgressAsHost": true,
     "webglRenderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple Paravirtual device, Unspecified Version)"
   },
+  "careerIntegration": {
+    "verifiedAt": "2026-11-02T18:32:54.859Z",
+    "status": "deployed_and_verified",
+    "worker": "laptop-vm-1",
+    "profiles": ["browser", "career-linkedin", "career-freelancermap"],
+    "clients": { "local": "career", "deployed": "career-desk", "administrator": false },
+    "localSmoke": {
+      "workingDirectory": "/private/tmp",
+      "registeredGuardToolUsed": true,
+      "separateProfileStorage": true,
+      "trustedFormAction": true,
+      "hostFileUpload": true,
+      "screenshotsVisuallyInspected": true,
+      "fixtureTabsClosed": true
+    },
+    "coldStart": { "nonAdminDemandStart": true, "persistedStorage": true },
+    "expiredWorkflow": {
+      "naturalLeaseExpiry": true,
+      "automaticRecovery": true,
+      "sameProfile": true,
+      "persistedStorage": true,
+      "linkedInSessionCookiePresent": true,
+      "linkedInServerAcceptanceTested": false
+    },
+    "deployedSmoke": {
+      "image": "docker.io/library/career@sha256:981a1332ee5afceb903d94490f4bc9786af7ea866fb2640373bb30c4d07c999c",
+      "runtimeSourceSha256": "ecaca0f858c093eb04b17f6eb3f56bdaf951fe3d338b97c2b0bb213c652fbe99",
+      "uid": 1000,
+      "credentialMode": "0440",
+      "coordinatorRoute": "private Kubernetes Service",
+      "pageRead": true,
+      "backgroundTabTrustedFormAction": true,
+      "podFileUpload": true,
+      "vmGraphicsConfirmed": true,
+      "healthLive": 204,
+      "healthReady": 204,
+      "databaseInodeUnchanged": true,
+      "databaseSchemaUnchanged": true,
+      "deliveryFlagsPreserved": true,
+      "backupSecretReaderVerified": true,
+      "backupImagePinsUpdated": true
+    },
+    "backgroundInputIssue": {
+      "before": "Hidden-tab selector click acknowledged without invoking the form handler.",
+      "after": "Owned target window/tab activation followed by the same trusted click committed the form.",
+      "mitigation": "Career transport activates trusted-input targets inside the VM.",
+      "upstreamIssue": "IMP-0192; original visible-tab failure remains unresolved"
+    },
+    "checks": {
+      "careerTests": { "command": "bun test ./test/", "passed": 838, "failed": 0 },
+      "deskTests": { "command": "bun run test", "passed": 463, "failed": 0 },
+      "careerTypecheck": true,
+      "deskTypecheck": true,
+      "webTypecheck": true,
+      "expandedProfileBootstrapRerun": true
+    },
+    "limits": {
+      "hostViewerOpened": false,
+      "hostDesktopInputSent": false,
+      "recruiterMessagesSent": false,
+      "applicationsSubmitted": false,
+      "paidModelCallsMade": false,
+      "websiteAntiBotAcceptanceTested": false,
+      "unrelatedProductionFilesystemPreserved": true
+    }
+  },
   "routing": {
     "endpointUnchanged": true,
     "researchProfile": "laptop-vm-1:browser",
