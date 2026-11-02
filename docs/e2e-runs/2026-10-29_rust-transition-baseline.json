@@ -1,0 +1,341 @@
+{
+  "runAt": "2026-10-29T01:18:19.320Z",
+  "bridge": "http://127.0.0.1:12306",
+  "fixture": "http://127.0.0.1:4173/playwright-parity.html",
+  "swInfoBefore": {
+    "extensionVersion": "1.2.0",
+    "extensionId": "dhabpgnpajocncnoigibmocmfjnhlmhe",
+    "toolNames": [
+      "browser_alias_tab",
+      "browser_claim_tab",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_basic_auth",
+      "chrome_block_or_redirect",
+      "chrome_bookmark",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tabs",
+      "chrome_combobox_select",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_context_menu",
+      "chrome_cookies",
+      "chrome_diagnostics",
+      "chrome_download",
+      "chrome_drag_drop",
+      "chrome_emulate",
+      "chrome_fill_lwc",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_attributes",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_har_export",
+      "chrome_history",
+      "chrome_hover",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_locator_handler",
+      "chrome_mock_response",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_owned_tabs",
+      "chrome_pace",
+      "chrome_paste",
+      "chrome_performance_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_read_page",
+      "chrome_request_element_selection",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_checked",
+      "chrome_set_extra_http_headers",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_type_into",
+      "chrome_typeahead_probe",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 77,
+    "buildHash": "mvsu4o1l-ml4rtm",
+    "builtAt": "2026-10-29T00:58:41.721Z",
+    "uptimeMs": 1161
+  },
+  "swInfoAfter": {
+    "extensionVersion": "1.2.0",
+    "extensionId": "dhabpgnpajocncnoigibmocmfjnhlmhe",
+    "toolNames": [
+      "browser_alias_tab",
+      "browser_claim_tab",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_basic_auth",
+      "chrome_block_or_redirect",
+      "chrome_bookmark",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tabs",
+      "chrome_combobox_select",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_context_menu",
+      "chrome_cookies",
+      "chrome_diagnostics",
+      "chrome_download",
+      "chrome_drag_drop",
+      "chrome_emulate",
+      "chrome_fill_lwc",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_attributes",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_har_export",
+      "chrome_history",
+      "chrome_hover",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_locator_handler",
+      "chrome_mock_response",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_owned_tabs",
+      "chrome_pace",
+      "chrome_paste",
+      "chrome_performance_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_read_page",
+      "chrome_request_element_selection",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_checked",
+      "chrome_set_extra_http_headers",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_type_into",
+      "chrome_typeahead_probe",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 77,
+    "buildHash": "mvsu4o1l-ml4rtm",
+    "builtAt": "2026-10-29T00:58:41.721Z",
+    "uptimeMs": 1161
+  },
+  "results": [
+    {
+      "imp": "IMP-0098",
+      "name": "role + name (Submit)",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match without index",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match with index:1",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "display:none → not_visible",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "offscreen (left:-9999) fails not_visible",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "animation unstable_bbox",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "occluded_by:*",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "disabled button",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "aria-disabled button",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "readonly input rejects fill",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0100",
+      "name": "register_default dialog policy",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0101",
+      "name": "locator_handler list returns ok",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:url (already-matched)",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:load_state",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0092",
+      "name": "coords-over-empty-space returns error envelope",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0095",
+      "name": "await_element absent envelope",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0168",
+      "name": "chrome_owned_tabs returns the caller-owned set",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0169",
+      "name": "browser_alias_tab + owned-tabs roundtrip",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0127",
+      "name": "chrome_aria_snapshot returns indented role/name/ref tree",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0126",
+      "name": "chrome_get_attributes reads href + aria-label",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0125",
+      "name": "chrome_hover dispatches mouseover and reveals tooltip",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0143",
+      "name": "chrome_type_into delivers each character + finalValue",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "Bug-007",
+      "name": "chrome_combobox_select keyboard-commits a Downshift-style option",
+      "status": "FAIL",
+      "detail": "expected selectedText:\"LangGraph\" + page state \"LangGraph\", got selectedText=\"LangGraph\" arrowDownCount=1 pageSelected=\"(none)\" selectErr=none"
+    },
+    {
+      "imp": "Bug-008-probe",
+      "name": "chrome_typeahead_probe ends-to-end + sees MAIN-world fetch + records summary.keydownFired",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0124",
+      "name": "chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "imp": "IMP-0142",
+      "name": "chrome_set_extra_http_headers + clear roundtrip",
+      "status": "PASS",
+      "detail": null
+    }
+  ],
+  "counts": {
+    "PASS": 25,
+    "FAIL": 1
+  }
+}

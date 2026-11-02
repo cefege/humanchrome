@@ -1,0 +1,1296 @@
+{
+  "runAt": "2026-10-29T12:11:03.083Z",
+  "bridge": "http://127.0.0.1:12306",
+  "fixture": "http://127.0.0.1:4173/playwright-parity.html",
+  "swInfoBefore": {
+    "extensionVersion": "1.2.0",
+    "extensionId": "dhabpgnpajocncnoigibmocmfjnhlmhe",
+    "toolNames": [
+      "browser_alias_tab",
+      "browser_claim_tab",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_basic_auth",
+      "chrome_block_or_redirect",
+      "chrome_bookmark",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tabs",
+      "chrome_combobox_select",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_context_menu",
+      "chrome_cookies",
+      "chrome_diagnostics",
+      "chrome_download",
+      "chrome_drag_drop",
+      "chrome_emulate",
+      "chrome_fill_lwc",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_attributes",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_har_export",
+      "chrome_history",
+      "chrome_hover",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_locator_handler",
+      "chrome_mock_response",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_owned_tabs",
+      "chrome_pace",
+      "chrome_paste",
+      "chrome_performance_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_read_page",
+      "chrome_request_element_selection",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_checked",
+      "chrome_set_extra_http_headers",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_type_into",
+      "chrome_typeahead_probe",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 77,
+    "buildHash": "mvti21re-jbv4gy",
+    "builtAt": "2026-10-29T12:08:30.314Z",
+    "uptimeMs": 180
+  },
+  "swInfoAfter": {
+    "extensionVersion": "1.2.0",
+    "extensionId": "dhabpgnpajocncnoigibmocmfjnhlmhe",
+    "toolNames": [
+      "browser_alias_tab",
+      "browser_claim_tab",
+      "chrome_action_badge",
+      "chrome_alarms",
+      "chrome_assert",
+      "chrome_basic_auth",
+      "chrome_block_or_redirect",
+      "chrome_bookmark",
+      "chrome_clear_browsing_data",
+      "chrome_click_element",
+      "chrome_clipboard",
+      "chrome_close_tabs",
+      "chrome_combobox_select",
+      "chrome_computer",
+      "chrome_console",
+      "chrome_context_menu",
+      "chrome_cookies",
+      "chrome_diagnostics",
+      "chrome_download",
+      "chrome_drag_drop",
+      "chrome_emulate",
+      "chrome_fill_lwc",
+      "chrome_fill_or_select",
+      "chrome_focus",
+      "chrome_get_attributes",
+      "chrome_get_web_content",
+      "chrome_get_windows_and_tabs",
+      "chrome_gif_recorder",
+      "chrome_handle_dialog",
+      "chrome_handle_download",
+      "chrome_har_export",
+      "chrome_history",
+      "chrome_hover",
+      "chrome_identity",
+      "chrome_idle",
+      "chrome_inject_script",
+      "chrome_intercept_response",
+      "chrome_javascript",
+      "chrome_keep_awake",
+      "chrome_keyboard",
+      "chrome_list_frames",
+      "chrome_locator_handler",
+      "chrome_mock_response",
+      "chrome_navigate",
+      "chrome_navigate_batch",
+      "chrome_network_capture",
+      "chrome_network_request",
+      "chrome_notifications",
+      "chrome_owned_tabs",
+      "chrome_pace",
+      "chrome_paste",
+      "chrome_performance_trace",
+      "chrome_print_to_pdf",
+      "chrome_proxy",
+      "chrome_read_page",
+      "chrome_request_element_selection",
+      "chrome_screenshot",
+      "chrome_search_tabs_content",
+      "chrome_select_text",
+      "chrome_send_command_to_inject_script",
+      "chrome_sessions",
+      "chrome_set_checked",
+      "chrome_set_extra_http_headers",
+      "chrome_storage",
+      "chrome_switch_tab",
+      "chrome_tab_groups",
+      "chrome_tab_lifecycle",
+      "chrome_type_into",
+      "chrome_typeahead_probe",
+      "chrome_upload_file",
+      "chrome_userscript",
+      "chrome_wait_for",
+      "chrome_web_vitals",
+      "chrome_window",
+      "record_replay_flow_delete",
+      "record_replay_flow_run",
+      "record_replay_list_published"
+    ],
+    "toolCount": 77,
+    "buildHash": "mvti21re-jbv4gy",
+    "builtAt": "2026-10-29T12:08:30.314Z",
+    "uptimeMs": 180
+  },
+  "results": [
+    {
+      "imp": "IMP-0098",
+      "name": "role + name (Submit)",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"message\":\"Click coords resolved for CDP dispatch\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"submit-btn\",\"className\":\"\",\"text\":\"Submit\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":177,\"y\":247.5390625,\"width\":57.4921875,\"height\":21.5,\"top\":247.5390625,\"right\":234.4921875,\"bottom\":269.0390625,\"left\":177},\"clickMethod\":\"ref\",\"ref\":\"ref_1\"},\"navigationOccurred\":false,\"clickMethod\":\"ref\",\"clickPosition\":{\"x\":205.74609375,\"y\":258.2890625}}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "message": "Click coords resolved for CDP dispatch",
+          "elementInfo": {
+            "tagName": "BUTTON",
+            "id": "submit-btn",
+            "className": "",
+            "text": "Submit",
+            "href": null,
+            "type": "button",
+            "isVisible": true,
+            "rect": {
+              "x": 177,
+              "y": 247.5390625,
+              "width": 57.4921875,
+              "height": 21.5,
+              "top": 247.5390625,
+              "right": 234.4921875,
+              "bottom": 269.0390625,
+              "left": 177
+            },
+            "clickMethod": "ref",
+            "ref": "ref_1"
+          },
+          "navigationOccurred": false,
+          "clickMethod": "ref",
+          "clickPosition": {
+            "x": 205.74609375,
+            "y": 258.2890625
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match without index",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"INVALID_ARGS\",\"message\":\"Selector \\\".row-btn\\\" matched 3 elements. Please refine the selector or pass {index} / {multi:true}.\",\"details\":{\"matchCount\":3,\"samples\":[{\"tag\":\"button\",\"text\":\"Edit\"},{\"tag\":\"button\",\"text\":\"Edit\"},{\"tag\":\"button\",\"text\":\"Edit\"}]}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "INVALID_ARGS",
+            "message": "Selector \".row-btn\" matched 3 elements. Please refine the selector or pass {index} / {multi:true}.",
+            "details": {
+              "matchCount": 3,
+              "samples": [
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                },
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                },
+                {
+                  "tag": "button",
+                  "text": "Edit"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0098",
+      "name": "strict-mode multi-match with index:1",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"message\":\"Click coords resolved for CDP dispatch\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"\",\"className\":\"row-btn\",\"text\":\"Edit\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":220.1640625,\"y\":847.84375,\"width\":38.9765625,\"height\":21.5,\"top\":847.84375,\"right\":259.140625,\"bottom\":869.34375,\"left\":220.1640625},\"clickMethod\":\"selector\"},\"navigationOccurred\":false,\"clickMethod\":\"selector\",\"clickPosition\":{\"x\":239.65234375,\"y\":296.59375}}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "message": "Click coords resolved for CDP dispatch",
+          "elementInfo": {
+            "tagName": "BUTTON",
+            "id": "",
+            "className": "row-btn",
+            "text": "Edit",
+            "href": null,
+            "type": "button",
+            "isVisible": true,
+            "rect": {
+              "x": 220.1640625,
+              "y": 847.84375,
+              "width": 38.9765625,
+              "height": 21.5,
+              "top": 847.84375,
+              "right": 259.140625,
+              "bottom": 869.34375,
+              "left": 220.1640625
+            },
+            "clickMethod": "selector"
+          },
+          "navigationOccurred": false,
+          "clickMethod": "selector",
+          "clickPosition": {
+            "x": 239.65234375,
+            "y": 296.59375
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "display:none → not_visible",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_visible\",\"details\":{\"failures\":[\"not_visible\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"vis-display-none\",\"className\":\"hidden-display\",\"text\":\"display:none\",\"href\":null,\"type\":\"button\",\"isVisible\":false,\"rect\":{\"x\":0,\"y\":0,\"width\":0,\"height\":0,\"top\":0,\"right\":0,\"bottom\":0,\"left\":0},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_visible",
+            "details": {
+              "failures": ["not_visible"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "vis-display-none",
+                "className": "hidden-display",
+                "text": "display:none",
+                "href": null,
+                "type": "button",
+                "isVisible": false,
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0,
+                  "top": 0,
+                  "right": 0,
+                  "bottom": 0,
+                  "left": 0
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "offscreen (left:-9999) fails not_visible",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_visible\",\"details\":{\"failures\":[\"not_visible\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"vis-offscreen\",\"className\":\"offscreen\",\"text\":\"off-screen\",\"href\":null,\"type\":\"button\",\"isVisible\":false,\"rect\":{\"x\":-9999,\"y\":503.6484375,\"width\":75.03125,\"height\":21.5,\"top\":503.6484375,\"right\":-9923.96875,\"bottom\":525.1484375,\"left\":-9999},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_visible",
+            "details": {
+              "failures": ["not_visible"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "vis-offscreen",
+                "className": "offscreen",
+                "text": "off-screen",
+                "href": null,
+                "type": "button",
+                "isVisible": false,
+                "rect": {
+                  "x": -9999,
+                  "y": 503.6484375,
+                  "width": 75.03125,
+                  "height": 21.5,
+                  "top": 503.6484375,
+                  "right": -9923.96875,
+                  "bottom": 525.1484375,
+                  "left": -9999
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "animation unstable_bbox",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: unstable_bbox\",\"details\":{\"failures\":[\"unstable_bbox\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"sliding-btn\",\"className\":\"sliding\",\"text\":\"Catch me\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":320.87030029296875,\"y\":505.453125,\"width\":91.046875,\"height\":33.5,\"top\":505.453125,\"right\":411.91717529296875,\"bottom\":538.953125,\"left\":320.87030029296875},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: unstable_bbox",
+            "details": {
+              "failures": ["unstable_bbox"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "sliding-btn",
+                "className": "sliding",
+                "text": "Catch me",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 320.87030029296875,
+                  "y": 505.453125,
+                  "width": 91.046875,
+                  "height": 33.5,
+                  "top": 505.453125,
+                  "right": 411.91717529296875,
+                  "bottom": 538.953125,
+                  "left": 320.87030029296875
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "occluded_by:*",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: occluded_by:div#overlay\",\"details\":{\"failures\":[\"occluded_by:div#overlay\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"occluded-btn\",\"className\":\"\",\"text\":\"Target button\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":177,\"y\":753.2578125,\"width\":93.8203125,\"height\":21.5,\"top\":753.2578125,\"right\":270.8203125,\"bottom\":774.7578125,\"left\":177},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: occluded_by:div#overlay",
+            "details": {
+              "failures": ["occluded_by:div#overlay"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "occluded-btn",
+                "className": "",
+                "text": "Target button",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 177,
+                  "y": 753.2578125,
+                  "width": 93.8203125,
+                  "height": 21.5,
+                  "top": 753.2578125,
+                  "right": 270.8203125,
+                  "bottom": 774.7578125,
+                  "left": 177
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "disabled button",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: disabled\",\"details\":{\"failures\":[\"disabled\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"disabled-btn\",\"className\":\"\",\"text\":\"Disabled button\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":177,\"y\":521.5625,\"width\":108.640625,\"height\":21.5,\"top\":521.5625,\"right\":285.640625,\"bottom\":543.0625,\"left\":177},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: disabled",
+            "details": {
+              "failures": ["disabled"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "disabled-btn",
+                "className": "",
+                "text": "Disabled button",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 177,
+                  "y": 521.5625,
+                  "width": 108.640625,
+                  "height": 21.5,
+                  "top": 521.5625,
+                  "right": 285.640625,
+                  "bottom": 543.0625,
+                  "left": 177
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "aria-disabled button",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: disabled\",\"details\":{\"failures\":[\"disabled\"],\"method\":\"selector\",\"elementInfo\":{\"tagName\":\"BUTTON\",\"id\":\"aria-disabled-btn\",\"className\":\"\",\"text\":\"aria-disabled\",\"href\":null,\"type\":\"button\",\"isVisible\":true,\"rect\":{\"x\":289.828125,\"y\":521.5625,\"width\":92.328125,\"height\":21.5,\"top\":521.5625,\"right\":382.15625,\"bottom\":543.0625,\"left\":289.828125},\"clickMethod\":\"selector\"}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: disabled",
+            "details": {
+              "failures": ["disabled"],
+              "method": "selector",
+              "elementInfo": {
+                "tagName": "BUTTON",
+                "id": "aria-disabled-btn",
+                "className": "",
+                "text": "aria-disabled",
+                "href": null,
+                "type": "button",
+                "isVisible": true,
+                "rect": {
+                  "x": 289.828125,
+                  "y": 521.5625,
+                  "width": 92.328125,
+                  "height": 21.5,
+                  "top": 521.5625,
+                  "right": 382.15625,
+                  "bottom": 543.0625,
+                  "left": 289.828125
+                },
+                "clickMethod": "selector"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0097",
+      "name": "readonly input rejects fill",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"NOT_ACTIONABLE\",\"message\":\"Element is not actionable: not_editable\",\"details\":{\"failures\":[\"not_editable\"],\"elementInfo\":{\"tagName\":\"INPUT\",\"id\":\"readonly-in\",\"className\":\"\",\"type\":\"text\",\"isVisible\":true,\"rect\":{\"x\":177,\"y\":588.15625,\"width\":147,\"height\":21.5,\"top\":588.15625,\"right\":324,\"bottom\":609.65625,\"left\":177}}}}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "NOT_ACTIONABLE",
+            "message": "Element is not actionable: not_editable",
+            "details": {
+              "failures": ["not_editable"],
+              "elementInfo": {
+                "tagName": "INPUT",
+                "id": "readonly-in",
+                "className": "",
+                "type": "text",
+                "isVisible": true,
+                "rect": {
+                  "x": 177,
+                  "y": 588.15625,
+                  "width": 147,
+                  "height": 21.5,
+                  "top": 588.15625,
+                  "right": 324,
+                  "bottom": 609.65625,
+                  "left": 177
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0100",
+      "name": "register_default dialog policy",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"action\":\"register_default\",\"tabId\":706529840,\"behavior\":\"accept\",\"promptText\":null,\"registeredAt\":1793275848631,\"replaced\":false,\"warning\":\"Persistent CDP attach — the \\\"Chrome is being controlled by automated software\\\" banner will be visible on this tab until unregister_default.\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "action": "register_default",
+          "tabId": 706529840,
+          "behavior": "accept",
+          "promptText": null,
+          "registeredAt": 1793275848631,
+          "replaced": false,
+          "warning": "Persistent CDP attach — the \"Chrome is being controlled by automated software\" banner will be visible on this tab until unregister_default."
+        }
+      }
+    },
+    {
+      "imp": "IMP-0101",
+      "name": "locator_handler list returns ok",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"action\":\"list\",\"handlers\":[],\"count\":0,\"tabId\":706529840}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "ok": true,
+          "action": "list",
+          "handlers": [],
+          "count": 0,
+          "tabId": 706529840
+        }
+      }
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:url (already-matched)",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"kind\":\"url\",\"tookMs\":3,\"pattern\":\"playwright-parity\",\"url\":\"http://127.0.0.1:4173/playwright-parity.html\",\"alreadyMatched\":true}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "kind": "url",
+          "tookMs": 3,
+          "pattern": "playwright-parity",
+          "url": "http://127.0.0.1:4173/playwright-parity.html",
+          "alreadyMatched": true
+        }
+      }
+    },
+    {
+      "imp": "IMP-0102",
+      "name": "wait_for kind:load_state",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"kind\":\"load_state\",\"tookMs\":1,\"state\":\"load\",\"frameId\":0,\"alreadyLoaded\":true,\"readyState\":\"complete\"}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "kind": "load_state",
+          "tookMs": 1,
+          "state": "load",
+          "frameId": 0,
+          "alreadyLoaded": true,
+          "readyState": "complete"
+        }
+      }
+    },
+    {
+      "imp": "IMP-0092",
+      "name": "coords-over-empty-space returns error envelope",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"error\":{\"code\":\"UNKNOWN\",\"message\":\"No element at coordinates (9999, 9999)\"}}"
+          }
+        ],
+        "isError": true,
+        "parsed": {
+          "error": {
+            "code": "UNKNOWN",
+            "message": "No element at coordinates (9999, 9999)"
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0095",
+      "name": "await_element absent envelope",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"kind\":\"element\",\"tookMs\":1219,\"selector\":\"#ephemeral\",\"state\":\"absent\",\"found\":false,\"matched\":null,\"absent\":true}"
+          }
+        ],
+        "isError": false,
+        "_meta": {
+          "suggested_next": [
+            "chrome_click_element",
+            "chrome_fill_or_select",
+            "chrome_get_attributes"
+          ]
+        },
+        "parsed": {
+          "success": true,
+          "kind": "element",
+          "tookMs": 1219,
+          "selector": "#ephemeral",
+          "state": "absent",
+          "found": false,
+          "matched": null,
+          "absent": true
+        }
+      }
+    },
+    {
+      "imp": "IMP-0168",
+      "name": "chrome_owned_tabs returns the caller-owned set",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"clientId\":\"e2e-matrix-mvti47rb\",\"count\":1,\"ownedTabs\":[{\"tabId\":706529840,\"windowId\":706529839,\"url\":\"http://127.0.0.1:4173/playwright-parity.html\",\"title\":\"humanchrome — Playwright-parity verification fixture\",\"active\":true,\"isActive\":true,\"status\":\"complete\",\"isPinnedActive\":true}],\"activeTabId\":706529840,\"lastWindowId\":706529839}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "clientId": "e2e-matrix-mvti47rb",
+          "count": 1,
+          "ownedTabs": [
+            {
+              "tabId": 706529840,
+              "windowId": 706529839,
+              "url": "http://127.0.0.1:4173/playwright-parity.html",
+              "title": "humanchrome — Playwright-parity verification fixture",
+              "active": true,
+              "isActive": true,
+              "status": "complete",
+              "isPinnedActive": true
+            }
+          ],
+          "activeTabId": 706529840,
+          "lastWindowId": 706529839
+        }
+      }
+    },
+    {
+      "imp": "IMP-0169",
+      "name": "browser_alias_tab + owned-tabs roundtrip",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "setRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"alias\":\"e2e_dk52td\",\"tabId\":706529840,\"clientId\":\"e2e-matrix-mvti47rb\"}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "alias": "e2e_dk52td",
+            "tabId": 706529840,
+            "clientId": "e2e-matrix-mvti47rb"
+          }
+        },
+        "listRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"clientId\":\"e2e-matrix-mvti47rb\",\"count\":1,\"ownedTabs\":[{\"tabId\":706529840,\"windowId\":706529839,\"url\":\"http://127.0.0.1:4173/playwright-parity.html\",\"title\":\"humanchrome — Playwright-parity verification fixture\",\"active\":true,\"isActive\":true,\"status\":\"complete\",\"isPinnedActive\":true}],\"activeTabId\":706529840,\"lastWindowId\":706529839}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "clientId": "e2e-matrix-mvti47rb",
+            "count": 1,
+            "ownedTabs": [
+              {
+                "tabId": 706529840,
+                "windowId": 706529839,
+                "url": "http://127.0.0.1:4173/playwright-parity.html",
+                "title": "humanchrome — Playwright-parity verification fixture",
+                "active": true,
+                "isActive": true,
+                "status": "complete",
+                "isPinnedActive": true
+              }
+            ],
+            "activeTabId": 706529840,
+            "lastWindowId": 706529839
+          }
+        },
+        "alias": "e2e_dk52td"
+      }
+    },
+    {
+      "imp": "IMP-0127",
+      "name": "chrome_aria_snapshot returns indented role/name/ref tree",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"success\":true,\"snapshot\":\"- generic [ref=ref_2]\\n  - button \\\"Submit\\\" [ref=ref_1]\\n  - button \\\"Cancel\\\" [ref=ref_3]\\n  - link \\\"Sign up\\\" [ref=ref_4]\\n  - button \\\"Close dialog\\\" [ref=ref_5]\\n  - button \\\"Custom button\\\" [ref=ref_6]\\n  - textbox \\\"you@example.com\\\" [ref=ref_7]\\n  - textbox [ref=ref_8]\\n  - textbox \\\"Site search\\\" [ref=ref_9]\",\"lineCount\":9,\"refCount\":8,\"filter\":\"interactive\",\"stats\":{\"processed\":9,\"included\":9,\"durationMs\":3},\"viewport\":{\"width\":1200,\"height\":593,\"dpr\":2},\"focus\":null}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "success": true,
+          "snapshot": "- generic [ref=ref_2]\n  - button \"Submit\" [ref=ref_1]\n  - button \"Cancel\" [ref=ref_3]\n  - link \"Sign up\" [ref=ref_4]\n  - button \"Close dialog\" [ref=ref_5]\n  - button \"Custom button\" [ref=ref_6]\n  - textbox \"you@example.com\" [ref=ref_7]\n  - textbox [ref=ref_8]\n  - textbox \"Site search\" [ref=ref_9]",
+          "lineCount": 9,
+          "refCount": 8,
+          "filter": "interactive",
+          "stats": {
+            "processed": 9,
+            "included": 9,
+            "durationMs": 3
+          },
+          "viewport": {
+            "width": 1200,
+            "height": 593,
+            "dpr": 2
+          },
+          "focus": null
+        }
+      }
+    },
+    {
+      "imp": "IMP-0126",
+      "name": "chrome_get_attributes reads href + aria-label",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tabId\":706529842,\"frameId\":null,\"resolution\":\"selector\",\"count\":1,\"tagName\":\"a\",\"attributes\":{\"aria-label\":\"hi\",\"class\":null,\"href\":\"/x\",\"id\":\"attr-target\",\"role\":null,\"src\":null,\"title\":null,\"value\":null},\"properties\":{\"tagName\":\"A\"},\"computedStyles\":{}}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "ok": true,
+          "tabId": 706529842,
+          "frameId": null,
+          "resolution": "selector",
+          "count": 1,
+          "tagName": "a",
+          "attributes": {
+            "aria-label": "hi",
+            "class": null,
+            "href": "/x",
+            "id": "attr-target",
+            "role": null,
+            "src": null,
+            "title": null,
+            "value": null
+          },
+          "properties": {
+            "tagName": "A"
+          },
+          "computedStyles": {}
+        }
+      }
+    },
+    {
+      "imp": "IMP-0125",
+      "name": "chrome_hover dispatches mouseover and reveals tooltip",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "hoverRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":true,\"tabId\":706529842,\"frameId\":null,\"resolution\":\"selector\",\"hovered\":true,\"tagName\":\"button\",\"bbox\":{\"height\":21.5,\"width\":73.78125,\"x\":177,\"y\":571.6875},\"point\":{\"x\":213.890625,\"y\":582.4375}}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "ok": true,
+            "tabId": 706529842,
+            "frameId": null,
+            "resolution": "selector",
+            "hovered": true,
+            "tagName": "button",
+            "bbox": {
+              "height": 21.5,
+              "width": 73.78125,
+              "x": 177,
+              "y": 571.6875
+            },
+            "point": {
+              "x": 213.890625,
+              "y": 582.4375
+            }
+          }
+        },
+        "waitRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"kind\":\"element\",\"tookMs\":1,\"selector\":\"#hover-tooltip\",\"state\":\"present\",\"found\":true,\"matched\":{\"ref\":\"ref_10\",\"center\":{\"x\":282,\"y\":582}},\"absent\":false}"
+            }
+          ],
+          "isError": false,
+          "_meta": {
+            "suggested_next": [
+              "chrome_click_element",
+              "chrome_fill_or_select",
+              "chrome_get_attributes"
+            ]
+          },
+          "parsed": {
+            "success": true,
+            "kind": "element",
+            "tookMs": 1,
+            "selector": "#hover-tooltip",
+            "state": "present",
+            "found": true,
+            "matched": {
+              "ref": "ref_10",
+              "center": {
+                "x": 282,
+                "y": 582
+              }
+            },
+            "absent": false
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0143",
+      "name": "chrome_type_into delivers each character + finalValue",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tabId\":706529842,\"frameId\":null,\"typed\":5,\"finalValue\":\"hello\",\"pressedEnter\":false,\"cleared\":false,\"contentEditable\":false}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "ok": true,
+          "tabId": 706529842,
+          "frameId": null,
+          "typed": 5,
+          "finalValue": "hello",
+          "pressedEnter": false,
+          "cleared": false,
+          "contentEditable": false
+        }
+      }
+    },
+    {
+      "imp": "Bug-007",
+      "name": "chrome_combobox_select keyboard-commits a Downshift-style option",
+      "status": "FAIL",
+      "detail": "expected selectedText:\"LangGraph\" + page state \"LangGraph\", got selectedText=\"LangGraph\" arrowDownCount=1 pageSelected=\"(none)\" selectErr=none",
+      "res": {
+        "selectRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":true,\"tabId\":706529842,\"frameId\":null,\"query\":\"LangGraph\",\"matchText\":\"LangGraph\",\"typed\":9,\"cleared\":true,\"optionCount\":1,\"selectedIndex\":0,\"selectedText\":\"LangGraph\",\"arrowDownCount\":1}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "ok": true,
+            "tabId": 706529842,
+            "frameId": null,
+            "query": "LangGraph",
+            "matchText": "LangGraph",
+            "typed": 9,
+            "cleared": true,
+            "optionCount": 1,
+            "selectedIndex": 0,
+            "selectedText": "LangGraph",
+            "arrowDownCount": 1
+          }
+        },
+        "verifyRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"engine\":\"cdp\",\"result\":\"(none)\",\"metrics\":{\"elapsedMs\":3}}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "engine": "cdp",
+            "result": "(none)",
+            "metrics": {
+              "elapsedMs": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "Bug-008-probe",
+      "name": "chrome_typeahead_probe ends-to-end + sees MAIN-world fetch + records summary.keydownFired",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"ok\":true,\"tabId\":706529842,\"frameId\":null,\"sample\":\"a\",\"watchMs\":1500,\"cleared\":false,\"inputValueBefore\":\"\",\"inputValueAfter\":\"a\",\"initialAriaExpanded\":null,\"initialAriaControls\":null,\"ariaExpanded\":null,\"ariaControls\":null,\"listboxFound\":false,\"listboxOptionCount\":0,\"listboxSampleOpts\":[],\"eventCount\":6,\"events\":[{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"window\",\"ts\":1793275861521,\"type\":\"beforeinput\"},{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"document\",\"ts\":1793275861521,\"type\":\"beforeinput\"},{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"input\",\"ts\":1793275861521,\"type\":\"beforeinput\"},{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"window\",\"ts\":1793275861522,\"type\":\"input\"},{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"document\",\"ts\":1793275861522,\"type\":\"input\"},{\"code\":null,\"composed\":true,\"data\":\"a\",\"inputType\":\"insertText\",\"isComposing\":false,\"isTrusted\":true,\"key\":null,\"scope\":\"input\",\"ts\":1793275861522,\"type\":\"input\"}],\"fetchCount\":1,\"fetches\":[{\"method\":\"GET\",\"ts\":1793275861522,\"url\":\"/typeahead-fixture-stub?q=a\"}],\"summary\":{\"keydownFired\":false,\"inputFired\":true,\"lookupFetchFired\":true}}"
+          }
+        ],
+        "isError": false,
+        "parsed": {
+          "ok": true,
+          "tabId": 706529842,
+          "frameId": null,
+          "sample": "a",
+          "watchMs": 1500,
+          "cleared": false,
+          "inputValueBefore": "",
+          "inputValueAfter": "a",
+          "initialAriaExpanded": null,
+          "initialAriaControls": null,
+          "ariaExpanded": null,
+          "ariaControls": null,
+          "listboxFound": false,
+          "listboxOptionCount": 0,
+          "listboxSampleOpts": [],
+          "eventCount": 6,
+          "events": [
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "window",
+              "ts": 1793275861521,
+              "type": "beforeinput"
+            },
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "document",
+              "ts": 1793275861521,
+              "type": "beforeinput"
+            },
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "input",
+              "ts": 1793275861521,
+              "type": "beforeinput"
+            },
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "window",
+              "ts": 1793275861522,
+              "type": "input"
+            },
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "document",
+              "ts": 1793275861522,
+              "type": "input"
+            },
+            {
+              "code": null,
+              "composed": true,
+              "data": "a",
+              "inputType": "insertText",
+              "isComposing": false,
+              "isTrusted": true,
+              "key": null,
+              "scope": "input",
+              "ts": 1793275861522,
+              "type": "input"
+            }
+          ],
+          "fetchCount": 1,
+          "fetches": [
+            {
+              "method": "GET",
+              "ts": 1793275861522,
+              "url": "/typeahead-fixture-stub?q=a"
+            }
+          ],
+          "summary": {
+            "keydownFired": false,
+            "inputFired": true,
+            "lookupFetchFired": true
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0124",
+      "name": "chrome_emulate set_device(iphone-15) → setDeviceMetricsOverride",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "emulateRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"device\":{\"width\":393,\"height\":852,\"deviceScaleFactor\":3,\"mobile\":true,\"hasTouch\":true,\"preset\":\"iphone-15\"}}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "device": {
+              "width": 393,
+              "height": 852,
+              "deviceScaleFactor": 3,
+              "mobile": true,
+              "hasTouch": true,
+              "preset": "iphone-15"
+            }
+          }
+        },
+        "stateRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"state\":{\"device\":{\"width\":393,\"height\":852,\"deviceScaleFactor\":3,\"mobile\":true,\"hasTouch\":true,\"preset\":\"iphone-15\"}}}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "state": {
+              "device": {
+                "width": 393,
+                "height": 852,
+                "deviceScaleFactor": 3,
+                "mobile": true,
+                "hasTouch": true,
+                "preset": "iphone-15"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "imp": "IMP-0142",
+      "name": "chrome_set_extra_http_headers + clear roundtrip",
+      "status": "PASS",
+      "detail": null,
+      "res": {
+        "setRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"headers\":{\"X-Humanchrome-Test\":\"1\"},\"headerCount\":1}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "headers": {
+              "X-Humanchrome-Test": "1"
+            },
+            "headerCount": 1
+          }
+        },
+        "getRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"headers\":{\"X-Humanchrome-Test\":\"1\"},\"headerCount\":1}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "headers": {
+              "X-Humanchrome-Test": "1"
+            },
+            "headerCount": 1
+          }
+        },
+        "clearRes": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"success\":true,\"tabId\":706529842,\"cleared\":true}"
+            }
+          ],
+          "isError": false,
+          "parsed": {
+            "success": true,
+            "tabId": 706529842,
+            "cleared": true
+          }
+        }
+      }
+    }
+  ],
+  "counts": {
+    "PASS": 25,
+    "FAIL": 1
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "humanchrome": {
+      "type": "http",
+      "url": "http://humanchrome-fleet-coordinator.tail67850e.ts.net:12301/v1/pool/research/mcp",
+      "headers": {
+        "Authorization": "!node -e 'const fs=require(\"node:fs\"); const path=require(\"node:path\"); const os=require(\"node:os\"); const token=process.env.HUMANCHROME_COORDINATOR_TOKEN || JSON.parse(fs.readFileSync(path.join(os.homedir(), \"Library/Application Support/humanchrome-coordinator/ovh-bootstrap.json\"), \"utf8\")).agentToken; if(typeof token!==\"string\" || token.length<32) throw new Error(\"Missing coordinator token\"); process.stdout.write(\"Bearer \"+token)'",
+        "X-Humanchrome-Agent": "${HUMANCHROME_AGENT:-humanchrome-dev}"
+      }
+    }
+  }
+}

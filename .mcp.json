@@ -2,8 +2,11 @@
   "mcpServers": {
     "humanchrome": {
       "type": "http",
-      "url": "http://127.0.0.1:12306/mcp",
-      "headers": { "X-Humanchrome-Session": "humanchrome-dev" }
+      "url": "http://humanchrome-fleet-coordinator.tail67850e.ts.net:12301/v1/pool/research/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HUMANCHROME_COORDINATOR_TOKEN}",
+        "X-Humanchrome-Agent": "${HUMANCHROME_AGENT:-humanchrome-dev}"
+      }
     }
   }
 }
