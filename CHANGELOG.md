@@ -6,6 +6,10 @@ All notable changes to HumanChrome are documented here. The format follows [Keep
 
 ### Added
 
+- Persistent local macOS fleet VM deployment (IMP-0217): viewer-free Tart
+  lifecycle, guest-only native bootstrap, and explicit idle coordinator
+  cutover/rollback. The existing endpoint routes exclusively to the guest;
+  the old Mac remains an explicit rollback target, not a fallback.
 - Rust transition prerequisites: a pinned Cargo workspace, generated declarative
   contracts, isolated process compatibility fixtures, and a production-source
   ownership inventory. Native and isolated-Chrome verification can target

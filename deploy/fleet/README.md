@@ -98,6 +98,33 @@ No live resource was created or changed during that inspection.
   they are not a legacy Node core fallback. Fresh GitHub CI verdicts are separate
   from this completed production activation.
 
+## Local VM worker cutover (2026-11-02)
+
+- The coordinator endpoint, existing client credentials, PostgreSQL and
+  coordinator image remain unchanged.
+- The sole configured worker is now `laptop-vm-1`, reached through the owned
+  Tailscale Operator egress Service
+  `fleet-worker-laptop-vm-1.humanchrome-fleet.svc.cluster.local`.
+  The guest has its own `tag:k8s` Tailscale identity; no device state was copied.
+- `mac-1` and the existing `fleet-worker` Service remain intact for explicit
+  rollback. They are not in the coordinator's selectable inventory.
+- Real MCP initialization, catalog, navigation, form fill, trusted click,
+  page read, screenshot and guest window focus ran through the unchanged
+  `research` endpoint. Response headers identified `laptop-vm-1:browser`.
+  The `any` pool also returned that profile.
+- Clean guest OS shutdown/restart preserved fixture cookies and local storage.
+  An actual idle rollback restored healthy `mac-1:browser`; reapplication
+  restored healthy `laptop-vm-1:browser`.
+- External HTTPS rendered in Chrome. A default `chrome_read_page` on
+  `https://example.com/` returned a sparse-tree/fallback error; JavaScript read
+  the rendered document successfully. This is recorded as IMP-0218, not counted
+  as a passing page-read check.
+
+Lifecycle, privacy constraints, rollback and optional destructive removal are in
+[the local VM runbook](../../docs/FLEET.md#local-persistent-macos-vm).
+The sanitized [verification record](../../docs/e2e-runs/2026-11-02_local-vm-fleet.json)
+does not contain worker tokens, SSH keys, guest passwords or VM disks.
+
 The `local-path` PVC survives Pod restarts, not loss of the OVH disk. Back up
 PostgreSQL and Kubernetes Secrets separately; neither replication nor backup
 is provided by these manifests.

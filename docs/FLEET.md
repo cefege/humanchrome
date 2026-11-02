@@ -16,6 +16,7 @@ This guide covers deployment and operating details.
 
 - [Cloud coordinator and workers](#cloud-coordinator-and-workers)
 - [Rust candidate artifacts](#rust-candidate-artifacts)
+- [Local persistent macOS VM](#local-persistent-macos-vm)
 - [Mac setup](#mac-setup)
 - [Provisioning](#provisioning)
 - [Commands](#commands)
@@ -136,6 +137,108 @@ PostgreSQL, network, config volume and containers; it checks authentication,
 MCP, non-root/read-only operation, singleton exclusion, leader loss and shutdown.
 Full-system x86 emulation proves execution compatibility, not native-CPU
 performance. See [Rust compatibility evidence](../crates/PORTING.md).
+
+## Local persistent macOS VM
+
+The laptop deployment added on 2026-11-02 runs ordinary, headed Chrome inside a
+persistent Tart macOS guest. The guest owns its GUI session; the host runs Tart
+with `--no-graphics --no-audio --no-usb-accessories --no-clipboard`. The lifecycle
+helper never opens a viewer, invokes Mission Control, moves Spaces, or registers
+a native host in the laptop's personal Chrome. No host directory is shared.
+
+The existing coordinator endpoint is unchanged. Its **only configured worker**
+is `laptop-vm-1`, with profile `browser` and labels `research`, `vm-pilot`.
+Both `research` and `any` pools select that guest. `mac-1` remains intact but
+is not a selectable worker or an automatic fallback.
+
+The VM has 4 vCPUs, 12 GiB RAM and a 100 GB sparse disk. It uses its own Tailscale
+identity and a fresh Chrome profile: existing website logins were not migrated.
+The measured public egress IP matched the laptop's. This is isolation, not
+anti-detection: WebGL exposes **Apple Paravirtual device**. Authenticated target
+sites and anti-bot acceptance have not been verified.
+
+### Lifecycle and private state
+
+Run from the repository:
+
+```bash
+node scripts/fleet-vm.mjs status
+node scripts/fleet-vm.mjs start
+node scripts/fleet-vm.mjs ssh /usr/bin/sw_vers
+node scripts/fleet-vm.mjs stop
+```
+
+`start` enables the owned user LaunchAgent `com.humanchrome.vm-pilot`, without a
+host viewer. Its printed DHCP address is not a browser-readiness assertion.
+`stop` disables autostart, requests a real guest OS shutdown over pinned-key SSH,
+waits for Tart to exit, then unloads the agent. It retains the disk and profiles.
+Do not substitute a forced Tart stop: an earlier forced stop lost recent guest
+filesystem writes. Cookie and local-storage persistence passed after clean OS
+shutdown and restart.
+
+State lives under `~/Library/Application Support/humanchrome-vm-pilot/`:
+`deployment.json`, the signed Tart runtime, dedicated `tart/` storage, pinned SSH
+identity, private credentials and coordinator snapshots, logs, and evidence.
+The LaunchAgent plist lives in `~/Library/LaunchAgents/`. These scripts manage
+this provisioned deployment; they are not a general-purpose macOS installer.
+Keep the state directory private and out of Git. The VM disk contains browser
+cookies and Keychain data. The public artifact cache is separate, under
+`~/Library/Caches/humanchrome-vm-pilot/`.
+
+The laptop must remain awake and its user logged in. No host sleep settings were
+changed. A sleeping laptop or stopped VM makes the fleet unavailable; it does
+not silently send work back to the old Mac.
+
+### Cutover, rollback, and removal
+
+Finish and release workflows before changing routing. The helper refuses active
+leases, preserves current coordinator clients/database settings, saves the
+pre-cutover Secret privately, and waits for healthy worker/browser inventory:
+
+```bash
+node scripts/fleet-vm-cutover.mjs rollback  # restore mac-1 only
+node scripts/fleet-vm-cutover.mjs apply     # return to laptop-vm-1 only
+```
+
+Both directions were actually exercised. Rollback restores only the saved
+`workers` array into the current configuration, not stale client credentials or
+database settings. The old worker must still be reachable. There is no automatic
+fallback. The Git checkpoint `checkpoint/pre-local-vm-20261102` preserves source
+and MCP configuration, **not** VM disks or live Kubernetes state; reverting Git
+alone does not undo deployment.
+
+For permanent removal, first roll back while idle. Then log out the guest's
+Tailscale identity, shut down cleanly, and remove only the owned resources:
+
+```bash
+node scripts/fleet-vm-cutover.mjs rollback
+node scripts/fleet-vm.mjs ssh /opt/homebrew/bin/tailscale logout
+node scripts/fleet-vm.mjs stop
+ssh ovh1 'sudo /usr/local/bin/k3s kubectl -n humanchrome-fleet delete service fleet-worker-laptop-vm-1'
+rm "$HOME/Library/LaunchAgents/com.humanchrome.vm-pilot.plist"
+TART_HOME="$HOME/Library/Application Support/humanchrome-vm-pilot/tart" \
+  "$HOME/Library/Application Support/humanchrome-vm-pilot/runtime/tart.app/Contents/MacOS/tart" \
+  delete humanchrome-pilot
+```
+
+The last command irreversibly deletes the VM disk. Keep private rollback
+snapshots until no longer needed; remove the remaining owned state/cache only
+after deciding that its credentials, profiles and evidence are expendable.
+Guest logout revokes its node key; an offline tailnet device record may remain.
+Permanent removal was documented, not executed.
+
+`scripts/lib/fleet-vm-guest.sh` is the guarded guest bootstrap. It requires
+`hw.model=VirtualMac*` and the dedicated `admin` account before registration,
+uses a complete native release, matching packaged optional engines and a keyed
+extension, and initializes the worker in the guest GUI security session. Inputs
+are `HC_VM_RELEASE_DIR`, `HC_VM_ENGINES_DIR`, `HC_VM_EXTENSION_DIR`,
+`HC_VM_WORKER_ID` and `HC_VM_WORKER_HOST`. The packaged Node/Codex runtimes
+started in the guest and the real DevTools adapter analyzed the trace fixture.
+No paid SDK/model request was made. Repeat runs validate ownership and refuse
+implicit native/engine/extension upgrades. The image's factory password and broad
+passwordless sudo rule were replaced; guest SSH accepts the dedicated key only.
+See [deployment evidence](e2e-runs/2026-11-02_local-vm-fleet.json), including the
+separately recorded `chrome_read_page` failure on the external example page.
 
 ## Mac setup
 

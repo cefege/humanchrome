@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-11-02T16:15:07.239Z",
+  "status": "deployed_with_recorded_tool_issue",
+  "initiative": "IMP-0217",
+  "checkpoint": {
+    "commit": "42b80df",
+    "tag": "checkpoint/pre-local-vm-20261102",
+    "branch": "fleet/local-macos-vm-20261102"
+  },
+  "artifacts": {
+    "ciRun": 41152239038,
+    "sourceCommit": "6e3578291d2c59f46ab8b8290cd4349720bbaaeb",
+    "artifactCommit": "43e63e625c5158b1da64b7d6eed451886783e8ec",
+    "tartVersion": "2.41.1",
+    "tartSha256": "e680a734febccfce7d4e910c1f7f13fc3b00f19a181c945e2d746de3214c32c2",
+    "tartSignature": "codesign and notarized Developer ID assessment passed",
+    "image": "ghcr.io/cirruslabs/macos-tahoe-base@sha256:4aaa751fa7538902d73c767f27a066fc87e83f183069da4e4b5022863abd4c77",
+    "extensionId": "dhabpgnpajocncnoigibmocmfjnhlmhe",
+    "extensionBuild": "mvvp4xl6-0kuo7x"
+  },
+  "guest": {
+    "osVersion": "26.6.2",
+    "model": "VirtualMac2,1",
+    "cpus": 4,
+    "memoryGiB": 12,
+    "diskGiB": 100,
+    "chromeVersion": "156.0.8078.80",
+    "freshWebsiteProfile": true,
+    "websiteSessionsMigrated": false,
+    "samePublicEgressAsHost": true,
+    "webglRenderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple Paravirtual device, Unspecified Version)"
+  },
+  "routing": {
+    "endpointUnchanged": true,
+    "researchProfile": "laptop-vm-1:browser",
+    "anyPool": {
+      "initializeStatus": 200,
+      "catalogStatus": 200,
+      "profile": "laptop-vm-1:browser"
+    },
+    "workers": [
+      {
+        "id": "laptop-vm-1",
+        "available": true,
+        "error": null
+      }
+    ],
+    "profiles": [
+      {
+        "name": "laptop-vm-1:browser",
+        "port": 12900,
+        "labels": ["research", "vm-pilot"],
+        "enabled": true,
+        "purpose": null,
+        "state": "healthy",
+        "pid": 766,
+        "leasedBy": null,
+        "lastError": null,
+        "startedBy": null,
+        "worker": "laptop-vm-1",
+        "profile": "browser",
+        "available": true
+      }
+    ],
+    "activeLeases": [],
+    "health": {
+      "/healthz": 200,
+      "/readyz": 200
+    },
+    "oldMacSelectable": false,
+    "automaticFallback": false,
+    "rollbackAndReapply": {
+      "actuallyExercised": true,
+      "restoredWorker": "mac-1",
+      "finalSoleWorker": "laptop-vm-1"
+    }
+  },
+  "checks": {
+    "productionMcpInitialize": "passed",
+    "productionMcpCatalog": "passed",
+    "fixtureNavigation": "passed",
+    "fixturePageRead": "passed",
+    "formFillAndTrustedClick": "passed",
+    "guestWindowFocus": "passed",
+    "newGuestWindow": "passed",
+    "screenshot": "passed, visually inspected",
+    "persistence": {
+      "cleanOsRestart": true,
+      "localStorage": true,
+      "persistentCookie": true,
+      "restartedBrowserPid": 766
+    },
+    "guestAccessHardening": {
+      "factoryPasswordlessSudoRemoved": true,
+      "sudoersValidated": true,
+      "managedPasswordAuthenticationVerified": true,
+      "sshPasswordAuthenticationDisabled": true
+    },
+    "physicalHostBootstrapGuard": true,
+    "guestBootstrapIdempotence": "passed after security hardening and engine installation",
+    "externalHttps": {
+      "url": "https://example.com/",
+      "title": "Example Domain",
+      "rendered": true,
+      "readPageSparseError": true
+    },
+    "optionalEngines": {
+      "node": "v24.22.2",
+      "codex": "codex-cli 0.154.0",
+      "traceUrl": "https://example.test/",
+      "traceCls": 0,
+      "realDevtoolsAnalysis": "passed",
+      "paidModelRequest": false
+    }
+  },
+  "hostIsolation": {
+    "hostViewerOpened": false,
+    "hostInputAutomation": false,
+    "missionControlOperations": false,
+    "sharedHostDirectories": false,
+    "audioSharing": false,
+    "clipboardSharing": false,
+    "passiveObserver": {
+      "tartActivationEvents": 0,
+      "hostChromeActivationEvents": 2,
+      "additionalChromeLaunchEvents": 0,
+      "attribution": "Not established. Host application switches occurred while the user worked; this observer cannot attribute their cause."
+    }
+  },
+  "knownIssues": [
+    {
+      "id": "IMP-0218",
+      "tool": "chrome_read_page",
+      "url": "https://example.com/",
+      "result": "UNKNOWN: Accessibility tree is too sparse and fallback failed",
+      "followupObservation": "JavaScript returned the loaded URL, title Example Domain, complete ready state, and visible body text.",
+      "rootCause": "Unproven; VM specificity unproven.",
+      "countedAsPass": false
+    }
+  ],
+  "probeCorrections": [
+    "New-window responses contain tab IDs in tabs[], not a root tabId; explicit windowId/tabId were then used.",
+    "Screenshot text JSON requires raw:true to bypass the documented dispatcher truncation cap.",
+    "The any-pool probe initially assumed JSON; the endpoint emitted SSE. The follow-up catalog parsed SSE successfully.",
+    "The engine overlay first used the parent native directory; the existing versioned release directory was then supplied."
+  ],
+  "cleanup": {
+    "fixtureStopped": true,
+    "fixtureSourceRemoved": true,
+    "unusedInitializationSnapshotRemoved": true,
+    "hostObserverStopped": true,
+    "observerSourcesAndBinaryRemoved": true,
+    "directBridgeTunnelStopped": true,
+    "consumedEnrollmentKeyFileRemoved": true,
+    "unusedHomebrewTapRemoved": true,
+    "diagnosticTabsAndLeasesReleased": true,
+    "vmLeftRunning": true
+  },
+  "limits": [
+    "Authenticated target websites and anti-bot acceptance were not tested.",
+    "Websites can observe the virtual GPU; this is not an undetectability claim.",
+    "The host must remain awake and its user logged in. Host sleep settings were not changed.",
+    "No full repository suite or full extension fixture matrix was run; no extension source changed.",
+    "Permanent removal is documented but was not executed."
+  ]
+}

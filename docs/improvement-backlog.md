@@ -518,6 +518,27 @@ The order of items inside ## Active is sorted by score descending.
 - **Fix sketch**: Extend `createErrorResponse(msg, ToolErrorCode.INVALID_ARGS, details)` to accept `details: { arg, received?, expected?, hint? }`. Build a small `didYouMean(received, candidates)` utility (Levenshtein, ≤2 edits) for enum coercion. Update the 10-15 highest-traffic tools first (`network-capture`, `tab-groups`, `sessions`, `computer`, `click-element`, `fill-or-select`, `wait-for`, `await-element`, `console`, `keyboard`) to populate the new fields; the rest can backfill. Add `tests/contract/invalid-args-envelope.test.ts` proving every tool that throws INVALID_ARGS returns the new shape.
 - **Notes**: Backwards-compatible — old callers continue to read `details.arg` and ignore the new fields. New fields gate on availability so partial rollout is safe.
 
+### IMP-0217 · Isolate the laptop Chrome fleet in a persistent macOS VM (feat) · score: 5
+
+- **Proposed by**: user · 2026-11-02
+- **Status**: done
+- **Why**: Native Chrome windows and Spaces experiments interrupted the user's desktop. Automation needs its own GUI without a second physical Mac.
+- **Cost**: M
+- **Value**: L
+- **Notes**: Git checkpoint `checkpoint/pre-local-vm-20261102` was pushed before provisioning. A persistent Tart guest runs headed Chrome with no host viewer, shared clipboard or host directories. The unchanged coordinator now configures only `laptop-vm-1`; the old Mac remains explicit rollback only. Real production MCP form actions and screenshots passed, cookie/local-storage state survived clean OS restart, and rollback/reapply were exercised. The guest uses a fresh website profile; WebGL exposes its virtual GPU. See `docs/e2e-runs/2026-11-02_local-vm-fleet.json` and the lifecycle/rollback/removal section in `docs/FLEET.md`. External page-read failure is tracked separately by IMP-0218.
+- **Worktree**: `fleet/local-macos-vm-20261102`
+
+### IMP-0218 · Default page read fails on a rendered non-interactive external page (bug) · score: 5
+
+- **Proposed by**: omp · 2026-11-02 (live VM deployment verification)
+- **Status**: proposed
+- **Why**: Chrome rendered the external page with its title and visible multilingual body, but `chrome_read_page` returned `UNKNOWN: Accessibility tree is too sparse and fallback failed`. A successful network/navigation result does not make that page-read failure acceptable.
+- **Cost**: M
+- **Value**: M
+- **Repro**: Through the unchanged research MCP endpoint, navigate an owned guest tab to `https://example.com/`, wait for complete load, then call `chrome_read_page` with explicit `tabId` and `windowId`, without depth or text-content overrides. The tool failed; a subsequent `chrome_javascript` returned `location.href=https://example.com/`, title `Example Domain`, `readyState=complete`, and the visible body text.
+- **Fix sketch**: Reproduce with an owned non-interactive fixture and inspect the sparse-tree/interactive-elements fallback. Determine whether a valid text-only tree or zero interactive elements is being treated as failure; do not suppress the error or special-case the domain.
+- **Notes**: Root cause and whether this is VM-specific are unproven. No extension source changed in IMP-0217. The interactive fixture page read passed through the same endpoint. Recorded in `docs/e2e-runs/2026-11-02_local-vm-fleet.json`; this external read was not counted as passing.
+
 ### IMP-0108 · chrome_wait_for / chrome_await_element ignore `timeoutMs` and block ~120s (bug) · score: 5
 
 - **Proposed by**: bug-scout · 2026-05-16
